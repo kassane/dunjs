@@ -1,0 +1,58 @@
+name: CI
+
+on:
+  push:
+    branches: [main, "claude/**"]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        dc: [dmd-latest, ldc-latest]
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: dlang-community/setup-dlang@v2
+        with:
+          compiler: ${{ matrix.dc }}
+
+      - name: Build QuickJS
+        run: |
+          cd vendor/quickjs
+          make libquickjs.a CC=cc CFLAGS='-fPIC -O2 -DJS_NAN_BOXING=0'
+
+      - name: Build (Debug)
+        run: dub build
+
+      - name: Build (Release)
+        run: dub build -b release
+
+      - name: Run Tests
+        run: dub test
+
+      - name: Integration Test - Hello World
+        run: |
+          ./dun run tests/integration/fixtures/hello.js
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dlang-community/setup-dlang@v2
+        with:
+          compiler: dmd-latest
+
+      - name: D-Scanner Style Check
+        run: |
+          dub run d-scanner -- --styleCheck source/ || true
+        continue-on-error: true

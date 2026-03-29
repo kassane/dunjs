@@ -1,0 +1,65 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build-release:
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: linux-x86_64
+          - os: macos-latest
+            target: macos-universal
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: dlang-community/setup-dlang@v2
+        with:
+          compiler: ldc-latest
+
+      - name: Build QuickJS
+        run: |
+          cd vendor/quickjs
+          make libquickjs.a CC=cc CFLAGS='-fPIC -O2 -DJS_NAN_BOXING=0'
+
+      - name: Build Release Binary
+        run: dub build -b release
+
+      - name: Package
+        run: |
+          mkdir -p dist
+          cp dun dist/dun-${{ matrix.target }}
+          chmod +x dist/dun-${{ matrix.target }}
+
+      - name: Upload Release Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dun-${{ matrix.target }}
+          path: dist/
+
+  release:
+    needs: build-release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download Artifacts
+        uses: actions/download-artifact@v4
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dun-linux-x86_64/dun-linux-x86_64
+            dun-macos-universal/dun-macos-universal
+          generate_release_notes: true

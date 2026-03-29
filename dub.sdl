@@ -1,0 +1,45 @@
+name "dunjs"
+description "A secure JavaScript runtime written in D"
+authors "Matheus C. França"
+license "MIT"
+
+targetType "executable"
+targetName "dun"
+
+sourcePaths ["source"]
+importPaths ["source"]
+stringImportPaths ["source"]
+
+dependency "eventcore" version="~>0.9.38"
+
+// --- Pre-build: compile QuickJS from vendor ---
+preBuildCommands [
+    "cd $PACKAGE_DIR/vendor/quickjs && make libquickjs.a CC=cc CFLAGS='-fPIC -O2 -DJS_NAN_BOXING=0' 2>/dev/null || true"
+] platform="posix"
+
+// --- Link QuickJS static library ---
+lflags ["-L$PACKAGE_DIR/vendor/quickjs", "-lquickjs"] platform="posix"
+lflags ["-lm", "-ldl", "-lpthread"] platform="linux"
+lflags ["-lm", "-lpthread"] platform="osx"
+
+// --- Build types ---
+buildType "debug" {
+    dflags ["-g", "-debug"]
+    versions ["DunDebug"]
+}
+
+buildType "release" {
+    dflags ["-O", "-release", "-boundscheck=off"]
+    lflags ["-s"] platform="posix"
+}
+
+buildType "release-debug" {
+    dflags ["-O", "-g"]
+}
+
+// --- Unit test configuration ---
+configuration "unittest" {
+    targetType "executable"
+    targetName "dun-test"
+    versions ["DunTest"]
+}

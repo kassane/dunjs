@@ -1,0 +1,51 @@
+/// Import specifier resolution.
+///
+/// Resolution order:
+/// 1. Built-in modules: "dun:fs", "dun:path", "dun:net", etc.
+/// 2. Absolute paths: "/foo/bar.js"
+/// 3. Relative paths: "./foo.js", "../bar.js"
+/// 4. URL imports: "https://..." (future)
+/// 5. node_modules lookup (future)
+module dun.modules.resolver;
+
+/// Resolves import specifiers to absolute paths or built-in names.
+struct ModuleResolver
+{
+    private string[string] builtinMap;
+
+    /// Register a built-in module name.
+    void registerBuiltin(string name) @safe
+    {
+        builtinMap[name] = name;
+    }
+
+    /// Resolve an import specifier relative to the importer's path.
+    /// Returns the resolved path, or null if unresolved.
+    string resolve(string specifier, string importerPath) @safe
+    {
+        import std.path : isAbsolute, buildNormalizedPath, dirName;
+        import std.algorithm : startsWith;
+
+        // 1. Built-in modules
+        if (specifier in builtinMap)
+            return specifier;
+
+        // 2. Absolute paths
+        if (isAbsolute(specifier))
+            return buildNormalizedPath(specifier);
+
+        // 3. Relative paths
+        if (specifier.startsWith("./") || specifier.startsWith("../"))
+        {
+            auto base = dirName(importerPath);
+            return buildNormalizedPath(base, specifier);
+        }
+
+        // 4. URL imports (future)
+        if (specifier.startsWith("http://") || specifier.startsWith("https://"))
+            return null; // Not yet implemented
+
+        // 5. node_modules (future)
+        return null; // Unresolved
+    }
+}
