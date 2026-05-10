@@ -1,13 +1,8 @@
-/// Memory allocation bridge between D GC and QuickJS C malloc.
-///
-/// Provides a custom allocator for QuickJS that enables memory limit
-/// tracking and enforcement.
 module dun.platform.memory;
 
 import core.stdc.stdlib : malloc, free, realloc;
-import dun.engine.bindings : JSMallocFunctions, JSMallocState;
+import dun.engine.quickjs.bindings : JSMallocFunctions, JSMallocState;
 
-/// Custom QuickJS malloc functions for memory tracking.
 struct DunMallocFunctions
 {
     static immutable JSMallocFunctions instance = JSMallocFunctions(
@@ -34,6 +29,6 @@ struct DunMallocFunctions
 
     static extern (C) size_t jsMallocUsableSize(const void* ptr) nothrow
     {
-        return 0; // Platform-specific: use malloc_usable_size on Linux
+        return 0;
     }
 }

@@ -2,11 +2,11 @@
 ///
 /// Provides safe eval, property access, and global function registration.
 /// Automatically frees the context on destruction.
-module dun.engine.context;
+module dun.engine.quickjs.context;
 
-import dun.engine.bindings;
-import dun.engine.value;
-import dun.engine.runtime;
+import dun.engine.quickjs.bindings;
+import dun.engine.quickjs.value;
+import dun.engine.quickjs.runtime;
 
 /// RAII wrapper for JSContext*. Non-copyable.
 struct Context

@@ -2,9 +2,9 @@
 ///
 /// Automatically calls JS_FreeValue on scope exit.
 /// Copy constructor calls JS_DupValue to maintain reference count.
-module dun.engine.value;
+module dun.engine.quickjs.value;
 
-import dun.engine.bindings;
+import dun.engine.quickjs.bindings;
 
 /// Ref-counted RAII wrapper for JSValue.
 struct JSVal

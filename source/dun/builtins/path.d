@@ -1,13 +1,8 @@
-/// dun:path — Path manipulation built-in module.
-///
-/// Provides join, resolve, basename, dirname, extname, isAbsolute.
-/// Pure computation — no permission checks required.
 module dun.builtins.path;
 
-import dun.engine.bindings;
-import dun.engine.function_bind;
+import dun.engine.quickjs.bindings;
+import dun.engine.quickjs.function_bind;
 
-/// Register the "dun:path" module into the given context.
 void registerPathModule(JSContext* ctx) @trusted
 {
     auto m = JS_NewCModule(ctx, "dun:path", &pathModuleInit);
@@ -134,4 +129,15 @@ extern (C) JSValue jsPathIsAbsolute(JSContext* ctx, JSValueConst this_val,
     {
         return JS_NewBool(ctx, 0);
     }
+}
+
+private string jsArgToString(JSContext* ctx, JSValueConst val) nothrow @trusted
+{
+    size_t len;
+    const(char)* cstr = JS_ToCStringLen2(ctx, &len, val, 0);
+    if (cstr is null)
+        return "";
+    auto result = cstr[0 .. len].idup;
+    JS_FreeCString(ctx, cstr);
+    return result;
 }

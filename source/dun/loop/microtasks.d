@@ -1,12 +1,7 @@
-/// Microtask queue for queueMicrotask() support.
-///
-/// FIFO queue of JS callbacks that run before the next I/O poll,
-/// complementing QuickJS's built-in Promise job queue.
 module dun.loop.microtasks;
 
-import dun.engine.bindings;
+import dun.engine.quickjs.bindings;
 
-/// FIFO queue of microtasks.
 struct MicrotaskQueue
 {
     private Entry[] queue;
@@ -17,13 +12,11 @@ struct MicrotaskQueue
         JSValue func;
     }
 
-    /// Enqueue a microtask. DupValue is called to own the callback.
     void enqueue(JSContext* ctx, JSValue func) @trusted
     {
         queue ~= Entry(ctx, JS_DupValue(ctx, func));
     }
 
-    /// Drain all microtasks, executing each callback.
     void drain() @trusted
     {
         while (queue.length > 0)
@@ -38,7 +31,6 @@ struct MicrotaskQueue
         }
     }
 
-    /// Check if the queue is empty.
     bool empty() const @safe
     {
         return queue.length == 0;

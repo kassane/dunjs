@@ -1,7 +1,3 @@
-/// CLI entry point for the DunJS runtime.
-///
-/// Parses command-line arguments and dispatches to the appropriate command:
-/// run, repl, eval, version, or help.
 module dun.app;
 
 version (unittest) {} else
@@ -34,10 +30,8 @@ enum VERSION = "0.1.0-dev";
 
 int runScript(T)(T config)
 {
-    import dun.engine.runtime : Runtime;
-    import dun.engine.context : Context;
+    import dun.engine.iface : createEngine, EngineConfig;
     import dun.runtime.globals : DunState, installGlobals;
-    import dun.runtime.console : installConsole;
 
     if (config.scriptPath.length == 0)
     {
@@ -45,7 +39,6 @@ int runScript(T)(T config)
         return 1;
     }
 
-    // Read the script file
     string source;
     try
     {
@@ -61,32 +54,28 @@ int runScript(T)(T config)
         return 1;
     }
 
-    // Initialize runtime
-    auto rt = Runtime.create();
-    rt.setMemoryLimit(config.memoryLimit);
-    rt.setMaxStackSize(config.stackSize);
+    auto engine = createEngine();
+    engine.initialize(EngineConfig(config.memoryLimit, config.stackSize));
 
-    auto ctx = Context.create(rt);
-
-    // Install globals
     DunState state;
+    state.engine = engine;
     state.permissions = &config.permissions;
-    installGlobals(ctx, &state);
+    installGlobals(engine, &state);
 
-    // Evaluate
-    auto result = ctx.eval(source, config.scriptPath);
-    if (result.isException())
+    auto result = engine.eval(source, config.scriptPath);
+    if (result.isError)
     {
         import core.stdc.stdio : fprintf, stderr;
-        auto exc = ctx.getException();
         fprintf(stderr, "Uncaught %.*s\n",
-            cast(int) exc.length, exc.ptr);
+            cast(int) result.errorMessage.length, result.errorMessage.ptr);
         return 1;
     }
+    else
+    {
+        engine.freeValue(result.value);
+    }
 
-    // Drain pending jobs (Promises)
-    rt.drainJobs();
-
+    engine.drainJobs();
     return 0;
 }
 
@@ -107,36 +96,35 @@ int evalInline(T)(T config)
         return 1;
     }
 
-    import dun.engine.runtime : Runtime;
-    import dun.engine.context : Context;
+    import dun.engine.iface : createEngine, EngineConfig;
     import dun.runtime.globals : DunState, installGlobals;
 
-    auto rt = Runtime.create();
-    auto ctx = Context.create(rt);
+    auto engine = createEngine();
+    engine.initialize(EngineConfig(config.memoryLimit, config.stackSize));
 
     DunState state;
+    state.engine = engine;
     state.permissions = &config.permissions;
-    installGlobals(ctx, &state);
+    installGlobals(engine, &state);
 
-    auto result = ctx.eval(config.evalSource, "<eval>");
-    if (result.isException())
+    auto result = engine.eval(config.evalSource, "<eval>");
+    if (result.isError)
     {
         import core.stdc.stdio : fprintf, stderr;
-        auto exc = ctx.getException();
         fprintf(stderr, "Uncaught %.*s\n",
-            cast(int) exc.length, exc.ptr);
+            cast(int) result.errorMessage.length, result.errorMessage.ptr);
         return 1;
     }
 
-    // Print result if not undefined
-    if (!result.isUndefined())
+    if (!engine.isUndefined(result.value))
     {
         import core.stdc.stdio : printf;
-        auto s = result.toString();
+        auto s = engine.extractString(result.value);
         printf("%.*s\n", cast(int) s.length, s.ptr);
     }
+    engine.freeValue(result.value);
 
-    rt.drainJobs();
+    engine.drainJobs();
     return 0;
 }
 

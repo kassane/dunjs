@@ -4,7 +4,7 @@
 /// All functions are extern(C) nothrow @nogc.
 ///
 /// See: https://quickjs-ng.github.io/quickjs/developer-guide/intro/
-module dun.engine.bindings;
+module dun.engine.quickjs.bindings;
 
 // --- Opaque handle types ---
 struct JSRuntime;
@@ -127,12 +127,16 @@ alias JSModuleLoaderFunc = extern (C) JSModuleDef* function(
     void* opaque) nothrow;
 
 // --- Class definition ---
+alias JSClassFinalizer = extern (C) void function(JSRuntime* rt, JSValue val) nothrow;
+alias JSMarkFunc = extern (C) void function(JSRuntime* rt, JSValueConst val) nothrow;
+alias JSClassGCMark = extern (C) void function(JSRuntime* rt, JSValueConst val,
+    JSMarkFunc mark_func) nothrow;
+
 struct JSClassDef
 {
     const(char)* class_name;
-    extern (C) void function(JSRuntime* rt, JSValue val) nothrow finalizer;
-    extern (C) void function(JSRuntime* rt, JSValueConst val,
-        extern (C) void function(JSRuntime* rt, JSValueConst val) nothrow mark_func) nothrow gc_mark;
+    JSClassFinalizer finalizer;
+    JSClassGCMark gc_mark;
     void* call;
     void* exotic;
 }

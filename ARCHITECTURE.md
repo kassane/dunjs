@@ -2,15 +2,19 @@
 
 ## Overview
 
-DunJS is a 7-layer JavaScript runtime that embeds QuickJS-NG (C) into a D host
-application, with an eventcore-based event loop and a Deno-inspired permission system.
+DunJS is a 7-layer JavaScript runtime with a **pluggable engine architecture**
+(IJSEngine interface), an eventcore-based event loop, and a Deno-inspired permission system.
+
+Reference: [Bun's Zig→Rust port](https://github.com/oven-sh/bun/pull/30412) — modular
+workspace with `bun_jsc` engine layer, `*_jsc` suffix pattern for engine-specific modules,
+RAII wrappers, and pointer safety auditing.
 
 ## System Architecture
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
 │                    JavaScript User Code                       │
-│              (ES2023 modules, async/await, etc.)              │
+│              (ES2023+ modules, async/await, etc.)             │
 ├──────────────────────────────────────────────────────────────┤
 │  Layer 7: CLI & REPL                                         │
 │  ┌─────────┐ ┌──────┐ ┌──────┐ ┌─────────┐                  │
@@ -42,19 +46,52 @@ application, with an eventcore-based event loop and a Deno-inspired permission s
 │  │ eventloop │ │ timers │ │ microtasks │ │ tasks │         │
 │  └───────────┘ └────────┘ └────────────┘ └───────┘         │
 ├──────────────────────────────────────────────────────────────┤
-│  Layer 2: JS Engine Bindings (QuickJS-NG)                    │
-│  ┌──────────┐ ┌─────────┐ ┌─────────┐ ┌───────┐            │
-│  │ bindings │ │ runtime │ │ context │ │ value │            │
-│  └──────────┘ └─────────┘ └─────────┘ └───────┘            │
+│  Layer 2: JS Engine Abstraction                              │
+│  ┌───────────────────────────────────────────────┐           │
+│  │  IJSEngine (iface.d)                          │           │
+│  │  ┌──────────────┬──────────┬─────────────┐    │           │
+│  │  │ quickjs/     │  jsc/    │  hermes/    │    │           │
+│  │  │ backend.d    │ (stub)   │  (stub)     │    │           │
+│  │  │ bindings.d   │          │             │    │           │
+│  │  │ runtime.d    │          │             │    │           │
+│  │  │ context.d    │          │             │    │           │
+│  │  │ value.d      │          │             │    │           │
+│  │  └──────────────┴──────────┴─────────────┘    │           │
+│  └───────────────────────────────────────────────┘           │
 ├──────────────────────────────────────────────────────────────┤
 │  Layer 1: Platform Abstraction                               │
 │  ┌────────┐ ┌───────────┐ ┌────┐ ┌───────┐                  │
 │  │ memory │ │ threading │ │ io │ │ paths │                  │
 │  └────────┘ └───────────┘ └────┘ └───────┘                  │
 ├──────────────────────────────────────────────────────────────┤
-│  Vendor: QuickJS-NG (C) │ eventcore (D) │ OS (POSIX/Win32) │
+│  Vendor: Engine (C/C++) │ eventcore (D) │ OS (POSIX/Win32)  │
 └──────────────────────────────────────────────────────────────┘
 ```
+
+## Engine Abstraction Pattern
+
+```
+  Upper Layers (app, runtime, builtins, loop)
+            │
+            ▼
+  ┌─────────────────────┐
+  │   IJSEngine          │  interface in iface.d
+  │   - eval()           │
+  │   - newString()      │
+  │   - getProperty()    │
+  │   - drainJobs()      │
+  │   - ...              │
+  └──────────┬──────────┘
+             │ implements
+    ┌────────┼────────┐
+    ▼        ▼        ▼
+ QuickJS    JSC    Hermes
+ Engine   Engine   Engine
+```
+
+`createEngine(backend)` factory returns the selected backend.
+Backends live in `source/dun/engine/<name>/` and only they import
+engine-specific C/C++ bindings.
 
 ## Data Flow: Script Execution
 
@@ -62,27 +99,21 @@ application, with an eventcore-based event loop and a Deno-inspired permission s
 CLI (args.d) ──parse──> CliConfig
                               │
                     ┌─────────▼──────────┐
-                    │ Runtime.create()    │  JS_NewRuntime()
-                    │ Context.create(rt)  │  JS_NewContext()
-                    │ installGlobals(ctx) │  console, timers, process
-                    │ eventLoop.init(rt)  │  eventcore + timer wheel
+                    │ createEngine()      │  IJSEngine factory
+                    │ engine.initialize() │  EngineConfig
+                    │ installGlobals()    │  console, timers, process
                     └─────────┬──────────┘
                               │
                     ┌─────────▼──────────┐
-                    │ ctx.eval(source)    │  JS_Eval() with file contents
+                    │ engine.eval(source) │  Evaluates JS source
                     └─────────┬──────────┘
                               │
                     ┌─────────▼──────────┐
-                    │ eventLoop.run()     │  Loop until no more work
-                    │  ├─ drainJobs()     │  Promise microtasks
-                    │  ├─ processTimers() │  setTimeout/setInterval
-                    │  ├─ pollIO()        │  eventcore.processEvents
-                    │  └─ drainJobs()     │  Post-I/O microtasks
+                    │ engine.drainJobs()  │  Promise microtasks
                     └─────────┬──────────┘
                               │
                     ┌─────────▼──────────┐
-                    │ Context.~this()     │  JS_FreeContext()
-                    │ Runtime.~this()     │  JS_FreeRuntime()
+                    │ engine.shutdown()   │  Cleanup
                     └────────────────────┘
 ```
 
@@ -90,26 +121,24 @@ CLI (args.d) ──parse──> CliConfig
 
 ```
 ┌─────────────────────┐        ┌─────────────────────┐
-│   D World (GC)      │        │  C World (malloc)    │
+│   D World (GC)      │        │  Engine World (C)    │
 │                     │        │                     │
-│  JSVal (RAII)  ─────┼─free──>│  JSValue (refcount) │
-│  DunState*     <────┼─opaque─│  JSContext opaque    │
-│  GC.addRoot()  ─────┼─pin───>│  JS class opaque    │
-│  @trusted block ────┼─call──>│  JS_Eval, JS_Call   │
-│                     │        │                     │
-│  Phobos std.file ───┼─result>│  (not visible)      │
+│  IJSEngine    ──────┼─call──>│  Engine C API        │
+│  JSHandle     ──────┼─map───>│  JSValue / JSObjectRef│
+│  DunState*    <─────┼─opaque─│  Context opaque      │
+│  GC.addRoot() ──────┼─pin───>│  Engine class opaque │
+│  @trusted block ────┼─call──>│  eval, call          │
 │                     │        │                     │
 └─────────────────────┘        └─────────────────────┘
 ```
 
 ### Rules
 
-1. Every `JSValue` returned by QuickJS **MUST** be freed via `JSVal` RAII or explicit `JS_FreeValue`
-2. D objects stored as QuickJS opaques **MUST** be pinned with `GC.addRoot`
-3. `extern(C)` callbacks **MUST** be `nothrow` (C cannot handle D exceptions)
-4. Custom allocator (`JS_NewRuntime2`) enforces memory limits
-5. `JS_DupValue` must be called when storing a `JSValue` beyond its original scope
-6. `JS_FreeCString` must be called after every `JS_ToCStringLen2`
+1. Every value returned by the engine **MUST** be freed via RAII or explicit `freeValue()`
+2. D objects stored as engine opaques **MUST** be pinned with `GC.addRoot`
+3. `extern(C)` callbacks **MUST** be `nothrow`
+4. Custom allocator enforces memory limits
+5. `dupValue()` must be called when storing a handle beyond its original scope
 
 ## Permission Enforcement Flow
 
@@ -121,7 +150,7 @@ JS code calls:  import { readFileSync } from "dun:fs";
                extern(C) jsReadFileSync(ctx, ...)
                         │
                         ▼
-               DunState* state = JS_GetContextOpaque(ctx)
+               DunState* state = getContextOpaque()
                         │
                         ▼
                state.permissions.check(Permission.read, "/etc/passwd")
@@ -131,42 +160,9 @@ JS code calls:  import { readFileSync } from "dun:fs";
               DENIED          GRANTED
                 │               │
                 ▼               ▼
-        JS_ThrowTypeError   std.file.read("/etc/passwd")
-        "Requires           return JS_NewString(ctx, content)
+        throwTypeError()    std.file.read("/etc/passwd")
+        "Requires           return newString(content)
          --allow-read"
-```
-
-## Event Loop Phases
-
-Each `tick()` of the event loop executes these phases in order:
-
-```
-┌──────────────────────────────────────────────────┐
-│                 One tick()                         │
-│                                                   │
-│  Phase 1: Drain microtask queue                  │
-│    - QuickJS pending jobs (Promise .then())      │
-│    - queueMicrotask() callbacks                  │
-│                     │                             │
-│                     ▼                             │
-│  Phase 2: Process expired timers                 │
-│    - Fire setTimeout callbacks (deadline <= now)  │
-│    - Re-queue setInterval callbacks              │
-│                     │                             │
-│                     ▼                             │
-│  Phase 3: Drain microtasks from Phase 2          │
-│                     │                             │
-│                     ▼                             │
-│  Phase 4: Poll I/O (eventcore)                   │
-│    - Block until I/O ready or next timer         │
-│    - Fire socket/file/signal callbacks           │
-│                     │                             │
-│                     ▼                             │
-│  Phase 5: Drain microtasks from Phase 4          │
-│                                                   │
-│  hasWork() ? ──yes──> loop back to Phase 1       │
-│              ──no───> exit                        │
-└──────────────────────────────────────────────────┘
 ```
 
 ## Key Type Signatures
@@ -175,45 +171,27 @@ Each `tick()` of the event loop executes these phases in order:
 
 ```d
 struct DunState {
-    EventLoop* eventLoop;
+    IJSEngine engine;
+    EventLoop eventLoop;
     PermissionRegistry* permissions;
-    ModuleLoader* moduleLoader;
     string[] scriptArgs;
     bool verbose;
 }
 ```
 
-### extern(C) Native Function Pattern
+### IJSEngine Interface (abbreviated)
 
 ```d
-extern(C) JSValue nativeFunc(
-    JSContext* ctx,
-    JSValueConst this_val,
-    int argc,
-    JSValueConst* argv
-) nothrow {
-    // 1. Validate argc
-    // 2. Extract arguments
-    // 3. Get DunState* from context opaque
-    // 4. Check permissions
-    // 5. Perform operation
-    // 6. Return JSValue
-}
-```
-
-### Async Native Function Pattern
-
-```d
-extern(C) JSValue nativeAsyncFunc(
-    JSContext* ctx,
-    JSValueConst this_val,
-    int argc,
-    JSValueConst* argv
-) nothrow {
-    // 1. Create promise: JS_NewPromiseCapability(ctx, resolving_funcs)
-    // 2. Submit work to event loop / thread pool
-    // 3. On completion: call resolving_funcs[0] (resolve) or [1] (reject)
-    // 4. Return the promise
+interface IJSEngine {
+    void initialize(EngineConfig config);
+    void shutdown();
+    JSResult eval(const(char)[] source, string filename);
+    JSHandle newString(const(char)[] s);
+    JSHandle getGlobal();
+    void setProperty(JSHandle obj, const(char)[] name, JSHandle val);
+    string getException();
+    void drainJobs();
+    void* rawContext();   // Escape hatch for backend-specific code
 }
 ```
 
@@ -221,25 +199,25 @@ extern(C) JSValue nativeAsyncFunc(
 
 | Aspect | Node.js | Deno | Bun | **DunJS** |
 |--------|---------|------|-----|-----------|
-| Language | C++ | Rust | Zig | **D** |
-| JS Engine | V8 | V8 | JSC | **QuickJS-NG** |
+| Language | C++ | Rust | Zig→Rust | **D** |
+| JS Engine | V8 | V8 | JSC | **Pluggable (JSC, Hermes, QuickJS)** |
 | Event Loop | libuv | Tokio | io_uring | **eventcore** |
 | Permission | None | Deny-all | None | **Deny-all** |
 | Module Prefix | `node:` | `node:` | `bun:` | **`dun:`** |
 | Memory Safety | Manual | Borrow checker | Manual | **@safe/@trusted** |
-| Binary Size | ~50MB | ~100MB | ~60MB | **Target: <5MB** |
-| Startup | 60-120ms | 40-60ms | 8-15ms | **Target: <10ms** |
 
 ## Design Decisions
 
 | Decision | Choice | Rationale |
 |----------|--------|-----------|
-| JS Engine | QuickJS-NG | Pure C API for trivial `extern(C)` FFI, ES2023, small binary, MIT |
-| Event loop | eventcore | D-native, proactor pattern, cross-platform (epoll/kqueue/IOCP) |
-| Build system | DUB (SDL) | Standard D tooling, SDL format more readable than JSON |
-| QuickJS integration | Git submodule + preBuildCommands | Reproducible builds, no system dependency |
-| Async model | Callback-based loop + QuickJS Promise jobs | Matches QuickJS internal async handling |
-| Module prefix | `dun:` | Distinct from `node:`/`bun:`, avoids confusion |
-| Permission default | Deny all | Security-first, following Deno's proven model |
-| RAII wrappers | D structs with `~this()` | Deterministic cleanup, zero-cost abstraction |
-| No dstep | Manual bindings | QuickJS uses macros/inline functions dstep can't translate |
+| JS Engine | Pluggable (IJSEngine) | Swap backends without rewriting upper layers |
+| Default backend | QuickJS-NG | Pure C API, ES2023, easy extern(C), MIT license |
+| Target backend | JSC or Hermes | Tier 1 JIT performance for production use |
+| C FFI | ImportC + extern(C) | No external tooling dependency |
+| C++ FFI | extern(C++) + dpp | For JSC/V8 C++ internals |
+| Event loop | eventcore | D-native, proactor pattern, cross-platform |
+| Build system | DUB (SDL) | Standard D tooling, configurations per engine |
+| Async model | Callback loop + Promise jobs | Matches engine internal async handling |
+| Permission | Default deny-all | Security-first, Deno's proven model |
+| RAII wrappers | D structs with `~this()` | Deterministic cleanup, zero-cost |
+| Engine selection | `dub build -c quickjs/jsc/hermes` | DUB configurations switch backends |

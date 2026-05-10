@@ -4,7 +4,7 @@ A secure JavaScript runtime written in **D**, inspired by [Deno](https://deno.co
 
 ## Features
 
-- **QuickJS-NG** JavaScript engine — ES2023 support, fast startup (<10ms target)
+- **Pluggable JS engine** — IJSEngine interface with JSC, Hermes, QuickJS backends
 - **Security-first** — Default-deny permissions (like Deno)
 - **D language** — Zero-cost C FFI, `@safe`/`@trusted` memory safety, RAII resource management
 - **eventcore** async I/O — Native D event loop with epoll/kqueue/IOCP support
@@ -69,7 +69,7 @@ DunJS is organized in 7 layers:
 | 5 | Module System (ES modules, resolver) | `source/dun/modules/` |
 | 4 | Built-in Modules (fs, path, net, http) | `source/dun/builtins/` |
 | 3 | Event Loop (eventcore, timers, microtasks) | `source/dun/loop/` |
-| 2 | JS Engine Bindings (QuickJS RAII wrappers) | `source/dun/engine/` |
+| 2 | JS Engine Abstraction (IJSEngine + backends) | `source/dun/engine/` |
 | 1 | Platform Abstraction (memory, threading) | `source/dun/platform/` |
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for detailed design documentation.
@@ -98,8 +98,8 @@ console.log(content);
 
 | | Node.js | Deno | Bun | **DunJS** |
 |--|---------|------|-----|-----------|
-| Language | C++ | Rust | Zig | **D** |
-| JS Engine | V8 | V8 | JSC | **QuickJS-NG** |
+| Language | C++ | Rust | Zig→Rust | **D** |
+| JS Engine | V8 | V8 | JSC | **Pluggable** |
 | Event Loop | libuv | Tokio | io_uring | **eventcore** |
 | Permissions | None | Deny-all | None | **Deny-all** |
 | Module Prefix | `node:` | `node:` | `bun:` | **`dun:`** |

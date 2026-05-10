@@ -3,21 +3,35 @@
 ## Project Overview
 
 DunJS (`dun`) is a secure JavaScript runtime written in D, inspired by Deno, Bun, and Node.js.
-It embeds **QuickJS-NG** as the JS engine via `extern(C)` FFI and uses **eventcore** for async I/O.
+It uses a **pluggable engine architecture** (IJSEngine interface) with backends for
+JavaScriptCore (Tier 1), Hermes (Tier 1), or QuickJS (fallback), and **eventcore** for async I/O.
+
+**Reference**: Architecture inspired by [Bun's Zig→Rust port](https://github.com/oven-sh/bun/pull/30412)
+— modular crate structure, engine abstraction layer, RAII wrappers, safety auditing.
 
 ## Build Commands
 
 ```sh
-# Prerequisites: D compiler (DMD or LDC), C compiler (gcc/clang), make
-git submodule update --init --recursive   # Fetch QuickJS-NG source
+# Prerequisites: D compiler (LDC >= 1.42.0 / DMD >= 2.112.1 / GDC >= 15), C compiler, make
+git submodule update --init --recursive
 
-dub build                    # Debug build -> produces ./dun
-dub build -b release         # Release build (optimized, no bounds checks)
-dub test                     # Run all D unit tests
-./dun run script.js          # Run a JavaScript file
-./dun repl                   # Interactive REPL
-./dun eval "1+1"             # Evaluate inline JS
+dub build                            # Debug build (default: QuickJS backend)
+dub build -c quickjs                 # Explicit QuickJS backend
+dub build -c jsc                     # JavaScriptCore backend (future)
+dub build -b release                 # Release build (optimized)
+dub test                             # Run all D unit tests
+./dun run script.js                  # Run a JavaScript file
+./dun repl                           # Interactive REPL
+./dun eval "1+1"                     # Evaluate inline JS
 ```
+
+### Minimum Compiler Versions
+
+| Compiler | Minimum Version | Frontend | LLVM/GCC |
+|----------|----------------|----------|----------|
+| LDC      | 1.42.0         | 2.112.1  | LLVM 21  |
+| DMD      | 2.112.1        | —        | —        |
+| GDC      | GCC 15         | 2.108    | GCC 15   |
 
 ## Architecture (7 Layers)
 
@@ -27,72 +41,143 @@ Layer 6: Runtime API           source/dun/runtime/     (console, timers, process
 Layer 5: Module System         source/dun/modules/     (ES modules, resolver, loader)
 Layer 4: Built-in Modules      source/dun/builtins/    (dun:fs, dun:path, dun:net, ...)
 Layer 3: Event Loop            source/dun/loop/        (eventcore, timer wheel, microtasks)
-Layer 2: JS Engine Bindings    source/dun/engine/      (QuickJS extern(C) wrappers, RAII)
+Layer 2: JS Engine Abstraction source/dun/engine/      (IJSEngine interface + backends)
 Layer 1: Platform Abstraction  source/dun/platform/    (memory, threading, OS I/O)
 Cross:   Security              source/dun/security/    (permissions, sandbox)
 ```
 
+### Engine Abstraction (Layer 2)
+
+```
+source/dun/engine/
+├── iface.d          # IJSEngine interface, JSHandle, JSResult, EngineConfig
+├── package.d        # Re-exports iface + factory
+├── quickjs/         # QuickJS-NG backend
+│   ├── backend.d    # QuickJSEngine : IJSEngine
+│   ├── bindings.d   # extern(C) declarations for quickjs.h
+│   ├── runtime.d    # RAII wrapper for JSRuntime*
+│   ├── context.d    # RAII wrapper for JSContext*
+│   ├── value.d      # RAII wrapper for JSValue
+│   ├── function_bind.d
+│   ├── exceptions.d
+│   └── package.d
+├── jsc/             # JavaScriptCore backend (future)
+│   └── package.d
+└── hermes/          # Hermes backend (future)
+    └── package.d
+```
+
+Upper layers use `IJSEngine` — only code inside `engine/<backend>/` touches raw engine APIs.
+
 ## Key Development Patterns
 
-### 1. All JS-exposed native functions MUST be `extern(C) nothrow`
+### 1. Engine-Agnostic Code Uses IJSEngine
 
 ```d
+import dun.engine.iface : IJSEngine, createEngine, EngineConfig;
+
+auto engine = createEngine();  // Default backend
+engine.initialize(EngineConfig(memoryLimit, stackSize));
+
+auto result = engine.eval("1 + 1", "<eval>");
+if (!result.isError)
+    writeln(engine.extractString(result.value));
+```
+
+### 2. Backend-Specific Code (extern(C) callbacks)
+
+Console, builtins, timers use raw QuickJS APIs via `dun.engine.quickjs.bindings`
+because `extern(C) nothrow` callbacks require engine-native types:
+
+```d
+import dun.engine.quickjs.bindings;
+
 extern(C) JSValue myFunc(JSContext* ctx, JSValueConst this_val,
                           int argc, JSValueConst* argv) nothrow {
-    // 1. Validate argc
-    // 2. Extract args (JS_ToCStringLen2, JS_ToInt32, etc.)
-    // 3. Get DunState* from JS_GetContextOpaque(ctx)
-    // 4. Check permissions via state.permissions.check()
-    // 5. Perform operation (@trusted block for D std lib calls)
-    // 6. Return JSValue or JS_ThrowTypeError on error
+    auto state = cast(DunState*) JS_GetContextOpaque(ctx);
+    // ... engine-specific implementation
 }
 ```
 
-### 2. RAII Wrappers for all QuickJS resources
+### 3. RAII Wrappers for Engine Resources
 
-- `Runtime` wraps `JSRuntime*` — freed in destructor
-- `Context` wraps `JSContext*` — freed in destructor
-- `JSVal` wraps `JSValue` — calls `JS_FreeValue` in destructor, `JS_DupValue` on copy
-- All are `@disable this(this)` (non-copyable) or implement postblit with DupValue
+- `QuickJSEngine` wraps `JSRuntime*` + `JSContext*` — freed in `shutdown()`
+- `JSVal` wraps `JSValue` — calls `JS_FreeValue` in destructor
+- All RAII types are `@disable this(this)` (non-copyable) or implement postblit
 
-### 3. Permission checks before EVERY I/O operation
+### 4. Permission Checks Before Every I/O Operation
 
 ```d
-auto state = cast(DunState*) JS_GetContextOpaque(ctx);
-if (!state.permissions.check(Permission.read, path)) {
-    return JS_ThrowTypeError(ctx, "Requires --allow-read for '%s'", path.toStringz);
-}
+auto state = cast(DunState*) engine.getContextOpaque();
+if (!state.permissions.check(Permission.read, path))
+    return engine.throwTypeError("Requires --allow-read");
 ```
 
-### 4. Memory safety annotations
+### 5. Memory Safety Annotations
 
-- `@safe`: Default for pure computation (path, url, resolver)
+- `@safe`: Default for pure computation
 - `@trusted`: Boundary between D safe code and C FFI
 - `@system`: Only in platform/ layer for raw OS calls
 - `@nogc`: Hot-path allocations, extern(C) callbacks where possible
-- `nothrow`: ALL extern(C) callbacks (C cannot catch D exceptions)
+- `nothrow`: ALL extern(C) callbacks
 
-### 5. Event Loop Phases (per tick)
+### 6. Event Loop Phases (per tick)
 
-1. Drain microtask queue (QuickJS Promise jobs + queueMicrotask)
+1. Drain microtask queue (Promise jobs + queueMicrotask)
 2. Process expired timers (setTimeout/setInterval)
 3. Drain microtasks generated by timers
 4. Poll I/O via eventcore (blocks until I/O or next timer deadline)
 5. Drain microtasks generated by I/O callbacks
 
-## QuickJS Vendor
+## C/C++ FFI Reference
 
-- Location: `vendor/quickjs/` (git submodule of quickjs-ng/quickjs)
-- Update: `git submodule update --remote vendor/quickjs`
-- Build: `cd vendor/quickjs && make libquickjs.a`
-- The `preBuildCommands` in `dub.sdl` handles this automatically
+### ImportC vs dpp vs dstep
+
+| Criteria | ImportC | dpp | dstep |
+|----------|---------|-----|-------|
+| **Use case** | Compile C sources directly | `#include` C/C++ in `.dpp` | Batch header→D binding |
+| **Macro support** | Partial (function-like) | Full (via C preprocessor) | `#define` only |
+| **C++ support** | No | Limited | No |
+| **Compile-time impact** | High (compiles C) | Medium (preprocess) | None (pre-generated) |
+| **DUB integration** | Native (`cImportPaths`) | Via `dub run dpp` | Generated modules |
+| **libclang required** | No | Yes (v6+) | Yes |
+| **Best for** | Small/medium C libs | Complex C headers + macros | One-shot C binding gen |
+
+**Real-world examples**: sokol-d uses gen_d.py + ImportC, bdwgc-d uses ImportC via DUB.
+
+### C++ FFI with D
+
+```d
+// Direct C++ interop via extern(C++)
+extern(C++, "WebCore") {
+    class JSCell { ... }
+    struct JSValue { ... }
+}
+
+// Namespace binding
+extern(C++, "JSC") JSValue evaluate(JSGlobalObject*, const SourceCode&);
+
+// dlang/stdcpp provides: vector, string, allocator, array, list, set, memory
+import stdcpp.vector;
+auto v = vector!int();
+```
+
+### Engine FFI Strategies
+
+| Engine | API | FFI Approach |
+|--------|-----|-------------|
+| JSC | C API (JSObjectRef) | extern(C) — straightforward |
+| JSC | C++ internals | extern(C++) + dpp for WebKit headers |
+| Hermes | C ABI (hermes.h) | extern(C) — straightforward |
+| V8 | C++ only | extern(C++) or C wrapper layer |
+| QuickJS | C API (quickjs.h) | extern(C) — current implementation |
 
 ## Testing
 
 - **Unit tests**: `dub test` (D `unittest` blocks in each module)
 - **Integration tests**: `./dun run tests/integration/runner.js`
-- **Fixtures**: `tests/integration/fixtures/*.js` with expected output in `tests/integration/expected/*.txt`
-- **Benchmarks**: `tests/bench/` directory
+- **Fixtures**: `tests/integration/fixtures/*.js`
+- **Benchmarks**: `tests/bench/`
 
 ## Security Model
 
@@ -101,40 +186,33 @@ if (!state.permissions.check(Permission.read, path)) {
 - **Scoped**: `--allow-read=./data,/tmp` grants read only to those paths
 - **Deny overrides allow**: `--deny-write=/etc` always wins
 - **Path canonicalization**: Resolve symlinks before permission checks
-- **Memory limits**: `JS_SetMemoryLimit` caps JS heap (default 256MB)
-- **Execution timeout**: `JS_SetInterruptHandler` for infinite loop protection
-
-## Dependencies
-
-| Package | Version | Purpose |
-|---------|---------|---------|
-| eventcore | ~>0.9.38 | Event loop (epoll/kqueue/IOCP) |
-| QuickJS-NG | vendored | JavaScript engine (ES2023) |
-| Phobos | (stdlib) | std.file, std.path, std.socket, etc. |
+- **Memory limits**: Engine-level heap cap (default 256MB)
+- **Execution timeout**: Engine interrupt handler for infinite loop protection
 
 ## Code Style
 
-- Module naming: `dun.layer.module` (e.g., `dun.engine.bindings`)
+- Module naming: `dun.layer.module` (e.g., `dun.engine.quickjs.bindings`)
 - 4-space indentation
 - D naming conventions: `camelCase` for functions/variables, `PascalCase` for types
 - No `auto` for public API return types — always explicit
 - Prefer `@safe` by default, mark `@trusted` at narrowest scope
 - Every `extern(C)` callback must be `nothrow`
 
-## FFI Bridge: D ↔ QuickJS Memory Rules
+## FFI Bridge: D ↔ Engine Memory Rules
 
-1. **QuickJS owns JS values.** Every `JSValue` returned by QuickJS API is either owned (must be freed) or borrowed (must not be freed). The `JSVal` RAII wrapper handles this.
-2. **D GC must not collect objects referenced by QuickJS.** When storing a D object pointer as an opaque on a JS class, pin it with `GC.addRoot` / `GC.removeRoot`.
-3. **Hot paths use `@nogc`.** extern(C) callbacks invoked by QuickJS must be `nothrow`. Mark `@nogc` where possible; if D GC allocations are needed (e.g., `idup`), wrap in `@trusted`.
-4. **Custom allocator.** Use `JS_NewRuntime2` with `DunMallocFunctions` to track total JS heap size and enforce `--max-memory` limits.
+1. **Engine owns JS values.** Every value returned by the engine is either owned (must be freed) or borrowed. RAII wrappers handle this.
+2. **D GC must not collect objects referenced by the engine.** Pin with `GC.addRoot` / `GC.removeRoot`.
+3. **Hot paths use `@nogc`.** `extern(C)` callbacks must be `nothrow`. Mark `@nogc` where possible.
+4. **Custom allocator.** Use engine-specific allocator hooks to track heap size and enforce `--max-memory`.
 
 ## Phased Roadmap
 
 | Phase | Goal | Key Deliverable |
 |-------|------|-----------------|
-| 1 (MVP) | `dun run hello.js` | QuickJS bindings + console + CLI |
+| 1 (MVP) | `dun run hello.js` | Engine abstraction + console + CLI |
 | 2 | Async works | Event loop + timers + Promises |
 | 3 | Real scripts | Module system + fs/path/net/crypto |
 | 4 | Secure by default | Permission system (deny-all) |
 | 5 | DX polish | REPL + colored errors + stack traces |
 | 6 | Performance | io_uring, workers, HTTP server, npm compat |
+| 7 | Engine upgrade | JSC or Hermes backend (replace QuickJS) |

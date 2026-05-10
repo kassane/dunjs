@@ -2,9 +2,9 @@
 ///
 /// Provides helpers for creating, inspecting, and formatting JS exceptions
 /// from D code.
-module dun.engine.exceptions;
+module dun.engine.quickjs.exceptions;
 
-import dun.engine.bindings;
+import dun.engine.quickjs.bindings;
 
 /// Extract the current exception from a context as a D string.
 /// Clears the exception state.

@@ -1,13 +1,8 @@
-/// dun:fs — File system built-in module.
-///
-/// Provides readFileSync, writeFileSync, existsSync, mkdirSync,
-/// readdirSync, statSync. All operations check permissions before executing.
 module dun.builtins.fs;
 
-import dun.engine.bindings;
-import dun.engine.function_bind;
+import dun.engine.quickjs.bindings;
+import dun.engine.quickjs.function_bind;
 
-/// Register the "dun:fs" module into the given context.
 void registerFsModule(JSContext* ctx) @trusted
 {
     auto m = JS_NewCModule(ctx, "dun:fs", &fsModuleInit);
@@ -39,15 +34,13 @@ extern (C) JSValue jsReadFileSync(JSContext* ctx, JSValueConst this_val,
 
     auto path = jsArgToString(ctx, argv[0]);
 
-    // Permission check
     auto state = cast(dun.runtime.globals.DunState*) JS_GetContextOpaque(ctx);
     if (state !is null && state.permissions !is null)
     {
-        if (!state.permissions.check(dun.security.permissions.Permission.read, path))
+        if (!checkPermission(state, dun.security.permissions.Permission.read, path))
             return JS_ThrowTypeError(ctx, "Requires --allow-read permission");
     }
 
-    // Read the file
     try
     {
         import std.file : readText;
@@ -70,11 +63,10 @@ extern (C) JSValue jsWriteFileSync(JSContext* ctx, JSValueConst this_val,
     auto path = jsArgToString(ctx, argv[0]);
     auto data = jsArgToString(ctx, argv[1]);
 
-    // Permission check
     auto state = cast(dun.runtime.globals.DunState*) JS_GetContextOpaque(ctx);
     if (state !is null && state.permissions !is null)
     {
-        if (!state.permissions.check(dun.security.permissions.Permission.write, path))
+        if (!checkPermission(state, dun.security.permissions.Permission.write, path))
             return JS_ThrowTypeError(ctx, "Requires --allow-write permission");
     }
 
@@ -102,7 +94,7 @@ extern (C) JSValue jsExistsSync(JSContext* ctx, JSValueConst this_val,
     auto state = cast(dun.runtime.globals.DunState*) JS_GetContextOpaque(ctx);
     if (state !is null && state.permissions !is null)
     {
-        if (!state.permissions.check(dun.security.permissions.Permission.read, path))
+        if (!checkPermission(state, dun.security.permissions.Permission.read, path))
             return JS_ThrowTypeError(ctx, "Requires --allow-read permission");
     }
 
@@ -117,3 +109,30 @@ extern (C) JSValue jsExistsSync(JSContext* ctx, JSValueConst this_val,
         return JS_NewBool(ctx, 0);
     }
 }
+
+private string jsArgToString(JSContext* ctx, JSValueConst val) nothrow @trusted
+{
+    size_t len;
+    const(char)* cstr = JS_ToCStringLen2(ctx, &len, val, 0);
+    if (cstr is null)
+        return "";
+    auto result = cstr[0 .. len].idup;
+    JS_FreeCString(ctx, cstr);
+    return result;
+}
+
+private bool checkPermission(dun.runtime.globals.DunState* state,
+    dun.security.permissions.Permission perm, string resource) nothrow @trusted
+{
+    try
+    {
+        return state.permissions.check(perm, resource);
+    }
+    catch (Exception)
+    {
+        return false;
+    }
+}
+
+static import dun.runtime.globals;
+static import dun.security.permissions;

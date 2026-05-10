@@ -1,9 +1,9 @@
 /// Helpers for bridging D functions to JavaScript.
 ///
 /// Provides utilities for argument conversion between D and JS types.
-module dun.engine.function_bind;
+module dun.engine.quickjs.function_bind;
 
-import dun.engine.bindings;
+import dun.engine.quickjs.bindings;
 
 /// Convert a D string to a JS string value.
 JSValue toJSValue(JSContext* ctx, string s) @trusted nothrow

@@ -1,14 +1,12 @@
-/// console global object implementation.
-///
-/// Provides console.log, console.error, console.warn, console.info,
-/// console.debug, and console.assert.
 module dun.runtime.console;
 
-import dun.engine.bindings;
+import dun.engine.iface : IJSEngine, JSHandle;
+import dun.engine.quickjs.bindings;
 
-/// Install the `console` global object on the given context.
-void installConsole(JSContext* ctx) @trusted
+void installConsole(IJSEngine engine) @trusted
 {
+    auto ctx = cast(JSContext*) engine.rawContext();
+
     auto console = JS_NewObject(ctx);
 
     JS_SetPropertyStr(ctx, console, "log",
@@ -31,7 +29,6 @@ void installConsole(JSContext* ctx) @trusted
 
 private:
 
-/// console.log / console.info / console.debug — writes to stdout.
 extern (C) JSValue jsConsoleLog(JSContext* ctx, JSValueConst this_val,
     int argc, JSValueConst* argv) nothrow
 {
@@ -42,7 +39,6 @@ extern (C) JSValue jsConsoleLog(JSContext* ctx, JSValueConst this_val,
     return JS_UNDEFINED();
 }
 
-/// console.warn — writes to stderr with "Warning: " prefix.
 extern (C) JSValue jsConsoleWarn(JSContext* ctx, JSValueConst this_val,
     int argc, JSValueConst* argv) nothrow
 {
@@ -53,7 +49,6 @@ extern (C) JSValue jsConsoleWarn(JSContext* ctx, JSValueConst this_val,
     return JS_UNDEFINED();
 }
 
-/// console.error — writes to stderr.
 extern (C) JSValue jsConsoleError(JSContext* ctx, JSValueConst this_val,
     int argc, JSValueConst* argv) nothrow
 {
@@ -64,12 +59,11 @@ extern (C) JSValue jsConsoleError(JSContext* ctx, JSValueConst this_val,
     return JS_UNDEFINED();
 }
 
-/// console.assert — if first arg is falsy, writes remaining args to stderr.
 extern (C) JSValue jsConsoleAssert(JSContext* ctx, JSValueConst this_val,
     int argc, JSValueConst* argv) nothrow
 {
     if (argc > 0 && JS_ToBool(ctx, argv[0]) != 0)
-        return JS_UNDEFINED(); // Assertion passed
+        return JS_UNDEFINED();
 
     import core.stdc.stdio : fwrite, fputc, stderr;
 
@@ -88,8 +82,7 @@ extern (C) JSValue jsConsoleAssert(JSContext* ctx, JSValueConst this_val,
     return JS_UNDEFINED();
 }
 
-/// Write JS arguments space-separated to a FILE*.
-void writeArgs(core.stdc.stdio.FILE* file, JSContext* ctx,
+void writeArgs(imported!"core.stdc.stdio".FILE* file, JSContext* ctx,
     int argc, JSValueConst* argv) nothrow @trusted
 {
     import core.stdc.stdio : fwrite, fputc;
