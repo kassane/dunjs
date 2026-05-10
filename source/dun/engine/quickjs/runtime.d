@@ -59,7 +59,7 @@ struct Runtime
     /// Check if there are pending Promise jobs.
     bool hasPendingJob() @trusted
     {
-        return JS_IsJobPending(rt) != 0;
+        return JS_IsJobPending(rt);
     }
 
     /// Execute one pending job. Returns true if a job ran.

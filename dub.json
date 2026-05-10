@@ -18,13 +18,13 @@
 
     "dflags": ["-preview=all"],
 
-    "lflags-linux": ["-L-lm", "-L-ldl", "-L-lpthread"],
-    "lflags-osx": ["-L-lm", "-L-lpthread"],
+    "libs-linux": ["m", "dl", "pthread"],
+    "libs-osx": ["m", "pthread"],
 
     "buildTypes": {
         "release": {
             "dflags": ["-O", "-release", "-boundscheck=off"],
-            "lflags-posix": ["-L-s"]
+            "lflags-posix": ["-s"]
         },
         "release-debug": {
             "dflags": ["-O", "-g"]
@@ -36,32 +36,71 @@
             "name": "quickjs",
             "versions": ["EngineQuickJS"],
             "preBuildCommands-posix": [
-                "mkdir -p $PACKAGE_DIR/vendor",
-                "test -f $PACKAGE_DIR/vendor/quickjs/libquickjs.a || (curl -sL https://github.com/nichochar/nichochar.com/quickjs/archive/refs/heads/master.tar.gz -o $PACKAGE_DIR/vendor/quickjs.tar.gz && mkdir -p $PACKAGE_DIR/vendor/quickjs && tar -xzf $PACKAGE_DIR/vendor/quickjs.tar.gz --strip-components=1 -C $PACKAGE_DIR/vendor/quickjs && rm $PACKAGE_DIR/vendor/quickjs.tar.gz && cd $PACKAGE_DIR/vendor/quickjs && make libquickjs.a CC=cc CFLAGS='-fPIC -O2 -DJS_NAN_BOXING=0' 2>/dev/null || true)"
+                "$DC -run $PACKAGE_DIR/build.d --backend=quickjs"
             ],
-            "lflags-posix": ["-L-L$PACKAGE_DIR/vendor/quickjs", "-L-lquickjs"]
+            "excludedSourceFiles": [
+                "source/dun/engine/jsc/backend.d",
+                "source/dun/engine/jsc/cppbindings.d",
+                "source/dun/engine/v8/backend.d",
+                "source/dun/engine/v8/cppbindings.d"
+            ],
+            "libs-posix": ["qjs"],
+            "lflags-posix": ["-L$PACKAGE_DIR/vendor/quickjs/build"]
         },
         {
             "name": "jsc",
             "versions": ["EngineJSC"],
-            "lflags-linux": ["-L-ljavascriptcoregtk-4.1"],
-            "lflags-osx": ["-L-framework", "-LJavaScriptCore"]
+            "preBuildCommands-posix": [
+                "$DC -run $PACKAGE_DIR/build.d --backend=jsc"
+            ],
+            "excludedSourceFiles": [
+                "source/dun/engine/quickjs/backend.d",
+                "source/dun/engine/quickjs/context.d",
+                "source/dun/engine/quickjs/runtime.d",
+                "source/dun/engine/quickjs/value.d",
+                "source/dun/engine/quickjs/exceptions.d",
+                "source/dun/engine/quickjs/function_bind.d",
+                "source/dun/engine/v8/backend.d",
+                "source/dun/engine/v8/cppbindings.d"
+            ],
+            "libs-linux": ["javascriptcoregtk-4.1"],
+            "lflags-osx": ["-framework", "JavaScriptCore"]
         },
         {
             "name": "v8",
             "versions": ["EngineV8"],
             "preBuildCommands-posix": [
-                "mkdir -p $PACKAGE_DIR/vendor/v8shim",
-                "test -f $PACKAGE_DIR/vendor/v8shim/libv8shim.a || (cd $PACKAGE_DIR/vendor/v8shim && test -f v8shim.cpp && g++ -std=c++17 -fPIC -O2 -c v8shim.cpp -o v8shim.o -I/usr/include/v8 && ar rcs libv8shim.a v8shim.o && rm -f v8shim.o || true)"
+                "$DC -run $PACKAGE_DIR/build.d --backend=v8"
             ],
-            "lflags-posix": ["-L-L$PACKAGE_DIR/vendor/v8shim", "-L-lv8shim", "-L-lv8", "-L-lv8_libplatform"]
+            "excludedSourceFiles": [
+                "source/dun/engine/quickjs/backend.d",
+                "source/dun/engine/quickjs/context.d",
+                "source/dun/engine/quickjs/runtime.d",
+                "source/dun/engine/quickjs/value.d",
+                "source/dun/engine/quickjs/exceptions.d",
+                "source/dun/engine/quickjs/function_bind.d",
+                "source/dun/engine/jsc/backend.d",
+                "source/dun/engine/jsc/cppbindings.d"
+            ],
+            "libs-posix": ["v8shim", "v8", "v8_libplatform"],
+            "lflags-posix": ["-L$PACKAGE_DIR/vendor/v8shim"]
         },
         {
             "name": "unittest",
-            "targetType": "executable",
+            "targetType": "library",
             "targetName": "dun-test",
-            "versions": ["DunTest"],
-            "lflags-posix": ["-L-L$PACKAGE_DIR/vendor/quickjs", "-L-lquickjs"]
+            "versions": ["DunTest", "EngineQuickJS"],
+            "preBuildCommands-posix": [
+                "$DC -run $PACKAGE_DIR/build.d --backend=quickjs"
+            ],
+            "excludedSourceFiles": [
+                "source/dun/engine/jsc/backend.d",
+                "source/dun/engine/jsc/cppbindings.d",
+                "source/dun/engine/v8/backend.d",
+                "source/dun/engine/v8/cppbindings.d"
+            ],
+            "libs-posix": ["qjs"],
+            "lflags-posix": ["-L$PACKAGE_DIR/vendor/quickjs/build"]
         }
     ]
 }

@@ -4,7 +4,7 @@
 
 DunJS (`dun`) is a secure JavaScript runtime written in D, inspired by Deno, Bun, and Node.js.
 It uses a **pluggable engine architecture** (IJSEngine interface) with backends for
-JavaScriptCore (Tier 1), Hermes (Tier 1), or QuickJS (fallback), and **eventcore** for async I/O.
+QuickJS-NG (default), JavaScriptCore (Tier 2), or V8 (Tier 2), and **eventcore** for async I/O.
 
 **Reference**: Architecture inspired by [Bun's Zig→Rust port](https://github.com/oven-sh/bun/pull/30412)
 — modular crate structure, engine abstraction layer, RAII wrappers, safety auditing.
@@ -17,7 +17,9 @@ git submodule update --init --recursive
 
 dub build                            # Debug build (default: QuickJS backend)
 dub build -c quickjs                 # Explicit QuickJS backend
-dub build -c jsc                     # JavaScriptCore backend (future)
+dub build -c jsc                     # JavaScriptCore backend
+dub build -c v8                      # V8 backend
+dub test -c unittest                 # Run BDD-style engine contract tests
 dub build -b release                 # Release build (optimized)
 dub test                             # Run all D unit tests
 ./dun run script.js                  # Run a JavaScript file
@@ -61,10 +63,17 @@ source/dun/engine/
 │   ├── function_bind.d
 │   ├── exceptions.d
 │   └── package.d
-├── jsc/             # JavaScriptCore backend (future)
+├── jsc/             # JavaScriptCore backend
+│   ├── backend.d    # JSCEngine : IJSEngine
+│   ├── bindings.d   # extern(C) declarations for JSC C API
+│   ├── cppbindings.d # experimental extern(C++, "JSC") bindings
 │   └── package.d
-└── hermes/          # Hermes backend (future)
-    └── package.d
+├── v8/              # V8 backend (via C shim)
+│   ├── backend.d    # V8Engine : IJSEngine
+│   ├── bindings.d   # extern(C) declarations for v8shim
+│   ├── cppbindings.d # experimental extern(C++, "v8") bindings
+│   └── package.d
+└── test.d           # BDD-style engine contract tests (43 tests)
 ```
 
 Upper layers use `IJSEngine` — only code inside `engine/<backend>/` touches raw engine APIs.
@@ -166,11 +175,11 @@ auto v = vector!int();
 
 | Engine | API | FFI Approach |
 |--------|-----|-------------|
+| QuickJS | C API (quickjs.h) | extern(C) — manual D bindings, audited via ImportC `-H` |
 | JSC | C API (JSObjectRef) | extern(C) — straightforward |
-| JSC | C++ internals | extern(C++) + dpp for WebKit headers |
-| Hermes | C ABI (hermes.h) | extern(C) — straightforward |
-| V8 | C++ only | extern(C++) or C wrapper layer |
-| QuickJS | C API (quickjs.h) | extern(C) — current implementation |
+| JSC | C++ internals | extern(C++, "JSC") — experimental cppbindings.d |
+| V8 | C++ only | extern(C) via C shim (vendor/v8shim/) |
+| V8 | C++ internals | extern(C++, "v8") — experimental cppbindings.d |
 
 ## Testing
 

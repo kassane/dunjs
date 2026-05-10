@@ -114,12 +114,16 @@ class V8Engine : IJSEngine
 
     JSHandle getProperty(JSHandle obj, const(char)[] name) @trusted
     {
-        return toHandle(dun_v8_get_property(ctx, fromHandle(obj), name.ptr));
+        import std.string : toStringz;
+        return toHandle(dun_v8_get_property(ctx, fromHandle(obj),
+            (cast(string) name).toStringz));
     }
 
     void setProperty(JSHandle obj, const(char)[] name, JSHandle val) @trusted
     {
-        dun_v8_set_property(ctx, fromHandle(obj), name.ptr, fromHandle(val));
+        import std.string : toStringz;
+        dun_v8_set_property(ctx, fromHandle(obj),
+            (cast(string) name).toStringz, fromHandle(val));
     }
 
     JSHandle getGlobal() @trusted
@@ -164,12 +168,14 @@ class V8Engine : IJSEngine
 
     JSHandle throwTypeError(const(char)[] msg) @trusted
     {
-        return toHandle(dun_v8_throw_type_error(ctx, msg.ptr));
+        import std.string : toStringz;
+        return toHandle(dun_v8_throw_type_error(ctx, (cast(string) msg).toStringz));
     }
 
     JSHandle throwRangeError(const(char)[] msg) @trusted
     {
-        return toHandle(dun_v8_throw_range_error(ctx, msg.ptr));
+        import std.string : toStringz;
+        return toHandle(dun_v8_throw_range_error(ctx, (cast(string) msg).toStringz));
     }
 
     bool hasPendingJobs() @trusted

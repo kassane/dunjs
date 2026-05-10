@@ -6,53 +6,160 @@ on:
   pull_request:
     branches: [main]
 
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  build:
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-latest]
-        dc: [dmd-latest, ldc-latest]
-
-    runs-on: ${{ matrix.os }}
-
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: recursive
-
-      - uses: dlang-community/setup-dlang@v2
-        with:
-          compiler: ${{ matrix.dc }}
-
-      - name: Build QuickJS
-        run: |
-          cd vendor/quickjs
-          make libquickjs.a CC=cc CFLAGS='-fPIC -O2 -DJS_NAN_BOXING=0'
-
-      - name: Build (Debug)
-        run: dub build
-
-      - name: Build (Release)
-        run: dub build -b release
-
-      - name: Run Tests
-        run: dub test
-
-      - name: Integration Test - Hello World
-        run: |
-          ./dun run tests/integration/fixtures/hello.js
-
+  # ── Stage 1: Lint & -preview=all compliance ────────────────────
   lint:
+    name: Lint
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
       - uses: dlang-community/setup-dlang@v2
         with:
-          compiler: dmd-latest
+          compiler: ldc-latest
 
-      - name: D-Scanner Style Check
+      - name: Compile all sources (-preview=all)
+        run: ldc2 -c -preview=all -I source -o- $(find source -name '*.d')
+
+      - name: D-Scanner
+        run: dub run d-scanner -- --styleCheck source/ || true
+
+  # ── Stage 2: Build matrix (engine × OS × compiler) ─────────────
+  build:
+    name: ${{ matrix.engine }} · ${{ matrix.os }} · ${{ matrix.dc }}
+    needs: lint
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        dc: [ldc-latest, dmd-latest]
+        engine: [quickjs]
+        include:
+          - { os: ubuntu-latest, dc: ldc-latest, engine: jsc }
+          - { os: macos-latest,  dc: ldc-latest, engine: jsc }
+          - { os: ubuntu-latest, dc: ldc-latest, engine: v8  }
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dlang-community/setup-dlang@v2
+        with:
+          compiler: ${{ matrix.dc }}
+
+      - name: Install system deps (JSC)
+        if: matrix.engine == 'jsc' && runner.os == 'Linux'
         run: |
-          dub run d-scanner -- --styleCheck source/ || true
-        continue-on-error: true
+          sudo apt-get update -qq
+          sudo apt-get install -y libjavascriptcoregtk-4.1-dev
+
+      - name: Install system deps (V8)
+        if: matrix.engine == 'v8' && runner.os == 'Linux'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y libv8-dev || echo "::warning::libv8-dev unavailable"
+
+      - name: Install CMake
+        if: matrix.engine == 'quickjs'
+        uses: lukka/get-cmake@latest
+
+      - name: Cache vendor
+        uses: actions/cache@v4
+        with:
+          path: vendor/
+          key: vendor-${{ matrix.engine }}-${{ matrix.os }}-${{ hashFiles('build.d', 'dub.json') }}
+          restore-keys: vendor-${{ matrix.engine }}-${{ matrix.os }}-
+
+      - name: Build vendor deps
+        run: ${{ matrix.dc == 'ldc-latest' && 'ldc2' || 'dmd' }} -run build.d --backend=${{ matrix.engine }}
+
+      - name: Build (debug)
+        run: dub build -c ${{ matrix.engine }}
+
+      - name: Build (release)
+        run: dub build -c ${{ matrix.engine }} -b release
+
+      - name: Upload binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: dun-${{ matrix.engine }}-${{ matrix.os }}-${{ matrix.dc }}
+          path: build/dun
+          retention-days: 7
+
+  # ── Stage 3: Unit tests ────────────────────────────────────────
+  test:
+    name: Test · ${{ matrix.os }} · ${{ matrix.dc }}
+    needs: lint
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        dc: [ldc-latest, dmd-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dlang-community/setup-dlang@v2
+        with:
+          compiler: ${{ matrix.dc }}
+
+      - uses: lukka/get-cmake@latest
+
+      - name: Cache vendor
+        uses: actions/cache@v4
+        with:
+          path: vendor/
+          key: vendor-quickjs-${{ matrix.os }}-${{ hashFiles('build.d', 'dub.json') }}
+
+      - name: Run unit tests
+        run: dub test -c unittest
+
+  # ── Stage 4: Integration tests ─────────────────────────────────
+  integration:
+    name: Integration · ${{ matrix.os }}
+    needs: build
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download binary
+        uses: actions/download-artifact@v4
+        with:
+          name: dun-quickjs-${{ matrix.os }}-ldc-latest
+          path: build/
+
+      - name: Run integration tests
+        run: |
+          chmod +x build/dun
+          pass=0 fail=0 skip=0
+          for fixture in tests/integration/fixtures/*.js; do
+            name=$(basename "$fixture" .js)
+            expected="tests/integration/expected/${name}.txt"
+            if [ ! -f "$expected" ]; then
+              echo "SKIP $name"
+              skip=$((skip + 1))
+              continue
+            fi
+            if output=$(./build/dun run "$fixture" 2>&1) && \
+               diff -u "$expected" <(printf '%s\n' "$output") >/dev/null 2>&1; then
+              echo "PASS $name"
+              pass=$((pass + 1))
+            else
+              echo "FAIL $name"
+              diff -u "$expected" <(printf '%s\n' "$output") || true
+              fail=$((fail + 1))
+            fi
+          done
+          echo ""
+          echo "Results: $pass passed, $fail failed, $skip skipped"
+          [ "$fail" -eq 0 ]

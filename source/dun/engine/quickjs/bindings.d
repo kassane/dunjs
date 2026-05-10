@@ -2,6 +2,7 @@
 ///
 /// This module is a manual translation of quickjs.h into D.
 /// All functions are extern(C) nothrow @nogc.
+/// Inline functions from quickjs.h are reimplemented in D.
 ///
 /// See: https://quickjs-ng.github.io/quickjs/developer-guide/intro/
 module dun.engine.quickjs.bindings;
@@ -13,8 +14,8 @@ struct JSMallocState;
 struct JSModuleDef;
 
 // --- JSValue representation ---
-// QuickJS uses a tagged value representation.
-// On 64-bit platforms with JS_NAN_BOXING=0, JSValue is 128 bits (16 bytes).
+// QuickJS-NG struct-based layout (non-NaN-boxing, 64-bit).
+// Matches: struct JSValue { JSValueUnion u; int64_t tag; }
 struct JSValue
 {
     union
@@ -31,9 +32,15 @@ alias JSValueConst = const(JSValue);
 alias JSClassID = uint;
 alias JSAtom = uint;
 
-// --- Tag constants ---
+// --- Tag constants (must match quickjs.h enum JSValueTag) ---
 enum : long
 {
+    JS_TAG_FIRST = -9,
+    JS_TAG_BIG_INT = -9,
+    JS_TAG_SYMBOL = -8,
+    JS_TAG_STRING = -7,
+    JS_TAG_STRING_ROPE = -6,
+    JS_TAG_OBJECT = -1,
     JS_TAG_INT = 0,
     JS_TAG_BOOL = 1,
     JS_TAG_NULL = 2,
@@ -41,16 +48,12 @@ enum : long
     JS_TAG_UNINITIALIZED = 4,
     JS_TAG_CATCH_OFFSET = 5,
     JS_TAG_EXCEPTION = 6,
-    JS_TAG_FLOAT64 = 7,
-    JS_TAG_OBJECT = -1,
-    JS_TAG_FUNCTION_BYTECODE = -2,
-    JS_TAG_MODULE = -3,
-    JS_TAG_STRING = -7,
-    JS_TAG_SYMBOL = -8,
-    JS_TAG_BIG_INT = -9,
+    JS_TAG_SHORT_BIG_INT = 7,
+    JS_TAG_FLOAT64 = 8,
 }
 
-// --- Sentinel value constructors ---
+// --- Inline value constructors (reimplemented from quickjs.h) ---
+
 JSValue JS_UNDEFINED() pure nothrow @nogc @safe
 {
     JSValue v;
@@ -88,6 +91,72 @@ JSValue JS_FALSE() pure nothrow @nogc @safe
     return v;
 }
 
+// Inline reimplementations of static inline C functions
+JSValue JS_NewBool(JSContext* ctx, int val) pure nothrow @nogc @safe
+{
+    JSValue v;
+    v.int32 = (val != 0) ? 1 : 0;
+    v.tag = JS_TAG_BOOL;
+    return v;
+}
+
+JSValue JS_NewInt32(JSContext* ctx, int val) pure nothrow @nogc @safe
+{
+    JSValue v;
+    v.int32 = val;
+    v.tag = JS_TAG_INT;
+    return v;
+}
+
+JSValue JS_NewFloat64(JSContext* ctx, double val) pure nothrow @nogc @safe
+{
+    JSValue v;
+    v.float64 = val;
+    v.tag = JS_TAG_FLOAT64;
+    return v;
+}
+
+JSValue JS_NewCFunction(JSContext* ctx, JSCFunction func,
+    const(char)* name, int length) nothrow @nogc @trusted
+{
+    return JS_NewCFunction2(ctx, func, name, length, JS_CFUNC_generic, 0);
+}
+
+int JS_IsUndefined(JSValueConst v) pure nothrow @nogc @safe
+{
+    return v.tag == JS_TAG_UNDEFINED ? 1 : 0;
+}
+
+int JS_IsNull(JSValueConst v) pure nothrow @nogc @safe
+{
+    return v.tag == JS_TAG_NULL ? 1 : 0;
+}
+
+int JS_IsException(JSValueConst v) pure nothrow @nogc @safe
+{
+    return v.tag == JS_TAG_EXCEPTION ? 1 : 0;
+}
+
+int JS_IsBool(JSValueConst v) pure nothrow @nogc @safe
+{
+    return v.tag == JS_TAG_BOOL ? 1 : 0;
+}
+
+int JS_IsNumber(JSValueConst v) pure nothrow @nogc @safe
+{
+    return (v.tag == JS_TAG_INT || v.tag == JS_TAG_FLOAT64) ? 1 : 0;
+}
+
+int JS_IsString(JSValueConst v) pure nothrow @nogc @safe
+{
+    return v.tag == JS_TAG_STRING ? 1 : 0;
+}
+
+int JS_IsObject(JSValueConst v) pure nothrow @nogc @safe
+{
+    return v.tag == JS_TAG_OBJECT ? 1 : 0;
+}
+
 // --- Eval flags ---
 enum
 {
@@ -100,6 +169,24 @@ enum
     JS_EVAL_FLAG_STRIP = 1 << 4,
     JS_EVAL_FLAG_COMPILE_ONLY = 1 << 5,
     JS_EVAL_FLAG_BACKTRACE_BARRIER = 1 << 6,
+}
+
+// --- CFunction enum ---
+enum
+{
+    JS_CFUNC_generic = 0,
+    JS_CFUNC_generic_magic = 1,
+    JS_CFUNC_constructor = 2,
+    JS_CFUNC_constructor_magic = 3,
+    JS_CFUNC_constructor_or_func = 4,
+    JS_CFUNC_constructor_or_func_magic = 5,
+    JS_CFUNC_f_f = 6,
+    JS_CFUNC_f_f_f = 7,
+    JS_CFUNC_getter = 8,
+    JS_CFUNC_setter = 9,
+    JS_CFUNC_getter_magic = 10,
+    JS_CFUNC_setter_magic = 11,
+    JS_CFUNC_iterator_next = 12,
 }
 
 // --- C function callback types ---
@@ -150,24 +237,7 @@ struct JSMallocFunctions
     extern (C) size_t function(const void* ptr) nothrow js_malloc_usable_size;
 }
 
-// --- CFunction list entry (for batch registration) ---
-enum JSCFunctionEnum
-{
-    JS_CFUNC_generic,
-    JS_CFUNC_generic_magic,
-    JS_CFUNC_constructor,
-    JS_CFUNC_constructor_magic,
-    JS_CFUNC_constructor_or_func,
-    JS_CFUNC_constructor_or_func_magic,
-    JS_CFUNC_f_f,
-    JS_CFUNC_f_f_f,
-    JS_CFUNC_getter,
-    JS_CFUNC_setter,
-    JS_CFUNC_getter_magic,
-    JS_CFUNC_setter_magic,
-    JS_CFUNC_iterator_next,
-}
-
+// --- CFunction list entry ---
 struct JSCFunctionListEntry
 {
     const(char)* name;
@@ -183,14 +253,11 @@ struct JSCFunctionListEntry
             ubyte cproto;
             JSCFunction cfunc_generic;
         }
-
-        // Other union members omitted for brevity;
-        // extend as needed for getter/setter/etc.
     }
 }
 
 // ==========================================================================
-// Core QuickJS C API functions
+// Core QuickJS-NG C API (exported symbols only)
 // ==========================================================================
 extern (C) nothrow @nogc:
 
@@ -205,7 +272,7 @@ void* JS_GetRuntimeOpaque(JSRuntime* rt);
 void JS_SetRuntimeOpaque(JSRuntime* rt, void* opaque);
 
 // --- Job queue (Promise microtasks) ---
-int JS_IsJobPending(JSRuntime* rt);
+bool JS_IsJobPending(JSRuntime* rt);
 int JS_ExecutePendingJob(JSRuntime* rt, JSContext** pctx);
 
 // --- Context lifecycle ---
@@ -229,23 +296,17 @@ int JS_ToBool(JSContext* ctx, JSValueConst val);
 int JS_ToInt32(JSContext* ctx, int* pres, JSValueConst val);
 int JS_ToInt64(JSContext* ctx, long* pres, JSValueConst val);
 int JS_ToFloat64(JSContext* ctx, double* pres, JSValueConst val);
-const(char)* JS_ToCStringLen2(JSContext* ctx, size_t* plen, JSValueConst val, int cesu8);
+const(char)* JS_ToCStringLen2(JSContext* ctx, size_t* plen, JSValueConst val, bool cesu8);
 void JS_FreeCString(JSContext* ctx, const(char)* ptr);
 
-// --- Value constructors ---
-JSValue JS_NewInt32(JSContext* ctx, int val);
-JSValue JS_NewInt64(JSContext* ctx, long val);
-JSValue JS_NewFloat64(JSContext* ctx, double val);
-JSValue JS_NewBool(JSContext* ctx, int val);
-JSValue JS_NewString(JSContext* ctx, const(char)* str);
+// --- Value constructors (exported from library) ---
 JSValue JS_NewStringLen(JSContext* ctx, const(char)* str, size_t len);
 JSValue JS_NewObject(JSContext* ctx);
 JSValue JS_NewArray(JSContext* ctx);
 JSValue JS_NewError(JSContext* ctx);
+JSValue JS_NewInt64(JSContext* ctx, long val);
 
 // --- Function constructors ---
-JSValue JS_NewCFunction(JSContext* ctx, JSCFunction func,
-    const(char)* name, int length);
 JSValue JS_NewCFunction2(JSContext* ctx, JSCFunction func,
     const(char)* name, int length, int cproto, int magic);
 
@@ -264,17 +325,10 @@ int JS_DefinePropertyValueStr(JSContext* ctx, JSValueConst this_obj,
 int JS_HasProperty(JSContext* ctx, JSValueConst this_obj, JSAtom prop);
 int JS_DeleteProperty(JSContext* ctx, JSValueConst obj, JSAtom prop, int flags);
 
-// --- Type checks ---
-int JS_IsNumber(JSValueConst v);
-int JS_IsString(JSValueConst v);
-int JS_IsObject(JSValueConst v);
-int JS_IsArray(JSContext* ctx, JSValueConst val);
-int JS_IsFunction(JSContext* ctx, JSValueConst val);
-int JS_IsUndefined(JSValueConst v);
-int JS_IsNull(JSValueConst v);
-int JS_IsException(JSValueConst v);
-int JS_IsBool(JSValueConst v);
-int JS_IsError(JSContext* ctx, JSValueConst val);
+// --- Type checks (exported) ---
+bool JS_IsArray(JSValueConst val);
+bool JS_IsFunction(JSContext* ctx, JSValueConst val);
+bool JS_IsError(JSValueConst val);
 
 // --- Exceptions ---
 JSValue JS_GetException(JSContext* ctx);
@@ -303,7 +357,7 @@ void JS_SetModuleLoaderFunc(JSRuntime* rt,
 JSClassID JS_NewClassID(JSRuntime* rt, JSClassID* pclass_id);
 int JS_NewClass(JSRuntime* rt, JSClassID class_id, const(JSClassDef)* class_def);
 JSValue JS_NewObjectClass(JSContext* ctx, int class_id);
-void JS_SetOpaque(JSValue obj, void* opaque);
+int JS_SetOpaque(JSValueConst obj, void* opaque);
 void* JS_GetOpaque(JSValueConst obj, JSClassID class_id);
 void* JS_GetOpaque2(JSContext* ctx, JSValueConst obj, JSClassID class_id);
 void JS_SetClassProto(JSContext* ctx, JSClassID class_id, JSValue obj);

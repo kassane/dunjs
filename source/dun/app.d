@@ -106,7 +106,6 @@ int evalInline(T)(T config)
     state.engine = engine;
     state.permissions = &config.permissions;
     installGlobals(engine, &state);
-
     auto result = engine.eval(config.evalSource, "<eval>");
     if (result.isError)
     {

@@ -5,15 +5,25 @@ on:
     tags:
       - 'v*'
 
+permissions:
+  contents: write
+
+env:
+  DUB_HOME: ${{ github.workspace }}/.dub
+
 jobs:
   build-release:
+    name: Release (${{ matrix.engine }}, ${{ matrix.target }})
     strategy:
+      fail-fast: false
       matrix:
         include:
-          - os: ubuntu-latest
-            target: linux-x86_64
-          - os: macos-latest
-            target: macos-universal
+          # QuickJS — all platforms (self-contained)
+          - { os: ubuntu-latest,  target: linux-x86_64,    engine: quickjs }
+          - { os: macos-latest,   target: macos-arm64,     engine: quickjs }
+          # JSC — platform-native
+          - { os: ubuntu-latest,  target: linux-x86_64,    engine: jsc     }
+          - { os: macos-latest,   target: macos-arm64,     engine: jsc     }
 
     runs-on: ${{ matrix.os }}
 
@@ -26,40 +36,54 @@ jobs:
         with:
           compiler: ldc-latest
 
-      - name: Build QuickJS
+      - name: Install JSC dev (Linux)
+        if: matrix.engine == 'jsc' && runner.os == 'Linux'
         run: |
-          cd vendor/quickjs
-          make libquickjs.a CC=cc CFLAGS='-fPIC -O2 -DJS_NAN_BOXING=0'
+          sudo apt-get update -qq
+          sudo apt-get install -y libjavascriptcoregtk-4.1-dev
 
-      - name: Build Release Binary
-        run: dub build -b release
+      - name: Cache vendor libraries
+        uses: actions/cache@v4
+        with:
+          path: |
+            vendor/quickjs/libquickjs.a
+            vendor/v8shim/libv8shim.a
+          key: vendor-${{ matrix.engine }}-${{ matrix.os }}-${{ hashFiles('dub.json') }}
+
+      - name: Build release binary
+        run: dub build -c ${{ matrix.engine }} -b release
 
       - name: Package
         run: |
           mkdir -p dist
-          cp dun dist/dun-${{ matrix.target }}
-          chmod +x dist/dun-${{ matrix.target }}
+          cp build/dun dist/dun-${{ matrix.engine }}-${{ matrix.target }}
+          chmod +x dist/dun-${{ matrix.engine }}-${{ matrix.target }}
 
-      - name: Upload Release Artifact
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: dun-${{ matrix.target }}
+          name: dun-${{ matrix.engine }}-${{ matrix.target }}
           path: dist/
 
-  release:
+  publish:
+    name: Publish release
     needs: build-release
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
 
     steps:
-      - name: Download Artifacts
+      - name: Download all artifacts
         uses: actions/download-artifact@v4
+        with:
+          path: artifacts/
+
+      - name: Collect binaries
+        run: |
+          mkdir -p release
+          find artifacts -type f -name 'dun-*' -exec cp {} release/ \;
+          ls -lh release/
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: |
-            dun-linux-x86_64/dun-linux-x86_64
-            dun-macos-universal/dun-macos-universal
+          files: release/*
           generate_release_notes: true

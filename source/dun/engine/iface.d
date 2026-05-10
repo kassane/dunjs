@@ -104,18 +104,21 @@ enum EngineBackend
     v8,
 }
 
-IJSEngine createEngine(EngineBackend backend = EngineBackend.quickjs)
+IJSEngine createEngine()
 {
-    final switch (backend)
+    version (EngineJSC)
     {
-    case EngineBackend.quickjs:
-        import dun.engine.quickjs.backend : QuickJSEngine;
-        return new QuickJSEngine();
-    case EngineBackend.jsc:
         import dun.engine.jsc.backend : JSCEngine;
         return new JSCEngine();
-    case EngineBackend.v8:
+    }
+    else version (EngineV8)
+    {
         import dun.engine.v8.backend : V8Engine;
         return new V8Engine();
+    }
+    else
+    {
+        import dun.engine.quickjs.backend : QuickJSEngine;
+        return new QuickJSEngine();
     }
 }

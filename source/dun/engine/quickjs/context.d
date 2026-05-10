@@ -35,7 +35,8 @@ struct Context
     {
         import std.string : toStringz;
 
-        auto result = JS_Eval(ctx, source.ptr, source.length,
+        auto srcz = source.toStringz;
+        auto result = JS_Eval(ctx, srcz, source.length,
             filename.toStringz, flags);
         return JSVal(ctx, result);
     }

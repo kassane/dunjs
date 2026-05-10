@@ -27,7 +27,7 @@ class JSCEngine : IJSEngine
     {
         import std.string : toStringz;
 
-        auto jsSource = JSStringCreateWithUTF8CString(source.ptr);
+        auto jsSource = JSStringCreateWithUTF8CString(source.toStringz);
         scope (exit) JSStringRelease(jsSource);
 
         JSStringRef jsFilename = null;
@@ -56,7 +56,8 @@ class JSCEngine : IJSEngine
 
     JSHandle newString(const(char)[] s) @trusted
     {
-        auto jsStr = JSStringCreateWithUTF8CString(s.ptr);
+        import std.string : toStringz;
+        auto jsStr = JSStringCreateWithUTF8CString(s.toStringz);
         auto val = JSValueMakeString(ctx, jsStr);
         JSStringRelease(jsStr);
         return toHandle(cast(void*) val);
@@ -116,7 +117,8 @@ class JSCEngine : IJSEngine
 
     JSHandle getProperty(JSHandle obj, const(char)[] name) @trusted
     {
-        auto jsName = JSStringCreateWithUTF8CString(name.ptr);
+        import std.string : toStringz;
+        auto jsName = JSStringCreateWithUTF8CString((cast(string) name).toStringz);
         scope (exit) JSStringRelease(jsName);
         JSValueRef exc = null;
         auto val = JSObjectGetProperty(ctx, cast(JSObjectRef) fromHandle(obj),
@@ -126,7 +128,8 @@ class JSCEngine : IJSEngine
 
     void setProperty(JSHandle obj, const(char)[] name, JSHandle val) @trusted
     {
-        auto jsName = JSStringCreateWithUTF8CString(name.ptr);
+        import std.string : toStringz;
+        auto jsName = JSStringCreateWithUTF8CString((cast(string) name).toStringz);
         scope (exit) JSStringRelease(jsName);
         JSValueRef exc = null;
         JSObjectSetProperty(ctx, cast(JSObjectRef) fromHandle(obj),

@@ -12,13 +12,14 @@ class QuickJSEngine : IJSEngine
     {
         rt = JS_NewRuntime();
         assert(rt !is null, "Failed to create JSRuntime");
-        ctx = JS_NewContext(rt);
-        assert(ctx !is null, "Failed to create JSContext");
 
         if (config.memoryLimit > 0)
             JS_SetMemoryLimit(rt, config.memoryLimit);
         if (config.maxStackSize > 0)
             JS_SetMaxStackSize(rt, config.maxStackSize);
+
+        ctx = JS_NewContext(rt);
+        assert(ctx !is null, "Failed to create JSContext");
     }
 
     void shutdown() @trusted
@@ -39,7 +40,8 @@ class QuickJSEngine : IJSEngine
     {
         import std.string : toStringz;
 
-        auto val = JS_Eval(ctx, source.ptr, source.length,
+        auto srcz = source.toStringz;
+        auto val = JS_Eval(ctx, srcz, source.length,
             filename.toStringz, JS_EVAL_TYPE_GLOBAL);
         JSResult result;
         result.value = toHandle(val);
@@ -151,7 +153,7 @@ class QuickJSEngine : IJSEngine
     bool isNull(JSHandle val) @trusted { return JS_IsNull(fromHandle(val)) != 0; }
     bool isString(JSHandle val) @trusted { return JS_IsString(fromHandle(val)) != 0; }
     bool isObject(JSHandle val) @trusted { return JS_IsObject(fromHandle(val)) != 0; }
-    bool isFunction(JSHandle val) @trusted { return JS_IsFunction(ctx, fromHandle(val)) != 0; }
+    bool isFunction(JSHandle val) @trusted { return JS_IsFunction(ctx, fromHandle(val)); }
     bool isBool(JSHandle val) @trusted { return JS_IsBool(fromHandle(val)) != 0; }
     bool isNumber(JSHandle val) @trusted { return JS_IsNumber(fromHandle(val)) != 0; }
 
@@ -175,7 +177,7 @@ class QuickJSEngine : IJSEngine
 
     bool hasPendingJobs() @trusted
     {
-        return JS_IsJobPending(rt) != 0;
+        return JS_IsJobPending(rt);
     }
 
     bool executePendingJob() @trusted
