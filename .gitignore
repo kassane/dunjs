@@ -22,3 +22,11 @@ docs/
 
 # Code coverage
 *.lst
+
+# Build output
+build/
+
+# Downloaded vendor dependencies
+vendor/quickjs/
+vendor/v8shim/*.o
+vendor/v8shim/*.a
