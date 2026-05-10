@@ -286,6 +286,9 @@ void* JS_GetContextOpaque(JSContext* ctx);
 JSValue JS_Eval(JSContext* ctx, const(char)* input, size_t input_len,
     const(char)* filename, int eval_flags);
 JSValue JS_EvalFunction(JSContext* ctx, JSValue fun_obj);
+JSValue JS_EvalThis(JSContext* ctx, JSValueConst this_obj,
+    const(char)* input, size_t input_len,
+    const(char)* filename, int eval_flags);
 
 // --- Value lifecycle (reference counting) ---
 JSValue JS_DupValue(JSContext* ctx, JSValueConst v);
@@ -329,6 +332,10 @@ int JS_DeleteProperty(JSContext* ctx, JSValueConst obj, JSAtom prop, int flags);
 bool JS_IsArray(JSValueConst val);
 bool JS_IsFunction(JSContext* ctx, JSValueConst val);
 bool JS_IsError(JSValueConst val);
+bool JS_IsArrayBuffer(JSValueConst obj);
+
+// --- Module detection ---
+bool JS_DetectModule(const(char)* input, size_t input_len);
 
 // --- Exceptions ---
 JSValue JS_GetException(JSContext* ctx);
@@ -341,6 +348,37 @@ JSValue JS_ThrowInternalError(JSContext* ctx, const(char)* fmt, ...);
 // --- Function calls ---
 JSValue JS_Call(JSContext* ctx, JSValueConst func_obj,
     JSValueConst this_obj, int argc, JSValueConst* argv);
+JSValue JS_Invoke(JSContext* ctx, JSValueConst this_val, JSAtom atom,
+    int argc, JSValueConst* argv);
+JSValue JS_CallConstructor(JSContext* ctx, JSValueConst func_obj,
+    int argc, JSValueConst* argv);
+
+// --- ArrayBuffer ---
+JSValue JS_NewArrayBufferCopy(JSContext* ctx, const(ubyte)* buf, size_t len);
+ubyte* JS_GetArrayBuffer(JSContext* ctx, size_t* psize, JSValueConst obj);
+
+// --- Atom ---
+JSAtom JS_NewAtom(JSContext* ctx, const(char)* str);
+JSAtom JS_NewAtomLen(JSContext* ctx, const(char)* str, size_t len);
+void JS_FreeAtom(JSContext* ctx, JSAtom v);
+const(char)* JS_AtomToCString(JSContext* ctx, JSAtom atom);
+JSValue JS_AtomToString(JSContext* ctx, JSAtom atom);
+JSValue JS_AtomToValue(JSContext* ctx, JSAtom atom);
+
+// --- Property by atom ---
+int JS_SetProperty(JSContext* ctx, JSValueConst this_obj,
+    JSAtom prop, JSValue val);
+JSValue JS_GetProperty(JSContext* ctx, JSValueConst this_obj, JSAtom prop);
+int JS_DefinePropertyValue(JSContext* ctx, JSValueConst this_obj,
+    JSAtom prop, JSValue val, int flags);
+
+// --- Module resolution ---
+int JS_ResolveModule(JSContext* ctx, JSValueConst obj);
+
+// --- Constructor ---
+int JS_SetConstructor(JSContext* ctx, JSValueConst func_obj,
+    JSValueConst proto);
+bool JS_SetConstructorBit(JSContext* ctx, JSValueConst func_obj, bool val);
 
 // --- Modules ---
 JSModuleDef* JS_NewCModule(JSContext* ctx, const(char)* name_str,
