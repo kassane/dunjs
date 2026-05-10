@@ -1,0 +1,67 @@
+{
+    "name": "dunjs",
+    "description": "A secure JavaScript runtime written in D",
+    "authors": ["Matheus C. Franca"],
+    "license": "MIT",
+
+    "targetType": "executable",
+    "targetName": "dun",
+    "targetPath": "build",
+
+    "sourcePaths": ["source"],
+    "importPaths": ["source"],
+    "stringImportPaths": ["source"],
+
+    "toolchainRequirements": {
+        "frontend": ">=2.112"
+    },
+
+    "dflags": ["-preview=all"],
+
+    "lflags-linux": ["-L-lm", "-L-ldl", "-L-lpthread"],
+    "lflags-osx": ["-L-lm", "-L-lpthread"],
+
+    "buildTypes": {
+        "release": {
+            "dflags": ["-O", "-release", "-boundscheck=off"],
+            "lflags-posix": ["-L-s"]
+        },
+        "release-debug": {
+            "dflags": ["-O", "-g"]
+        }
+    },
+
+    "configurations": [
+        {
+            "name": "quickjs",
+            "versions": ["EngineQuickJS"],
+            "preBuildCommands-posix": [
+                "mkdir -p $PACKAGE_DIR/vendor",
+                "test -f $PACKAGE_DIR/vendor/quickjs/libquickjs.a || (curl -sL https://github.com/nichochar/nichochar.com/quickjs/archive/refs/heads/master.tar.gz -o $PACKAGE_DIR/vendor/quickjs.tar.gz && mkdir -p $PACKAGE_DIR/vendor/quickjs && tar -xzf $PACKAGE_DIR/vendor/quickjs.tar.gz --strip-components=1 -C $PACKAGE_DIR/vendor/quickjs && rm $PACKAGE_DIR/vendor/quickjs.tar.gz && cd $PACKAGE_DIR/vendor/quickjs && make libquickjs.a CC=cc CFLAGS='-fPIC -O2 -DJS_NAN_BOXING=0' 2>/dev/null || true)"
+            ],
+            "lflags-posix": ["-L-L$PACKAGE_DIR/vendor/quickjs", "-L-lquickjs"]
+        },
+        {
+            "name": "jsc",
+            "versions": ["EngineJSC"],
+            "lflags-linux": ["-L-ljavascriptcoregtk-4.1"],
+            "lflags-osx": ["-L-framework", "-LJavaScriptCore"]
+        },
+        {
+            "name": "v8",
+            "versions": ["EngineV8"],
+            "preBuildCommands-posix": [
+                "mkdir -p $PACKAGE_DIR/vendor/v8shim",
+                "test -f $PACKAGE_DIR/vendor/v8shim/libv8shim.a || (cd $PACKAGE_DIR/vendor/v8shim && test -f v8shim.cpp && g++ -std=c++17 -fPIC -O2 -c v8shim.cpp -o v8shim.o -I/usr/include/v8 && ar rcs libv8shim.a v8shim.o && rm -f v8shim.o || true)"
+            ],
+            "lflags-posix": ["-L-L$PACKAGE_DIR/vendor/v8shim", "-L-lv8shim", "-L-lv8", "-L-lv8_libplatform"]
+        },
+        {
+            "name": "unittest",
+            "targetType": "executable",
+            "targetName": "dun-test",
+            "versions": ["DunTest"],
+            "lflags-posix": ["-L-L$PACKAGE_DIR/vendor/quickjs", "-L-lquickjs"]
+        }
+    ]
+}

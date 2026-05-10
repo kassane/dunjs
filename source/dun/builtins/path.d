@@ -17,7 +17,7 @@ void registerPathModule(JSContext* ctx) @trusted
 
 private:
 
-extern (C) int pathModuleInit(JSContext* ctx, JSModuleDef* m) nothrow
+extern (C) int pathModuleInit(JSContext* ctx, JSModuleDef* m) nothrow @trusted
 {
     JS_SetModuleExport(ctx, m, "join",
         JS_NewCFunction(ctx, &jsPathJoin, "join", 2));
@@ -33,7 +33,7 @@ extern (C) int pathModuleInit(JSContext* ctx, JSModuleDef* m) nothrow
 }
 
 extern (C) JSValue jsPathJoin(JSContext* ctx, JSValueConst this_val,
-    int argc, JSValueConst* argv) nothrow
+    int argc, JSValueConst* argv) nothrow @trusted
 {
     if (argc < 1)
         return toJSValue(ctx, ".");
@@ -56,7 +56,7 @@ extern (C) JSValue jsPathJoin(JSContext* ctx, JSValueConst this_val,
 }
 
 extern (C) JSValue jsPathBasename(JSContext* ctx, JSValueConst this_val,
-    int argc, JSValueConst* argv) nothrow
+    int argc, JSValueConst* argv) nothrow @trusted
 {
     if (argc < 1)
         return toJSValue(ctx, "");
@@ -64,9 +64,7 @@ extern (C) JSValue jsPathBasename(JSContext* ctx, JSValueConst this_val,
     try
     {
         import std.path : baseName;
-
-        auto path = jsArgToString(ctx, argv[0]);
-        return toJSValue(ctx, baseName(path));
+        return toJSValue(ctx, baseName(jsArgToString(ctx, argv[0])));
     }
     catch (Exception)
     {
@@ -75,7 +73,7 @@ extern (C) JSValue jsPathBasename(JSContext* ctx, JSValueConst this_val,
 }
 
 extern (C) JSValue jsPathDirname(JSContext* ctx, JSValueConst this_val,
-    int argc, JSValueConst* argv) nothrow
+    int argc, JSValueConst* argv) nothrow @trusted
 {
     if (argc < 1)
         return toJSValue(ctx, ".");
@@ -83,9 +81,7 @@ extern (C) JSValue jsPathDirname(JSContext* ctx, JSValueConst this_val,
     try
     {
         import std.path : dirName;
-
-        auto path = jsArgToString(ctx, argv[0]);
-        return toJSValue(ctx, dirName(path));
+        return toJSValue(ctx, dirName(jsArgToString(ctx, argv[0])));
     }
     catch (Exception)
     {
@@ -94,7 +90,7 @@ extern (C) JSValue jsPathDirname(JSContext* ctx, JSValueConst this_val,
 }
 
 extern (C) JSValue jsPathExtname(JSContext* ctx, JSValueConst this_val,
-    int argc, JSValueConst* argv) nothrow
+    int argc, JSValueConst* argv) nothrow @trusted
 {
     if (argc < 1)
         return toJSValue(ctx, "");
@@ -102,9 +98,7 @@ extern (C) JSValue jsPathExtname(JSContext* ctx, JSValueConst this_val,
     try
     {
         import std.path : extension;
-
-        auto path = jsArgToString(ctx, argv[0]);
-        return toJSValue(ctx, extension(path));
+        return toJSValue(ctx, extension(jsArgToString(ctx, argv[0])));
     }
     catch (Exception)
     {
@@ -113,7 +107,7 @@ extern (C) JSValue jsPathExtname(JSContext* ctx, JSValueConst this_val,
 }
 
 extern (C) JSValue jsPathIsAbsolute(JSContext* ctx, JSValueConst this_val,
-    int argc, JSValueConst* argv) nothrow
+    int argc, JSValueConst* argv) nothrow @trusted
 {
     if (argc < 1)
         return JS_NewBool(ctx, 0);
@@ -121,9 +115,7 @@ extern (C) JSValue jsPathIsAbsolute(JSContext* ctx, JSValueConst this_val,
     try
     {
         import std.path : isAbsolute;
-
-        auto path = jsArgToString(ctx, argv[0]);
-        return JS_NewBool(ctx, isAbsolute(path) ? 1 : 0);
+        return JS_NewBool(ctx, isAbsolute(jsArgToString(ctx, argv[0])) ? 1 : 0);
     }
     catch (Exception)
     {

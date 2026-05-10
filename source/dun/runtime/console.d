@@ -29,56 +29,65 @@ void installConsole(IJSEngine engine) @trusted
 
 private:
 
-extern (C) JSValue jsConsoleLog(JSContext* ctx, JSValueConst this_val,
-    int argc, JSValueConst* argv) nothrow
+imported!"core.stdc.stdio".FILE* getStdout() @trusted nothrow @nogc
 {
-    import core.stdc.stdio : fwrite, fputc, stdout;
+    import core.stdc.stdio : stdout;
+    return cast(imported!"core.stdc.stdio".FILE*) cast(void*) stdout;
+}
 
-    writeArgs(stdout, ctx, argc, argv);
-    fputc('\n', stdout);
+imported!"core.stdc.stdio".FILE* getStderr() @trusted nothrow @nogc
+{
+    import core.stdc.stdio : stderr;
+    return cast(imported!"core.stdc.stdio".FILE*) cast(void*) stderr;
+}
+
+extern (C) JSValue jsConsoleLog(JSContext* ctx, JSValueConst this_val,
+    int argc, JSValueConst* argv) nothrow @trusted
+{
+    import core.stdc.stdio : fputc;
+    writeArgs(getStdout(), ctx, argc, argv);
+    fputc('\n', getStdout());
     return JS_UNDEFINED();
 }
 
 extern (C) JSValue jsConsoleWarn(JSContext* ctx, JSValueConst this_val,
-    int argc, JSValueConst* argv) nothrow
+    int argc, JSValueConst* argv) nothrow @trusted
 {
-    import core.stdc.stdio : fwrite, fputc, stderr;
-
-    writeArgs(stderr, ctx, argc, argv);
-    fputc('\n', stderr);
+    import core.stdc.stdio : fputc;
+    writeArgs(getStderr(), ctx, argc, argv);
+    fputc('\n', getStderr());
     return JS_UNDEFINED();
 }
 
 extern (C) JSValue jsConsoleError(JSContext* ctx, JSValueConst this_val,
-    int argc, JSValueConst* argv) nothrow
+    int argc, JSValueConst* argv) nothrow @trusted
 {
-    import core.stdc.stdio : fwrite, fputc, stderr;
-
-    writeArgs(stderr, ctx, argc, argv);
-    fputc('\n', stderr);
+    import core.stdc.stdio : fputc;
+    writeArgs(getStderr(), ctx, argc, argv);
+    fputc('\n', getStderr());
     return JS_UNDEFINED();
 }
 
 extern (C) JSValue jsConsoleAssert(JSContext* ctx, JSValueConst this_val,
-    int argc, JSValueConst* argv) nothrow
+    int argc, JSValueConst* argv) nothrow @trusted
 {
     if (argc > 0 && JS_ToBool(ctx, argv[0]) != 0)
         return JS_UNDEFINED();
 
-    import core.stdc.stdio : fwrite, fputc, stderr;
+    import core.stdc.stdio : fwrite, fputc;
 
     enum msg = "Assertion failed: ";
-    fwrite(msg.ptr, 1, msg.length, stderr);
+    fwrite(&msg[0], 1, msg.length, getStderr());
 
     if (argc > 1)
-        writeArgs(stderr, ctx, argc - 1, argv + 1);
+        writeArgs(getStderr(), ctx, argc - 1, argv + 1);
     else
     {
         enum defaultMsg = "console.assert";
-        fwrite(defaultMsg.ptr, 1, defaultMsg.length, stderr);
+        fwrite(&defaultMsg[0], 1, defaultMsg.length, getStderr());
     }
 
-    fputc('\n', stderr);
+    fputc('\n', getStderr());
     return JS_UNDEFINED();
 }
 

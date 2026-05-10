@@ -8,7 +8,7 @@ class QuickJSEngine : IJSEngine
     private JSRuntime* rt;
     private JSContext* ctx;
 
-    void initialize(EngineConfig config)
+    void initialize(EngineConfig config) @trusted
     {
         rt = JS_NewRuntime();
         assert(rt !is null, "Failed to create JSRuntime");
@@ -21,7 +21,7 @@ class QuickJSEngine : IJSEngine
             JS_SetMaxStackSize(rt, config.maxStackSize);
     }
 
-    void shutdown()
+    void shutdown() @trusted
     {
         if (ctx !is null)
         {
@@ -35,7 +35,7 @@ class QuickJSEngine : IJSEngine
         }
     }
 
-    JSResult eval(const(char)[] source, string filename)
+    JSResult eval(const(char)[] source, string filename) @trusted
     {
         import std.string : toStringz;
 
@@ -49,44 +49,42 @@ class QuickJSEngine : IJSEngine
         return result;
     }
 
-    JSHandle newString(const(char)[] s)
+    JSHandle newString(const(char)[] s) @trusted
     {
         return toHandle(JS_NewStringLen(ctx, s.ptr, s.length));
     }
 
-    JSHandle newInt(int v)
+    JSHandle newInt(int v) @trusted
     {
         return toHandle(JS_NewInt32(ctx, v));
     }
 
-    JSHandle newFloat(double v)
+    JSHandle newFloat(double v) @trusted
     {
         return toHandle(JS_NewFloat64(ctx, v));
     }
 
-    JSHandle newBool(bool v)
+    JSHandle newBool(bool v) @trusted
     {
         return toHandle(JS_NewBool(ctx, v ? 1 : 0));
     }
 
-    JSHandle newObject()
+    JSHandle newObject() @trusted
     {
         return toHandle(JS_NewObject(ctx));
     }
 
-    JSHandle newArray()
+    JSHandle newArray() @trusted
     {
         return toHandle(JS_NewArray(ctx));
     }
 
     JSHandle newFunction(NativeCallback cb, string name, int argc)
     {
-        // NativeCallback cannot directly bridge to QuickJS extern(C) ABI.
-        // For now, use the raw C function registration via rawContext().
         assert(false, "Use registerCFunction for QuickJS backend");
     }
 
-    string extractString(JSHandle val)
+    string extractString(JSHandle val) @trusted
     {
         auto jsv = fromHandle(val);
         size_t len;
@@ -98,7 +96,7 @@ class QuickJSEngine : IJSEngine
         return result;
     }
 
-    int extractInt(JSHandle val)
+    int extractInt(JSHandle val) @trusted
     {
         auto jsv = fromHandle(val);
         int result;
@@ -106,7 +104,7 @@ class QuickJSEngine : IJSEngine
         return result;
     }
 
-    double extractFloat(JSHandle val)
+    double extractFloat(JSHandle val) @trusted
     {
         auto jsv = fromHandle(val);
         double result;
@@ -114,73 +112,73 @@ class QuickJSEngine : IJSEngine
         return result;
     }
 
-    bool extractBool(JSHandle val)
+    bool extractBool(JSHandle val) @trusted
     {
         return JS_ToBool(ctx, fromHandle(val)) != 0;
     }
 
-    JSHandle getProperty(JSHandle obj, const(char)[] name)
+    JSHandle getProperty(JSHandle obj, const(char)[] name) @trusted
     {
         import std.string : toStringz;
         return toHandle(JS_GetPropertyStr(ctx, fromHandle(obj),
             (cast(string) name).toStringz));
     }
 
-    void setProperty(JSHandle obj, const(char)[] name, JSHandle val)
+    void setProperty(JSHandle obj, const(char)[] name, JSHandle val) @trusted
     {
         import std.string : toStringz;
         JS_SetPropertyStr(ctx, fromHandle(obj),
             (cast(string) name).toStringz, fromHandle(val));
     }
 
-    JSHandle getGlobal()
+    JSHandle getGlobal() @trusted
     {
         return toHandle(JS_GetGlobalObject(ctx));
     }
 
-    JSHandle dupValue(JSHandle val)
+    JSHandle dupValue(JSHandle val) @trusted
     {
         return toHandle(JS_DupValue(ctx, fromHandle(val)));
     }
 
-    void freeValue(JSHandle val)
+    void freeValue(JSHandle val) @trusted
     {
         JS_FreeValue(ctx, fromHandle(val));
     }
 
-    bool isException(JSHandle val) { return JS_IsException(fromHandle(val)) != 0; }
-    bool isUndefined(JSHandle val) { return JS_IsUndefined(fromHandle(val)) != 0; }
-    bool isNull(JSHandle val) { return JS_IsNull(fromHandle(val)) != 0; }
-    bool isString(JSHandle val) { return JS_IsString(fromHandle(val)) != 0; }
-    bool isObject(JSHandle val) { return JS_IsObject(fromHandle(val)) != 0; }
-    bool isFunction(JSHandle val) { return JS_IsFunction(ctx, fromHandle(val)) != 0; }
-    bool isBool(JSHandle val) { return JS_IsBool(fromHandle(val)) != 0; }
-    bool isNumber(JSHandle val) { return JS_IsNumber(fromHandle(val)) != 0; }
+    bool isException(JSHandle val) @trusted { return JS_IsException(fromHandle(val)) != 0; }
+    bool isUndefined(JSHandle val) @trusted { return JS_IsUndefined(fromHandle(val)) != 0; }
+    bool isNull(JSHandle val) @trusted { return JS_IsNull(fromHandle(val)) != 0; }
+    bool isString(JSHandle val) @trusted { return JS_IsString(fromHandle(val)) != 0; }
+    bool isObject(JSHandle val) @trusted { return JS_IsObject(fromHandle(val)) != 0; }
+    bool isFunction(JSHandle val) @trusted { return JS_IsFunction(ctx, fromHandle(val)) != 0; }
+    bool isBool(JSHandle val) @trusted { return JS_IsBool(fromHandle(val)) != 0; }
+    bool isNumber(JSHandle val) @trusted { return JS_IsNumber(fromHandle(val)) != 0; }
 
-    string getException()
+    string getException() @trusted
     {
         import dun.engine.quickjs.exceptions : extractException;
         return extractException(ctx);
     }
 
-    JSHandle throwTypeError(const(char)[] msg)
+    JSHandle throwTypeError(const(char)[] msg) @trusted
     {
         import std.string : toStringz;
         return toHandle(JS_ThrowTypeError(ctx, "%s", (cast(string) msg).toStringz));
     }
 
-    JSHandle throwRangeError(const(char)[] msg)
+    JSHandle throwRangeError(const(char)[] msg) @trusted
     {
         import std.string : toStringz;
         return toHandle(JS_ThrowRangeError(ctx, "%s", (cast(string) msg).toStringz));
     }
 
-    bool hasPendingJobs()
+    bool hasPendingJobs() @trusted
     {
         return JS_IsJobPending(rt) != 0;
     }
 
-    bool executePendingJob()
+    bool executePendingJob() @trusted
     {
         JSContext* pctx;
         return JS_ExecutePendingJob(rt, &pctx) > 0;
@@ -192,35 +190,32 @@ class QuickJSEngine : IJSEngine
             executePendingJob();
     }
 
-    void setContextOpaque(void* ptr)
+    void setContextOpaque(void* ptr) @trusted
     {
         JS_SetContextOpaque(ctx, ptr);
     }
 
-    void* getContextOpaque()
+    void* getContextOpaque() @trusted
     {
         return JS_GetContextOpaque(ctx);
     }
 
-    void setModuleLoader(ModuleLoaderCallback loader)
-    {
-        // TODO: bridge ModuleLoaderCallback to JS_SetModuleLoaderFunc
-    }
+    void setModuleLoader(ModuleLoaderCallback loader) {}
 
-    void setMemoryLimit(size_t bytes)
+    void setMemoryLimit(size_t bytes) @trusted
     {
         if (bytes > 0)
             JS_SetMemoryLimit(rt, bytes);
     }
 
-    void setMaxStackSize(size_t bytes)
+    void setMaxStackSize(size_t bytes) @trusted
     {
         if (bytes > 0)
             JS_SetMaxStackSize(rt, bytes);
     }
 
-    void* rawRuntime() { return cast(void*) rt; }
-    void* rawContext() { return cast(void*) ctx; }
+    void* rawRuntime() @trusted { return cast(void*) rt; }
+    void* rawContext() @trusted { return cast(void*) ctx; }
 
     // --- QuickJS-specific helpers (not in IJSEngine) ---
 

@@ -47,10 +47,11 @@ int runScript(T)(T config)
     }
     catch (Exception e)
     {
-        import core.stdc.stdio : fprintf, stderr;
-        fprintf(stderr, "Error: Cannot read '%.*s': %.*s\n",
-            cast(int) config.scriptPath.length, config.scriptPath.ptr,
-            cast(int) e.msg.length, e.msg.ptr);
+        writeStderr("Error: Cannot read '");
+        writeStderr(config.scriptPath);
+        writeStderr("': ");
+        writeStderr(e.msg);
+        writeStderr("\n");
         return 1;
     }
 
@@ -65,9 +66,9 @@ int runScript(T)(T config)
     auto result = engine.eval(source, config.scriptPath);
     if (result.isError)
     {
-        import core.stdc.stdio : fprintf, stderr;
-        fprintf(stderr, "Uncaught %.*s\n",
-            cast(int) result.errorMessage.length, result.errorMessage.ptr);
+        writeStderr("Uncaught ");
+        writeStderr(result.errorMessage);
+        writeStderr("\n");
         return 1;
     }
     else
@@ -81,9 +82,9 @@ int runScript(T)(T config)
 
 int runRepl(T)(T)
 {
-    import core.stdc.stdio : printf;
-    printf("dun %.*s\n", cast(int) VERSION.length, VERSION.ptr);
-    printf("REPL not yet implemented. Use 'dun run <file>' instead.\n");
+    import std.stdio : writeln;
+    writeln("dun ", VERSION);
+    writeln("REPL not yet implemented. Use 'dun run <file>' instead.");
     return 0;
 }
 
@@ -91,8 +92,7 @@ int evalInline(T)(T config)
 {
     if (config.evalSource.length == 0)
     {
-        import core.stdc.stdio : fprintf, stderr;
-        fprintf(stderr, "Error: --eval requires a source string\n");
+        writeStderr("Error: --eval requires a source string\n");
         return 1;
     }
 
@@ -110,17 +110,16 @@ int evalInline(T)(T config)
     auto result = engine.eval(config.evalSource, "<eval>");
     if (result.isError)
     {
-        import core.stdc.stdio : fprintf, stderr;
-        fprintf(stderr, "Uncaught %.*s\n",
-            cast(int) result.errorMessage.length, result.errorMessage.ptr);
+        writeStderr("Uncaught ");
+        writeStderr(result.errorMessage);
+        writeStderr("\n");
         return 1;
     }
 
     if (!engine.isUndefined(result.value))
     {
-        import core.stdc.stdio : printf;
-        auto s = engine.extractString(result.value);
-        printf("%.*s\n", cast(int) s.length, s.ptr);
+        import std.stdio : writeln;
+        writeln(engine.extractString(result.value));
     }
     engine.freeValue(result.value);
 
@@ -130,28 +129,36 @@ int evalInline(T)(T config)
 
 void printVersion()
 {
-    import core.stdc.stdio : printf;
-    printf("dun %.*s\n", cast(int) VERSION.length, VERSION.ptr);
+    import std.stdio : writeln;
+    writeln("dun ", VERSION);
 }
 
 void printUsage()
 {
-    import core.stdc.stdio : printf;
-    printf("Usage: dun <command> [options] [script] [args...]\n\n");
-    printf("Commands:\n");
-    printf("  run <file>       Run a JavaScript file\n");
-    printf("  repl             Start interactive REPL\n");
-    printf("  eval <code>      Evaluate JavaScript code\n");
-    printf("  version          Print version\n");
-    printf("  help             Show this help\n\n");
-    printf("Permission flags:\n");
-    printf("  --allow-read[=paths]   Allow file read access\n");
-    printf("  --allow-write[=paths]  Allow file write access\n");
-    printf("  --allow-net[=hosts]    Allow network access\n");
-    printf("  --allow-env[=vars]     Allow env variable access\n");
-    printf("  --allow-run[=cmds]     Allow child process execution\n");
-    printf("  --allow-all / -A       Allow all permissions\n\n");
-    printf("Runtime options:\n");
-    printf("  --max-memory=<bytes>   JS heap memory limit (default: 256MB)\n");
-    printf("  --max-stack=<bytes>    Max stack size (default: 8MB)\n");
+    import std.stdio : write;
+    write(
+        "Usage: dun <command> [options] [script] [args...]\n\n"
+        ~ "Commands:\n"
+        ~ "  run <file>       Run a JavaScript file\n"
+        ~ "  repl             Start interactive REPL\n"
+        ~ "  eval <code>      Evaluate JavaScript code\n"
+        ~ "  version          Print version\n"
+        ~ "  help             Show this help\n\n"
+        ~ "Permission flags:\n"
+        ~ "  --allow-read[=paths]   Allow file read access\n"
+        ~ "  --allow-write[=paths]  Allow file write access\n"
+        ~ "  --allow-net[=hosts]    Allow network access\n"
+        ~ "  --allow-env[=vars]     Allow env variable access\n"
+        ~ "  --allow-run[=cmds]     Allow child process execution\n"
+        ~ "  --allow-all / -A       Allow all permissions\n\n"
+        ~ "Runtime options:\n"
+        ~ "  --max-memory=<bytes>   JS heap memory limit (default: 256MB)\n"
+        ~ "  --max-stack=<bytes>    Max stack size (default: 8MB)\n"
+    );
+}
+
+void writeStderr(const(char)[] msg) @trusted
+{
+    import std.stdio : stderr;
+    stderr.write(msg);
 }

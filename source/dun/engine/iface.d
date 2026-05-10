@@ -101,7 +101,7 @@ enum EngineBackend
 {
     quickjs,
     jsc,
-    hermes,
+    v8,
 }
 
 IJSEngine createEngine(EngineBackend backend = EngineBackend.quickjs)
@@ -112,8 +112,10 @@ IJSEngine createEngine(EngineBackend backend = EngineBackend.quickjs)
         import dun.engine.quickjs.backend : QuickJSEngine;
         return new QuickJSEngine();
     case EngineBackend.jsc:
-        assert(false, "JavaScriptCore backend not yet implemented");
-    case EngineBackend.hermes:
-        assert(false, "Hermes backend not yet implemented");
+        import dun.engine.jsc.backend : JSCEngine;
+        return new JSCEngine();
+    case EngineBackend.v8:
+        import dun.engine.v8.backend : V8Engine;
+        return new V8Engine();
     }
 }

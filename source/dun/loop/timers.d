@@ -32,9 +32,7 @@ struct TimerWheel
             false,
         );
 
-        import std.algorithm : sort;
-        entries.sort!((a, b) => a.deadline < b.deadline);
-
+        sortEntries();
         return id;
     }
 
@@ -85,8 +83,7 @@ struct TimerWheel
         if (processed > 0)
         {
             entries = entries[processed .. $];
-            import std.algorithm : sort;
-            entries.sort!((a, b) => a.deadline < b.deadline);
+            sortEntries();
         }
     }
 
@@ -105,5 +102,22 @@ struct TimerWheel
     bool empty() const @safe
     {
         return entries.length == 0;
+    }
+
+    private void sortEntries() @trusted
+    {
+        // Insertion sort avoids std.algorithm.sort's moveEmplaceImpl
+        // aliasing issue with -preview=safer
+        for (size_t i = 1; i < entries.length; i++)
+        {
+            auto key = entries[i];
+            long j = cast(long) i - 1;
+            while (j >= 0 && entries[cast(size_t) j].deadline > key.deadline)
+            {
+                entries[cast(size_t)(j + 1)] = entries[cast(size_t) j];
+                j--;
+            }
+            entries[cast(size_t)(j + 1)] = key;
+        }
     }
 }

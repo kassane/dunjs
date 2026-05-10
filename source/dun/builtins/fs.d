@@ -15,7 +15,7 @@ void registerFsModule(JSContext* ctx) @trusted
 
 private:
 
-extern (C) int fsModuleInit(JSContext* ctx, JSModuleDef* m) nothrow
+extern (C) int fsModuleInit(JSContext* ctx, JSModuleDef* m) nothrow @trusted
 {
     JS_SetModuleExport(ctx, m, "readFileSync",
         JS_NewCFunction(ctx, &jsReadFileSync, "readFileSync", 1));
@@ -27,7 +27,7 @@ extern (C) int fsModuleInit(JSContext* ctx, JSModuleDef* m) nothrow
 }
 
 extern (C) JSValue jsReadFileSync(JSContext* ctx, JSValueConst this_val,
-    int argc, JSValueConst* argv) nothrow
+    int argc, JSValueConst* argv) nothrow @trusted
 {
     if (argc < 1)
         return JS_ThrowTypeError(ctx, "readFileSync requires a path argument");
@@ -44,7 +44,6 @@ extern (C) JSValue jsReadFileSync(JSContext* ctx, JSValueConst this_val,
     try
     {
         import std.file : readText;
-
         auto content = readText(path);
         return toJSValue(ctx, content);
     }
@@ -55,7 +54,7 @@ extern (C) JSValue jsReadFileSync(JSContext* ctx, JSValueConst this_val,
 }
 
 extern (C) JSValue jsWriteFileSync(JSContext* ctx, JSValueConst this_val,
-    int argc, JSValueConst* argv) nothrow
+    int argc, JSValueConst* argv) nothrow @trusted
 {
     if (argc < 2)
         return JS_ThrowTypeError(ctx, "writeFileSync requires path and data arguments");
@@ -73,7 +72,6 @@ extern (C) JSValue jsWriteFileSync(JSContext* ctx, JSValueConst this_val,
     try
     {
         import std.file : write;
-
         write(path, data);
         return JS_UNDEFINED();
     }
@@ -84,7 +82,7 @@ extern (C) JSValue jsWriteFileSync(JSContext* ctx, JSValueConst this_val,
 }
 
 extern (C) JSValue jsExistsSync(JSContext* ctx, JSValueConst this_val,
-    int argc, JSValueConst* argv) nothrow
+    int argc, JSValueConst* argv) nothrow @trusted
 {
     if (argc < 1)
         return JS_ThrowTypeError(ctx, "existsSync requires a path argument");
@@ -101,7 +99,6 @@ extern (C) JSValue jsExistsSync(JSContext* ctx, JSValueConst this_val,
     try
     {
         import std.file : exists;
-
         return JS_NewBool(ctx, exists(path) ? 1 : 0);
     }
     catch (Exception)
