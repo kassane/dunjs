@@ -4,7 +4,7 @@ A secure JavaScript runtime written in **D**, inspired by [Deno](https://deno.co
 
 ## Features
 
-- **Pluggable JS engine** — IJSEngine interface with JSC, Hermes, QuickJS backends
+- **Pluggable JS engine** — IJSEngine interface with QuickJS, JSC, and V8 backends
 - **Security-first** — Default-deny permissions (like Deno)
 - **D language** — Zero-cost C FFI, `@safe`/`@trusted` memory safety, RAII resource management
 - **eventcore** async I/O — Native D event loop with epoll/kqueue/IOCP support
@@ -15,17 +15,29 @@ A secure JavaScript runtime written in **D**, inspired by [Deno](https://deno.co
 
 ### Prerequisites
 
-- **D compiler**: [DMD](https://dlang.org/download.html) or [LDC](https://github.com/ldc-developers/ldc/releases)
+- **D compiler**: [LDC](https://github.com/ldc-developers/ldc/releases) >= 1.42.0 or [DMD](https://dlang.org/download.html) >= 2.112.1
 - **C compiler**: GCC or Clang
-- **Make**: GNU Make
+- **CMake**: For building QuickJS-NG
 
 ### Build
 
 ```sh
 git clone https://github.com/kassane/dunjs.git
 cd dunjs
-git submodule update --init --recursive
+
+# Default (QuickJS-NG backend — downloaded and built automatically)
 dub build
+
+# Explicit backend selection
+dub build -c quickjs          # QuickJS-NG (fallback, ES2023)
+dub build -c jsc              # JavaScriptCore (Linux: GTK, macOS: framework)
+dub build -c v8               # V8 (via C++ shim)
+
+# Release build
+dub build -c quickjs -b release
+
+# Run unit tests (43 contract + 80+ fuzz tests)
+dub test -c unittest
 ```
 
 ### Run
@@ -104,9 +116,17 @@ console.log(content);
 | Permissions | None | Deny-all | None | **Deny-all** |
 | Module Prefix | `node:` | `node:` | `bun:` | **`dun:`** |
 
+## Engine Backends
+
+| Backend | API | Status | Use Case |
+|---------|-----|--------|----------|
+| QuickJS-NG | C API (`extern(C)`) | Working | Default, ES2023 fallback |
+| JavaScriptCore | C API (`extern(C)`) | Implemented | JIT, production (like Bun) |
+| V8 | C++ via C shim (`extern(C)`) | Implemented | JIT, Node.js compatibility |
+
 ## Development Status
 
-DunJS is in early development. See the [phased roadmap](CLAUDE.md#phased-roadmap) for implementation progress.
+DunJS is in early development (Phase 1: MVP). See the [phased roadmap](CLAUDE.md#phased-roadmap) for implementation progress.
 
 ## License
 

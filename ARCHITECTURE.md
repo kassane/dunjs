@@ -49,14 +49,15 @@ RAII wrappers, and pointer safety auditing.
 │  Layer 2: JS Engine Abstraction                              │
 │  ┌───────────────────────────────────────────────┐           │
 │  │  IJSEngine (iface.d)                          │           │
-│  │  ┌──────────────┬──────────┬─────────────┐    │           │
-│  │  │ quickjs/     │  jsc/    │  hermes/    │    │           │
-│  │  │ backend.d    │ (stub)   │  (stub)     │    │           │
-│  │  │ bindings.d   │          │             │    │           │
-│  │  │ runtime.d    │          │             │    │           │
-│  │  │ context.d    │          │             │    │           │
-│  │  │ value.d      │          │             │    │           │
-│  │  └──────────────┴──────────┴─────────────┘    │           │
+│  │  ┌──────────────┬──────────────┬──────────┐    │           │
+│  │  │ quickjs/     │  jsc/        │  v8/     │    │           │
+│  │  │ backend.d    │ backend.d    │ backend.d│    │           │
+│  │  │ bindings.d   │ bindings.d   │ bindings.d    │           │
+│  │  │ cimport.c    │ cppbindings.d│ cppbindings.d │           │
+│  │  │ runtime.d    │              │          │    │           │
+│  │  │ context.d    │              │ v8shim/  │    │           │
+│  │  │ value.d      │              │ (C++ shim)    │           │
+│  │  └──────────────┴──────────────┴──────────┘    │           │
 │  └───────────────────────────────────────────────┘           │
 ├──────────────────────────────────────────────────────────────┤
 │  Layer 1: Platform Abstraction                               │
@@ -85,11 +86,12 @@ RAII wrappers, and pointer safety auditing.
              │ implements
     ┌────────┼────────┐
     ▼        ▼        ▼
- QuickJS    JSC    Hermes
+ QuickJS    JSC      V8
  Engine   Engine   Engine
 ```
 
-`createEngine(backend)` factory returns the selected backend.
+`createEngine()` factory returns the selected backend (compile-time via
+`version(EngineQuickJS)`, `version(EngineJSC)`, `version(EngineV8)`).
 Backends live in `source/dun/engine/<name>/` and only they import
 engine-specific C/C++ bindings.
 
@@ -200,7 +202,7 @@ interface IJSEngine {
 | Aspect | Node.js | Deno | Bun | **DunJS** |
 |--------|---------|------|-----|-----------|
 | Language | C++ | Rust | Zig→Rust | **D** |
-| JS Engine | V8 | V8 | JSC | **Pluggable (JSC, Hermes, QuickJS)** |
+| JS Engine | V8 | V8 | JSC | **Pluggable (QuickJS, JSC, V8)** |
 | Event Loop | libuv | Tokio | io_uring | **eventcore** |
 | Permission | None | Deny-all | None | **Deny-all** |
 | Module Prefix | `node:` | `node:` | `bun:` | **`dun:`** |
@@ -212,12 +214,13 @@ interface IJSEngine {
 |----------|--------|-----------|
 | JS Engine | Pluggable (IJSEngine) | Swap backends without rewriting upper layers |
 | Default backend | QuickJS-NG | Pure C API, ES2023, easy extern(C), MIT license |
-| Target backend | JSC or Hermes | Tier 1 JIT performance for production use |
-| C FFI | ImportC + extern(C) | No external tooling dependency |
-| C++ FFI | extern(C++) + dpp | For JSC/V8 C++ internals |
+| Target backend | JSC or V8 | Tier 1 JIT performance for production use |
+| C FFI | ImportC + extern(C) | Auditable bindings, no external tooling |
+| C++ FFI | extern(C++) + C shim | For V8 (templates require C shim), JSC C++ internals |
 | Event loop | eventcore | D-native, proactor pattern, cross-platform |
-| Build system | DUB (SDL) | Standard D tooling, configurations per engine |
+| Build system | DUB (JSON) | Standard D tooling, configurations per engine |
+| Build orchestrator | build.d | CMake, toolchain detection, findProgram pattern |
 | Async model | Callback loop + Promise jobs | Matches engine internal async handling |
 | Permission | Default deny-all | Security-first, Deno's proven model |
 | RAII wrappers | D structs with `~this()` | Deterministic cleanup, zero-cost |
-| Engine selection | `dub build -c quickjs/jsc/hermes` | DUB configurations switch backends |
+| Engine selection | `dub build -c quickjs/jsc/v8` | DUB configurations switch backends |
