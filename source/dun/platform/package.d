@@ -4,5 +4,8 @@
 /// I/O primitives, and path handling.
 module dun.platform;
 
-public import dun.platform.memory;
+version (EngineQuickJS)
+{
+    public import dun.platform.memory;
+}
 public import dun.platform.paths;

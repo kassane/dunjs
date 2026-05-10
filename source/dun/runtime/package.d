@@ -5,4 +5,8 @@
 module dun.runtime;
 
 public import dun.runtime.globals;
-public import dun.runtime.console;
+
+version (EngineQuickJS)
+{
+    public import dun.runtime.console;
+}

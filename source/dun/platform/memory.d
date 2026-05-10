@@ -1,5 +1,7 @@
 module dun.platform.memory;
 
+version (EngineQuickJS):
+
 import core.stdc.stdlib : malloc, free, realloc;
 import dun.engine.quickjs.bindings : JSMallocFunctions, JSMallocState;
 

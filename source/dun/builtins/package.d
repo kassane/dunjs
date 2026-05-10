@@ -5,5 +5,8 @@
 /// JS_NewCModule and exposes extern(C) callbacks with permission checks.
 module dun.builtins;
 
-public import dun.builtins.fs;
-public import dun.builtins.path;
+version (EngineQuickJS)
+{
+    public import dun.builtins.fs;
+    public import dun.builtins.path;
+}

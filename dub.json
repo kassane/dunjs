@@ -11,6 +11,7 @@
     "sourcePaths": ["source"],
     "importPaths": ["source"],
     "stringImportPaths": ["source"],
+    "excludedSourceFiles": ["source/c/*.c"],
 
     "toolchainRequirements": {
         "frontend": ">=2.112"

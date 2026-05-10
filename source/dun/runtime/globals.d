@@ -17,6 +17,9 @@ void installGlobals(IJSEngine engine, DunState* state) @trusted
 {
     engine.setContextOpaque(cast(void*) state);
 
-    import dun.runtime.console : installConsole;
-    installConsole(engine);
+    version (EngineQuickJS)
+    {
+        import dun.runtime.console : installConsole;
+        installConsole(engine);
+    }
 }

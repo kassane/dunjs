@@ -1,5 +1,7 @@
 module dun.runtime.console;
 
+version (EngineQuickJS):
+
 import dun.engine.iface : IJSEngine, JSHandle;
 import dun.engine.quickjs.bindings;
 

@@ -1,5 +1,7 @@
 module dun.builtins.path;
 
+version (EngineQuickJS):
+
 import dun.engine.quickjs.bindings;
 import dun.engine.quickjs.function_bind;
 

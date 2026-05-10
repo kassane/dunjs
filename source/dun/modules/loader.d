@@ -1,20 +1,25 @@
 module dun.modules.loader;
 
-import dun.engine.quickjs.bindings;
-
 struct ModuleLoader
 {
-    private JSModuleDef*[string] cache;
-
-    void install(JSRuntime* rt) @trusted
+    version (EngineQuickJS)
     {
-        JS_SetModuleLoaderFunc(rt, null, &loadModuleCallback, cast(void*)&this);
+        import dun.engine.quickjs.bindings;
+
+        private JSModuleDef*[string] cache;
+
+        void install(JSRuntime* rt) @trusted
+        {
+            JS_SetModuleLoaderFunc(rt, null, &loadModuleCallback, cast(void*)&this);
+        }
     }
 }
 
-private extern (C) JSModuleDef* loadModuleCallback(
-    JSContext* ctx, const(char)* module_name, void* opaque) nothrow
+version (EngineQuickJS)
 {
-    // TODO: Implement module loading
-    return null;
+    private extern (C) JSModuleDef* loadModuleCallback(
+        JSContext* ctx, const(char)* module_name, void* opaque) nothrow
+    {
+        return null;
+    }
 }

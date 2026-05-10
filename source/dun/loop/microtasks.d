@@ -1,38 +1,50 @@
 module dun.loop.microtasks;
 
-import dun.engine.quickjs.bindings;
-
 struct MicrotaskQueue
 {
-    private Entry[] queue;
-
-    private struct Entry
+    version (EngineQuickJS)
     {
-        JSContext* ctx;
-        JSValue func;
-    }
+        import dun.engine.quickjs.bindings;
 
-    void enqueue(JSContext* ctx, JSValue func) @trusted
-    {
-        queue ~= Entry(ctx, JS_DupValue(ctx, func));
-    }
+        private Entry[] queue;
 
-    void drain() @trusted
-    {
-        while (queue.length > 0)
+        private struct Entry
         {
-            auto entry = queue[0];
-            queue = queue[1 .. $];
+            JSContext* ctx;
+            JSValue func;
+        }
 
-            auto ret = JS_Call(entry.ctx, entry.func,
-                JS_UNDEFINED(), 0, null);
-            JS_FreeValue(entry.ctx, ret);
-            JS_FreeValue(entry.ctx, entry.func);
+        void enqueue(JSContext* ctx, JSValue func) @trusted
+        {
+            queue ~= Entry(ctx, JS_DupValue(ctx, func));
+        }
+
+        void drain() @trusted
+        {
+            while (queue.length > 0)
+            {
+                auto entry = queue[0];
+                queue = queue[1 .. $];
+
+                auto ret = JS_Call(entry.ctx, entry.func,
+                    JS_UNDEFINED(), 0, null);
+                JS_FreeValue(entry.ctx, ret);
+                JS_FreeValue(entry.ctx, entry.func);
+            }
+        }
+
+        bool empty() const @safe
+        {
+            return queue.length == 0;
         }
     }
-
-    bool empty() const @safe
+    else
     {
-        return queue.length == 0;
+        void drain() @trusted {}
+
+        bool empty() const @safe
+        {
+            return true;
+        }
     }
 }
