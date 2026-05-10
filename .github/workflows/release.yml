@@ -42,13 +42,15 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y libjavascriptcoregtk-4.1-dev
 
+      - uses: lukka/get-cmake@latest
+        if: matrix.engine == 'quickjs'
+
       - name: Cache vendor libraries
         uses: actions/cache@v4
         with:
-          path: |
-            vendor/quickjs/libquickjs.a
-            vendor/v8shim/libv8shim.a
-          key: vendor-${{ matrix.engine }}-${{ matrix.os }}-${{ hashFiles('dub.json') }}
+          path: vendor/
+          key: vendor-${{ matrix.engine }}-${{ matrix.os }}-${{ hashFiles('build.d', 'dub.json') }}
+          restore-keys: vendor-${{ matrix.engine }}-${{ matrix.os }}-
 
       - name: Build release binary
         run: dub build -c ${{ matrix.engine }} -b release

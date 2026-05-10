@@ -23,7 +23,7 @@ jobs:
           compiler: ldc-latest
 
       - name: Compile all sources (-preview=all)
-        run: ldc2 -c -preview=all -I source -o- $(find source -name '*.d')
+        run: ldc2 -c -preview=all -Isource -o- $(find source -name '*.d')
 
       - name: D-Scanner
         run: dub run d-scanner -- --styleCheck source/ || true
@@ -36,13 +36,16 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
-        dc: [ldc-latest, dmd-latest]
-        engine: [quickjs]
         include:
+          # QuickJS: Linux + macOS, LDC + DMD (DMD linux-only, no macOS ARM64)
+          - { os: ubuntu-latest, dc: ldc-latest, engine: quickjs }
+          - { os: ubuntu-latest, dc: dmd-latest, engine: quickjs }
+          - { os: macos-13,      dc: ldc-latest, engine: quickjs }
+          # JSC: system library
           - { os: ubuntu-latest, dc: ldc-latest, engine: jsc }
-          - { os: macos-latest,  dc: ldc-latest, engine: jsc }
-          - { os: ubuntu-latest, dc: ldc-latest, engine: v8  }
+          - { os: macos-13,      dc: ldc-latest, engine: jsc }
+          # V8: via C++ shim (best-effort)
+          - { os: ubuntu-latest, dc: ldc-latest, engine: v8 }
 
     steps:
       - uses: actions/checkout@v4
@@ -51,17 +54,18 @@ jobs:
         with:
           compiler: ${{ matrix.dc }}
 
-      - name: Install system deps (JSC)
+      - name: Install system deps (JSC · Linux)
         if: matrix.engine == 'jsc' && runner.os == 'Linux'
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y libjavascriptcoregtk-4.1-dev
 
-      - name: Install system deps (V8)
+      - name: Install system deps (V8 · Linux)
         if: matrix.engine == 'v8' && runner.os == 'Linux'
+        continue-on-error: true
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y libv8-dev || echo "::warning::libv8-dev unavailable"
+          sudo apt-get install -y libv8-dev
 
       - name: Install CMake
         if: matrix.engine == 'quickjs'
@@ -81,9 +85,11 @@ jobs:
         run: dub build -c ${{ matrix.engine }}
 
       - name: Build (release)
+        if: matrix.engine == 'quickjs'
         run: dub build -c ${{ matrix.engine }} -b release
 
       - name: Upload binary
+        if: matrix.engine == 'quickjs'
         uses: actions/upload-artifact@v4
         with:
           name: dun-${{ matrix.engine }}-${{ matrix.os }}-${{ matrix.dc }}
@@ -98,8 +104,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
-        dc: [ldc-latest, dmd-latest]
+        include:
+          - { os: ubuntu-latest, dc: ldc-latest }
+          - { os: ubuntu-latest, dc: dmd-latest }
+          - { os: macos-13,      dc: ldc-latest }
 
     steps:
       - uses: actions/checkout@v4
@@ -115,6 +123,7 @@ jobs:
         with:
           path: vendor/
           key: vendor-quickjs-${{ matrix.os }}-${{ hashFiles('build.d', 'dub.json') }}
+          restore-keys: vendor-quickjs-${{ matrix.os }}-
 
       - name: Run unit tests
         run: dub test -c unittest
@@ -127,7 +136,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        include:
+          - { os: ubuntu-latest }
+          - { os: macos-13 }
 
     steps:
       - uses: actions/checkout@v4

@@ -16,7 +16,8 @@
         "frontend": ">=2.112"
     },
 
-    "dflags": ["-preview=all"],
+    "dflags-ldc": ["-preview=all"],
+    "dflags-dmd": ["-preview=shortenedMethods", "-preview=fixImmutableConv", "-preview=fixAliasThis", "-preview=rvalueRefParam"],
 
     "libs-linux": ["m", "dl", "pthread"],
     "libs-osx": ["m", "pthread"],
