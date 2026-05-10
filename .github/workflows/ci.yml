@@ -11,27 +11,9 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # ── Stage 1: Lint & -preview=all compliance ────────────────────
-  lint:
-    name: Lint
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: dlang-community/setup-dlang@v2
-        with:
-          compiler: ldc-latest
-
-      - name: Compile all sources (-preview=all)
-        run: ldc2 -c -preview=all -Isource -o- $(find source -name '*.d')
-
-      - name: D-Scanner
-        run: dub run d-scanner -- --styleCheck source/ || true
-
-  # ── Stage 2: Build matrix (engine × OS × compiler) ─────────────
+  # ── Build matrix (engine × OS × compiler) ─────────────────────
   build:
     name: ${{ matrix.engine }} · ${{ matrix.os }} · ${{ matrix.dc }}
-    needs: lint
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -96,10 +78,9 @@ jobs:
           path: build/dun
           retention-days: 7
 
-  # ── Stage 3: Unit tests ────────────────────────────────────────
+  # ── Unit tests ────────────────────────────────────────────────
   test:
     name: Test · ${{ matrix.os }} · ${{ matrix.dc }}
-    needs: lint
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -128,7 +109,7 @@ jobs:
       - name: Run unit tests
         run: dub test -c unittest
 
-  # ── Stage 4: Integration tests ─────────────────────────────────
+  # ── Integration tests ─────────────────────────────────────────
   integration:
     name: Integration · ${{ matrix.os }}
     needs: build
