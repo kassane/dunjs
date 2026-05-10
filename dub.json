@@ -16,8 +16,8 @@
         "frontend": ">=2.112"
     },
 
-    "dflags-ldc": ["-preview=all"],
-    "dflags-dmd": ["-preview=shortenedMethods", "-preview=fixImmutableConv", "-preview=fixAliasThis", "-preview=rvalueRefParam"],
+    "dflags-ldc": ["-preview=all", "-P-I$PACKAGE_DIR/vendor/quickjs"],
+    "dflags-dmd": ["-preview=shortenedMethods", "-preview=fixImmutableConv", "-preview=fixAliasThis", "-preview=rvalueRefParam", "-P-I$PACKAGE_DIR/vendor/quickjs"],
 
     "libs-linux": ["m", "dl", "pthread"],
     "libs-osx": ["m", "pthread"],
@@ -83,7 +83,8 @@
                 "source/dun/engine/jsc/backend.d",
                 "source/dun/engine/jsc/cppbindings.d"
             ],
-            "libs-posix": ["v8shim", "v8", "v8_libplatform"],
+            "libs-linux": ["v8shim", "v8", "v8_libplatform", "stdc++"],
+            "libs-osx": ["v8shim", "v8", "v8_libplatform", "c++"],
             "lflags-posix": ["-L$PACKAGE_DIR/vendor/v8shim"]
         },
         {
