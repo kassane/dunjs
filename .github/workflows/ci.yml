@@ -15,7 +15,6 @@ jobs:
   build:
     name: ${{ matrix.engine }} · ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
-    continue-on-error: ${{ matrix.engine == 'v8' }}
     strategy:
       fail-fast: false
       matrix:
@@ -44,10 +43,7 @@ jobs:
 
       - name: Install system deps (V8 · Linux)
         if: matrix.engine == 'v8' && runner.os == 'Linux'
-        continue-on-error: true
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y libv8-dev || echo "libv8-dev not available — V8 headers will be vendored from Node.js"
+        run: echo "V8 headers vendored from Node.js — no system packages needed"
 
       - name: Install CMake
         if: matrix.engine == 'quickjs'
@@ -64,7 +60,21 @@ jobs:
         run: ldc2 -run build.d --backend=${{ matrix.engine }} --verbose
 
       - name: Build (debug)
+        if: matrix.engine != 'v8'
         run: dub build -v -c ${{ matrix.engine }}
+
+      - name: Compile check (V8)
+        if: matrix.engine == 'v8'
+        run: |
+          # V8 linking requires system libv8 which isn't available on CI.
+          # Verify D compilation succeeds; only the expected link failure is tolerated.
+          output=$(dub build -v -c v8 2>&1) && exit 0
+          if echo "$output" | grep -q 'cannot find -lv8'; then
+            echo "D compilation OK — link skipped (no system libv8)"
+          else
+            echo "$output"
+            exit 1
+          fi
 
       - name: Build (release)
         if: matrix.engine == 'quickjs'
