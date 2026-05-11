@@ -195,26 +195,21 @@ dub test -c unittest
 | TypeScript strip | `source/dun/ts/strip.d` | 20 inline tests |
 | Security perms | `source/dun/security/test.d` | 27 permission tests |
 
-### Integration Tests (14 fixtures)
+### Integration Tests (38 fixtures)
 
 Standalone JS/TS scripts compared against expected stdout:
 
-| Test | Coverage | Backends |
-|------|----------|----------|
-| `hello` | Basic console.log | All 3 |
-| `types` | typeof for all JS types | All 3 |
-| `console_methods` | log/info/debug, multiple args, type coercion | All 3 |
-| `promises` | Promise + async/await | All 3 |
-| `promises_advanced` | Promise.all/race/any, async error handling | All 3 |
-| `es2023` | findLast, optional chaining, nullish coalescing, Array.at | All 3 |
-| `error_handling` | try/catch, Error subtypes, Error.cause, finally | All 3 |
-| `closures` | Closures, IIFE, generators, destructuring, symbols | All 3 |
-| `iterators` | Map, Set, WeakRef, for...of, Array.from | All 3 |
-| `json_parsing` | JSON parse/stringify, replacer/reviver | All 3 |
-| `classes` | Inheritance, static methods, private fields | All 3 |
-| `regex` | Named groups, matchAll, replace, split | All 3 |
-| `typescript` | Type annotations, interfaces, as, arrow types | QuickJS |
-| `timers` | setTimeout/setInterval (event loop) | Skipped |
+| Category | Tests | Coverage |
+|----------|-------|----------|
+| Core JS | `hello`, `types`, `console_methods` | Basic output, typeof, multi-arg logging |
+| Async | `promises`, `promises_advanced`, `timers`, `phase2`, `phase2_rejection`, `async_io` | Promise.all/race/any, async/await, setTimeout, unhandledRejection |
+| ES2023+ | `es2023`, `closures`, `iterators`, `classes`, `regex`, `json_parsing` | findLast, generators, Map/Set, private fields, matchAll |
+| Errors | `error_handling` | try/catch, Error subtypes, Error.cause, finally |
+| Modules | `module_esm`, `module_cjs`, `module_chain`, `json_pipeline`, `npm_compat` | ESM import/export, CJS require, chained deps, JSON import |
+| Builtins | `fs_ops`, `path_ops`, `crypto_ops`, `stat_file`, `env_access` | readFile, join/resolve, hash/randomBytes, stat, process.env |
+| Security | `perm_deny_read`, `perm_deny_write` | Permission denial enforcement |
+| TypeScript | `typescript`, `realworld_ts_library` | Type annotations, interfaces, as, arrow types |
+| Real-world | `realworld_config_loader`, `realworld_task_runner`, `realworld_file_processor`, `realworld_event_system`, `realworld_promise_pool`, `realworld_nested_require`, `realworld_security_boundary`, `realworld_esm_pipeline` | End-to-end scenarios combining modules, async, permissions, ESM |
 
 ## Comparison
 
@@ -232,7 +227,7 @@ Standalone JS/TS scripts compared against expected stdout:
 
 ## Development Status
 
-DunJS is in early development. See the [phased roadmap](CLAUDE.md#phased-roadmap) for progress.
+DunJS is in active development. See the [phased roadmap](CLAUDE.md#phased-roadmap) for progress.
 
 | Phase | Status |
 |-------|--------|
@@ -241,9 +236,13 @@ DunJS is in early development. See the [phased roadmap](CLAUDE.md#phased-roadmap
 | Phase 1c: TypeScript (`dun run file.ts`) | **Done** |
 | Phase 1d: Security tests (27 PermissionRegistry tests) | **Done** |
 | Phase 1e: C++ TMP <-> D TMP bridge (V8 + JSC) | **Done** |
-| Phase 2: Event loop + timers | In progress |
-| Phase 3: Module system + builtins | Planned |
-| Phase 4: Permission enforcement | Planned |
+| Phase 2: Event loop + timers + Promises | **Done** |
+| Phase 2f: queueMicrotask + process.nextTick + unhandledRejection | **Done** |
+| Phase 3: Module system + fs/path/net/crypto | **Done** |
+| Phase 4: Permission enforcement wired to builtins | **Done** |
+| Phase 5: REPL + colored errors + stack traces | **Done** |
+| Phase 6a: Networking (TCP, npm compat, I/O polling) | **Done** |
+| Phase 6b: Performance (io_uring, workers, HTTP server) | Planned |
 
 ## License
 

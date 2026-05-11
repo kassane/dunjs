@@ -6,7 +6,7 @@ DunJS is a 7-layer JavaScript/TypeScript runtime with a **pluggable engine archi
 (IJSEngine interface), an eventcore-based event loop, and a Deno-inspired permission system.
 
 Three backends are fully functional: QuickJS-NG (default), JavaScriptCore, and V8.
-All 12 JS integration tests pass identically on all 3 engines. TypeScript test passes on QuickJS.
+All 38 integration tests pass on QuickJS (including 9 real-world end-to-end scenarios).
 
 Reference: [Bun's Zig->Rust port](https://github.com/oven-sh/bun/pull/30412) -- modular
 workspace with `bun_jsc` engine layer, `*_jsc` suffix pattern for engine-specific modules,
@@ -440,22 +440,47 @@ that require linking against V8's C++ objects -- these MUST go through the C shi
 ```
 tests/
 +-- integration/
-|   +-- fixtures/       # 14 test scripts (13 JS + 1 TS)
-|   |   +-- hello.js           # Basic smoke test
-|   |   +-- types.js           # typeof for all JS types
-|   |   +-- console_methods.js # log/info/debug, multiple args
-|   |   +-- promises.js        # Promise + async/await
-|   |   +-- promises_advanced.js # all/race/any, async errors
-|   |   +-- es2023.js          # findLast, optional chaining, Array.at
-|   |   +-- error_handling.js  # try/catch, Error subtypes, Error.cause
-|   |   +-- closures.js        # Closures, generators, destructuring
-|   |   +-- iterators.js       # Map, Set, WeakRef, Array.from
-|   |   +-- json_parsing.js    # JSON parse/stringify, replacer/reviver
-|   |   +-- classes.js         # Inheritance, private fields, valueOf
-|   |   +-- regex.js           # Named groups, matchAll, flags
-|   |   +-- typescript.ts      # TS type stripping (QuickJS only)
-|   |   +-- timers.js          # setTimeout/setInterval (Phase 2)
-|   +-- expected/       # 13 expected stdout files (timers skipped)
+|   +-- fixtures/       # 38 test scripts (JS, MJS, TS)
+|   |   +-- hello.js                    # Basic smoke test
+|   |   +-- types.js                    # typeof for all JS types
+|   |   +-- console_methods.js          # log/info/debug, multiple args
+|   |   +-- promises.js                 # Promise + async/await
+|   |   +-- promises_advanced.js        # all/race/any, async errors
+|   |   +-- es2023.js                   # findLast, optional chaining, Array.at
+|   |   +-- error_handling.js           # try/catch, Error subtypes, Error.cause
+|   |   +-- closures.js                 # Closures, generators, destructuring
+|   |   +-- iterators.js               # Map, Set, WeakRef, Array.from
+|   |   +-- json_parsing.js            # JSON parse/stringify, replacer/reviver
+|   |   +-- classes.js                  # Inheritance, private fields, valueOf
+|   |   +-- regex.js                    # Named groups, matchAll, flags
+|   |   +-- typescript.ts              # TS type stripping
+|   |   +-- timers.js                  # setTimeout/setInterval
+|   |   +-- phase2.js                  # Event loop phases
+|   |   +-- phase2_rejection.js        # unhandledRejection
+|   |   +-- async_io.mjs               # Async I/O operations
+|   |   +-- module_esm.mjs            # ES module import/export
+|   |   +-- module_cjs.js             # CommonJS require
+|   |   +-- module_chain.js           # Chained module dependencies
+|   |   +-- json_pipeline.js          # JSON import pipeline
+|   |   +-- npm_compat.js             # npm compatibility
+|   |   +-- fs_ops.mjs                # File system operations
+|   |   +-- path_ops.mjs              # Path manipulation
+|   |   +-- crypto_ops.mjs            # Crypto operations
+|   |   +-- stat_file.js              # File stat
+|   |   +-- env_access.js             # Environment variables
+|   |   +-- perm_deny_read.js         # Permission denial (read)
+|   |   +-- perm_deny_write.js        # Permission denial (write)
+|   |   +-- realworld_config_loader.js     # Config loading end-to-end
+|   |   +-- realworld_task_runner.js       # Task runner simulation
+|   |   +-- realworld_file_processor.mjs   # File processing pipeline
+|   |   +-- realworld_event_system.js      # Event emitter pattern
+|   |   +-- realworld_promise_pool.js      # Concurrent promise pool
+|   |   +-- realworld_ts_library.ts        # TS library patterns
+|   |   +-- realworld_nested_require.js    # Nested require chains
+|   |   +-- realworld_security_boundary.js # Security boundary tests
+|   |   +-- realworld_esm_pipeline.mjs     # ESM pipeline end-to-end
+|   +-- expected/       # 37 expected stdout files
+|   +-- fixtures/lib/   # Shared modules for require tests
 +-- bench/              # Benchmarks
 
 source/dun/engine/
@@ -470,5 +495,4 @@ source/dun/security/
 ```
 
 Test pattern inspired by Node.js standalone scripts: run fixture, compare stdout to expected file.
-All 12 JS integration tests pass identically on QuickJS, JSC, and V8.
-TypeScript integration test passes on QuickJS.
+All 38 integration tests pass on QuickJS. TypeScript tests use type stripping.

@@ -301,31 +301,26 @@ dub test -c unittest    # All unit tests
 | V8 TMP bridge | `source/dun/engine/v8/cppbindings.d` | compile-time | V8TypeName coverage, tag->name mapping |
 | JSC TMP bridge | `source/dun/engine/jsc/cppbindings.d` | compile-time | JSCTypeName coverage, kJSType* alignment |
 
-### Integration Tests (14 fixtures x 3 backends)
+### Integration Tests (38 fixtures)
 
 ```sh
 # Run against a specific backend
 dub build -c quickjs && ./tests/integration/run.sh
 ```
 
-| Test | Description | Backends |
-|------|-------------|----------|
-| `hello` | Basic console.log | All 3 |
-| `types` | typeof checks for all JS types | All 3 |
-| `console_methods` | log/info/debug, multiple args, types | All 3 |
-| `promises` | Promise + async/await | All 3 |
-| `promises_advanced` | Promise.all/race/any, async error handling | All 3 |
-| `es2023` | findLast, optional chaining, nullish coalescing, Array.at, Object.hasOwn | All 3 |
-| `error_handling` | try/catch, Error subtypes, Error.cause, finally, custom errors | All 3 |
-| `closures` | Closures, IIFE, block scoping, generators, destructuring, symbols | All 3 |
-| `iterators` | Map, Set, WeakRef, for...of, Array.from, method chains | All 3 |
-| `json_parsing` | JSON parse/stringify, replacer, reviver | All 3 |
-| `classes` | Inheritance, static, private fields, computed props, valueOf | All 3 |
-| `regex` | Match, named groups, replace, split, matchAll | All 3 |
-| `typescript` | Type annotations, interfaces, type aliases, as, arrow types | QuickJS |
-| `timers` | setTimeout/setInterval (requires event loop) | Skipped |
+| Category | Tests | Coverage |
+|----------|-------|----------|
+| Core JS | `hello`, `types`, `console_methods` | Basic output, typeof, multi-arg logging |
+| Async | `promises`, `promises_advanced`, `timers`, `phase2`, `phase2_rejection`, `async_io` | Promise.all/race/any, async/await, setTimeout, unhandledRejection |
+| ES2023+ | `es2023`, `closures`, `iterators`, `classes`, `regex`, `json_parsing` | findLast, generators, Map/Set, private fields, matchAll |
+| Errors | `error_handling` | try/catch, Error subtypes, Error.cause, finally |
+| Modules | `module_esm`, `module_cjs`, `module_chain`, `json_pipeline`, `npm_compat` | ESM import/export, CJS require, chained deps, JSON import |
+| Builtins | `fs_ops`, `path_ops`, `crypto_ops`, `stat_file`, `env_access` | readFile, join/resolve, hash/randomBytes, stat, process.env |
+| Security | `perm_deny_read`, `perm_deny_write` | Permission denial enforcement |
+| TypeScript | `typescript`, `realworld_ts_library` | Type annotations, interfaces, as, arrow types |
+| Real-world | 7 end-to-end scenarios | Config loading, task runner, file processing, events, promise pool, nested require, ESM pipeline |
 
-Test pattern: fixtures in `tests/integration/fixtures/*.{js,ts}`, expected stdout in `tests/integration/expected/*.txt`.
+Test pattern: fixtures in `tests/integration/fixtures/*.{js,mjs,ts}`, expected stdout in `tests/integration/expected/*.txt`.
 
 ### TypeScript Support
 
