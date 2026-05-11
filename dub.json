@@ -161,7 +161,8 @@
 		"-preview=rvaluerefparam"
 	],
 	"libs-windows": [
-		"legacy_stdio_definitions"
+		"legacy_stdio_definitions",
+		"ucrt"
 	],
 	"license": "MIT",
 	"targetPath": "build",
