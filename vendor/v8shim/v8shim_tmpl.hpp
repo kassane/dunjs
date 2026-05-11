@@ -57,7 +57,7 @@ auto withIsolate(DunV8Isolate* iw, F&& fn)
 }
 
 // Compile-time tag types for V8 value dispatch
-enum class V8Tag { Undefined, Null, Bool, Int, Number, String, Object, Array };
+enum class V8Tag { Undefined, Null, Bool, Int, Number, String, Object, Array, Function };
 
 // Type-level map: V8Tag → v8::Type
 template <V8Tag Tag> struct V8TypeMap;
@@ -67,18 +67,21 @@ template <> struct V8TypeMap<V8Tag::Number>  { using type = v8::Number; };
 template <> struct V8TypeMap<V8Tag::String>  { using type = v8::String; };
 template <> struct V8TypeMap<V8Tag::Object>  { using type = v8::Object; };
 template <> struct V8TypeMap<V8Tag::Array>   { using type = v8::Array; };
+template <> struct V8TypeMap<V8Tag::Function> { using type = v8::Function; };
 
 // Type check dispatch: compile-time selection of IsXxx method
 template <V8Tag Tag>
 bool isV8Type(v8::Isolate* isolate, DunV8Value* vw) {
     auto val = vw->value.Get(isolate);
     if constexpr (Tag == V8Tag::Undefined) return val->IsUndefined();
-    else if constexpr (Tag == V8Tag::Null)     return val->IsNull();
-    else if constexpr (Tag == V8Tag::Bool)     return val->IsBoolean();
-    else if constexpr (Tag == V8Tag::Number)   return val->IsNumber();
-    else if constexpr (Tag == V8Tag::String)   return val->IsString();
-    else if constexpr (Tag == V8Tag::Object)   return val->IsObject();
-    else if constexpr (Tag == V8Tag::Array)    return val->IsArray();
+    else if constexpr (Tag == V8Tag::Null)      return val->IsNull();
+    else if constexpr (Tag == V8Tag::Bool)      return val->IsBoolean();
+    else if constexpr (Tag == V8Tag::Int)       return val->IsInt32();
+    else if constexpr (Tag == V8Tag::Number)    return val->IsNumber();
+    else if constexpr (Tag == V8Tag::String)    return val->IsString();
+    else if constexpr (Tag == V8Tag::Object)    return val->IsObject();
+    else if constexpr (Tag == V8Tag::Array)     return val->IsArray();
+    else if constexpr (Tag == V8Tag::Function)  return val->IsFunction();
     else return false;
 }
 

@@ -2,6 +2,7 @@ module dun.engine.jsc.backend;
 
 import dun.engine.iface;
 import dun.engine.jsc.bindings;
+import dun.engine.jsc.cppbindings : JSCTypeTag, JSCTypeChecks;
 
 class JSCEngine : IJSEngine
 {
@@ -156,46 +157,27 @@ class JSCEngine : IJSEngine
 
     bool isException(JSHandle val) @trusted { return fromHandle(val) is null; }
 
-    bool isUndefined(JSHandle val) @trusted
+    // Type checks via TMP dispatch table (mirrors JSType enum from JSC C API)
+    private static __gshared JSCTypeChecks _typeChecks;
+    private static __gshared bool _typeChecksReady;
+
+    private bool checkType(JSCTypeTag tag, JSHandle val) @trusted
     {
-        return JSValueIsUndefined(ctx, cast(JSValueRef) fromHandle(val));
+        if (!_typeChecksReady)
+        {
+            _typeChecks = JSCTypeChecks.init();
+            _typeChecksReady = true;
+        }
+        return _typeChecks.check(tag, ctx, cast(JSValueRef) fromHandle(val));
     }
 
-    bool isNull(JSHandle val) @trusted
-    {
-        return JSValueIsNull(ctx, cast(JSValueRef) fromHandle(val));
-    }
-
-    bool isString(JSHandle val) @trusted
-    {
-        return JSValueIsString(ctx, cast(JSValueRef) fromHandle(val));
-    }
-
-    bool isObject(JSHandle val) @trusted
-    {
-        return JSValueIsObject(ctx, cast(JSValueRef) fromHandle(val));
-    }
-
-    bool isFunction(JSHandle val) @trusted
-    {
-        auto v = cast(JSValueRef) fromHandle(val);
-        if (!JSValueIsObject(ctx, v))
-            return false;
-        JSValueRef exc = null;
-        auto obj = JSValueToObject(ctx, v, &exc);
-        if (obj is null) return false;
-        return JSObjectIsFunction(ctx, obj);
-    }
-
-    bool isBool(JSHandle val) @trusted
-    {
-        return JSValueIsBoolean(ctx, cast(JSValueRef) fromHandle(val));
-    }
-
-    bool isNumber(JSHandle val) @trusted
-    {
-        return JSValueIsNumber(ctx, cast(JSValueRef) fromHandle(val));
-    }
+    bool isUndefined(JSHandle val) @trusted { return checkType(JSCTypeTag.Undefined, val); }
+    bool isNull(JSHandle val) @trusted { return checkType(JSCTypeTag.Null, val); }
+    bool isString(JSHandle val) @trusted { return checkType(JSCTypeTag.String, val); }
+    bool isObject(JSHandle val) @trusted { return checkType(JSCTypeTag.Object, val); }
+    bool isFunction(JSHandle val) @trusted { return checkType(JSCTypeTag.Function, val); }
+    bool isBool(JSHandle val) @trusted { return checkType(JSCTypeTag.Boolean, val); }
+    bool isNumber(JSHandle val) @trusted { return checkType(JSCTypeTag.Number, val); }
 
     string getException()
     {

@@ -1,102 +1,213 @@
 module dun.engine.jsc.cppbindings;
 
-// Experimental: Direct D → JSC/WebKit C++ bindings using extern(C++, ns).
+// D TMP bridge for JavaScriptCore + experimental C++ bindings.
 //
-// JavaScriptCore has a stable C API (JSC/*.h) which is the recommended
-// interface and what bindings.d uses. However, the C++ internals in the
-// JSC:: and WTF:: namespaces expose additional capabilities:
-//
-//   - JSC::JSGlobalObject — direct global object access
-//   - JSC::VM — the JS virtual machine (GC, compilation tiers)
-//   - JSC::JSValue — the tagged value type (NaN-boxing)
-//   - WTF::String — WebKit's string type
-//
-// IMPORTANT: The C++ API is NOT stable across WebKit releases.
-// Use the C API (bindings.d) for production code. These bindings
-// are experimental and only useful for:
-//   1. Performance-critical paths that need to skip C API overhead
-//   2. Accessing features not exposed by the C API (e.g., JIT tiers)
-//   3. Research and benchmarking
-//
-// JSC uses the "Objective-C++" convention on macOS, but on Linux
-// with libjavascriptcoregtk, it's pure C++.
+// Two sections:
+//   1. D TMP bridge types (always available — pure D, used by backend.d)
+//   2. C++ extern bindings (version-gated — only when EngineJSC selected)
 
-version (EngineJSC):
+// ---------------------------------------------------------------------------
+// D TMP bridge (always available)
+//
+// JSC has a stable C API with JSValueGetType() returning a JSType enum,
+// making it a natural fit for compile-time dispatch. Unlike V8 (which
+// needs a C++ shim with isV8Type<Tag> + if constexpr), JSC's type system
+// is directly accessible via a single C call.
+//
+// Pattern comparison:
+//   V8:  isV8Type<Tag> dispatches via if constexpr → separate IsXxx() calls
+//   JSC: JSValueGetType() returns tag directly → single call for basic types
+//
+// For composite types (Array, Function, Date) that JSType doesn't cover,
+// we fall back to individual check functions (JSValueIsArray, etc.).
+// ---------------------------------------------------------------------------
 
-// --- WTF:: namespace (WebKit Template Framework) ---
-extern (C++, "WTF")
+/// JSC type tag — mirrors kJSType* constants from JavaScriptCore C API.
+/// Basic types (Undefined..Symbol) map 1:1 to JSType enum values.
+/// Extended types (Array, Function, Date) require separate API calls.
+enum JSCTypeTag
 {
-    // WTF::String — WebKit's string type (ref-counted, UTF-16 internal)
-    extern class String
-    {
-        bool isNull() const;
-        bool isEmpty() const;
-        uint length() const;
-    }
-
-    extern class StringImpl
-    {
-        uint length() const;
-        bool is8Bit() const;
-    }
+    Undefined = 0,
+    Null = 1,
+    Boolean = 2,
+    Number = 3,
+    String = 4,
+    Object = 5,
+    Symbol = 6,
+    Array,
+    Function,
+    Date,
 }
 
-// --- JSC:: namespace ---
-extern (C++, "JSC")
+/// Compile-time map: JSCTypeTag → display name.
+template JSCTypeName(JSCTypeTag tag)
 {
-    // JSC::HeapType — used in VM creation
-    enum HeapType : ubyte
-    {
-        SmallHeap = 0,
-        LargeHeap = 1,
-    }
-
-    // JSC::SourceOrigin — identifies script source
-    extern class SourceOrigin
-    {
-    }
-
-    // JSC::JSValue — the core tagged value (64-bit NaN-boxed on 64-bit)
-    // WARNING: This is a value type in C++, not a class. D extern(C++)
-    // classes map to C++ classes with vtables. JSValue has no vtable,
-    // so we model it as a struct.
-    struct JSCValue
-    {
-        long encoded;
-    }
-
-    // JSC::CallData — describes how to call a function
-    enum CallMode : ubyte
-    {
-        None = 0,
-        Host = 1,
-        JS = 2,
-    }
+    static if (tag == JSCTypeTag.Undefined) enum JSCTypeName = "undefined";
+    else static if (tag == JSCTypeTag.Null) enum JSCTypeName = "null";
+    else static if (tag == JSCTypeTag.Boolean) enum JSCTypeName = "boolean";
+    else static if (tag == JSCTypeTag.Number) enum JSCTypeName = "number";
+    else static if (tag == JSCTypeTag.String) enum JSCTypeName = "string";
+    else static if (tag == JSCTypeTag.Object) enum JSCTypeName = "object";
+    else static if (tag == JSCTypeTag.Symbol) enum JSCTypeName = "symbol";
+    else static if (tag == JSCTypeTag.Array) enum JSCTypeName = "array";
+    else static if (tag == JSCTypeTag.Function) enum JSCTypeName = "function";
+    else static if (tag == JSCTypeTag.Date) enum JSCTypeName = "date";
 }
 
-// --- Why extern(C) is preferred for JSC ---
-//
-// JSC's public C API (JavaScriptCore/JavaScript.h) is:
-//   1. Stable across WebKit releases
-//   2. Available on macOS (framework), Linux (libjavascriptcoregtk), iOS
-//   3. Well-documented by Apple
-//   4. Uses opaque types that hide implementation details
-//
-// The C++ internals (JSC::VM, JSC::JSGlobalObject) are:
-//   1. Unstable — layouts change between WebKit versions
-//   2. Header-only templates in many cases
-//   3. Tightly coupled to WTF:: types
-//   4. Different on Apple platforms vs GTK port
-//
-// Verdict: Use extern(C) bindings.d for production,
-// extern(C++, "JSC") only for experimental/research work.
+/// Type-check dispatch table for JSC values.
+///
+/// Two dispatch strategies:
+///   1. getType() — single JSValueGetType() call for basic types (O(1))
+///   2. check(tag) — function pointer table for all types including extended
+struct JSCTypeChecks
+{
+    import dun.engine.jsc.bindings;
+
+    alias CheckFn = extern (C) bool function(JSContextRef, JSValueRef) nothrow @nogc;
+    CheckFn[JSCTypeTag.max + 1] table;
+
+    static JSCTypeChecks init() @trusted nothrow @nogc
+    {
+        JSCTypeChecks tc;
+        tc.table[JSCTypeTag.Undefined] = &JSValueIsUndefined;
+        tc.table[JSCTypeTag.Null] = &JSValueIsNull;
+        tc.table[JSCTypeTag.Boolean] = &JSValueIsBoolean;
+        tc.table[JSCTypeTag.Number] = &JSValueIsNumber;
+        tc.table[JSCTypeTag.String] = &JSValueIsString;
+        tc.table[JSCTypeTag.Object] = &JSValueIsObject;
+        tc.table[JSCTypeTag.Symbol] = &JSValueIsSymbol;
+        tc.table[JSCTypeTag.Array] = &JSValueIsArray;
+        tc.table[JSCTypeTag.Date] = &JSValueIsDate;
+        return tc;
+    }
+
+    /// Check if a value matches the given type tag.
+    /// Function is handled specially (requires JSObjectIsFunction).
+    bool check(JSCTypeTag tag, JSContextRef ctx, JSValueRef val) @trusted nothrow @nogc
+    {
+        if (tag == JSCTypeTag.Function)
+        {
+            if (!JSValueIsObject(ctx, val))
+                return false;
+            JSValueRef exc = null;
+            auto obj = JSValueToObject(ctx, val, &exc);
+            return obj !is null && JSObjectIsFunction(ctx, obj);
+        }
+        return table[tag](ctx, val);
+    }
+
+    /// Fast path: JSValueGetType() for the 7 basic types (single C call).
+    /// Returns a JSCTypeTag in the Undefined..Symbol range.
+    /// Does NOT detect Array/Function/Date — use check() for those.
+    static JSCTypeTag getType(JSContextRef ctx, JSValueRef val) @trusted nothrow @nogc
+    {
+        return cast(JSCTypeTag) JSValueGetType(ctx, val);
+    }
+
+    /// JS typeof semantics using single-dispatch getType().
+    static string typeofString(JSContextRef ctx, JSValueRef val) @trusted nothrow
+    {
+        final switch (getType(ctx, val))
+        {
+            case JSCTypeTag.Undefined: return "undefined";
+            case JSCTypeTag.Null: return "object";
+            case JSCTypeTag.Boolean: return "boolean";
+            case JSCTypeTag.Number: return "number";
+            case JSCTypeTag.String: return "string";
+            case JSCTypeTag.Symbol: return "symbol";
+            case JSCTypeTag.Object:
+            {
+                JSValueRef exc = null;
+                auto obj = JSValueToObject(ctx, val, &exc);
+                if (obj !is null && JSObjectIsFunction(ctx, obj))
+                    return "function";
+                return "object";
+            }
+            case JSCTypeTag.Array: return "object";
+            case JSCTypeTag.Function: return "function";
+            case JSCTypeTag.Date: return "object";
+        }
+    }
+}
 
 unittest
 {
-    version (DunTest)
+    // Verify TMP name mapping covers all tags
+    static foreach (tag; __traits(allMembers, JSCTypeTag))
+    {{
+        enum t = __traits(getMember, JSCTypeTag, tag);
+        static assert(JSCTypeName!t.length > 0,
+            "Missing JSCTypeName for " ~ tag);
+    }}
+
+    // Verify basic JSCTypeTag values match kJSType* constants
+    import dun.engine.jsc.bindings;
+    static assert(cast(uint) JSCTypeTag.Undefined == kJSTypeUndefined);
+    static assert(cast(uint) JSCTypeTag.Null == kJSTypeNull);
+    static assert(cast(uint) JSCTypeTag.Boolean == kJSTypeBoolean);
+    static assert(cast(uint) JSCTypeTag.Number == kJSTypeNumber);
+    static assert(cast(uint) JSCTypeTag.String == kJSTypeString);
+    static assert(cast(uint) JSCTypeTag.Object == kJSTypeObject);
+    static assert(cast(uint) JSCTypeTag.Symbol == kJSTypeSymbol);
+}
+
+// ---------------------------------------------------------------------------
+// C++ extern bindings (only when JSC engine selected)
+//
+// Experimental: Direct D → JSC/WebKit C++ bindings using extern(C++, ns).
+// The C++ API is NOT stable across WebKit releases — use the C API
+// (bindings.d) for production code.
+// ---------------------------------------------------------------------------
+
+version (EngineJSC)
+{
+    extern (C++, "WTF")
     {
-        // Compile-time verification of type layouts
-        static assert(JSCValue.sizeof == 8);
-        static assert(is(typeof(HeapType.SmallHeap)));
+        extern class String
+        {
+            bool isNull() const;
+            bool isEmpty() const;
+            uint length() const;
+        }
+
+        extern class StringImpl
+        {
+            uint length() const;
+            bool is8Bit() const;
+        }
+    }
+
+    extern (C++, "JSC")
+    {
+        enum HeapType : ubyte
+        {
+            SmallHeap = 0,
+            LargeHeap = 1,
+        }
+
+        extern class SourceOrigin
+        {
+        }
+
+        struct JSCValue
+        {
+            long encoded;
+        }
+
+        enum CallMode : ubyte
+        {
+            None = 0,
+            Host = 1,
+            JS = 2,
+        }
+    }
+
+    unittest
+    {
+        version (DunTest)
+        {
+            static assert(JSCValue.sizeof == 8);
+            static assert(is(typeof(HeapType.SmallHeap)));
+        }
     }
 }

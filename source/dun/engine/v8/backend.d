@@ -2,6 +2,7 @@ module dun.engine.v8.backend;
 
 import dun.engine.iface;
 import dun.engine.v8.bindings;
+import dun.engine.v8.cppbindings : V8TypeTag, V8TypeChecks;
 
 class V8Engine : IJSEngine
 {
@@ -147,13 +148,28 @@ class V8Engine : IJSEngine
     }
 
     bool isException(JSHandle val) @trusted { return fromHandle(val) is null; }
-    bool isUndefined(JSHandle val) @trusted { return dun_v8_value_is_undefined(fromHandle(val)) != 0; }
-    bool isNull(JSHandle val) @trusted { return dun_v8_value_is_null(fromHandle(val)) != 0; }
-    bool isString(JSHandle val) @trusted { return dun_v8_value_is_string(fromHandle(val)) != 0; }
-    bool isObject(JSHandle val) @trusted { return dun_v8_value_is_object(fromHandle(val)) != 0; }
-    bool isFunction(JSHandle val) @trusted { return dun_v8_value_is_function(fromHandle(val)) != 0; }
-    bool isBool(JSHandle val) @trusted { return dun_v8_value_is_bool(fromHandle(val)) != 0; }
-    bool isNumber(JSHandle val) @trusted { return dun_v8_value_is_number(fromHandle(val)) != 0; }
+
+    // Type checks via TMP dispatch table (mirrors C++ isV8Type<Tag>)
+    private static __gshared V8TypeChecks _typeChecks;
+    private static __gshared bool _typeChecksReady;
+
+    private bool checkType(V8TypeTag tag, JSHandle val) @trusted
+    {
+        if (!_typeChecksReady)
+        {
+            _typeChecks = V8TypeChecks.init();
+            _typeChecksReady = true;
+        }
+        return _typeChecks.check(tag, fromHandle(val));
+    }
+
+    bool isUndefined(JSHandle val) @trusted { return checkType(V8TypeTag.Undefined, val); }
+    bool isNull(JSHandle val) @trusted { return checkType(V8TypeTag.Null, val); }
+    bool isString(JSHandle val) @trusted { return checkType(V8TypeTag.String, val); }
+    bool isObject(JSHandle val) @trusted { return checkType(V8TypeTag.Object, val); }
+    bool isFunction(JSHandle val) @trusted { return checkType(V8TypeTag.Function, val); }
+    bool isBool(JSHandle val) @trusted { return checkType(V8TypeTag.Bool, val); }
+    bool isNumber(JSHandle val) @trusted { return checkType(V8TypeTag.Number, val); }
 
     string getException() @trusted
     {

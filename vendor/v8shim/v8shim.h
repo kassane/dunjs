@@ -61,6 +61,7 @@ int dun_v8_value_to_bool(DunV8Context* ctx, DunV8Value* val);
 int dun_v8_value_is_undefined(DunV8Value* val);
 int dun_v8_value_is_null(DunV8Value* val);
 int dun_v8_value_is_bool(DunV8Value* val);
+int dun_v8_value_is_int(DunV8Value* val);
 int dun_v8_value_is_number(DunV8Value* val);
 int dun_v8_value_is_string(DunV8Value* val);
 int dun_v8_value_is_object(DunV8Value* val);

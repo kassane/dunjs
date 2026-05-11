@@ -1,73 +1,19 @@
 module dun.engine.v8.cppbindings;
 
-// D → V8 C++ bindings using extern(C++, "v8").
+// D → V8 C++ bindings and D TMP bridge pattern.
 //
-// Generated/verified via:
-//   clang -Xclang -ast-dump=json -fsyntax-only -std=c++17 \
-//         -I vendor/v8/include vendor/v8shim/v8shim.cpp | c++filt
-//
-// Only static-method classes are bound here — instance methods on extern
-// C++ classes generate vtable entries that require linking against V8's
-// C++ objects, which defeats the purpose of the C shim.
-//
-// Bindable (static methods, no vtable):
-//   v8::V8 — engine lifecycle
-//
-// NOT bindable without V8 C++ objects:
-//   v8::Isolate, v8::HandleScope, v8::HeapStatistics, etc.
-//   (all have instance methods → vtable references → linker errors)
-//
-// Template return types (Local<T>, MaybeLocal<T>) can never be received
-// in D — use the C shim (vendor/v8shim/) for all value operations.
-
-version (EngineV8):
-
-extern (C++, "v8")
-{
-    // v8::V8 — engine lifecycle (all statics, no vtable)
-    extern class V8
-    {
-    static:
-        void SetFlagsFromString(const(char)* str, size_t length);
-        void SetFlagsFromCommandLine(int* argc, char** argv, bool remove_flags);
-        const(char)* GetVersion();
-        bool Initialize();
-        bool Dispose();
-        bool InitializeICU(const(char)* icu_data_file = null);
-        void InitializeICUDefaultLocation(const(char)* exec_path);
-        void InitializeExternalStartupData(const(char)* directory_path);
-        void InitializePlatform(void* platform);
-        void DisposePlatform();
-    }
-}
-
-extern (C++, "v8", "platform")
-{
-    void* NewDefaultPlatform(int thread_pool_size = 0);
-}
-
-// C shim handles everything else (Local<T>, Global<T>, value ops)
-extern (C) nothrow @nogc
-{
-    const(char)* dun_v8_version();
-}
+// Two sections:
+//   1. D TMP bridge types (always available — pure D, used by backend.d)
+//   2. C++ extern bindings (version-gated — only when EngineV8 selected)
 
 // ---------------------------------------------------------------------------
-// D TMP ↔ C++ TMP bridge pattern
+// D TMP bridge (always available)
 //
-// The C++ side (vendor/v8shim/v8shim_tmpl.hpp) uses template metaprogramming
-// to eliminate boilerplate — withContext<F> wraps the Isolate::Scope /
-// HandleScope / Context::Scope RAII pattern; V8TypeMap<Tag> maps tags to
-// v8::Types at compile time; isV8Type<Tag> dispatches type checks via
-// if constexpr.
+// Mirrors C++ TMP in vendor/v8shim/v8shim_tmpl.hpp:
+//   C++: V8Tag enum, V8TypeMap<Tag>, isV8Type<Tag>, withContext<F>
+//   D:   V8TypeTag enum, V8TypeName template, V8TypeChecks struct
 //
-// The D side mirrors this with compile-time features:
-//   - enum V8TypeTag: matches C++ V8Tag enum for shared semantics
-//   - V8TypeName template: maps tag → C shim function suffix (like V8TypeMap)
-//   - static foreach: generates extern(C) declarations in bulk
-//   - mixin template: creates type-safe wrapper structs from tag sequences
-//
-// Both sides resolve at compile time → zero runtime overhead.
+// Both resolve at compile time → zero runtime overhead.
 // Adding a new V8 type requires:
 //   1. C++: add enum value + template specialization + if constexpr case
 //   2. D:   add enum value + V8TypeName entry → wrappers auto-generated
@@ -118,6 +64,7 @@ struct V8TypeChecks
         tc.table[V8TypeTag.Undefined] = &dun_v8_value_is_undefined;
         tc.table[V8TypeTag.Null] = &dun_v8_value_is_null;
         tc.table[V8TypeTag.Bool] = &dun_v8_value_is_bool;
+        tc.table[V8TypeTag.Int] = &dun_v8_value_is_int;
         tc.table[V8TypeTag.Number] = &dun_v8_value_is_number;
         tc.table[V8TypeTag.String] = &dun_v8_value_is_string;
         tc.table[V8TypeTag.Object] = &dun_v8_value_is_object;
@@ -134,22 +81,60 @@ struct V8TypeChecks
 
 unittest
 {
-    version (DunTest)
+    // Verify TMP name mapping covers all tags
+    static foreach (tag; __traits(allMembers, V8TypeTag))
+    {{
+        enum t = __traits(getMember, V8TypeTag, tag);
+        static assert(V8TypeName!t.length > 0,
+            "Missing V8TypeName for " ~ tag);
+    }}
+}
+
+// ---------------------------------------------------------------------------
+// C++ extern bindings (only when V8 engine selected)
+//
+// Only static-method classes are bound here — instance methods on extern
+// C++ classes generate vtable entries that require linking against V8's
+// C++ objects, which defeats the purpose of the C shim.
+// ---------------------------------------------------------------------------
+
+version (EngineV8)
+{
+    extern (C++, "v8")
     {
-        static assert(is(typeof(&V8.GetVersion)));
-        static assert(is(typeof(&V8.Initialize)));
-        static assert(is(typeof(&V8.Dispose)));
+        extern class V8
+        {
+        static:
+            void SetFlagsFromString(const(char)* str, size_t length);
+            void SetFlagsFromCommandLine(int* argc, char** argv, bool remove_flags);
+            const(char)* GetVersion();
+            bool Initialize();
+            bool Dispose();
+            bool InitializeICU(const(char)* icu_data_file = null);
+            void InitializeICUDefaultLocation(const(char)* exec_path);
+            void InitializeExternalStartupData(const(char)* directory_path);
+            void InitializePlatform(void* platform);
+            void DisposePlatform();
+        }
+    }
 
-        // Verify TMP name mapping covers all tags
-        static foreach (tag; __traits(allMembers, V8TypeTag))
-        {{
-            enum t = __traits(getMember, V8TypeTag, tag);
-            static assert(V8TypeName!t.length > 0,
-                "Missing V8TypeName for " ~ tag);
-        }}
+    extern (C++, "v8", "platform")
+    {
+        void* NewDefaultPlatform(int thread_pool_size = 0);
+    }
 
-        // Verify function table can be initialized
-        auto tc = V8TypeChecks.init();
-        static assert(V8TypeChecks.table.length == V8TypeTag.max + 1);
+    extern (C) nothrow @nogc
+    {
+        const(char)* dun_v8_version();
+    }
+
+    unittest
+    {
+        version (DunTest)
+        {
+            static assert(is(typeof(&V8.GetVersion)));
+            static assert(is(typeof(&V8.Initialize)));
+            static assert(is(typeof(&V8.Dispose)));
+        }
     }
 }
