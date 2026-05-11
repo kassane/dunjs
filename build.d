@@ -850,6 +850,9 @@ bool buildQuickJS(ref const Toolchain tc, ref const BuildOptions opts)
     {
         // LDC links with the static CRT (/MT). QuickJS must match to avoid
         // unresolved __imp_* math symbols (acosh, asinh, fesetround, etc.)
+        // CMP0091 (CMake 3.15) must be NEW for CMAKE_MSVC_RUNTIME_LIBRARY to work;
+        // QuickJS sets cmake_minimum_required(3.10), so the policy defaults to OLD.
+        cmakeArgs ~= "-DCMAKE_POLICY_DEFAULT_CMP0091=NEW";
         cmakeArgs ~= "-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded";
 
         if (useNinja)
