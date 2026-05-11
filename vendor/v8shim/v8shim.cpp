@@ -106,7 +106,7 @@ DunV8Value* dun_v8_eval(DunV8Context* cw, const char* source,
         v8::NewStringType::kNormal, static_cast<int>(source_len))
         .ToLocalChecked();
 
-    v8::ScriptOrigin origin(
+    v8::ScriptOrigin origin(isolate,
         v8::String::NewFromUtf8(isolate, filename ? filename : "<eval>")
             .ToLocalChecked());
 
@@ -140,6 +140,8 @@ DunV8Value* dun_v8_new_undefined(DunV8Context* cw) {
     auto* isolate = cw->isolate_wrapper->isolate;
     v8::Isolate::Scope s(isolate);
     v8::HandleScope h(isolate);
+    auto context = cw->context.Get(isolate);
+    v8::Context::Scope cs(context);
     return wrapValue(cw->isolate_wrapper, v8::Undefined(isolate));
 }
 
@@ -147,6 +149,8 @@ DunV8Value* dun_v8_new_null(DunV8Context* cw) {
     auto* isolate = cw->isolate_wrapper->isolate;
     v8::Isolate::Scope s(isolate);
     v8::HandleScope h(isolate);
+    auto context = cw->context.Get(isolate);
+    v8::Context::Scope cs(context);
     return wrapValue(cw->isolate_wrapper, v8::Null(isolate));
 }
 
@@ -154,6 +158,8 @@ DunV8Value* dun_v8_new_bool(DunV8Context* cw, int val) {
     auto* isolate = cw->isolate_wrapper->isolate;
     v8::Isolate::Scope s(isolate);
     v8::HandleScope h(isolate);
+    auto context = cw->context.Get(isolate);
+    v8::Context::Scope cs(context);
     return wrapValue(cw->isolate_wrapper,
         v8::Boolean::New(isolate, val != 0));
 }
@@ -162,6 +168,8 @@ DunV8Value* dun_v8_new_int(DunV8Context* cw, int val) {
     auto* isolate = cw->isolate_wrapper->isolate;
     v8::Isolate::Scope s(isolate);
     v8::HandleScope h(isolate);
+    auto context = cw->context.Get(isolate);
+    v8::Context::Scope cs(context);
     return wrapValue(cw->isolate_wrapper,
         v8::Integer::New(isolate, val));
 }
@@ -170,6 +178,8 @@ DunV8Value* dun_v8_new_number(DunV8Context* cw, double val) {
     auto* isolate = cw->isolate_wrapper->isolate;
     v8::Isolate::Scope s(isolate);
     v8::HandleScope h(isolate);
+    auto context = cw->context.Get(isolate);
+    v8::Context::Scope cs(context);
     return wrapValue(cw->isolate_wrapper,
         v8::Number::New(isolate, val));
 }
@@ -178,6 +188,8 @@ DunV8Value* dun_v8_new_string(DunV8Context* cw, const char* str, size_t len) {
     auto* isolate = cw->isolate_wrapper->isolate;
     v8::Isolate::Scope s(isolate);
     v8::HandleScope h(isolate);
+    auto context = cw->context.Get(isolate);
+    v8::Context::Scope cs(context);
     auto v = v8::String::NewFromUtf8(isolate, str,
         v8::NewStringType::kNormal, static_cast<int>(len))
         .ToLocalChecked();
@@ -188,6 +200,8 @@ DunV8Value* dun_v8_new_object(DunV8Context* cw) {
     auto* isolate = cw->isolate_wrapper->isolate;
     v8::Isolate::Scope s(isolate);
     v8::HandleScope h(isolate);
+    auto context = cw->context.Get(isolate);
+    v8::Context::Scope cs(context);
     return wrapValue(cw->isolate_wrapper, v8::Object::New(isolate));
 }
 
@@ -195,16 +209,68 @@ DunV8Value* dun_v8_new_array(DunV8Context* cw, int length) {
     auto* isolate = cw->isolate_wrapper->isolate;
     v8::Isolate::Scope s(isolate);
     v8::HandleScope h(isolate);
+    auto context = cw->context.Get(isolate);
+    v8::Context::Scope cs(context);
     return wrapValue(cw->isolate_wrapper,
         v8::Array::New(isolate, length));
+}
+
+struct DunV8FunctionData {
+    DunV8NativeCallback callback;
+    DunV8Context* context;
+    void* user_data;
+};
+
+static void v8FunctionTrampoline(const v8::FunctionCallbackInfo<v8::Value>& info) {
+    auto* isolate = info.GetIsolate();
+    v8::HandleScope handle_scope(isolate);
+
+    auto external = v8::Local<v8::External>::Cast(info.Data());
+    auto* fd = static_cast<DunV8FunctionData*>(external->Value());
+
+    int argc = info.Length();
+    std::vector<DunV8Value*> argv(argc);
+    for (int i = 0; i < argc; i++)
+        argv[i] = wrapValue(fd->context->isolate_wrapper, info[i]);
+
+    DunV8Value* thisVal = wrapValue(fd->context->isolate_wrapper, info.This());
+
+    DunV8Value* result = fd->callback(fd->context, thisVal,
+        argc, argc > 0 ? argv.data() : nullptr, fd->user_data);
+
+    // Free temporary argv wrappers
+    dun_v8_value_unref(thisVal);
+    for (int i = 0; i < argc; i++)
+        dun_v8_value_unref(argv[i]);
+
+    if (result) {
+        info.GetReturnValue().Set(result->value.Get(isolate));
+        dun_v8_value_unref(result);
+    }
 }
 
 DunV8Value* dun_v8_new_function(DunV8Context* cw, DunV8NativeCallback cb,
     const char* name, void* data)
 {
-    (void)cb; (void)name; (void)data;
-    /* TODO: implement via v8::FunctionTemplate + External data */
-    return dun_v8_new_undefined(cw);
+    auto* isolate = cw->isolate_wrapper->isolate;
+    v8::Isolate::Scope isolate_scope(isolate);
+    v8::HandleScope handle_scope(isolate);
+    auto context = cw->context.Get(isolate);
+    v8::Context::Scope context_scope(context);
+
+    // Store callback data (leaked intentionally — lives for isolate lifetime)
+    auto* fd = new DunV8FunctionData{cb, cw, data};
+    auto external = v8::External::New(isolate, fd);
+
+    auto tmpl = v8::FunctionTemplate::New(isolate, v8FunctionTrampoline, external);
+    auto fn = tmpl->GetFunction(context).ToLocalChecked();
+
+    if (name) {
+        auto v8name = v8::String::NewFromUtf8(isolate, name).ToLocalChecked();
+        fn->SetName(v8name);
+    }
+
+    return wrapValue(cw->isolate_wrapper, fn);
 }
 
 const char* dun_v8_value_to_string(DunV8Context* cw, DunV8Value* vw, size_t* len) {
@@ -212,6 +278,7 @@ const char* dun_v8_value_to_string(DunV8Context* cw, DunV8Value* vw, size_t* len
     v8::Isolate::Scope s(isolate);
     v8::HandleScope h(isolate);
     auto context = cw->context.Get(isolate);
+    v8::Context::Scope cs(context);
     auto val = vw->value.Get(isolate);
     v8::String::Utf8Value utf8(isolate, val);
     if (!*utf8) { *len = 0; return nullptr; }
@@ -231,6 +298,7 @@ int dun_v8_value_to_int(DunV8Context* cw, DunV8Value* vw) {
     v8::Isolate::Scope s(isolate);
     v8::HandleScope h(isolate);
     auto context = cw->context.Get(isolate);
+    v8::Context::Scope cs(context);
     auto val = vw->value.Get(isolate);
     return val->Int32Value(context).FromMaybe(0);
 }
@@ -240,6 +308,7 @@ double dun_v8_value_to_number(DunV8Context* cw, DunV8Value* vw) {
     v8::Isolate::Scope s(isolate);
     v8::HandleScope h(isolate);
     auto context = cw->context.Get(isolate);
+    v8::Context::Scope cs(context);
     auto val = vw->value.Get(isolate);
     return val->NumberValue(context).FromMaybe(0.0);
 }
@@ -248,6 +317,8 @@ int dun_v8_value_to_bool(DunV8Context* cw, DunV8Value* vw) {
     auto* isolate = cw->isolate_wrapper->isolate;
     v8::Isolate::Scope s(isolate);
     v8::HandleScope h(isolate);
+    auto context = cw->context.Get(isolate);
+    v8::Context::Scope cs(context);
     return vw->value.Get(isolate)->BooleanValue(isolate) ? 1 : 0;
 }
 
@@ -312,6 +383,7 @@ DunV8Value* dun_v8_get_property(DunV8Context* cw, DunV8Value* obj, const char* n
     v8::Isolate::Scope s(isolate);
     v8::HandleScope h(isolate);
     auto context = cw->context.Get(isolate);
+    v8::Context::Scope cs(context);
     auto o = obj->value.Get(isolate).As<v8::Object>();
     auto key = v8::String::NewFromUtf8(isolate, name).ToLocalChecked();
     auto val = o->Get(context, key);
@@ -327,6 +399,7 @@ void dun_v8_set_property(DunV8Context* cw, DunV8Value* obj,
     v8::Isolate::Scope s(isolate);
     v8::HandleScope h(isolate);
     auto context = cw->context.Get(isolate);
+    v8::Context::Scope cs(context);
     auto o = obj->value.Get(isolate).As<v8::Object>();
     auto key = v8::String::NewFromUtf8(isolate, name).ToLocalChecked();
     o->Set(context, key, val->value.Get(isolate)).FromMaybe(false);
@@ -337,6 +410,7 @@ DunV8Value* dun_v8_global(DunV8Context* cw) {
     v8::Isolate::Scope s(isolate);
     v8::HandleScope h(isolate);
     auto context = cw->context.Get(isolate);
+    v8::Context::Scope cs(context);
     return wrapValue(cw->isolate_wrapper,
         context->Global());
 }
@@ -427,10 +501,12 @@ DunV8Value* dun_v8_call(DunV8Context* cw, DunV8Value* func,
 }
 
 int dun_v8_has_pending_microtasks(DunV8Isolate* iw) {
+    v8::Isolate::Scope s(iw->isolate);
     return iw->isolate->HasPendingBackgroundTasks() ? 1 : 0;
 }
 
 void dun_v8_drain_microtasks(DunV8Isolate* iw) {
+    v8::Isolate::Scope s(iw->isolate);
     iw->isolate->PerformMicrotaskCheckpoint();
 }
 
