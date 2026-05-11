@@ -12,10 +12,6 @@ permissions:
   issues: write
   actions: read
 
-concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: true
-
 jobs:
   # ── Build matrix (engine × OS) ──────────────────────────────────
   build:
@@ -36,6 +32,9 @@ jobs:
           - { os: ubuntu-latest, engine: v8 }
 
     steps:
+      - name: Runner check
+        run: echo "Runner started on ${{ runner.os }}"
+
       - uses: actions/checkout@v4
 
       - uses: dlang-community/setup-dlang@v2
