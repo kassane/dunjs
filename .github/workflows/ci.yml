@@ -41,33 +41,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install LDC (Linux)
-        if: runner.os == 'Linux'
-        run: |
-          curl -fsSL "https://github.com/ldc-developers/ldc/releases/download/v${LDC_VERSION}/ldc2-${LDC_VERSION}-linux-x86_64.tar.xz" -o /tmp/ldc2.tar.xz
-          tar -xf /tmp/ldc2.tar.xz -C /tmp/
-          echo "/tmp/ldc2-${LDC_VERSION}-linux-x86_64/bin" >> "$GITHUB_PATH"
+      - name: Install ldcup (POSIX)
+        if: runner.os != 'Windows'
+        run: curl -sSf https://raw.githubusercontent.com/kassane/ldcup/main/scripts/install.sh | sh
 
-      - name: Install LDC (macOS)
-        if: runner.os == 'macOS'
-        run: |
-          if [ "$(uname -m)" = "arm64" ]; then ARCH="arm64"; else ARCH="x86_64"; fi
-          curl -fsSL "https://github.com/ldc-developers/ldc/releases/download/v${LDC_VERSION}/ldc2-${LDC_VERSION}-osx-${ARCH}.tar.xz" -o /tmp/ldc2.tar.xz
-          tar -xf /tmp/ldc2.tar.xz -C /tmp/
-          echo "/tmp/ldc2-${LDC_VERSION}-osx-${ARCH}/bin" >> "$GITHUB_PATH"
-
-      - name: Install LDC (Windows)
+      - name: Install ldcup (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
-        run: |
-          $url = "https://github.com/ldc-developers/ldc/releases/download/v$env:LDC_VERSION/ldc2-$env:LDC_VERSION-windows-multilib.7z"
-          Invoke-WebRequest -Uri $url -OutFile "$env:TEMP\ldc2.7z"
-          7z x "$env:TEMP\ldc2.7z" -o"$env:TEMP\ldc2" -y
-          "$env:TEMP\ldc2\ldc2-$env:LDC_VERSION-windows-multilib\bin" | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
+        run: iwr -useb https://raw.githubusercontent.com/kassane/ldcup/main/scripts/install.ps1 | iex
 
-      - name: Verify LDC
-        run: ldc2 --version
-        shell: bash
+      - name: Install LDC
+        run: ldcup install ldc2-${{ env.LDC_VERSION }}
 
       - name: Install system deps (JSC · Linux)
         if: matrix.engine == 'jsc' && runner.os == 'Linux'
@@ -234,33 +218,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install LDC (Linux)
-        if: runner.os == 'Linux'
-        run: |
-          curl -fsSL "https://github.com/ldc-developers/ldc/releases/download/v${LDC_VERSION}/ldc2-${LDC_VERSION}-linux-x86_64.tar.xz" -o /tmp/ldc2.tar.xz
-          tar -xf /tmp/ldc2.tar.xz -C /tmp/
-          echo "/tmp/ldc2-${LDC_VERSION}-linux-x86_64/bin" >> "$GITHUB_PATH"
+      - name: Install ldcup (POSIX)
+        if: runner.os != 'Windows'
+        run: curl -sSf https://raw.githubusercontent.com/kassane/ldcup/main/scripts/install.sh | sh
 
-      - name: Install LDC (macOS)
-        if: runner.os == 'macOS'
-        run: |
-          if [ "$(uname -m)" = "arm64" ]; then ARCH="arm64"; else ARCH="x86_64"; fi
-          curl -fsSL "https://github.com/ldc-developers/ldc/releases/download/v${LDC_VERSION}/ldc2-${LDC_VERSION}-osx-${ARCH}.tar.xz" -o /tmp/ldc2.tar.xz
-          tar -xf /tmp/ldc2.tar.xz -C /tmp/
-          echo "/tmp/ldc2-${LDC_VERSION}-osx-${ARCH}/bin" >> "$GITHUB_PATH"
-
-      - name: Install LDC (Windows)
+      - name: Install ldcup (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
-        run: |
-          $url = "https://github.com/ldc-developers/ldc/releases/download/v$env:LDC_VERSION/ldc2-$env:LDC_VERSION-windows-multilib.7z"
-          Invoke-WebRequest -Uri $url -OutFile "$env:TEMP\ldc2.7z"
-          7z x "$env:TEMP\ldc2.7z" -o"$env:TEMP\ldc2" -y
-          "$env:TEMP\ldc2\ldc2-$env:LDC_VERSION-windows-multilib\bin" | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
+        run: iwr -useb https://raw.githubusercontent.com/kassane/ldcup/main/scripts/install.ps1 | iex
 
-      - name: Verify LDC
-        run: ldc2 --version
-        shell: bash
+      - name: Install LDC
+        run: ldcup install ldc2-${{ env.LDC_VERSION }}
 
       - name: Setup MSVC (Windows)
         if: runner.os == 'Windows'

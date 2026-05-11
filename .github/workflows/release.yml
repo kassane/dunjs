@@ -32,20 +32,11 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Install LDC (Linux)
-        if: runner.os == 'Linux'
-        run: |
-          curl -fsSL "https://github.com/ldc-developers/ldc/releases/download/v${LDC_VERSION}/ldc2-${LDC_VERSION}-linux-x86_64.tar.xz" -o /tmp/ldc2.tar.xz
-          tar -xf /tmp/ldc2.tar.xz -C /tmp/
-          echo "/tmp/ldc2-${LDC_VERSION}-linux-x86_64/bin" >> "$GITHUB_PATH"
+      - name: Install ldcup
+        run: curl -sSf https://raw.githubusercontent.com/kassane/ldcup/main/scripts/install.sh | sh
 
-      - name: Install LDC (macOS)
-        if: runner.os == 'macOS'
-        run: |
-          if [ "$(uname -m)" = "arm64" ]; then ARCH="arm64"; else ARCH="x86_64"; fi
-          curl -fsSL "https://github.com/ldc-developers/ldc/releases/download/v${LDC_VERSION}/ldc2-${LDC_VERSION}-osx-${ARCH}.tar.xz" -o /tmp/ldc2.tar.xz
-          tar -xf /tmp/ldc2.tar.xz -C /tmp/
-          echo "/tmp/ldc2-${LDC_VERSION}-osx-${ARCH}/bin" >> "$GITHUB_PATH"
+      - name: Install LDC
+        run: ldcup install ldc2-${{ env.LDC_VERSION }}
 
       - name: Install JSC dev (Linux)
         if: matrix.engine == 'jsc' && runner.os == 'Linux'
