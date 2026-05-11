@@ -43,6 +43,8 @@ void installGlobals(IJSEngine engine, DunState* state) @trusted
         registerNetModule(ctx);
         registerHttpModule(ctx);
         installRequire(ctx);
+        import dun.runtime.worker_api : installWorkerAPI;
+        installWorkerAPI(ctx, state);
     }
     else version (EngineJSC)
     {

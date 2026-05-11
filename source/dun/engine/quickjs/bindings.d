@@ -328,6 +328,15 @@ void JS_FreeValueRT(JSRuntime* rt, JSValue v);
 // --- Value extraction ---
 int JS_ToBool(JSContext* ctx, JSValueConst val);
 int JS_ToInt32(JSContext* ctx, int* pres, JSValueConst val);
+
+// JS_ToUint32 is a static inline in quickjs.h — replicate in D
+int JS_ToUint32(JSContext* ctx, uint* pres, JSValueConst val) nothrow @trusted
+{
+    int res;
+    int ret = JS_ToInt32(ctx, &res, val);
+    if (pres) *pres = cast(uint) res;
+    return ret;
+}
 int JS_ToInt64(JSContext* ctx, long* pres, JSValueConst val);
 int JS_ToFloat64(JSContext* ctx, double* pres, JSValueConst val);
 const(char)* JS_ToCStringLen2(JSContext* ctx, size_t* plen, JSValueConst val, bool cesu8);
@@ -392,8 +401,25 @@ JSValue JS_CallConstructor(JSContext* ctx, JSValueConst func_obj,
     int argc, JSValueConst* argv);
 
 // --- ArrayBuffer ---
+alias JSFreeArrayBufferDataFunc =
+    extern (C) void function(JSRuntime* rt, void* opaque, void* ptr) nothrow @nogc;
 JSValue JS_NewArrayBufferCopy(JSContext* ctx, const(ubyte)* buf, size_t len);
+JSValue JS_NewArrayBuffer(JSContext* ctx, ubyte* buf, size_t len,
+    JSFreeArrayBufferDataFunc free_func, void* opaque, bool is_shared);
 ubyte* JS_GetArrayBuffer(JSContext* ctx, size_t* psize, JSValueConst obj);
+
+// --- TypedArray ---
+enum JSTypedArrayEnum : int
+{
+    uint8Clamped = 0, int8 = 1, uint8 = 2, int16 = 3, uint16 = 4,
+    int32 = 5, uint32 = 6, bigInt64 = 7, bigUint64 = 8,
+    float16 = 9, float32 = 10, float64 = 11,
+}
+JSValue JS_NewTypedArray(JSContext* ctx, int argc, JSValueConst* argv,
+    JSTypedArrayEnum array_type);
+JSValue JS_GetTypedArrayBuffer(JSContext* ctx, JSValueConst obj,
+    size_t* pbyte_offset, size_t* pbyte_length, size_t* pbytes_per_element);
+int JS_GetTypedArrayType(JSValueConst obj);
 
 // --- Atom ---
 JSAtom JS_NewAtom(JSContext* ctx, const(char)* str);

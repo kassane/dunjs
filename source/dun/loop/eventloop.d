@@ -66,8 +66,10 @@ struct EventLoop
             {
                 import dun.builtins.net : pollNetIO;
                 import dun.builtins.http : pollHttpIO;
+                import dun.workers.worker : pollWorkerMessages;
                 pollNetIO();
                 pollHttpIO();
+                pollWorkerMessages(cast(JSContext*) engine.rawContext());
             }
 
             if (!engine.hasPendingJobs()
@@ -103,6 +105,7 @@ struct EventLoop
             import dun.builtins.net : hasActiveNetIO;
             import dun.builtins.http : hasActiveHttpIO;
             import dun.loop.pending : hasPending;
+            import dun.workers.worker : hasActiveWorkers;
             return engine.hasPendingJobs()
                 || !timers.empty()
                 || !microtasks.empty()
@@ -110,7 +113,8 @@ struct EventLoop
                 || outstandingRefs > 0
                 || hasActiveNetIO()
                 || hasActiveHttpIO()
-                || hasPending();
+                || hasPending()
+                || hasActiveWorkers();
         }
         else
         {

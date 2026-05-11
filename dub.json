@@ -1,136 +1,230 @@
 {
-    "name": "dunjs",
-    "description": "A secure JavaScript runtime written in D",
-    "authors": ["Matheus C. Franca"],
-    "license": "MIT",
-
-    "targetType": "executable",
-    "targetName": "dun",
-    "targetPath": "build",
-
-    "sourcePaths": ["source"],
-    "importPaths": ["source"],
-    "stringImportPaths": ["source"],
-
-    "toolchainRequirements": {
-        "frontend": ">=2.112"
-    },
-
-    "dflags-ldc": ["-preview=fixImmutableConv", "-preview=fixAliasThis", "-preview=rvaluerefparam"],
-    "dflags-dmd": ["-preview=fixImmutableConv", "-preview=fixAliasThis", "-preview=rvalueRefParam"],
-
-    "dependencies": {
-        "eventcore": {"path": "vendor/eventcore"},
-        "taggedalgebraic": {"path": "vendor/taggedalgebraic"},
-        "during": {"path": "vendor/during"}
-    },
-
-    "subConfigurations": {
-        "eventcore": "epoll"
-    },
-
-    "libs-linux": ["m", "dl", "pthread", "resolv"],
-    "libs-osx": ["m", "pthread"],
-    "libs-windows": ["legacy_stdio_definitions"],
-
-    "buildTypes": {
-        "release": {
-            "dflags": ["-O", "-release", "-boundscheck=off"],
-            "lflags-posix": ["-s"],
-            "lflags-windows": ["/OPT:REF", "/OPT:ICF"]
-        },
-        "release-debug": {
-            "dflags": ["-O", "-g"]
-        }
-    },
-
-    "configurations": [
-        {
-            "name": "quickjs",
-            "versions": ["EngineQuickJS"],
-            "preBuildCommands-posix": [
-                "$DC -run $PACKAGE_DIR/build.d --backend=quickjs"
-            ],
-            "preBuildCommands-windows": [
-                "$DC -run $PACKAGE_DIR\\build.d --backend=quickjs"
-            ],
-            "excludedSourceFiles": [
-                "source/dun/engine/jsc/backend.d",
-                "source/dun/engine/jsc/cppbindings.d",
-                "source/dun/engine/v8/backend.d",
-                "source/dun/engine/v8/cppbindings.d"
-            ],
-            "libs-posix": ["qjs"],
-            "lflags-posix": ["-L$PACKAGE_DIR/vendor/quickjs/build"],
-            "libs-windows": ["qjs"],
-            "lflags-windows": ["/LIBPATH:$PACKAGE_DIR\\vendor\\quickjs\\build"]
-        },
-        {
-            "name": "jsc",
-            "versions": ["EngineJSC"],
-            "preBuildCommands-posix": [
-                "$DC -run $PACKAGE_DIR/build.d --backend=jsc"
-            ],
-            "excludedSourceFiles": [
-                "source/dun/engine/quickjs/backend.d",
-                "source/dun/engine/quickjs/context.d",
-                "source/dun/engine/quickjs/runtime.d",
-                "source/dun/engine/quickjs/value.d",
-                "source/dun/engine/quickjs/exceptions.d",
-                "source/dun/engine/quickjs/function_bind.d",
-                "source/dun/engine/v8/backend.d",
-                "source/dun/engine/v8/cppbindings.d"
-            ],
-            "libs-linux": ["JavaScriptCore", "WTF", "bmalloc", "icui18n", "icuuc", "icudata", "icutu", "stdc++", "atomic"],
-            "lflags-linux": ["-L$PACKAGE_DIR/vendor/jsc/lib"],
-            "lflags-osx": ["-framework", "JavaScriptCore"]
-        },
-        {
-            "name": "v8",
-            "versions": ["EngineV8"],
-            "preBuildCommands-posix": [
-                "$DC -run $PACKAGE_DIR/build.d --backend=v8"
-            ],
-            "preBuildCommands-windows": [
-                "$DC -run $PACKAGE_DIR\\build.d --backend=v8"
-            ],
-            "excludedSourceFiles": [
-                "source/dun/engine/quickjs/backend.d",
-                "source/dun/engine/quickjs/context.d",
-                "source/dun/engine/quickjs/runtime.d",
-                "source/dun/engine/quickjs/value.d",
-                "source/dun/engine/quickjs/exceptions.d",
-                "source/dun/engine/quickjs/function_bind.d",
-                "source/dun/engine/jsc/backend.d",
-                "source/dun/engine/jsc/cppbindings.d"
-            ],
-            "libs-linux": ["v8shim", "v8", "v8_libplatform", "stdc++"],
-            "libs-osx": ["v8shim", "v8", "v8_libplatform", "c++"],
-            "libs-windows": ["v8shim", "v8", "v8_libplatform"],
-            "lflags-posix": ["-L$PACKAGE_DIR/vendor/v8shim", "-L$PACKAGE_DIR/vendor/v8/lib"],
-            "lflags-windows": ["/LIBPATH:$PACKAGE_DIR\\vendor\\v8shim", "/LIBPATH:$PACKAGE_DIR\\vendor\\v8\\lib"]
-        },
-        {
-            "name": "unittest",
-            "targetType": "library",
-            "targetName": "dun-test",
-            "versions": ["DunTest", "EngineQuickJS"],
-            "preBuildCommands-posix": [
-                "$DC -run $PACKAGE_DIR/build.d --backend=quickjs"
-            ],
-            "preBuildCommands-windows": [
-                "$DC -run $PACKAGE_DIR\\build.d --backend=quickjs"
-            ],
-            "excludedSourceFiles": [
-                "source/dun/engine/jsc/backend.d",
-                "source/dun/engine/jsc/cppbindings.d",
-                "source/dun/engine/v8/backend.d",
-                "source/dun/engine/v8/cppbindings.d"
-            ],
-            "libs-posix": ["qjs"],
-            "lflags-posix": ["-L$PACKAGE_DIR/vendor/quickjs/build"],
-            "libs-windows": ["qjs"],
-            "lflags-windows": ["/LIBPATH:$PACKAGE_DIR\\vendor\\quickjs\\build"]
-        }
-    ]
+	"configurations": [
+		{
+			"preBuildCommands-windows": [
+				"$DC -run $PACKAGE_DIR\\build.d --backend=quickjs"
+			],
+			"libs-posix": [
+				"qjs"
+			],
+			"lflags-windows": [
+				"/LIBPATH:$PACKAGE_DIR\\vendor\\quickjs\\build"
+			],
+			"libs-windows": [
+				"qjs"
+			],
+			"versions": [
+				"EngineQuickJS"
+			],
+			"name": "quickjs",
+			"lflags-posix": [
+				"-L$PACKAGE_DIR/vendor/quickjs/build"
+			],
+			"excludedSourceFiles": [
+				"source/dun/engine/jsc/backend.d",
+				"source/dun/engine/jsc/cppbindings.d",
+				"source/dun/engine/v8/backend.d",
+				"source/dun/engine/v8/cppbindings.d"
+			],
+			"targetType": "executable",
+			"preBuildCommands-posix": [
+				"$DC -run $PACKAGE_DIR/build.d --backend=quickjs"
+			]
+		},
+		{
+			"lflags-linux": [
+				"-L$PACKAGE_DIR/vendor/jsc/lib"
+			],
+			"versions": [
+				"EngineJSC"
+			],
+			"name": "jsc",
+			"libs-linux": [
+				"JavaScriptCore",
+				"WTF",
+				"bmalloc",
+				"icui18n",
+				"icuuc",
+				"icudata",
+				"icutu",
+				"stdc++",
+				"atomic"
+			],
+			"excludedSourceFiles": [
+				"source/dun/engine/quickjs/backend.d",
+				"source/dun/engine/quickjs/context.d",
+				"source/dun/engine/quickjs/runtime.d",
+				"source/dun/engine/quickjs/value.d",
+				"source/dun/engine/quickjs/exceptions.d",
+				"source/dun/engine/quickjs/function_bind.d",
+				"source/dun/engine/v8/backend.d",
+				"source/dun/engine/v8/cppbindings.d"
+			],
+			"targetType": "executable",
+			"lflags-osx": [
+				"-framework",
+				"JavaScriptCore"
+			],
+			"preBuildCommands-posix": [
+				"$DC -run $PACKAGE_DIR/build.d --backend=jsc"
+			]
+		},
+		{
+			"preBuildCommands-windows": [
+				"$DC -run $PACKAGE_DIR\\build.d --backend=v8"
+			],
+			"lflags-windows": [
+				"/LIBPATH:$PACKAGE_DIR\\vendor\\v8shim",
+				"/LIBPATH:$PACKAGE_DIR\\vendor\\v8\\lib"
+			],
+			"libs-windows": [
+				"v8shim",
+				"v8",
+				"v8_libplatform"
+			],
+			"versions": [
+				"EngineV8"
+			],
+			"name": "v8",
+			"libs-linux": [
+				"v8shim",
+				"v8",
+				"v8_libplatform",
+				"stdc++"
+			],
+			"libs-osx": [
+				"v8shim",
+				"v8",
+				"v8_libplatform",
+				"c++"
+			],
+			"lflags-posix": [
+				"-L$PACKAGE_DIR/vendor/v8shim",
+				"-L$PACKAGE_DIR/vendor/v8/lib"
+			],
+			"excludedSourceFiles": [
+				"source/dun/engine/quickjs/backend.d",
+				"source/dun/engine/quickjs/context.d",
+				"source/dun/engine/quickjs/runtime.d",
+				"source/dun/engine/quickjs/value.d",
+				"source/dun/engine/quickjs/exceptions.d",
+				"source/dun/engine/quickjs/function_bind.d",
+				"source/dun/engine/jsc/backend.d",
+				"source/dun/engine/jsc/cppbindings.d"
+			],
+			"targetType": "executable",
+			"preBuildCommands-posix": [
+				"$DC -run $PACKAGE_DIR/build.d --backend=v8"
+			]
+		},
+		{
+			"preBuildCommands-windows": [
+				"$DC -run $PACKAGE_DIR\\build.d --backend=quickjs"
+			],
+			"targetName": "dun-test",
+			"libs-posix": [
+				"qjs"
+			],
+			"lflags-windows": [
+				"/LIBPATH:$PACKAGE_DIR\\vendor\\quickjs\\build"
+			],
+			"libs-windows": [
+				"qjs"
+			],
+			"versions": [
+				"DunTest",
+				"EngineQuickJS"
+			],
+			"name": "unittest",
+			"lflags-posix": [
+				"-L$PACKAGE_DIR/vendor/quickjs/build"
+			],
+			"excludedSourceFiles": [
+				"source/dun/engine/jsc/backend.d",
+				"source/dun/engine/jsc/cppbindings.d",
+				"source/dun/engine/v8/backend.d",
+				"source/dun/engine/v8/cppbindings.d"
+			],
+			"targetType": "library",
+			"preBuildCommands-posix": [
+				"$DC -run $PACKAGE_DIR/build.d --backend=quickjs"
+			]
+		}
+	],
+	"subConfigurations": {
+		"eventcore": "epoll"
+	},
+	"targetName": "dun",
+	"authors": [
+		"Matheus C. Franca"
+	],
+	"dflags-ldc": [
+		"-preview=fixImmutableConv",
+		"-preview=fixAliasThis",
+		"-preview=rvaluerefparam"
+	],
+	"libs-windows": [
+		"legacy_stdio_definitions"
+	],
+	"license": "MIT",
+	"targetPath": "build",
+	"stringImportPaths": [
+		"source"
+	],
+	"name": "dunjs",
+	"dflags-dmd": [
+		"-preview=fixImmutableConv",
+		"-preview=fixAliasThis",
+		"-preview=rvalueRefParam"
+	],
+	"sourcePaths": [
+		"source"
+	],
+	"libs-linux": [
+		"m",
+		"dl",
+		"pthread",
+		"resolv"
+	],
+	"libs-osx": [
+		"m",
+		"pthread"
+	],
+	"toolchainRequirements": {
+		"frontend": ">=2.112.0"
+	},
+	"description": "A secure JavaScript runtime written in D",
+	"dependencies": {
+		"during": "~>0.4.0",
+		"eventcore": {
+			"version": "ced22593f38dd9b4514aff58a390ce313e62d283",
+			"repository": "git+https://github.com/vibe-d/eventcore.git"
+		}
+	},
+	"targetType": "executable",
+	"buildTypes": {
+		"release": {
+			"lflags-windows": [
+				"/OPT:REF",
+				"/OPT:ICF"
+			],
+			"dflags": [
+				"-O",
+				"-release",
+				"-boundscheck=off"
+			],
+			"lflags-posix": [
+				"-s"
+			]
+		},
+		"release-debug": {
+			"dflags": [
+				"-O",
+				"-g"
+			]
+		}
+	},
+	"importPaths": [
+		"source"
+	]
 }
