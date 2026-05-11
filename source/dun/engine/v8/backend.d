@@ -222,6 +222,17 @@ class V8Engine : IJSEngine
 
     void setModuleLoader(ModuleLoaderCallback loader) {}
 
+    JSResult evalModule(const(char)[] source, string filename) @trusted
+    {
+        JSResult result;
+        result.isError = true;
+        result.errorMessage = "ESM not yet supported on V8 backend";
+        result.value = toHandle(cast(DunV8Value*) null);
+        return result;
+    }
+
+    void registerNativeModule(string name, void* initFunc) @trusted {}
+
     void setMemoryLimit(size_t bytes) @trusted
     {
         if (bytes > 0)

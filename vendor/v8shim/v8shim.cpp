@@ -7,7 +7,7 @@
  * abstract this into a single call.
  *
  * Build:
- *   g++ -std=c++17 -fPIC -O2 -c v8shim.cpp -I/usr/include/v8
+ *   g++ -std=c++20 -fPIC -O2 -c v8shim.cpp -I/path/to/v8/include
  *   ar rcs libv8shim.a v8shim.o
  */
 
@@ -154,7 +154,7 @@ DunV8Value* dun_v8_eval(DunV8Context* cw, const char* source,
             v8::NewStringType::kNormal, static_cast<int>(source_len))
             .ToLocalChecked();
 
-        v8::ScriptOrigin origin(isolate,
+        v8::ScriptOrigin origin(
             v8::String::NewFromUtf8(isolate, filename ? filename : "<eval>")
                 .ToLocalChecked());
 

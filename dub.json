@@ -69,8 +69,7 @@
                 "source/dun/engine/quickjs/exceptions.d",
                 "source/dun/engine/quickjs/function_bind.d",
                 "source/dun/engine/v8/backend.d",
-                "source/dun/engine/v8/cppbindings.d",
-                "source/dun/engine/jsc/cppbindings.d"
+                "source/dun/engine/v8/cppbindings.d"
             ],
             "libs-linux": ["JavaScriptCore", "WTF", "bmalloc", "icui18n", "icuuc", "icudata", "icutu", "stdc++", "atomic"],
             "lflags-linux": ["-L$PACKAGE_DIR/vendor/jsc/lib"],
@@ -98,8 +97,8 @@
             "libs-linux": ["v8shim", "v8", "v8_libplatform", "stdc++"],
             "libs-osx": ["v8shim", "v8", "v8_libplatform", "c++"],
             "libs-windows": ["v8shim", "v8", "v8_libplatform"],
-            "lflags-posix": ["-L$PACKAGE_DIR/vendor/v8shim"],
-            "lflags-windows": ["/LIBPATH:$PACKAGE_DIR\\vendor\\v8shim"]
+            "lflags-posix": ["-L$PACKAGE_DIR/vendor/v8shim", "-L$PACKAGE_DIR/vendor/v8/lib"],
+            "lflags-windows": ["/LIBPATH:$PACKAGE_DIR\\vendor\\v8shim", "/LIBPATH:$PACKAGE_DIR\\vendor\\v8\\lib"]
         },
         {
             "name": "unittest",

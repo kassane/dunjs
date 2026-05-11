@@ -15,15 +15,15 @@ JSValue toJSValue(JSContext* ctx, string s) @trusted nothrow
 
 /// Convert a JS value argument to a D string.
 /// Returns empty string on failure.
-string jsArgToString(JSContext* ctx, JSValueConst val) @trusted
+string jsArgToString(JSContext* ctx, JSValueConst val) nothrow @trusted
 {
     size_t len;
     const(char)* cstr = JS_ToCStringLen2(ctx, &len, val, 0);
     if (cstr is null)
         return "";
-    scope (exit)
-        JS_FreeCString(ctx, cstr);
-    return cstr[0 .. len].idup;
+    auto result = cstr[0 .. len].idup;
+    JS_FreeCString(ctx, cstr);
+    return result;
 }
 
 /// Convert a JS value argument to int32.

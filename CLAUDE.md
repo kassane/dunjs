@@ -384,8 +384,9 @@ Not supported (have runtime semantics):
 | 1c | TypeScript | `dun run file.ts` with type stripping | **Done** |
 | 1d | Security tests | PermissionRegistry unit tests (27 tests) | **Done** |
 | 1e | TMP bridge | C++ TMP <-> D TMP wired for V8 + JSC | **Done** |
-| 2 | Async works | Event loop + timers + Promises | In progress |
-| 3 | Real scripts | Module system + fs/path/net/crypto | Planned |
-| 4 | Secure by default | Permission enforcement wired to builtins | Planned |
-| 5 | DX polish | REPL + colored errors + stack traces | Planned |
+| 2 | Async works | Event loop + timers + Promises | **Done** |
+| 2f | Phase 2 close | queueMicrotask + process.nextTick + unhandledRejection | **Done** |
+| 3 | Real scripts | Module system + fs/path/net/crypto | **Done** |
+| 4 | Secure by default | Permission enforcement wired to builtins | **Done** |
+| 5 | DX polish | REPL + colored errors + stack traces | **Done** |
 | 6 | Performance | io_uring, workers, HTTP server, npm compat | Planned |

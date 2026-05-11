@@ -26,8 +26,16 @@ struct ModuleResolver
         import std.path : isAbsolute, buildNormalizedPath, dirName;
         import std.algorithm : startsWith;
 
-        // 1. Built-in modules
+        // 0. node:X -> dun:X compatibility alias
+        if (specifier.startsWith("node:"))
+            specifier = "dun:" ~ specifier[5 .. $];
+
+        // 1. Built-in modules (dun:fs, dun:path, dun:crypto, etc.)
         if (specifier in builtinMap)
+            return specifier;
+
+        // Pass through unknown dun: specifiers — loader will error
+        if (specifier.startsWith("dun:"))
             return specifier;
 
         // 2. Absolute paths

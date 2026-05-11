@@ -24,7 +24,7 @@ struct TimerWheel
         }
 
         TimerID addTimer(JSContext* ctx, JSValue callback, Duration delay,
-            Duration interval = Duration.zero) @trusted
+            Duration interval = Duration.zero) nothrow @trusted
         {
             auto id = nextId++;
             auto deadline = MonoTime.currTime + delay;
@@ -39,7 +39,7 @@ struct TimerWheel
             return id;
         }
 
-        void cancelTimer(TimerID id) @trusted
+        void cancelTimer(TimerID id) nothrow @trusted
         {
             foreach (ref entry; entries)
             {
@@ -107,7 +107,7 @@ struct TimerWheel
             return entries.length == 0;
         }
 
-        private void sortEntries() @trusted
+        private void sortEntries() nothrow @trusted
         {
             for (size_t i = 1; i < entries.length; i++)
             {

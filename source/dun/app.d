@@ -30,7 +30,7 @@ enum VERSION = "0.1.0-dev";
 
 int runScript(T)(T config)
 {
-    import dun.engine.iface : createEngine, EngineConfig;
+    import dun.engine.iface : createEngine, EngineConfig, JSResult;
     import dun.runtime.globals : DunState, installGlobals;
 
     if (config.scriptPath.length == 0)
@@ -67,14 +67,50 @@ int runScript(T)(T config)
     DunState state;
     state.engine = engine;
     state.permissions = &config.permissions;
+    state.eventLoop.initialize(engine);
     installGlobals(engine, &state);
 
-    auto result = engine.eval(source, config.scriptPath);
+    version (EngineQuickJS)
+    {
+        import dun.modules.loader : ModuleLoader;
+        import dun.engine.quickjs.bindings : JSRuntime;
+        ModuleLoader loader;
+        loader.install(cast(JSRuntime*) engine.rawRuntime());
+    }
+
+    bool esm = isESM(config.scriptPath, source);
+
+    // Inject __filename / __dirname and seed the CJS require stack so that
+    // relative require() calls in the entry script resolve against the
+    // script's own directory (not cwd).
+    {
+        import std.path : absolutePath, dirName;
+        import std.string : replace;
+        auto abs  = absolutePath(config.scriptPath);
+        auto dir  = dirName(abs);
+        auto eabs = abs.replace(`\`, `\\`).replace(`"`, `\"`);
+        auto edir = dir.replace(`\`, `\\`).replace(`"`, `\"`);
+        string initCode = `var __filename="` ~ eabs ~ `";var __dirname="` ~ edir ~ `";`;
+        version (EngineQuickJS)
+        {
+            if (!esm)
+                initCode ~= `__dunCjsStack__.push("` ~ eabs ~ `");`;
+        }
+        auto initRes = engine.eval(initCode, "<init>");
+        if (!initRes.isError)
+            engine.freeValue(initRes.value);
+    }
+
+    JSResult result;
+    if (esm)
+        result = engine.evalModule(source, config.scriptPath);
+    else
+        result = engine.eval(source, config.scriptPath);
+
     if (result.isError)
     {
-        writeStderr("Uncaught ");
-        writeStderr(result.errorMessage);
-        writeStderr("\n");
+        import dun.cli.errors : isColorEnabled, formatUncaughtError;
+        writeStderr(formatUncaughtError(result.errorMessage, isColorEnabled()));
         return 1;
     }
     else
@@ -82,16 +118,15 @@ int runScript(T)(T config)
         engine.freeValue(result.value);
     }
 
-    engine.drainJobs();
-    return 0;
+    state.eventLoop.run();
+    state.eventLoop.flushUnhandledRejections();
+    return state.eventLoop.exitCode;
 }
 
-int runRepl(T)(T)
+int runRepl(T)(T config)
 {
-    import std.stdio : writeln;
-    writeln("dun ", VERSION);
-    writeln("REPL not yet implemented. Use 'dun run <file>' instead.");
-    return 0;
+    import dun.cli.repl : runReplImpl;
+    return runReplImpl(config);
 }
 
 int evalInline(T)(T config)
@@ -111,13 +146,13 @@ int evalInline(T)(T config)
     DunState state;
     state.engine = engine;
     state.permissions = &config.permissions;
+    state.eventLoop.initialize(engine);
     installGlobals(engine, &state);
     auto result = engine.eval(config.evalSource, "<eval>");
     if (result.isError)
     {
-        writeStderr("Uncaught ");
-        writeStderr(result.errorMessage);
-        writeStderr("\n");
+        import dun.cli.errors : isColorEnabled, formatUncaughtError;
+        writeStderr(formatUncaughtError(result.errorMessage, isColorEnabled()));
         return 1;
     }
 
@@ -128,8 +163,9 @@ int evalInline(T)(T config)
     }
     engine.freeValue(result.value);
 
-    engine.drainJobs();
-    return 0;
+    state.eventLoop.run();
+    state.eventLoop.flushUnhandledRejections();
+    return state.eventLoop.exitCode;
 }
 
 void printVersion()
@@ -170,6 +206,28 @@ bool isTypeScript(string path) @safe pure nothrow @nogc
         return true;
     if (path.length >= 4 && path[$ - 4 .. $] == ".cts")
         return true;
+    return false;
+}
+
+bool isESM(string path, string source) @safe pure nothrow
+{
+    // Extension-based: .mjs/.mts always ESM; .cjs/.cts always CJS
+    if (path.length >= 4 && (path[$ - 4 .. $] == ".mjs" || path[$ - 4 .. $] == ".mts"))
+        return true;
+    if (path.length >= 4 && (path[$ - 4 .. $] == ".cjs" || path[$ - 4 .. $] == ".cts"))
+        return false;
+
+    // Content-based: scan for top-level import/export statements
+    for (size_t i = 0; i < source.length; i++)
+    {
+        if (i == 0 || source[i - 1] == '\n')
+        {
+            if (source.length - i >= 7 && source[i .. i + 7] == "import ")
+                return true;
+            if (source.length - i >= 7 && source[i .. i + 7] == "export ")
+                return true;
+        }
+    }
     return false;
 }
 

@@ -165,7 +165,7 @@ class JSCEngine : IJSEngine
     {
         if (!_typeChecksReady)
         {
-            _typeChecks = JSCTypeChecks.init();
+            _typeChecks = JSCTypeChecks.create();
             _typeChecksReady = true;
         }
         return _typeChecks.check(tag, ctx, cast(JSValueRef) fromHandle(val));
@@ -205,6 +205,18 @@ class JSCEngine : IJSEngine
     void* getContextOpaque() { return opaquePtr; }
 
     void setModuleLoader(ModuleLoaderCallback loader) {}
+
+    JSResult evalModule(const(char)[] source, string filename) @trusted
+    {
+        JSResult result;
+        result.isError = true;
+        result.errorMessage = "ESM not yet supported on JSC backend";
+        result.value = toHandle(cast(void*) null);
+        return result;
+    }
+
+    void registerNativeModule(string name, void* initFunc) @trusted {}
+
     void setMemoryLimit(size_t bytes) {}
     void setMaxStackSize(size_t bytes) {}
 

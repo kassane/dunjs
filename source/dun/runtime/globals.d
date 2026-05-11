@@ -20,7 +20,25 @@ void installGlobals(IJSEngine engine, DunState* state) @trusted
     version (EngineQuickJS)
     {
         import dun.runtime.console : installConsole;
+        import dun.runtime.timers_api : installTimers;
+        import dun.runtime.microtask_api : installMicrotask;
+        import dun.runtime.process_api : installProcess;
+        import dun.runtime.rejection_tracker : installRejectionTracker;
+        import dun.builtins.fs : registerFsModule;
+        import dun.builtins.path : registerPathModule;
+        import dun.builtins.crypto : registerCryptoModule;
+        import dun.modules.require : installRequire;
+        import dun.engine.quickjs.bindings : JSContext, JS_GetRuntime;
+        auto ctx = cast(JSContext*) engine.rawContext();
         installConsole(engine);
+        installTimers(ctx, state);
+        installMicrotask(ctx);
+        installProcess(ctx);
+        installRejectionTracker(JS_GetRuntime(ctx), state);
+        registerFsModule(ctx);
+        registerPathModule(ctx);
+        registerCryptoModule(ctx);
+        installRequire(ctx);
     }
     else version (EngineJSC)
     {

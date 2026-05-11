@@ -52,7 +52,7 @@ enum Verbosity { normal, verbose }
 
 // QuickJS-NG configuration
 enum QJS_REPO        = "quickjs-ng/quickjs";
-enum QJS_VERSION     = "v0.9.0";
+enum QJS_VERSION     = "v0.14.0";
 enum QJS_URL_TAGGED  = "https://github.com/" ~ QJS_REPO ~ "/archive/refs/tags/"
                      ~ QJS_VERSION ~ ".tar.gz";
 enum QJS_URL_MASTER  = "https://github.com/" ~ QJS_REPO ~ "/archive/refs/heads/master.tar.gz";
@@ -71,10 +71,13 @@ enum JSC_PKG_NAMES      = ["javascriptcoregtk-4.1", "javascriptcoregtk-6.0", "ja
 enum JSC_LIB_MARKER     = "lib/libJavaScriptCore.a";
 
 // V8 configuration
-// V8 headers are vendored from Node.js headers tarball (same headers Node uses).
-// This eliminates the need for system libv8-dev at compile time.
-// Linking still requires system V8 libraries (libv8, libv8_libplatform).
-enum V8_NODE_VERSION   = "v22.15.0";
+// Pre-built monolith from github.com/kuoruan/libv8 (preferred: self-contained, no system dep).
+// Archive layout (flat root): include/ + libv8_monolith.a + gn-args_*.txt
+// Fallback: system libv8-dev headers via /usr/include/v8 or Node.js headers tarball.
+enum V8_PREBUILT_VERSION  = "v13.1.201.22";
+enum V8_PREBUILT_BASE_URL = "https://github.com/kuoruan/libv8/releases/download/"
+                            ~ V8_PREBUILT_VERSION ~ "/";
+enum V8_NODE_VERSION   = "v22.15.0";   // kept for fallback header download
 enum V8_HEADERS_MARKER = "v8.h";
 enum V8_SYSTEM_INCLUDE = "/usr/include/v8";
 
@@ -94,7 +97,37 @@ string jscArchive()  { return buildPath(vendorDir(), "jsc.tar.gz"); }
 string v8shimDir()   { return buildPath(vendorDir(), "v8shim"); }
 string v8Dir()       { return buildPath(vendorDir(), "v8"); }
 string v8IncludeDir(){ return buildPath(v8Dir(), "include"); }
-string v8Archive()   { return buildPath(vendorDir(), "node-headers.tar.gz"); }
+string v8Archive()          { return buildPath(vendorDir(), "node-headers.tar.gz"); }
+string v8PrebuiltArchive()  { return buildPath(vendorDir(), "v8-prebuilt" ~ v8PrebuiltExt()); }
+
+string v8PrebuiltExt()
+{
+    version (Windows) return ".7z";
+    else              return ".tar.xz";
+}
+
+/// Return the kuoruan/libv8 archive URL for the current platform + arch.
+string v8PrebuiltUrl()
+{
+    version (Windows)
+    {
+        return V8_PREBUILT_BASE_URL ~ "v8_Windows_x64.7z";
+    }
+    else version (OSX)
+    {
+        version (AArch64)
+            return V8_PREBUILT_BASE_URL ~ "v8_macOS_arm64.tar.xz";
+        else
+            return V8_PREBUILT_BASE_URL ~ "v8_macOS_x64.tar.xz";
+    }
+    else // Linux
+    {
+        version (AArch64)
+            return V8_PREBUILT_BASE_URL ~ "v8_Linux_aarch64.tar.xz";
+        else
+            return V8_PREBUILT_BASE_URL ~ "v8_Linux_x64.tar.xz";
+    }
+}
 
 /// Build the download URL for Node.js headers tarball.
 /// Node.js headers contain V8's public API headers (v8.h, libplatform/, cppgc/).
@@ -868,7 +901,7 @@ bool buildQuickJS(ref const Toolchain tc, ref const BuildOptions opts)
     else
     {
         cmakeArgs ~= "-DCMAKE_BUILD_TYPE=Release";
-        cmakeArgs ~= "-DCMAKE_C_FLAGS=-fPIC -O2";
+        cmakeArgs ~= "-DCMAKE_C_FLAGS=-fPIC -O2 -Wno-discarded-qualifiers";
 
         // Use detected C compiler
         if (tc.cc.found)
@@ -1092,6 +1125,190 @@ bool checkJSCSystem(ref const Toolchain tc, string tag)
 // ════════════════════════════════════════════════════════════════════
 
 /**
+ * Locate V8 runtime libraries and stage them in vendor/v8/lib/ so DUB can
+ * link against them regardless of where they live on the host system.
+ *
+ * Search order:
+ *   1. Already staged in vendor/v8/lib/ (previous run)
+ *   2. libv8_monolith.a — single-archive build used by Arch AUR, Android NDK
+ *   3. Split libv8.a + libv8_libplatform.a — Debian/Ubuntu libv8-dev
+ *   4. pkg-config v8 / v8-314 / libv8
+ *
+ * When the monolith is found the function creates:
+ *   vendor/v8/lib/libv8.a          -> symlink to monolith
+ *   vendor/v8/lib/libv8_libplatform.a -> empty stub (symbols are in monolith)
+ *
+ * Returns true if V8 libs are now in vendor/v8/lib/, false otherwise.
+ */
+bool checkV8Libs(ref const Toolchain tc, ref const BuildOptions opts)
+{
+    enum tag = "v8";
+    immutable libDir = buildPath(v8Dir(), "lib");
+    immutable stagedV8   = buildPath(libDir, "libv8.a");
+    immutable stagedPlat = buildPath(libDir, "libv8_libplatform.a");
+
+    // Already staged from a previous run
+    if (exists(stagedV8) && exists(stagedPlat) && !opts.force)
+    {
+        logInfo(tag, "V8 libs already staged in vendor/v8/lib/ -- skipping");
+        return true;
+    }
+
+    mkdirRecurse(libDir);
+
+    // Helper: symlink or copy a file
+    bool stageFile(string src, string dst)
+    {
+        if (exists(dst)) remove(dst);
+        version (Posix)
+        {
+            import core.sys.posix.unistd : symlink;
+            import std.string : toStringz;
+            if (symlink(src.toStringz, dst.toStringz) != 0)
+            {
+                std.file.copy(src, dst);
+            }
+        }
+        else
+        {
+            std.file.copy(src, dst);
+        }
+        return exists(dst);
+    }
+
+    // Helper: create a minimal empty archive stub
+    bool createEmptyArchive(string path)
+    {
+        if (!tc.ar.found) return false;
+        // Write a tiny stub .o, archive it, then remove the .o
+        immutable stubO = path ~ ".stub.o";
+        version (Posix)
+        {
+            import std.process : executeShell;
+            // Write an empty C source and compile it to a tiny .o
+            auto r = executeShell(
+                "printf 'void __v8_platform_stub(void){}' | " ~
+                tc.cxx.path ~ " -x c -O0 -c - -o " ~ stubO ~ " 2>/dev/null");
+            if (r.status != 0) return false;
+            r = executeShell(tc.ar.path ~ " rcs " ~ path ~ " " ~ stubO ~ " 2>/dev/null");
+            remove(stubO);
+            return r.status == 0;
+        }
+        else
+        {
+            return false;
+        }
+    }
+
+    // --- Search for monolith ----------------------------------------
+    static immutable string[] monolithCandidates = [
+        "/usr/lib/libv8_monolith.a",
+        "/usr/local/lib/libv8_monolith.a",
+        "/usr/lib/x86_64-linux-gnu/libv8_monolith.a",
+        "/usr/lib/aarch64-linux-gnu/libv8_monolith.a",
+    ];
+
+    foreach (candidate; monolithCandidates)
+    {
+        if (exists(candidate))
+        {
+            logInfo(tag, "Found V8 monolith: " ~ candidate);
+            if (stageFile(candidate, stagedV8) && createEmptyArchive(stagedPlat))
+            {
+                logInfo(tag, "V8 libs staged from monolith in vendor/v8/lib/");
+                return true;
+            }
+        }
+    }
+
+    // --- Search for split libs --------------------------------------
+    static immutable string[][] splitCandidatePairs = [
+        ["/usr/lib/libv8.a",                    "/usr/lib/libv8_libplatform.a"],
+        ["/usr/local/lib/libv8.a",              "/usr/local/lib/libv8_libplatform.a"],
+        ["/usr/lib/x86_64-linux-gnu/libv8.a",   "/usr/lib/x86_64-linux-gnu/libv8_libplatform.a"],
+        ["/usr/lib/aarch64-linux-gnu/libv8.a",  "/usr/lib/aarch64-linux-gnu/libv8_libplatform.a"],
+    ];
+
+    foreach (pair; splitCandidatePairs)
+    {
+        if (exists(pair[0]) && exists(pair[1]))
+        {
+            logInfo(tag, "Found V8 split libs: " ~ pair[0]);
+            if (stageFile(pair[0], stagedV8) && stageFile(pair[1], stagedPlat))
+            {
+                logInfo(tag, "V8 libs staged in vendor/v8/lib/");
+                return true;
+            }
+        }
+    }
+
+    // --- Try pkg-config ---------------------------------------------
+    version (Posix)
+    if (tc.pkgConfig.found)
+    {
+        foreach (pcName; ["v8", "v8-314", "libv8"])
+        {
+            import std.process : executeShell;
+            auto r = executeShell(tc.pkgConfig.path ~ " --libs-only-L " ~ pcName ~ " 2>/dev/null");
+            if (r.status == 0)
+            {
+                // Extract -L paths and search there for the libs
+                import std.algorithm : filter, map;
+                import std.array : array;
+                foreach (token; r.output.split())
+                {
+                    if (token.length > 2 && token[0 .. 2] == "-L")
+                    {
+                        string libPath = token[2 .. $];
+                        string v8a   = buildPath(libPath, "libv8.a");
+                        string platA = buildPath(libPath, "libv8_libplatform.a");
+                        if (exists(v8a) && exists(platA))
+                        {
+                            logInfo(tag, "Found V8 via pkg-config (" ~ pcName ~ "): " ~ libPath);
+                            if (stageFile(v8a, stagedV8) && stageFile(platA, stagedPlat))
+                            {
+                                logInfo(tag, "V8 libs staged in vendor/v8/lib/");
+                                return true;
+                            }
+                        }
+                        string mono = buildPath(libPath, "libv8_monolith.a");
+                        if (exists(mono))
+                        {
+                            logInfo(tag, "Found V8 monolith via pkg-config (" ~ pcName ~ "): " ~ mono);
+                            if (stageFile(mono, stagedV8) && createEmptyArchive(stagedPlat))
+                            {
+                                logInfo(tag, "V8 libs staged from monolith in vendor/v8/lib/");
+                                return true;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // --- Try auto-download from kuoruan/libv8 prebuilt ---------------
+    logInfo(tag, "Attempting auto-download of V8 prebuilt from github.com/kuoruan/libv8...");
+    if (downloadV8Prebuilt(tc, opts) && exists(stagedV8) && exists(stagedPlat))
+    {
+        logInfo(tag, "V8 libs ready via prebuilt download");
+        return true;
+    }
+
+    // --- Nothing found — print instructions and fail ----------------
+    logError(tag, "V8 runtime libraries not found. Install them for your platform:");
+    logError(tag, "");
+    logError(tag, "  Arch Linux (AUR):    yay -S v8         (provides libv8_monolith.a)");
+    logError(tag, "  Debian/Ubuntu:       apt install libv8-dev");
+    logError(tag, "  Fedora/RHEL:         dnf install v8-devel");
+    logError(tag, "  macOS (Homebrew):    brew install v8");
+    logError(tag, "");
+    logError(tag, "  Or manually place libv8.a + libv8_libplatform.a in vendor/v8/lib/");
+    logError(tag, "  (libv8_monolith.a is also accepted as a single-archive alternative)");
+    return false;
+}
+
+/**
  * Build the V8 shim library (a thin C++ wrapper around V8's C++ API).
  *
  * Prefers system-installed libv8-dev headers.  When system headers are
@@ -1201,7 +1418,7 @@ bool buildV8Shim(ref const Toolchain tc, ref const BuildOptions opts)
     {
         compileCmd = [
             tc.cxx.path,
-            "/std:c++17",
+            "/std:c++20",
             "/EHsc",
             "/O2",
             "/c",
@@ -1215,7 +1432,7 @@ bool buildV8Shim(ref const Toolchain tc, ref const BuildOptions opts)
     {
         compileCmd = [
             tc.cxx.path,
-            "-std=c++17",
+            "-std=c++20",
             "-fPIC",
             "-O2",
             "-c",
@@ -1356,6 +1573,130 @@ bool downloadV8Headers(ref const Toolchain tc)
     }
 
     logInfo(tag, "V8 headers ready at " ~ v8IncludeDir());
+    return true;
+}
+
+/**
+ * Download the kuoruan/libv8 pre-built monolith archive and extract:
+ *   vendor/v8/include/   ← V8 headers (used to compile v8shim.cpp)
+ *   vendor/v8/lib/libv8_monolith.a
+ *
+ * Also creates:
+ *   vendor/v8/lib/libv8.a          (symlink → libv8_monolith.a on POSIX)
+ *   vendor/v8/lib/libv8_libplatform.a (empty stub — symbols are in monolith)
+ *
+ * Archive layout (flat root): include/ + libv8_monolith.a + gn-args_*.txt
+ * Source: https://github.com/kuoruan/libv8/releases
+ */
+bool downloadV8Prebuilt(ref const Toolchain tc, ref const BuildOptions opts)
+{
+    enum tag = "v8";
+    immutable libDir     = buildPath(v8Dir(), "lib");
+    immutable monolithDst = buildPath(libDir, "libv8_monolith.a");
+    immutable stagedV8   = buildPath(libDir, "libv8.a");
+    immutable stagedPlat = buildPath(libDir, "libv8_libplatform.a");
+    immutable markerH    = buildPath(v8IncludeDir(), "v8.h");
+
+    if (!opts.force && exists(monolithDst) && exists(markerH))
+    {
+        logInfo(tag, "V8 prebuilt already downloaded -- skipping");
+        return true;
+    }
+
+    immutable url     = v8PrebuiltUrl();
+    immutable archive = v8PrebuiltArchive();
+
+    logInfo(tag, "Downloading V8 prebuilt " ~ V8_PREBUILT_VERSION ~ " for this platform...");
+    logInfo(tag, "URL: " ~ url);
+
+    if (!downloadFile(tc, url, archive))
+    {
+        logError(tag, "Failed to download V8 prebuilt archive from: " ~ url);
+        return false;
+    }
+
+    logInfo(tag, "Extracting V8 prebuilt archive...");
+    mkdirRecurse(v8IncludeDir());
+    mkdirRecurse(libDir);
+
+    version (Windows)
+    {
+        // 7z e archive.7z -o<dir> — requires 7z in PATH
+        auto r = executeShell("7z x \"" ~ archive ~ "\" -o\"" ~ v8Dir() ~ "\" -y 2>&1");
+        if (r.status != 0)
+        {
+            logError(tag, "7z extraction failed: " ~ r.output);
+            return false;
+        }
+        // On Windows the monolith may land as v8_monolith.lib
+        foreach (candidate; ["libv8_monolith.a", "v8_monolith.lib"])
+        {
+            string src = buildPath(v8Dir(), candidate);
+            if (exists(src))
+            {
+                std.file.copy(src, monolithDst);
+                break;
+            }
+        }
+    }
+    else
+    {
+        // tar -xJf archive.tar.xz -C vendor/v8 --strip-components=0
+        auto r = executeShell(
+            "tar -xJf \"" ~ archive ~ "\" -C \"" ~ v8Dir() ~ "\" 2>&1");
+        if (r.status != 0)
+        {
+            logError(tag, "tar extraction failed: " ~ r.output);
+            return false;
+        }
+        // monolith should now be at vendor/v8/libv8_monolith.a; move to lib/
+        string extracted = buildPath(v8Dir(), "libv8_monolith.a");
+        if (!exists(extracted))
+        {
+            logError(tag, "libv8_monolith.a not found after extraction");
+            logError(tag, "Expected: " ~ extracted);
+            return false;
+        }
+        rename(extracted, monolithDst);
+
+        // include/ lands at vendor/v8/include/ — already the right place
+        // (the extraction target is v8Dir() and archive root has include/)
+    }
+
+    if (!exists(monolithDst))
+    {
+        logError(tag, "libv8_monolith.a missing after extraction");
+        return false;
+    }
+
+    // Create libv8.a symlink / copy
+    if (exists(stagedV8)) remove(stagedV8);
+    version (Posix)
+    {
+        import core.sys.posix.unistd : symlink;
+        import std.string : toStringz;
+        symlink(monolithDst.toStringz, stagedV8.toStringz);
+    }
+    else
+    {
+        std.file.copy(monolithDst, stagedV8);
+    }
+
+    // Create empty libv8_libplatform.a stub (symbols are in monolith)
+    if (tc.ar.found && tc.cxx.found)
+    {
+        if (exists(stagedPlat)) remove(stagedPlat);
+        auto stubO = stagedPlat ~ ".stub.o";
+        auto rStub = executeShell(
+            "printf 'void __v8_platform_stub(void){}' | " ~
+            tc.cxx.path ~ " -x c -O0 -c - -o \"" ~ stubO ~ "\" 2>/dev/null && " ~
+            tc.ar.path ~ " rcs \"" ~ stagedPlat ~ "\" \"" ~ stubO ~ "\" 2>/dev/null");
+        if (exists(stubO)) remove(stubO);
+    }
+
+    logInfo(tag, "V8 prebuilt ready:");
+    logInfo(tag, "  headers : " ~ v8IncludeDir());
+    logInfo(tag, "  library : " ~ monolithDst);
     return true;
 }
 
@@ -1504,14 +1845,16 @@ int main(string[] args)
             break;
 
         case Backend.v8:
-            success = buildV8Shim(tc, opts);
+            // Download prebuilt first so its headers are available for v8shim compilation
+            checkV8Libs(tc, opts);  // may populate vendor/v8/include/ and vendor/v8/lib/
+            success = buildV8Shim(tc, opts) && checkV8Libs(tc, opts);
             break;
 
         case Backend.all:
             // Build all backends; don't stop on first failure
             bool qjsOk  = buildQuickJS(tc, opts);
             bool jscOk   = checkJSC(tc, opts);
-            bool v8Ok    = buildV8Shim(tc, opts);
+            bool v8Ok    = buildV8Shim(tc, opts) && checkV8Libs(tc, opts);
 
             writeln();
             logInfo("all", "Build summary:");

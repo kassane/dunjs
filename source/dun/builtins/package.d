@@ -9,4 +9,5 @@ version (EngineQuickJS)
 {
     public import dun.builtins.fs;
     public import dun.builtins.path;
+    public import dun.builtins.crypto;
 }

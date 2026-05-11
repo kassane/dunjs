@@ -97,6 +97,8 @@ interface IJSEngine
 
     // --- Modules ---
     void setModuleLoader(ModuleLoaderCallback loader);
+    JSResult evalModule(const(char)[] source, string filename) @trusted;
+    void registerNativeModule(string name, void* initFunc) @trusted;
 
     // --- Limits ---
     void setMemoryLimit(size_t bytes);

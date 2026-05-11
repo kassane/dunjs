@@ -159,8 +159,8 @@ class QuickJSEngine : IJSEngine
 
     string getException() @trusted
     {
-        import dun.engine.quickjs.exceptions : extractException;
-        return extractException(ctx);
+        import dun.engine.quickjs.exceptions : extractExceptionWithStack;
+        return extractExceptionWithStack(ctx);
     }
 
     JSHandle throwTypeError(const(char)[] msg) @trusted
@@ -203,6 +203,33 @@ class QuickJSEngine : IJSEngine
     }
 
     void setModuleLoader(ModuleLoaderCallback loader) {}
+
+    JSResult evalModule(const(char)[] source, string filename) @trusted
+    {
+        import std.string : toStringz;
+        auto compiled = JS_Eval(ctx, source.toStringz, source.length,
+            filename.toStringz, JS_EVAL_TYPE_MODULE | JS_EVAL_FLAG_COMPILE_ONLY);
+        JSResult result;
+        if (JS_IsException(compiled) != 0)
+        {
+            result.isError = true;
+            result.errorMessage = getException();
+            return result;
+        }
+        auto val = JS_EvalFunction(ctx, compiled);
+        result.value = toHandle(val);
+        result.isError = JS_IsException(val) != 0;
+        if (result.isError)
+            result.errorMessage = getException();
+        return result;
+    }
+
+    void registerNativeModule(string name, void* initFunc) @trusted
+    {
+        import std.string : toStringz;
+        JS_NewCModule(ctx, name.toStringz,
+            cast(JSModuleInitFunc) initFunc);
+    }
 
     void setMemoryLimit(size_t bytes) @trusted
     {

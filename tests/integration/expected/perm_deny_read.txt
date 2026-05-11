@@ -1,0 +1,2 @@
+Requires --allow-read permission
+Requires --allow-read permission

@@ -1,0 +1,6 @@
+/foo/bar/baz.js
+/foo/bar
+baz.js
+.html
+true
+false

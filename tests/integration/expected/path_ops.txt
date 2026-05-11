@@ -1,0 +1,10 @@
+foo/bar/baz
+/bar
+/foo/baz
+/
+file.txt
+.txt
+file
+/home/user/file.txt
+/
+:

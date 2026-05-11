@@ -39,6 +39,7 @@ enum : long
     JS_TAG_BIG_INT = -9,
     JS_TAG_SYMBOL = -8,
     JS_TAG_STRING = -7,
+    JS_TAG_STRING_ROPE = -6,
     JS_TAG_MODULE = -3,
     JS_TAG_FUNCTION_BYTECODE = -2,
     JS_TAG_OBJECT = -1,
@@ -49,7 +50,8 @@ enum : long
     JS_TAG_UNINITIALIZED = 4,
     JS_TAG_CATCH_OFFSET = 5,
     JS_TAG_EXCEPTION = 6,
-    JS_TAG_FLOAT64 = 7,
+    JS_TAG_SHORT_BIG_INT = 7,
+    JS_TAG_FLOAT64 = 8,
 }
 
 // --- Inline value constructors (reimplemented from quickjs.h) ---
@@ -149,7 +151,7 @@ int JS_IsNumber(JSValueConst v) pure nothrow @nogc @safe
 
 int JS_IsString(JSValueConst v) pure nothrow @nogc @safe
 {
-    return v.tag == JS_TAG_STRING ? 1 : 0;
+    return (v.tag == JS_TAG_STRING || v.tag == JS_TAG_STRING_ROPE) ? 1 : 0;
 }
 
 int JS_IsObject(JSValueConst v) pure nothrow @nogc @safe
@@ -274,13 +276,35 @@ void JS_SetRuntimeOpaque(JSRuntime* rt, void* opaque);
 // --- Job queue (Promise microtasks) ---
 bool JS_IsJobPending(JSRuntime* rt);
 int JS_ExecutePendingJob(JSRuntime* rt, JSContext** pctx);
+JSContext* JS_GetPendingJobContext(JSRuntime* rt);
+
+// --- Equality ---
+bool JS_IsStrictEqual(JSContext* ctx, JSValueConst op1, JSValueConst op2);
+bool JS_IsSameValue(JSContext* ctx, JSValueConst op1, JSValueConst op2);
+bool JS_IsSameValueZero(JSContext* ctx, JSValueConst op1, JSValueConst op2);
+
+// --- Promise rejection tracker ---
+alias JSHostPromiseRejectionTracker = extern (C) void function(
+    JSContext* ctx, JSValueConst promise, JSValueConst reason,
+    bool is_handled, void* opaque) nothrow;
+
+void JS_SetHostPromiseRejectionTracker(JSRuntime* rt,
+    JSHostPromiseRejectionTracker cb, void* opaque);
+
+// --- Runtime GC ---
+void JS_RunGC(JSRuntime* rt);
+
+// --- Version ---
+const(char)* JS_GetVersion();
 
 // --- Context lifecycle ---
 JSContext* JS_NewContext(JSRuntime* rt);
+JSContext* JS_DupContext(JSContext* ctx);
 void JS_FreeContext(JSContext* ctx);
 JSRuntime* JS_GetRuntime(JSContext* ctx);
 void JS_SetContextOpaque(JSContext* ctx, void* opaque);
 void* JS_GetContextOpaque(JSContext* ctx);
+int JS_AddPerformance(JSContext* ctx);
 
 // --- Evaluation ---
 JSValue JS_Eval(JSContext* ctx, const(char)* input, size_t input_len,
@@ -290,9 +314,16 @@ JSValue JS_EvalThis(JSContext* ctx, JSValueConst this_obj,
     const(char)* input, size_t input_len,
     const(char)* filename, int eval_flags);
 
+// --- QuickJS allocator (uses runtime's allocator, default = system malloc) ---
+void* js_malloc(JSContext* ctx, size_t size) nothrow;
+void js_free(JSContext* ctx, void* ptr) nothrow;
+char* js_strdup(JSContext* ctx, const(char)* str) nothrow;
+
 // --- Value lifecycle (reference counting) ---
 JSValue JS_DupValue(JSContext* ctx, JSValueConst v);
+JSValue JS_DupValueRT(JSRuntime* rt, JSValueConst v);
 void JS_FreeValue(JSContext* ctx, JSValue v);
+void JS_FreeValueRT(JSRuntime* rt, JSValue v);
 
 // --- Value extraction ---
 int JS_ToBool(JSContext* ctx, JSValueConst val);
@@ -308,6 +339,9 @@ JSValue JS_NewObject(JSContext* ctx);
 JSValue JS_NewArray(JSContext* ctx);
 JSValue JS_NewError(JSContext* ctx);
 JSValue JS_NewInt64(JSContext* ctx, long val);
+JSValue JS_NewNumber(JSContext* ctx, double d);
+JSValue JS_NewBigInt64(JSContext* ctx, long v);
+JSValue JS_NewBigUint64(JSContext* ctx, ulong v);
 
 // --- Function constructors ---
 JSValue JS_NewCFunction2(JSContext* ctx, JSCFunction func,
@@ -315,6 +349,8 @@ JSValue JS_NewCFunction2(JSContext* ctx, JSCFunction func,
 
 // --- Object property access ---
 JSValue JS_GetGlobalObject(JSContext* ctx);
+int JS_GetLength(JSContext* ctx, JSValueConst obj, long* pres);
+int JS_SetLength(JSContext* ctx, JSValueConst obj, long len);
 int JS_SetPropertyStr(JSContext* ctx, JSValueConst this_obj,
     const(char)* prop, JSValue val);
 JSValue JS_GetPropertyStr(JSContext* ctx, JSValueConst this_obj,
@@ -331,8 +367,10 @@ int JS_DeleteProperty(JSContext* ctx, JSValueConst obj, JSAtom prop, int flags);
 // --- Type checks (exported) ---
 bool JS_IsArray(JSValueConst val);
 bool JS_IsFunction(JSContext* ctx, JSValueConst val);
-bool JS_IsError(JSContext* ctx, JSValueConst val);
+bool JS_IsError(JSValueConst val);             // ctx dropped in v0.14.0
+bool JS_IsPromise(JSValueConst val);
 bool JS_IsArrayBuffer(JSValueConst obj);
+bool JS_HasException(JSContext* ctx);
 
 // --- Module detection ---
 bool JS_DetectModule(const(char)* input, size_t input_len);
@@ -402,6 +440,16 @@ void JS_SetClassProto(JSContext* ctx, JSClassID class_id, JSValue obj);
 
 // --- Promise ---
 JSValue JS_NewPromiseCapability(JSContext* ctx, JSValue* resolving_funcs);
+JSValue JS_PromiseResult(JSContext* ctx, JSValueConst promise);
+
+enum JSPromiseStateEnum
+{
+    JS_PROMISE_PENDING,
+    JS_PROMISE_FULFILLED,
+    JS_PROMISE_REJECTED,
+}
+
+JSPromiseStateEnum JS_PromiseState(JSContext* ctx, JSValueConst promise);
 
 // --- JSON ---
 JSValue JS_ParseJSON(JSContext* ctx, const(char)* buf, size_t buf_len,
