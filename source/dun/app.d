@@ -55,6 +55,12 @@ int runScript(T)(T config)
         return 1;
     }
 
+    if (isTypeScript(config.scriptPath))
+    {
+        import dun.ts.strip : stripTypes;
+        source = stripTypes(source);
+    }
+
     auto engine = createEngine();
     engine.initialize(EngineConfig(config.memoryLimit, config.stackSize));
 
@@ -138,7 +144,7 @@ void printUsage()
     write(
         "Usage: dun <command> [options] [script] [args...]\n\n"
         ~ "Commands:\n"
-        ~ "  run <file>       Run a JavaScript file\n"
+        ~ "  run <file>       Run a JavaScript/TypeScript file\n"
         ~ "  repl             Start interactive REPL\n"
         ~ "  eval <code>      Evaluate JavaScript code\n"
         ~ "  version          Print version\n"
@@ -154,6 +160,17 @@ void printUsage()
         ~ "  --max-memory=<bytes>   JS heap memory limit (default: 256MB)\n"
         ~ "  --max-stack=<bytes>    Max stack size (default: 8MB)\n"
     );
+}
+
+bool isTypeScript(string path) @safe pure nothrow @nogc
+{
+    if (path.length >= 3 && path[$ - 3 .. $] == ".ts")
+        return true;
+    if (path.length >= 4 && path[$ - 4 .. $] == ".mts")
+        return true;
+    if (path.length >= 4 && path[$ - 4 .. $] == ".cts")
+        return true;
+    return false;
 }
 
 void writeStderr(const(char)[] msg) @trusted

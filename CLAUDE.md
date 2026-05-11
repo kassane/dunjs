@@ -21,9 +21,10 @@ dub build                            # Debug build (default: QuickJS backend)
 dub build -c quickjs                 # Explicit QuickJS backend
 dub build -c jsc                     # JavaScriptCore backend
 dub build -c v8                      # V8 backend (via C++ shim)
-dub test -c unittest                 # Run BDD-style engine contract tests (49 tests)
+dub test -c unittest                 # Run BDD-style engine contract + security tests
 dub build -b release                 # Release build (optimized)
 ./dun run script.js                  # Run a JavaScript file
+./dun run script.ts                  # Run a TypeScript file (type stripping)
 ./dun repl                           # Interactive REPL
 ./dun eval "1+1"                     # Evaluate inline JS
 ```
@@ -46,6 +47,7 @@ Layer 4: Built-in Modules      source/dun/builtins/    (dun:fs, dun:path, dun:ne
 Layer 3: Event Loop            source/dun/loop/        (eventcore, timer wheel, microtasks)
 Layer 2: JS Engine Abstraction source/dun/engine/      (IJSEngine interface + backends)
 Layer 1: Platform Abstraction  source/dun/platform/    (memory, threading, OS I/O)
+Cross:   TypeScript            source/dun/ts/          (type stripping for .ts/.mts/.cts)
 Cross:   Security              source/dun/security/    (permissions, sandbox)
 ```
 
@@ -77,9 +79,18 @@ source/dun/engine/
     ├── cppbindings.d # extern(C++, "v8") static-method bindings
     └── package.d
 
-vendor/v8shim/       # V8 C++ shim (~540 lines)
-├── v8shim.h         # extern "C" header
-└── v8shim.cpp       # C++ implementation (FunctionTemplate trampoline, Context::Scope)
+vendor/v8shim/           # V8 C++ shim (~540 lines)
+├── v8shim.h             # extern "C" header
+├── v8shim.cpp           # C++ implementation (FunctionTemplate trampoline, Context::Scope)
+└── v8shim_tmpl.hpp      # C++ TMP helpers (withContext<F>, V8TypeMap<Tag>)
+
+source/dun/ts/           # TypeScript type stripping
+├── strip.d              # Scanner-based type eraser (~600 lines, 20 unit tests)
+└── package.d            # Re-exports strip
+
+source/dun/security/
+├── permissions.d        # PermissionRegistry (default-deny model)
+└── test.d               # Security unit tests (25 tests)
 ```
 
 Upper layers use `IJSEngine` — only code inside `engine/<backend>/` touches raw engine APIs.
@@ -221,6 +232,26 @@ import stdcpp.allocator;
 | JSC | C++ internals | extern(C++, "JSC") — experimental cppbindings.d | ~30 |
 | V8 | C++ only | extern(C) via C shim (vendor/v8shim/) | ~540 C++ + ~90 D |
 | V8 | C++ internals | extern(C++, "v8") — static methods only (V8 class) | ~50 |
+| V8 | C++ TMP bridge | D TMP (static foreach, mixin) ↔ C++ TMP (if constexpr, templates) | ~100 |
+
+### C++ TMP ↔ D TMP Bridge Pattern
+
+The V8 shim demonstrates how C++ template metaprogramming and D's compile-time
+features can work together across the FFI boundary:
+
+**C++ side** (`vendor/v8shim/v8shim_tmpl.hpp`):
+- `withContext<F>`: eliminates V8 scope guard boilerplate via RAII + forwarding
+- `V8TypeMap<Tag>`: compile-time tag → v8::Type dispatch
+- `isV8Type<Tag>`: `if constexpr` for type-check method selection
+
+**D side** (`source/dun/engine/v8/cppbindings.d`):
+- `V8TypeTag` enum: mirrors C++ `V8Tag` for shared semantics
+- `V8TypeName` template: compile-time tag → function suffix map
+- `V8TypeChecks`: function pointer table generated from tags
+- `static foreach` over `__traits(allMembers)`: auto-generate declarations
+
+Adding a new type only requires adding an enum value on each side — the
+templates auto-generate the rest at compile time, both in C++ and D.
 
 ### V8 C++ Shim Architecture
 
@@ -251,8 +282,10 @@ dub test -c unittest    # BDD-style engine contract + fuzz tests
 
 - `source/dun/engine/test.d` — 46 engine contract tests (eval, types, properties, exceptions, promises)
 - `source/dun/engine/fuzz.d` — stress tests (rapid create/destroy, string stress, exception recovery)
+- `source/dun/ts/strip.d` — 20 TypeScript stripper tests (annotations, interfaces, as, declare, etc.)
+- `source/dun/security/test.d` — 25 security tests (default deny, scoped grants, deny overrides, parseFlag)
 
-### Integration Tests (12 tests × 3 backends)
+### Integration Tests (13 tests × 3 backends)
 
 ```sh
 # Run against a specific backend
@@ -274,8 +307,28 @@ dub build -c quickjs && ./tests/integration/run.sh
 | `classes` | Inheritance, static, private fields, computed props, valueOf | All 3 |
 | `regex` | Match, named groups, replace, split, matchAll | All 3 |
 | `timers` | setTimeout/setInterval (requires event loop) | Skipped |
+| `typescript` | Type annotations, interfaces, type aliases, as, arrow types | QuickJS |
 
-Test pattern: fixtures in `tests/integration/fixtures/*.js`, expected stdout in `tests/integration/expected/*.txt`.
+Test pattern: fixtures in `tests/integration/fixtures/*.{js,ts}`, expected stdout in `tests/integration/expected/*.txt`.
+
+### TypeScript Support
+
+DunJS supports running `.ts`, `.mts`, and `.cts` files directly via type stripping
+(same approach as Node.js `--experimental-strip-types`). Types are replaced with
+whitespace to preserve source positions for error messages.
+
+Supported erasable TypeScript:
+- Type annotations (`: T` on variables, parameters, return types)
+- `interface` and `type` alias declarations
+- `import type` / `export type` statements
+- `as T` type assertions
+- `declare` blocks, `abstract` keyword
+- Optional parameters (`x?: T`)
+
+Not supported (have runtime semantics):
+- `enum` (use `const obj = { ... } as const` instead)
+- `namespace` blocks
+- Constructor parameter properties (`constructor(public x: number)`)
 
 ## Security Model
 
@@ -309,8 +362,10 @@ Test pattern: fixtures in `tests/integration/fixtures/*.js`, expected stdout in 
 |-------|------|-----------------|--------|
 | 1 (MVP) | `dun run hello.js` | Engine abstraction + console + CLI | **Done** |
 | 1b | Multi-engine | JSC + V8 backends fully functional | **Done** |
+| 1c | TypeScript | `dun run file.ts` with type stripping | **Done** |
+| 1d | Security tests | PermissionRegistry unit tests (25 tests) | **Done** |
 | 2 | Async works | Event loop + timers + Promises | In progress |
 | 3 | Real scripts | Module system + fs/path/net/crypto | Planned |
-| 4 | Secure by default | Permission system (deny-all) | Planned |
+| 4 | Secure by default | Permission enforcement wired to builtins | Planned |
 | 5 | DX polish | REPL + colored errors + stack traces | Planned |
 | 6 | Performance | io_uring, workers, HTTP server, npm compat | Planned |

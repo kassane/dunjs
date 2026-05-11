@@ -24,8 +24,9 @@ struct CliConfig
     string evalSource;
     string[] scriptArgs;
     PermissionRegistry permissions;
-    size_t memoryLimit = 256 * 1024 * 1024; // 256 MB
-    size_t stackSize = 8 * 1024 * 1024; // 8 MB
+    import dun.engine.iface : DEFAULT_MEMORY_LIMIT, DEFAULT_MAX_STACK;
+    size_t memoryLimit = DEFAULT_MEMORY_LIMIT;
+    size_t stackSize = DEFAULT_MAX_STACK;
     bool verbose;
 }
 

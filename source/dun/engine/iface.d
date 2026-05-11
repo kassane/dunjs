@@ -13,10 +13,20 @@ struct JSResult
     string errorMessage;
 }
 
+private size_t MiB(size_t n) @safe pure nothrow @nogc
+{
+    return n * 1024 * 1024;
+}
+
+enum DEFAULT_MEMORY_LIMIT = MiB(256);
+enum DEFAULT_MAX_STACK = MiB(8);
+enum TEST_MEMORY_LIMIT = MiB(64);
+enum TEST_MAX_STACK = MiB(4);
+
 struct EngineConfig
 {
-    size_t memoryLimit = 256 * 1024 * 1024;
-    size_t maxStackSize = 8 * 1024 * 1024;
+    size_t memoryLimit = DEFAULT_MEMORY_LIMIT;
+    size_t maxStackSize = DEFAULT_MAX_STACK;
 }
 
 alias NativeCallback = JSHandle function(

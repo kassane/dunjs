@@ -150,7 +150,7 @@ mixin template EngineTestRunner(string label, Modules...)
 
             writeln("QuickJS ", label);
             auto engine = createEngine();
-            auto cfg = EngineConfig(64 * 1024 * 1024, 4 * 1024 * 1024);
+            auto cfg = EngineConfig(TEST_MEMORY_LIMIT, TEST_MAX_STACK);
             engine.initialize(cfg);
             scope (exit)
                 engine.shutdown();
@@ -169,7 +169,7 @@ mixin template EngineTestRunner(string label, Modules...)
 
             writeln("JSC ", label);
             auto engine = createEngine();
-            auto cfg = EngineConfig(64 * 1024 * 1024, 4 * 1024 * 1024);
+            auto cfg = EngineConfig(TEST_MEMORY_LIMIT, TEST_MAX_STACK);
             engine.initialize(cfg);
             scope (exit)
                 engine.shutdown();
@@ -188,7 +188,7 @@ mixin template EngineTestRunner(string label, Modules...)
 
             writeln("V8 ", label);
             auto engine = createEngine();
-            auto cfg = EngineConfig(64 * 1024 * 1024, 4 * 1024 * 1024);
+            auto cfg = EngineConfig(TEST_MEMORY_LIMIT, TEST_MAX_STACK);
             engine.initialize(cfg);
             scope (exit)
                 engine.shutdown();
