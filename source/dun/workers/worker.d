@@ -42,7 +42,7 @@ bool gIsWorkerThread = false;
 private __gshared WorkerState[] gWorkers;
 private __gshared Mutex gWorkersMutex;
 
-shared static this()
+shared static this() @system
 {
     gWorkersMutex = new Mutex();
 }

@@ -21,7 +21,7 @@ version (EngineQuickJS)
     import dun.engine.quickjs.bindings;
 
     private extern (C) char* normalizeModuleFunc(JSContext* ctx,
-        const(char)* base_name, const(char)* module_name, void* opaque) nothrow
+        const(char)* base_name, const(char)* module_name, void* opaque) nothrow @system
     {
         try
         {
@@ -60,7 +60,7 @@ version (EngineQuickJS)
     }
 
     private extern (C) JSModuleDef* loadModuleCallback(
-        JSContext* ctx, const(char)* module_name, void* opaque) nothrow
+        JSContext* ctx, const(char)* module_name, void* opaque) nothrow @system
     {
         import std.string : fromStringz, toStringz;
         import std.algorithm : endsWith;

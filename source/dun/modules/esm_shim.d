@@ -146,6 +146,10 @@ private string builtinGlobalProp(string specifier) @safe pure nothrow
     if (specifier == "dun:crypto" || specifier == "node:crypto") return "__dun_cjs_crypto__";
     if (specifier == "dun:net" || specifier == "node:net") return "__dun_cjs_net__";
     if (specifier == "dun:http" || specifier == "node:http") return "__dun_cjs_http__";
+    if (specifier == "dun:os" || specifier == "node:os") return "__dun_cjs_os__";
+    if (specifier == "dun:buffer" || specifier == "node:buffer") return "__dun_cjs_buffer__";
+    if (specifier == "dun:events" || specifier == "node:events") return "__dun_cjs_events__";
+    if (specifier == "dun:url" || specifier == "node:url") return "__dun_cjs_url__";
     return "";
 }
 

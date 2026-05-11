@@ -39,7 +39,7 @@ void installWorkerAPI(JSContext* ctx, DunState* state) @trusted
 // --- Worker constructor ---
 
 private extern (C) JSValue _workerCtor(JSContext* ctx,
-    JSValueConst new_target, int argc, JSValueConst* argv) nothrow
+    JSValueConst new_target, int argc, JSValueConst* argv) nothrow @system
 {
     if (argc < 1)
         return JS_ThrowTypeError(ctx, "Worker(path) requires a script path");
@@ -98,7 +98,7 @@ private extern (C) JSValue _workerCtor(JSContext* ctx,
 }
 
 private extern (C) JSValue _workerPostMessage(JSContext* ctx,
-    JSValueConst this_val, int argc, JSValueConst* argv) nothrow
+    JSValueConst this_val, int argc, JSValueConst* argv) nothrow @system
 {
     if (argc < 1)
         return JS_UNDEFINED();
@@ -146,7 +146,7 @@ private extern (C) void _sabFree(JSRuntime* rt, void* opaque, void* ptr) nothrow
 }
 
 private extern (C) JSValue _sabCtor(JSContext* ctx,
-    JSValueConst new_target, int argc, JSValueConst* argv) nothrow
+    JSValueConst new_target, int argc, JSValueConst* argv) nothrow @system
 {
     uint size = 0;
     if (argc >= 1)
@@ -164,7 +164,7 @@ private extern (C) JSValue _sabCtor(JSContext* ctx,
 
 // --- Atomics helpers ---
 
-private int* _taPtr(JSContext* ctx, JSValueConst ta, int idx) nothrow @trusted
+private int* _taPtr(JSContext* ctx, JSValueConst ta, int idx) nothrow @system
 {
     size_t byteOff, byteLen, bytesPerElem;
     auto abuf = JS_GetTypedArrayBuffer(ctx, ta, &byteOff, &byteLen, &bytesPerElem);
@@ -182,7 +182,7 @@ private int* _taPtr(JSContext* ctx, JSValueConst ta, int idx) nothrow @trusted
     return cast(int*)(raw + byteIdx);
 }
 
-private int _toI32(JSContext* ctx, JSValueConst v) nothrow @trusted
+private int _toI32(JSContext* ctx, JSValueConst v) nothrow @system
 {
     int i;
     JS_ToInt32(ctx, &i, v);
@@ -190,7 +190,7 @@ private int _toI32(JSContext* ctx, JSValueConst v) nothrow @trusted
 }
 
 private extern (C) JSValue _atomicsLoad(JSContext* ctx,
-    JSValueConst this_val, int argc, JSValueConst* argv) nothrow
+    JSValueConst this_val, int argc, JSValueConst* argv) nothrow @system
 {
     if (argc < 2) return JS_UNDEFINED();
     int idx;
@@ -202,7 +202,7 @@ private extern (C) JSValue _atomicsLoad(JSContext* ctx,
 }
 
 private extern (C) JSValue _atomicsStore(JSContext* ctx,
-    JSValueConst this_val, int argc, JSValueConst* argv) nothrow
+    JSValueConst this_val, int argc, JSValueConst* argv) nothrow @system
 {
     if (argc < 3) return JS_UNDEFINED();
     int idx; JS_ToInt32(ctx, &idx, argv[1]);
@@ -215,7 +215,7 @@ private extern (C) JSValue _atomicsStore(JSContext* ctx,
 }
 
 private extern (C) JSValue _atomicsAdd(JSContext* ctx,
-    JSValueConst this_val, int argc, JSValueConst* argv) nothrow
+    JSValueConst this_val, int argc, JSValueConst* argv) nothrow @system
 {
     if (argc < 3) return JS_UNDEFINED();
     int idx; JS_ToInt32(ctx, &idx, argv[1]);
@@ -227,7 +227,7 @@ private extern (C) JSValue _atomicsAdd(JSContext* ctx,
 }
 
 private extern (C) JSValue _atomicsSub(JSContext* ctx,
-    JSValueConst this_val, int argc, JSValueConst* argv) nothrow
+    JSValueConst this_val, int argc, JSValueConst* argv) nothrow @system
 {
     if (argc < 3) return JS_UNDEFINED();
     int idx; JS_ToInt32(ctx, &idx, argv[1]);
@@ -249,7 +249,7 @@ private int _casLoop(int* rawPtr, int function(int) nothrow @safe pure op) nothr
 }
 
 private extern (C) JSValue _atomicsAnd(JSContext* ctx,
-    JSValueConst this_val, int argc, JSValueConst* argv) nothrow
+    JSValueConst this_val, int argc, JSValueConst* argv) nothrow @system
 {
     if (argc < 3) return JS_UNDEFINED();
     int idx; JS_ToInt32(ctx, &idx, argv[1]);
@@ -265,7 +265,7 @@ private extern (C) JSValue _atomicsAnd(JSContext* ctx,
 }
 
 private extern (C) JSValue _atomicsOr(JSContext* ctx,
-    JSValueConst this_val, int argc, JSValueConst* argv) nothrow
+    JSValueConst this_val, int argc, JSValueConst* argv) nothrow @system
 {
     if (argc < 3) return JS_UNDEFINED();
     int idx; JS_ToInt32(ctx, &idx, argv[1]);
@@ -281,7 +281,7 @@ private extern (C) JSValue _atomicsOr(JSContext* ctx,
 }
 
 private extern (C) JSValue _atomicsXor(JSContext* ctx,
-    JSValueConst this_val, int argc, JSValueConst* argv) nothrow
+    JSValueConst this_val, int argc, JSValueConst* argv) nothrow @system
 {
     if (argc < 3) return JS_UNDEFINED();
     int idx; JS_ToInt32(ctx, &idx, argv[1]);
@@ -297,7 +297,7 @@ private extern (C) JSValue _atomicsXor(JSContext* ctx,
 }
 
 private extern (C) JSValue _atomicsCmpXch(JSContext* ctx,
-    JSValueConst this_val, int argc, JSValueConst* argv) nothrow
+    JSValueConst this_val, int argc, JSValueConst* argv) nothrow @system
 {
     if (argc < 4) return JS_UNDEFINED();
     int idx; JS_ToInt32(ctx, &idx, argv[1]);
@@ -313,7 +313,7 @@ private extern (C) JSValue _atomicsCmpXch(JSContext* ctx,
 }
 
 private extern (C) JSValue _atomicsWait(JSContext* ctx,
-    JSValueConst this_val, int argc, JSValueConst* argv) nothrow
+    JSValueConst this_val, int argc, JSValueConst* argv) nothrow @system
 {
     // Per spec: Atomics.wait is not allowed on the main thread
     import dun.workers.worker : gIsWorkerThread;
@@ -380,7 +380,7 @@ private extern (C) JSValue _atomicsWait(JSContext* ctx,
 }
 
 private extern (C) JSValue _atomicsNotify(JSContext* ctx,
-    JSValueConst this_val, int argc, JSValueConst* argv) nothrow
+    JSValueConst this_val, int argc, JSValueConst* argv) nothrow @system
 {
     if (argc < 2) return JS_UNDEFINED();
     int idx; JS_ToInt32(ctx, &idx, argv[1]);

@@ -41,7 +41,7 @@ dub build -b release                 # Release build (optimized)
 Layer 7: CLI & REPL           source/dun/cli/
 Layer 6: Runtime API           source/dun/runtime/     (console, timers, process)
 Layer 5: Module System         source/dun/modules/     (ES modules, resolver, loader)
-Layer 4: Built-in Modules      source/dun/builtins/    (dun:fs, dun:path, dun:net, ...)
+Layer 4: Built-in Modules      source/dun/builtins/    (dun:fs, dun:path, dun:net, dun:http, dun:os, dun:buffer, dun:events, dun:url)
 Layer 3: Event Loop            source/dun/loop/        (epoll/kqueue/poll, timer wheel, microtasks)
 Layer 2: JS Engine Abstraction source/dun/engine/      (IJSEngine interface + backends)
 Layer 1: Platform Abstraction  source/dun/platform/    (memory, threading, OS I/O)
@@ -96,16 +96,23 @@ Upper layers use `IJSEngine` -- only code inside `engine/<backend>/` touches raw
 
 ### Runtime Globals (Layer 6)
 
-Console is implemented per-backend in `source/dun/runtime/globals.d`:
+All runtime globals are **engine-agnostic** (use `IJSEngine` + `NativeCallback`):
 
-| Method | QuickJS | JSC | V8 | Output |
-|--------|---------|-----|-----|--------|
-| `console.log` | extern(C) -> core.stdc.stdio | JSObjectMakeFunctionWithCallback -> std.stdio | v8shim trampoline -> std.stdio | stdout |
-| `console.info` | alias -> log | alias -> log | alias -> log | stdout |
-| `console.debug` | alias -> log | alias -> log | alias -> log | stdout |
-| `console.warn` | extern(C) -> stderr | callback -> std.stdio stderr | trampoline -> std.stdio stderr | stderr |
-| `console.error` | extern(C) -> stderr | callback -> std.stdio stderr | trampoline -> std.stdio stderr | stderr |
-| `console.assert` | extern(C) -> stderr | callback -> std.stdio stderr | trampoline -> std.stdio stderr | stderr |
+| Module | Registration | Available via |
+|--------|-------------|---------------|
+| `console` | `installConsole(engine)` | Global `console` object |
+| `Buffer` | `registerBufferModule(engine)` | Global `Buffer`, `require('buffer')` |
+| `EventEmitter` | `registerEventsModule(engine)` | Global `EventEmitter`, `require('events')` |
+| `URL` / `URLSearchParams` | `registerUrlModule(engine)` | Global `URL`/`URLSearchParams`, `require('url')` |
+| `os` | `registerOsModule(engine)` | `require('os')` |
+| `fs` | `registerFsModule(engine)` | `require('fs')`, ESM `import from 'dun:fs'` |
+| `path` | `registerPathModule(engine)` | `require('path')`, ESM `import from 'dun:path'` |
+| `crypto` | `registerCryptoModule(engine)` | `require('crypto')`, ESM `import from 'dun:crypto'` |
+| `net` | `registerNetModule(engine)` | `require('net')`, ESM `import from 'dun:net'` |
+| `http` | `registerHttpModule(engine)` | `require('http')`, ESM `import from 'dun:http'` |
+
+All modules work identically across QuickJS, JSC, and V8 backends.
+Workers remain QuickJS-only (requires threading primitives).
 
 ## Key Development Patterns
 
@@ -302,11 +309,13 @@ dub test -c unittest    # All unit tests
 | V8 TMP bridge | `source/dun/engine/v8/cppbindings.d` | compile-time | V8TypeName coverage, tag->name mapping |
 | JSC TMP bridge | `source/dun/engine/jsc/cppbindings.d` | compile-time | JSCTypeName coverage, kJSType* alignment |
 
-### Integration Tests (40 fixtures)
+### Integration Tests (44 fixtures)
 
 ```sh
 # Run against a specific backend
 dub build -c quickjs && ./tests/integration/run.sh
+dub build -c jsc && BACKEND=jsc ./tests/integration/run.sh
+dub build -c v8  && BACKEND=v8  ./tests/integration/run.sh
 ```
 
 | Category | Tests | Coverage |
@@ -317,9 +326,12 @@ dub build -c quickjs && ./tests/integration/run.sh
 | Errors | `error_handling` | try/catch, Error subtypes, Error.cause, finally |
 | Modules | `module_esm`, `module_cjs`, `module_chain`, `json_pipeline`, `npm_compat` | ESM import/export, CJS require, chained deps, JSON import |
 | Builtins | `fs_ops`, `path_ops`, `crypto_ops`, `stat_file`, `env_access` | readFile, join/resolve, hash/randomBytes, stat, process.env |
+| New APIs | `buffer_api`, `event_emitter`, `url_api`, `os_api` | Buffer.from/alloc/concat, EventEmitter on/emit/once, URL/URLSearchParams, os.platform/cpus/totalmem |
 | Security | `perm_deny_read`, `perm_deny_write` | Permission denial enforcement |
 | TypeScript | `typescript`, `realworld_ts_library` | Type annotations, interfaces, as, arrow types |
 | Real-world | 7 end-to-end scenarios | Config loading, task runner, file processing, events, promise pool, nested require, ESM pipeline |
+
+Backend test scores: **QuickJS 44/44**, **JSC 42/42+2skip**, **V8 42/42+2skip** (workers/phase2_rejection QuickJS-only).
 
 Test pattern: fixtures in `tests/integration/fixtures/*.{js,mjs,ts}`, expected stdout in `tests/integration/expected/*.txt`.
 
@@ -389,3 +401,6 @@ Not supported (have runtime semantics):
 | 6b | HTTP server | http.d HTTP/1.1 createServer/listen/close, req/res, epoll | **Done** |
 | 6c | Workers | Web Workers + SharedArrayBuffer + Atomics (QuickJS-only) | **Done** |
 | 6d | io_uring | Linux io_uring backend for IOPoller (IORING_OP_POLL_ADD) | **Done** |
+| 7a | Node APIs | Buffer, EventEmitter, URL/URLSearchParams, os module | **Done** |
+| 7b | Engine parity | net/http ported engine-agnostic (JSC/V8 fully usable) | **Done** |
+| 7c | Safety | `-preview=safer` enabled for all code | **Done** |

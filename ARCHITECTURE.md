@@ -6,7 +6,8 @@ DunJS is a 7-layer JavaScript/TypeScript runtime with a **pluggable engine archi
 (IJSEngine interface), a cross-platform I/O poller (epoll/kqueue/poll), and a Deno-inspired permission system.
 
 Three backends are fully functional: QuickJS-NG (default), JavaScriptCore, and V8.
-All 38 integration tests pass on QuickJS (including 9 real-world end-to-end scenarios).
+All 44 integration tests pass on QuickJS (42 on JSC/V8 + 2 QuickJS-only).
+All built-in modules (fs, path, crypto, net, http, buffer, events, url, os) are engine-agnostic.
 
 Reference: [Bun's Zig->Rust port](https://github.com/oven-sh/bun/pull/30412) -- modular
 workspace with `bun_jsc` engine layer, `*_jsc` suffix pattern for engine-specific modules,
@@ -35,10 +36,13 @@ RAII wrappers, and pointer safety auditing.
 |  | resolver | | loader | | esm | | builtins |                 |
 |  +----------+ +--------+ +-----+ +----------+                 |
 +--------------------------------------------------------------+
-|  Layer 4: Built-in Modules                                    |
+|  Layer 4: Built-in Modules (all engine-agnostic)              |
 |  +----+ +------+ +-----+ +------+ +--------+ +-----+         |
-|  | fs | | path | | net | | http | | crypto | | url |         |
+|  | fs | | path | | net | | http | | crypto | | os  |         |
 |  +----+ +------+ +-----+ +------+ +--------+ +-----+         |
+|  +--------+ +--------+ +-----+                                |
+|  | buffer | | events | | url |                                |
+|  +--------+ +--------+ +-----+                                |
 +--------------------------------------------------------------+
 |  Cross-Cutting Concerns                                       |
 |  +----------------+ +------------------+ +----------------+   |
@@ -440,7 +444,7 @@ that require linking against V8's C++ objects -- these MUST go through the C shi
 ```
 tests/
 +-- integration/
-|   +-- fixtures/       # 38 test scripts (JS, MJS, TS)
+|   +-- fixtures/       # 44 test scripts (JS, MJS, TS)
 |   |   +-- hello.js                    # Basic smoke test
 |   |   +-- types.js                    # typeof for all JS types
 |   |   +-- console_methods.js          # log/info/debug, multiple args
@@ -479,7 +483,11 @@ tests/
 |   |   +-- realworld_nested_require.js    # Nested require chains
 |   |   +-- realworld_security_boundary.js # Security boundary tests
 |   |   +-- realworld_esm_pipeline.mjs     # ESM pipeline end-to-end
-|   +-- expected/       # 37 expected stdout files
+|   |   +-- buffer_api.js                 # Buffer.from/alloc/concat/slice
+|   |   +-- event_emitter.js              # EventEmitter on/emit/once/off
+|   |   +-- url_api.js                    # URL/URLSearchParams parsing
+|   |   +-- os_api.js                     # os.platform/cpus/totalmem
+|   +-- expected/       # 44 expected stdout files
 |   +-- fixtures/lib/   # Shared modules for require tests
 +-- bench/              # Benchmarks
 
@@ -495,4 +503,4 @@ source/dun/security/
 ```
 
 Test pattern inspired by Node.js standalone scripts: run fixture, compare stdout to expected file.
-All 38 integration tests pass on QuickJS. TypeScript tests use type stripping.
+All 44 integration tests pass on QuickJS. 42 pass on JSC/V8 (workers/phase2_rejection are QuickJS-only).

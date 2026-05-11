@@ -28,7 +28,7 @@ void installWorkerSelf(JSContext* ctx, DunState* state, WorkerState wst) @truste
     JS_FreeValue(ctx, global);
 }
 
-private WorkerState _getWst(JSContext* ctx) nothrow @trusted
+private WorkerState _getWst(JSContext* ctx) nothrow @system
 {
     auto global = JS_GetGlobalObject(ctx);
     auto selfObj = JS_GetPropertyStr(ctx, global, "self");
@@ -49,7 +49,7 @@ private WorkerState _getWst(JSContext* ctx) nothrow @trusted
 }
 
 private extern (C) JSValue _selfPostMessage(JSContext* ctx,
-    JSValueConst this_val, int argc, JSValueConst* argv) nothrow
+    JSValueConst this_val, int argc, JSValueConst* argv) nothrow @system
 {
     if (argc < 1)
         return JS_UNDEFINED();
@@ -76,7 +76,7 @@ private extern (C) JSValue _selfPostMessage(JSContext* ctx,
 }
 
 private extern (C) JSValue _selfClose(JSContext* ctx,
-    JSValueConst this_val, int argc, JSValueConst* argv) nothrow
+    JSValueConst this_val, int argc, JSValueConst* argv) nothrow @system
 {
     auto wst = _getWst(ctx);
     if (wst)

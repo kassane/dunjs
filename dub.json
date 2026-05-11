@@ -155,10 +155,11 @@
 	"authors": [
 		"Matheus C. Franca"
 	],
-	"dflags-ldc": [
+	"dflags": [
 		"-preview=fixImmutableConv",
 		"-preview=fixAliasThis",
-		"-preview=rvaluerefparam"
+		"-preview=rvaluerefparam",
+		"-preview=safer"
 	],
 	"libs-windows": [
 		"legacy_stdio_definitions",
@@ -170,11 +171,6 @@
 		"source"
 	],
 	"name": "dunjs",
-	"dflags-dmd": [
-		"-preview=fixImmutableConv",
-		"-preview=fixAliasThis",
-		"-preview=rvalueRefParam"
-	],
 	"sourcePaths": [
 		"source"
 	],

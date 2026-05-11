@@ -1,46 +1,60 @@
 module dun.builtins.net;
 
-// TCP networking built-in (dun:net / node:net / require('net')).
-// Uses eventcore for non-blocking I/O: connections and reads are callback-
-// driven via the dun.loop.pending queue, which the event loop drains each
-// tick after processEvents returns.
+import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
+import dun.runtime.globals : DunState;
+import dun.loop.agnostic_pending : pushAgnosticPending;
 
-version (EngineQuickJS):
-
-import dun.engine.quickjs.bindings;
-import dun.engine.quickjs.function_bind : jsArgToString, toJSValue;
-import dun.loop.pending : pushPending;
-import std.string : toStringz;
-
-void registerNetModule(JSContext* ctx) @trusted
+void registerNetModule(IJSEngine engine) @trusted
 {
-    auto m = JS_NewCModule(ctx, "dun:net", &netModuleInit);
-    if (m is null) return;
-    JS_AddModuleExport(ctx, m, "createServer");
-    JS_AddModuleExport(ctx, m, "createConnection");
-    JS_AddModuleExport(ctx, m, "connect");
+    auto obj = engine.newObject();
 
-    // CJS-compatible object for require('net') / require('dun:net')
-    auto obj = JS_NewObject(ctx);
-    JS_SetPropertyStr(ctx, obj, "createServer",
-        JS_NewCFunction(ctx, &jsCreateServer, "createServer", 1));
-    JS_SetPropertyStr(ctx, obj, "createConnection",
-        JS_NewCFunction(ctx, &jsCreateConnection, "createConnection", 2));
-    JS_SetPropertyStr(ctx, obj, "connect",
-        JS_NewCFunction(ctx, &jsCreateConnection, "connect", 2));
-    auto global = JS_GetGlobalObject(ctx);
-    JS_SetPropertyStr(ctx, global, "__dun_cjs_net__", obj);
-    JS_FreeValue(ctx, global);
+    engine.setProperty(obj, "createServer", engine.newFunction(&jsCreateServer, "createServer", 1));
+    engine.setProperty(obj, "createConnection", engine.newFunction(&jsCreateConnection, "createConnection", 2));
+    engine.setProperty(obj, "connect", engine.newFunction(&jsCreateConnection, "connect", 2));
+
+    auto global = engine.getGlobal();
+    engine.setProperty(global, "__dun_cjs_net__", obj);
+
+    version (EngineQuickJS)
+        registerQuickJSModule(engine);
 }
 
-// Shared epoll poller for all net fds (Linux only).
+version (EngineQuickJS)
+{
+    import dun.engine.quickjs.bindings;
+
+    private void registerQuickJSModule(IJSEngine engine) @trusted
+    {
+        auto ctx = cast(JSContext*) engine.rawContext();
+        auto m = JS_NewCModule(ctx, "dun:net", &netModuleInit);
+        if (m is null) return;
+        JS_AddModuleExport(ctx, m, "createServer");
+        JS_AddModuleExport(ctx, m, "createConnection");
+        JS_AddModuleExport(ctx, m, "connect");
+    }
+
+    private extern (C) int netModuleInit(JSContext* ctx, JSModuleDef* m) nothrow @trusted
+    {
+        auto global = JS_GetGlobalObject(ctx);
+        auto netObj = JS_GetPropertyStr(ctx, global, "__dun_cjs_net__");
+        foreach (name; ["createServer", "createConnection", "connect"])
+        {
+            auto fn = JS_GetPropertyStr(ctx, netObj, name.ptr);
+            JS_SetModuleExport(ctx, m, name.ptr, fn);
+        }
+        JS_FreeValue(ctx, netObj);
+        JS_FreeValue(ctx, global);
+        return 0;
+    }
+}
+
 version (linux)
 {
     import dun.loop.iopoller : IOPoller, IOEvent;
-    IOPoller gNetPoller;
-    bool gNetPollerInited = false;
+    private IOPoller gNetPoller;
+    private bool gNetPollerInited = false;
 
-    void ensurePoller() nothrow @trusted
+    private void ensurePoller() nothrow @trusted
     {
         if (!gNetPollerInited) { gNetPoller.initialize(); gNetPollerInited = true; }
     }
@@ -48,40 +62,27 @@ version (linux)
 
 private:
 
-extern (C) int netModuleInit(JSContext* ctx, JSModuleDef* m) nothrow @trusted
-{
-    JS_SetModuleExport(ctx, m, "createServer",
-        JS_NewCFunction(ctx, &jsCreateServer, "createServer", 1));
-    JS_SetModuleExport(ctx, m, "createConnection",
-        JS_NewCFunction(ctx, &jsCreateConnection, "createConnection", 2));
-    JS_SetModuleExport(ctx, m, "connect",
-        JS_NewCFunction(ctx, &jsCreateConnection, "connect", 2));
-    return 0;
-}
-
-// ---------------------------------------------------------------------------
-// Server / Socket state registries (thread-local, single-threaded runtime)
-// ---------------------------------------------------------------------------
-
 struct SocketState
 {
-    JSContext* ctx;
-    JSValue onData;    // duped, JS_UNDEFINED if unset
-    JSValue onEnd;
-    JSValue onClose;
-    JSValue onError;
-    int fd;            // raw POSIX fd (-1 = closed)
+    IJSEngine engine;
+    JSHandle onData;
+    JSHandle onEnd;
+    JSHandle onClose;
+    JSHandle onError;
+    int fd = -1;
     bool closed;
+    bool eventsSet;
     ubyte[4096] readBuf;
 }
 
 struct ServerState
 {
-    JSContext* ctx;
-    JSValue onConnection; // duped, JS_UNDEFINED if unset
-    int listenFd;         // raw POSIX fd (-1 = not listening)
+    IJSEngine engine;
+    JSHandle onConnection;
+    int listenFd = -1;
     bool active;
     ushort port;
+    bool connCbSet;
 }
 
 ServerState[] servers;
@@ -89,443 +90,420 @@ SocketState[] sockets;
 int nextServerId = 0;
 int nextSocketId = 0;
 
-// ---------------------------------------------------------------------------
-// net.createServer([options], [connectionListener]) → Server object
-// ---------------------------------------------------------------------------
-extern (C) JSValue jsCreateServer(JSContext* ctx, JSValueConst this_val,
-    int argc, JSValueConst* argv) nothrow @trusted
+JSHandle jsCreateServer(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
-    JSValue connCb = JS_UNDEFINED();
-    if (argc >= 1 && JS_IsFunction(ctx, argv[0]))
-        connCb = JS_DupValue(ctx, argv[0]);
-    else if (argc >= 2 && JS_IsFunction(ctx, argv[1]))
-        connCb = JS_DupValue(ctx, argv[1]);
+    auto state = cast(DunState*) ctx;
+    auto engine = state.engine;
+
+    JSHandle connCb;
+    bool hasCb = false;
+    if (args.length >= 1 && engine.isFunction(args[0]))
+    {
+        connCb = engine.dupValue(args[0]);
+        hasCb = true;
+    }
+    else if (args.length >= 2 && engine.isFunction(args[1]))
+    {
+        connCb = engine.dupValue(args[1]);
+        hasCb = true;
+    }
 
     int id = nextServerId++;
     try
     {
-        servers ~= ServerState(ctx, connCb, -1, false, 0);
+        ServerState srv;
+        srv.engine = engine;
+        if (hasCb) { srv.onConnection = connCb; srv.connCbSet = true; }
+        servers ~= srv;
     }
     catch (Throwable)
     {
-        JS_FreeValue(ctx, connCb);
-        return JS_ThrowTypeError(ctx, "net.createServer: out of memory");
+        if (hasCb) engine.freeValue(connCb);
+        return engine.throwTypeError("net.createServer: out of memory");
     }
 
-    return makeServerObject(ctx, id);
+    return makeServerObject(engine, id);
 }
 
-// ---------------------------------------------------------------------------
-// net.createConnection(port, host, [callback]) → Socket
-// ---------------------------------------------------------------------------
-extern (C) JSValue jsCreateConnection(JSContext* ctx, JSValueConst this_val,
-    int argc, JSValueConst* argv) nothrow @trusted
+JSHandle jsCreateConnection(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
-    import core.sys.posix.sys.socket;
-    import core.sys.posix.netinet.in_;
-    import core.sys.posix.netdb : getaddrinfo, addrinfo, freeaddrinfo;
-    import core.sys.posix.fcntl : fcntl, F_SETFL, O_NONBLOCK, F_GETFL;
-    import core.stdc.string : memset;
-
-    int port = 0;
-    string host = "127.0.0.1";
-    JSValue connectCb = JS_UNDEFINED();
-
-    if (argc >= 1) { int v; JS_ToInt32(ctx, &v, argv[0]); port = v; }
-    if (argc >= 2 && JS_IsString(argv[1]))
+    version (Posix)
     {
-        try { host = jsArgToString(ctx, argv[1]); } catch (Exception) {}
-    }
-    if (argc >= 3 && JS_IsFunction(ctx, argv[2]))
-        connectCb = JS_DupValue(ctx, argv[2]);
+        import core.sys.posix.sys.socket;
+        import core.sys.posix.netinet.in_;
+        import core.sys.posix.netdb : getaddrinfo, addrinfo, freeaddrinfo;
+        import core.sys.posix.fcntl : fcntl, F_SETFL, O_NONBLOCK, F_GETFL;
+        import core.stdc.string : memset;
 
-    // Build socket
-    int fd = socket(AF_INET, SOCK_STREAM, 0);
-    if (fd < 0)
-    {
-        JS_FreeValue(ctx, connectCb);
-        return JS_ThrowTypeError(ctx, "net.connect: socket() failed");
-    }
+        auto state = cast(DunState*) ctx;
+        auto engine = state.engine;
 
-    // Non-blocking
-    int flags = fcntl(fd, F_GETFL, 0);
-    fcntl(fd, F_SETFL, flags | O_NONBLOCK);
+        int port = 0;
+        string host = "127.0.0.1";
+        JSHandle connectCb;
+        bool hasCb = false;
 
-    // Address
-    sockaddr_in addr;
-    memset(&addr, 0, addr.sizeof);
-    addr.sin_family = AF_INET;
-    addr.sin_port   = htons(cast(ushort) port);
+        if (args.length >= 1 && engine.isNumber(args[0]))
+            port = engine.extractInt(args[0]);
+        if (args.length >= 2 && engine.isString(args[1]))
+            host = engine.extractString(args[1]);
+        if (args.length >= 3 && engine.isFunction(args[2]))
+        {
+            connectCb = engine.dupValue(args[2]);
+            hasCb = true;
+        }
 
-    // Resolve host
-    addrinfo hints;
-    addrinfo* res;
-    memset(&hints, 0, hints.sizeof);
-    hints.ai_family   = AF_INET;
-    hints.ai_socktype = SOCK_STREAM;
-    import core.stdc.stdlib : atoi;
-    if (getaddrinfo(host.toStringz, null, &hints, &res) == 0 && res !is null)
-    {
-        auto sin = cast(sockaddr_in*) res.ai_addr;
-        addr.sin_addr = sin.sin_addr;
-        freeaddrinfo(res);
+        int fd = socket(AF_INET, SOCK_STREAM, 0);
+        if (fd < 0)
+        {
+            if (hasCb) engine.freeValue(connectCb);
+            return engine.throwTypeError("net.connect: socket() failed");
+        }
+
+        int flags = fcntl(fd, F_GETFL, 0);
+        fcntl(fd, F_SETFL, flags | O_NONBLOCK);
+
+        sockaddr_in addr;
+        memset(&addr, 0, addr.sizeof);
+        addr.sin_family = AF_INET;
+        addr.sin_port = htons(cast(ushort) port);
+
+        import std.string : toStringz;
+        addrinfo hints;
+        addrinfo* res;
+        memset(&hints, 0, hints.sizeof);
+        hints.ai_family = AF_INET;
+        hints.ai_socktype = SOCK_STREAM;
+        if (getaddrinfo(host.toStringz, null, &hints, &res) == 0 && res !is null)
+        {
+            auto sin = cast(sockaddr_in*) res.ai_addr;
+            addr.sin_addr = sin.sin_addr;
+            freeaddrinfo(res);
+        }
+        else
+        {
+            import core.sys.posix.unistd : close;
+            close(fd);
+            if (hasCb) engine.freeValue(connectCb);
+            return engine.throwTypeError("net.connect: host resolution failed");
+        }
+
+        import core.sys.posix.sys.socket : connect;
+        import core.stdc.errno : errno, EINPROGRESS;
+        int r = connect(fd, cast(sockaddr*)&addr, addr.sizeof);
+        if (r < 0 && errno != EINPROGRESS)
+        {
+            import core.sys.posix.unistd : close;
+            close(fd);
+            if (hasCb) engine.freeValue(connectCb);
+            return engine.throwTypeError("net.connect: connect() failed");
+        }
+
+        int id = nextSocketId++;
+        try
+        {
+            SocketState s;
+            s.engine = engine;
+            s.fd = fd;
+            sockets ~= s;
+        }
+        catch (Throwable)
+        {
+            import core.sys.posix.unistd : close;
+            close(fd);
+            if (hasCb) engine.freeValue(connectCb);
+            return engine.throwTypeError("net.connect: out of memory");
+        }
+
+        registerSocketForPolling(id);
+
+        auto sockObj = makeSocketObject(engine, id);
+
+        if (hasCb)
+        {
+            JSHandle[0] noArgs;
+            pushAgnosticPending(engine, connectCb, noArgs[]);
+            engine.freeValue(connectCb);
+        }
+
+        return sockObj;
     }
     else
     {
-        import core.sys.posix.unistd : close;
-        close(fd);
-        JS_FreeValue(ctx, connectCb);
-        return JS_ThrowTypeError(ctx, "net.connect: host resolution failed");
+        auto state = cast(DunState*) ctx;
+        return state.engine.throwTypeError("net.connect not supported on this platform");
     }
-
-    import core.sys.posix.unistd : close;
-    import core.sys.posix.sys.socket : connect;
-    import core.stdc.errno : errno, EINPROGRESS;
-    int r = connect(fd, cast(sockaddr*)&addr, addr.sizeof);
-    if (r < 0 && errno != EINPROGRESS)
-    {
-        close(fd);
-        JS_FreeValue(ctx, connectCb);
-        return JS_ThrowTypeError(ctx, "net.connect: connect() failed");
-    }
-
-    int id = nextSocketId++;
-    try
-    {
-        SocketState s;
-        s.ctx    = ctx;
-        s.onData = s.onEnd = s.onClose = s.onError = JS_UNDEFINED();
-        s.fd     = fd;
-        sockets ~= s;
-    }
-    catch (Throwable)
-    {
-        close(fd);
-        JS_FreeValue(ctx, connectCb);
-        return JS_ThrowTypeError(ctx, "net.connect: out of memory");
-    }
-
-    // Register with IOPoller so data events arrive on next tick
-    registerSocketForPolling(id);
-
-    auto sockObj = makeSocketObject(ctx, id);
-
-    // Fire connect callback on next tick
-    if (!JS_IsUndefined(connectCb))
-    {
-        JSValue[0] noArgs;
-        pushPending(ctx, connectCb, noArgs[]);
-        JS_FreeValue(ctx, connectCb);
-    }
-
-    return sockObj;
 }
 
-// ---------------------------------------------------------------------------
-// Server object factory
-// ---------------------------------------------------------------------------
-JSValue makeServerObject(JSContext* ctx, int id) nothrow @trusted
+JSHandle makeServerObject(IJSEngine engine, int id) @trusted
 {
-    auto obj = JS_NewObject(ctx);
-    // Store id as __id property
-    JS_SetPropertyStr(ctx, obj, "__id",
-        JS_NewInt32(ctx, id));
-    JS_SetPropertyStr(ctx, obj, "listen",
-        JS_NewCFunction(ctx, &jsServerListen, "listen", 1));
-    JS_SetPropertyStr(ctx, obj, "close",
-        JS_NewCFunction(ctx, &jsServerClose, "close", 0));
-    JS_SetPropertyStr(ctx, obj, "on",
-        JS_NewCFunction(ctx, &jsServerOn, "on", 2));
+    auto obj = engine.newObject();
+    engine.setProperty(obj, "__id", engine.newInt(id));
+    engine.setProperty(obj, "listen", engine.newFunction(&jsServerListen, "listen", 1));
+    engine.setProperty(obj, "close", engine.newFunction(&jsServerClose, "close", 0));
+    engine.setProperty(obj, "on", engine.newFunction(&jsServerOn, "on", 2));
     return obj;
 }
 
-// ---------------------------------------------------------------------------
-// Socket object factory
-// ---------------------------------------------------------------------------
-JSValue makeSocketObject(JSContext* ctx, int id) nothrow @trusted
+JSHandle makeSocketObject(IJSEngine engine, int id) @trusted
 {
-    auto obj = JS_NewObject(ctx);
-    JS_SetPropertyStr(ctx, obj, "__id",
-        JS_NewInt32(ctx, id));
-    JS_SetPropertyStr(ctx, obj, "on",
-        JS_NewCFunction(ctx, &jsSocketOn, "on", 2));
-    JS_SetPropertyStr(ctx, obj, "write",
-        JS_NewCFunction(ctx, &jsSocketWrite, "write", 1));
-    JS_SetPropertyStr(ctx, obj, "end",
-        JS_NewCFunction(ctx, &jsSocketEnd, "end", 0));
-    JS_SetPropertyStr(ctx, obj, "destroy",
-        JS_NewCFunction(ctx, &jsSocketEnd, "destroy", 0));
+    auto obj = engine.newObject();
+    engine.setProperty(obj, "__id", engine.newInt(id));
+    engine.setProperty(obj, "on", engine.newFunction(&jsSocketOn, "on", 2));
+    engine.setProperty(obj, "write", engine.newFunction(&jsSocketWrite, "write", 1));
+    engine.setProperty(obj, "end", engine.newFunction(&jsSocketEnd, "end", 0));
+    engine.setProperty(obj, "destroy", engine.newFunction(&jsSocketEnd, "destroy", 0));
     return obj;
 }
 
-// ---------------------------------------------------------------------------
-// server.listen(port, [host], [callback])
-// ---------------------------------------------------------------------------
-extern (C) JSValue jsServerListen(JSContext* ctx, JSValueConst this_val,
-    int argc, JSValueConst* argv) nothrow @trusted
+JSHandle jsServerListen(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
-    import core.sys.posix.sys.socket;
-    import core.sys.posix.netinet.in_;
-    import core.sys.posix.fcntl : fcntl, F_SETFL, F_GETFL, O_NONBLOCK;
-    import core.stdc.string : memset;
-
-    int idVal;
-    auto idProp = JS_GetPropertyStr(ctx, this_val, "__id");
-    JS_ToInt32(ctx, &idVal, idProp);
-    JS_FreeValue(ctx, idProp);
-    if (idVal < 0 || idVal >= cast(int) servers.length)
-        return JS_ThrowTypeError(ctx, "server.listen: invalid server");
-
-    auto srv = &servers[idVal];
-
-    int port = 0;
-    JSValue listenCb = JS_UNDEFINED();
-    if (argc >= 1) { int v; JS_ToInt32(ctx, &v, argv[0]); port = v; }
-    if (argc >= 2 && JS_IsFunction(ctx, argv[1]))
-        listenCb = JS_DupValue(ctx, argv[1]);
-    else if (argc >= 3 && JS_IsFunction(ctx, argv[2]))
-        listenCb = JS_DupValue(ctx, argv[2]);
-
-    // Create listen socket
-    int lfd = socket(AF_INET, SOCK_STREAM, 0);
-    if (lfd < 0)
+    version (Posix)
     {
-        JS_FreeValue(ctx, listenCb);
-        return JS_ThrowTypeError(ctx, "server.listen: socket() failed");
-    }
+        import core.sys.posix.sys.socket;
+        import core.sys.posix.netinet.in_;
+        import core.sys.posix.fcntl : fcntl, F_SETFL, F_GETFL, O_NONBLOCK;
+        import core.stdc.string : memset;
 
-    // Reuse addr
-    int optval = 1;
-    setsockopt(lfd, SOL_SOCKET, SO_REUSEADDR, &optval, optval.sizeof);
+        auto state = cast(DunState*) ctx;
+        auto engine = state.engine;
 
-    // Non-blocking
-    int flags = fcntl(lfd, F_GETFL, 0);
-    fcntl(lfd, F_SETFL, flags | O_NONBLOCK);
+        auto idProp = engine.getProperty(thisVal, "__id");
+        int idVal = engine.extractInt(idProp);
+        if (idVal < 0 || idVal >= cast(int) servers.length)
+            return engine.throwTypeError("server.listen: invalid server");
 
-    sockaddr_in addr;
-    memset(&addr, 0, addr.sizeof);
-    addr.sin_family      = AF_INET;
-    addr.sin_port        = htons(cast(ushort) port);
-    addr.sin_addr.s_addr = 0; // INADDR_ANY
-
-    if (bind(lfd, cast(sockaddr*)&addr, addr.sizeof) < 0)
-    {
-        import core.sys.posix.unistd : close;
-        close(lfd);
-        JS_FreeValue(ctx, listenCb);
-        return JS_ThrowTypeError(ctx, "server.listen: bind() failed");
-    }
-
-    if (listen(lfd, 128) < 0)
-    {
-        import core.sys.posix.unistd : close;
-        close(lfd);
-        JS_FreeValue(ctx, listenCb);
-        return JS_ThrowTypeError(ctx, "server.listen: listen() failed");
-    }
-
-    srv.listenFd = lfd;
-    srv.active   = true;
-    srv.port     = cast(ushort) port;
-
-    // Register with the I/O poller so accept events arrive on ticks
-    registerServerForPolling(idVal);
-
-    // 'listening' callback fires on next tick
-    if (!JS_IsUndefined(listenCb))
-    {
-        JSValue[0] noArgs;
-        pushPending(ctx, listenCb, noArgs[]);
-        JS_FreeValue(ctx, listenCb);
-    }
-
-    return JS_UNDEFINED();
-}
-
-// ---------------------------------------------------------------------------
-// server.close()
-// ---------------------------------------------------------------------------
-extern (C) JSValue jsServerClose(JSContext* ctx, JSValueConst this_val,
-    int argc, JSValueConst* argv) nothrow @trusted
-{
-    import core.sys.posix.unistd : close;
-
-    int idVal;
-    auto idProp = JS_GetPropertyStr(ctx, this_val, "__id");
-    JS_ToInt32(ctx, &idVal, idProp);
-    JS_FreeValue(ctx, idProp);
-    if (idVal >= 0 && idVal < cast(int) servers.length)
-    {
         auto srv = &servers[idVal];
-        if (srv.listenFd >= 0)
+
+        int port = 0;
+        JSHandle listenCb;
+        bool hasCb = false;
+        if (args.length >= 1 && engine.isNumber(args[0]))
+            port = engine.extractInt(args[0]);
+        if (args.length >= 2 && engine.isFunction(args[1]))
         {
-            unregisterServerFromPolling(idVal);
-            close(srv.listenFd);
-            srv.listenFd = -1;
+            listenCb = engine.dupValue(args[1]);
+            hasCb = true;
         }
-        srv.active = false;
+        else if (args.length >= 3 && engine.isFunction(args[2]))
+        {
+            listenCb = engine.dupValue(args[2]);
+            hasCb = true;
+        }
+
+        int lfd = socket(AF_INET, SOCK_STREAM, 0);
+        if (lfd < 0)
+        {
+            if (hasCb) engine.freeValue(listenCb);
+            return engine.throwTypeError("server.listen: socket() failed");
+        }
+
+        int optval = 1;
+        setsockopt(lfd, SOL_SOCKET, SO_REUSEADDR, &optval, optval.sizeof);
+
+        int flags = fcntl(lfd, F_GETFL, 0);
+        fcntl(lfd, F_SETFL, flags | O_NONBLOCK);
+
+        sockaddr_in addr;
+        memset(&addr, 0, addr.sizeof);
+        addr.sin_family = AF_INET;
+        addr.sin_port = htons(cast(ushort) port);
+        addr.sin_addr.s_addr = 0;
+
+        if (bind(lfd, cast(sockaddr*)&addr, addr.sizeof) < 0)
+        {
+            import core.sys.posix.unistd : close;
+            close(lfd);
+            if (hasCb) engine.freeValue(listenCb);
+            return engine.throwTypeError("server.listen: bind() failed");
+        }
+
+        if (listen(lfd, 128) < 0)
+        {
+            import core.sys.posix.unistd : close;
+            close(lfd);
+            if (hasCb) engine.freeValue(listenCb);
+            return engine.throwTypeError("server.listen: listen() failed");
+        }
+
+        srv.listenFd = lfd;
+        srv.active = true;
+        srv.port = cast(ushort) port;
+
+        registerServerForPolling(idVal);
+
+        if (hasCb)
+        {
+            JSHandle[0] noArgs;
+            pushAgnosticPending(engine, listenCb, noArgs[]);
+            engine.freeValue(listenCb);
+        }
+
+        return engine.newUndefined();
     }
-    return JS_UNDEFINED();
+    else
+    {
+        auto state = cast(DunState*) ctx;
+        return state.engine.throwTypeError("server.listen not supported on this platform");
+    }
 }
 
-// ---------------------------------------------------------------------------
-// server.on(event, handler)
-// ---------------------------------------------------------------------------
-extern (C) JSValue jsServerOn(JSContext* ctx, JSValueConst this_val,
-    int argc, JSValueConst* argv) nothrow @trusted
+JSHandle jsServerClose(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
-    if (argc < 2) return JS_DupValue(ctx, this_val);
+    version (Posix)
+    {
+        import core.sys.posix.unistd : close;
+        auto state = cast(DunState*) ctx;
+        auto engine = state.engine;
 
-    int idVal;
-    auto idProp = JS_GetPropertyStr(ctx, this_val, "__id");
-    JS_ToInt32(ctx, &idVal, idProp);
-    JS_FreeValue(ctx, idProp);
-    if (idVal < 0 || idVal >= cast(int) servers.length)
-        return JS_DupValue(ctx, this_val);
+        auto idProp = engine.getProperty(thisVal, "__id");
+        int idVal = engine.extractInt(idProp);
+        if (idVal >= 0 && idVal < cast(int) servers.length)
+        {
+            auto srv = &servers[idVal];
+            if (srv.listenFd >= 0)
+            {
+                unregisterServerFromPolling(idVal);
+                close(srv.listenFd);
+                srv.listenFd = -1;
+            }
+            srv.active = false;
+        }
+        return engine.newUndefined();
+    }
+    else
+    {
+        auto state = cast(DunState*) ctx;
+        return state.engine.newUndefined();
+    }
+}
+
+JSHandle jsServerOn(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+{
+    auto state = cast(DunState*) ctx;
+    auto engine = state.engine;
+    if (args.length < 2) return thisVal;
+
+    auto idProp = engine.getProperty(thisVal, "__id");
+    int idVal = engine.extractInt(idProp);
+    if (idVal < 0 || idVal >= cast(int) servers.length) return thisVal;
 
     auto srv = &servers[idVal];
-    string evName;
-    try { evName = jsArgToString(ctx, argv[0]); } catch (Exception) {}
+    auto evName = engine.extractString(args[0]);
 
-    if (evName == "connection" && JS_IsFunction(ctx, argv[1]))
+    if (evName == "connection" && engine.isFunction(args[1]))
     {
-        if (!JS_IsUndefined(srv.onConnection)) JS_FreeValue(ctx, srv.onConnection);
-        srv.onConnection = JS_DupValue(ctx, argv[1]);
+        if (srv.connCbSet) engine.freeValue(srv.onConnection);
+        srv.onConnection = engine.dupValue(args[1]);
+        srv.connCbSet = true;
     }
-    return JS_DupValue(ctx, this_val);
+    return thisVal;
 }
 
-// ---------------------------------------------------------------------------
-// socket.on(event, handler)
-// ---------------------------------------------------------------------------
-extern (C) JSValue jsSocketOn(JSContext* ctx, JSValueConst this_val,
-    int argc, JSValueConst* argv) nothrow @trusted
+JSHandle jsSocketOn(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
-    if (argc < 2) return JS_DupValue(ctx, this_val);
+    auto state = cast(DunState*) ctx;
+    auto engine = state.engine;
+    if (args.length < 2) return thisVal;
 
-    int idVal;
-    auto idProp = JS_GetPropertyStr(ctx, this_val, "__id");
-    JS_ToInt32(ctx, &idVal, idProp);
-    JS_FreeValue(ctx, idProp);
-    if (idVal < 0 || idVal >= cast(int) sockets.length)
-        return JS_DupValue(ctx, this_val);
+    auto idProp = engine.getProperty(thisVal, "__id");
+    int idVal = engine.extractInt(idProp);
+    if (idVal < 0 || idVal >= cast(int) sockets.length) return thisVal;
 
     auto sock = &sockets[idVal];
-    string evName;
-    try { evName = jsArgToString(ctx, argv[0]); } catch (Exception) {}
+    auto evName = engine.extractString(args[0]);
 
-    if (JS_IsFunction(ctx, argv[1]))
+    if (engine.isFunction(args[1]))
     {
         if (evName == "data")
-        {
-            if (!JS_IsUndefined(sock.onData)) JS_FreeValue(ctx, sock.onData);
-            sock.onData = JS_DupValue(ctx, argv[1]);
-        }
+            sock.onData = engine.dupValue(args[1]);
         else if (evName == "end")
-        {
-            if (!JS_IsUndefined(sock.onEnd)) JS_FreeValue(ctx, sock.onEnd);
-            sock.onEnd = JS_DupValue(ctx, argv[1]);
-        }
+            sock.onEnd = engine.dupValue(args[1]);
         else if (evName == "close")
-        {
-            if (!JS_IsUndefined(sock.onClose)) JS_FreeValue(ctx, sock.onClose);
-            sock.onClose = JS_DupValue(ctx, argv[1]);
-        }
+            sock.onClose = engine.dupValue(args[1]);
         else if (evName == "error")
-        {
-            if (!JS_IsUndefined(sock.onError)) JS_FreeValue(ctx, sock.onError);
-            sock.onError = JS_DupValue(ctx, argv[1]);
-        }
+            sock.onError = engine.dupValue(args[1]);
+        sock.eventsSet = true;
     }
-    return JS_DupValue(ctx, this_val);
+    return thisVal;
 }
 
-// ---------------------------------------------------------------------------
-// socket.write(data, [encoding], [callback])
-// ---------------------------------------------------------------------------
-extern (C) JSValue jsSocketWrite(JSContext* ctx, JSValueConst this_val,
-    int argc, JSValueConst* argv) nothrow @trusted
+JSHandle jsSocketWrite(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
-    import core.sys.posix.unistd : write;
-
-    if (argc < 1) return JS_NewBool(ctx, 0);
-
-    int idVal;
-    auto idProp = JS_GetPropertyStr(ctx, this_val, "__id");
-    JS_ToInt32(ctx, &idVal, idProp);
-    JS_FreeValue(ctx, idProp);
-    if (idVal < 0 || idVal >= cast(int) sockets.length) return JS_NewBool(ctx, 0);
-
-    auto sock = &sockets[idVal];
-    if (sock.closed || sock.fd < 0) return JS_NewBool(ctx, 0);
-
-    string data;
-    try { data = jsArgToString(ctx, argv[0]); } catch (Exception) {}
-
-    if (data.length > 0)
+    version (Posix)
     {
-        size_t written = 0;
-        while (written < data.length)
+        import core.sys.posix.unistd : write;
+
+        auto state = cast(DunState*) ctx;
+        auto engine = state.engine;
+        if (args.length < 1) return engine.newBool(false);
+
+        auto idProp = engine.getProperty(thisVal, "__id");
+        int idVal = engine.extractInt(idProp);
+        if (idVal < 0 || idVal >= cast(int) sockets.length) return engine.newBool(false);
+
+        auto sock = &sockets[idVal];
+        if (sock.closed || sock.fd < 0) return engine.newBool(false);
+
+        auto data = engine.extractString(args[0]);
+        if (data.length > 0)
         {
-            auto n = write(sock.fd, data.ptr + written, data.length - written);
-            if (n <= 0) break;
-            written += n;
+            size_t written = 0;
+            while (written < data.length)
+            {
+                auto n = write(sock.fd, data.ptr + written, data.length - written);
+                if (n <= 0) break;
+                written += n;
+            }
         }
+        return engine.newBool(true);
     }
-
-    // Optional drain callback
-    if (argc >= 3 && JS_IsFunction(ctx, argv[2]))
+    else
     {
-        auto drainCb = JS_DupValue(ctx, argv[2]);
-        JSValue[0] noArgs;
-        pushPending(ctx, drainCb, noArgs[]);
-        JS_FreeValue(ctx, drainCb);
+        auto state = cast(DunState*) ctx;
+        return state.engine.newBool(false);
     }
-
-    return JS_NewBool(ctx, 1);
 }
 
-// ---------------------------------------------------------------------------
-// socket.end() / socket.destroy()
-// ---------------------------------------------------------------------------
-extern (C) JSValue jsSocketEnd(JSContext* ctx, JSValueConst this_val,
-    int argc, JSValueConst* argv) nothrow @trusted
+JSHandle jsSocketEnd(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
-    import core.sys.posix.unistd : close;
-
-    int idVal;
-    auto idProp = JS_GetPropertyStr(ctx, this_val, "__id");
-    JS_ToInt32(ctx, &idVal, idProp);
-    JS_FreeValue(ctx, idProp);
-    if (idVal < 0 || idVal >= cast(int) sockets.length)
-        return JS_UNDEFINED();
-
-    auto sock = &sockets[idVal];
-    if (sock.closed) return JS_UNDEFINED();
-    sock.closed = true;
-    if (sock.fd >= 0)
+    version (Posix)
     {
-        unregisterSocketFromPolling(idVal);
-        close(sock.fd);
-        sock.fd = -1;
-    }
+        import core.sys.posix.unistd : close;
 
-    // Fire 'close' if registered
-    if (!JS_IsUndefined(sock.onClose))
-    {
-        JSValue[0] noArgs;
-        pushPending(sock.ctx, sock.onClose, noArgs[]);
+        auto state = cast(DunState*) ctx;
+        auto engine = state.engine;
+
+        auto idProp = engine.getProperty(thisVal, "__id");
+        int idVal = engine.extractInt(idProp);
+        if (idVal < 0 || idVal >= cast(int) sockets.length)
+            return engine.newUndefined();
+
+        auto sock = &sockets[idVal];
+        if (sock.closed) return engine.newUndefined();
+        sock.closed = true;
+        if (sock.fd >= 0)
+        {
+            unregisterSocketFromPolling(idVal);
+            close(sock.fd);
+            sock.fd = -1;
+        }
+
+        if (sock.eventsSet && engine.isFunction(sock.onClose))
+        {
+            JSHandle[0] noArgs;
+            pushAgnosticPending(engine, sock.onClose, noArgs[]);
+        }
+        return engine.newUndefined();
     }
-    return JS_UNDEFINED();
+    else
+    {
+        auto state = cast(DunState*) ctx;
+        return state.engine.newUndefined();
+    }
 }
 
-// ---------------------------------------------------------------------------
-// I/O polling integration — called from EventLoop.tick() Phase 4
-// Uses the iopoller (epoll on Linux) to check ready file descriptors.
-// ---------------------------------------------------------------------------
-
-// Poll all registered fds once and push pending JS callbacks.
-// Called by eventloop.d each tick.
+// I/O polling
 public void pollNetIO() nothrow @trusted
 {
     version (linux)
@@ -544,10 +522,6 @@ public void pollNetIO() nothrow @trusted
         }
     }
 }
-
-// ---------------------------------------------------------------------------
-// Per-server / per-socket epoll registration helpers
-// ---------------------------------------------------------------------------
 
 void registerServerForPolling(int id) nothrow @trusted
 {
@@ -587,109 +561,112 @@ void unregisterSocketFromPolling(int id) nothrow @trusted
     }
 }
 
-// ---------------------------------------------------------------------------
-// Accept connections on a listening server
-// ---------------------------------------------------------------------------
 void acceptPendingConnections(int srvId) nothrow @trusted
 {
-    import core.sys.posix.sys.socket : accept;
-    import core.sys.posix.fcntl : fcntl, F_SETFL, F_GETFL, O_NONBLOCK;
-    import core.stdc.errno : errno, EAGAIN, EWOULDBLOCK;
-
-    if (srvId < 0 || srvId >= cast(int) servers.length) return;
-    auto srv = &servers[srvId];
-    if (!srv.active || srv.listenFd < 0) return;
-
-    while (true)
+    version (Posix)
     {
-        int connFd = accept(srv.listenFd, null, null);
-        if (connFd < 0)
-        {
-            if (errno == EAGAIN || errno == EWOULDBLOCK) break;
-            break;
-        }
+        import core.sys.posix.sys.socket : accept;
+        import core.sys.posix.fcntl : fcntl, F_SETFL, F_GETFL, O_NONBLOCK;
+        import core.stdc.errno : errno, EAGAIN, EWOULDBLOCK;
 
-        // Non-blocking
-        int flags = fcntl(connFd, F_GETFL, 0);
-        fcntl(connFd, F_SETFL, flags | O_NONBLOCK);
+        if (srvId < 0 || srvId >= cast(int) servers.length) return;
+        auto srv = &servers[srvId];
+        if (!srv.active || srv.listenFd < 0) return;
 
-        // Register socket
-        int sid = nextSocketId++;
-        try
+        while (true)
         {
-            SocketState s;
-            s.ctx    = srv.ctx;
-            s.onData = s.onEnd = s.onClose = s.onError = JS_UNDEFINED();
-            s.fd     = connFd;
-            sockets ~= s;
-        }
-        catch (Throwable)
-        {
-            import core.sys.posix.unistd : close;
-            close(connFd);
-            continue;
-        }
-        registerSocketForPolling(sid);
+            int connFd = accept(srv.listenFd, null, null);
+            if (connFd < 0)
+            {
+                if (errno == EAGAIN || errno == EWOULDBLOCK) break;
+                break;
+            }
 
-        // Schedule connection callback
-        if (!JS_IsUndefined(srv.onConnection))
-        {
-            auto sockObj = makeSocketObject(srv.ctx, sid);
-            JSValue[1] args = [sockObj];
-            pushPending(srv.ctx, srv.onConnection, args[]);
-            JS_FreeValue(srv.ctx, sockObj);
+            int flags = fcntl(connFd, F_GETFL, 0);
+            fcntl(connFd, F_SETFL, flags | O_NONBLOCK);
+
+            int sid = nextSocketId++;
+            try
+            {
+                SocketState s;
+                s.engine = srv.engine;
+                s.fd = connFd;
+                sockets ~= s;
+            }
+            catch (Throwable)
+            {
+                import core.sys.posix.unistd : close;
+                close(connFd);
+                continue;
+            }
+            registerSocketForPolling(sid);
+
+            if (srv.connCbSet)
+            {
+                try
+                {
+                    auto sockObj = makeSocketObject(srv.engine, sid);
+                    JSHandle[1] callArgs = [sockObj];
+                    pushAgnosticPending(srv.engine, srv.onConnection, callArgs[]);
+                    srv.engine.freeValue(sockObj);
+                }
+                catch (Throwable) {}
+            }
         }
     }
 }
 
-// ---------------------------------------------------------------------------
-// Read data from a connected socket
-// ---------------------------------------------------------------------------
 void readSocketData(int sockId) nothrow @trusted
 {
-    import core.sys.posix.unistd : read;
-    import core.stdc.errno : errno, EAGAIN, EWOULDBLOCK;
-
-    if (sockId < 0 || sockId >= cast(int) sockets.length) return;
-    auto sock = &sockets[sockId];
-    if (sock.closed || sock.fd < 0) return;
-
-    auto n = read(sock.fd, sock.readBuf.ptr, sock.readBuf.length);
-    if (n > 0)
+    version (Posix)
     {
-        if (!JS_IsUndefined(sock.onData))
-        {
-            // Pass data as a string
-            auto jsData = JS_NewStringLen(sock.ctx,
-                cast(const(char)*) sock.readBuf.ptr, n);
-            JSValue[1] args = [jsData];
-            pushPending(sock.ctx, sock.onData, args[]);
-            JS_FreeValue(sock.ctx, jsData);
-        }
-    }
-    else if (n == 0)
-    {
-        // EOF
-        sock.closed = true;
-        unregisterSocketFromPolling(sockId);
-        import core.sys.posix.unistd : close;
-        close(sock.fd);
-        sock.fd = -1;
+        import core.sys.posix.unistd : read;
 
-        if (!JS_IsUndefined(sock.onEnd))
+        if (sockId < 0 || sockId >= cast(int) sockets.length) return;
+        auto sock = &sockets[sockId];
+        if (sock.closed || sock.fd < 0) return;
+
+        auto n = read(sock.fd, sock.readBuf.ptr, sock.readBuf.length);
+        if (n > 0)
         {
-            JSValue[0] noArgs;
-            pushPending(sock.ctx, sock.onEnd, noArgs[]);
+            try
+            {
+                if (sock.eventsSet && sock.engine.isFunction(sock.onData))
+                {
+                    auto jsData = sock.engine.newString(cast(string) sock.readBuf[0 .. n].idup);
+                    JSHandle[1] callArgs = [jsData];
+                    pushAgnosticPending(sock.engine, sock.onData, callArgs[]);
+                    sock.engine.freeValue(jsData);
+                }
+            }
+            catch (Throwable) {}
         }
-        if (!JS_IsUndefined(sock.onClose))
+        else if (n == 0)
         {
-            JSValue[0] noArgs;
-            pushPending(sock.ctx, sock.onClose, noArgs[]);
+            sock.closed = true;
+            unregisterSocketFromPolling(sockId);
+            import core.sys.posix.unistd : close;
+            close(sock.fd);
+            sock.fd = -1;
+
+            try
+            {
+                if (sock.eventsSet && sock.engine.isFunction(sock.onEnd))
+                {
+                    JSHandle[0] noArgs;
+                    pushAgnosticPending(sock.engine, sock.onEnd, noArgs[]);
+                }
+                if (sock.eventsSet && sock.engine.isFunction(sock.onClose))
+                {
+                    JSHandle[0] noArgs;
+                    pushAgnosticPending(sock.engine, sock.onClose, noArgs[]);
+                }
+            }
+            catch (Throwable) {}
         }
     }
 }
 
-// Whether there are active servers or sockets (keeps event loop alive)
 public bool hasActiveNetIO() @safe nothrow
 {
     foreach (ref s; servers) if (s.active) return true;

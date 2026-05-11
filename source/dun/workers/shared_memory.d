@@ -14,7 +14,7 @@ private struct SABEntry
 private __gshared SABEntry[] gRegistry;
 private __gshared Mutex gMutex;
 
-shared static this()
+shared static this() @system
 {
     gMutex = new Mutex();
 }

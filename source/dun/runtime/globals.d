@@ -24,6 +24,12 @@ void installGlobals(IJSEngine engine, DunState* state) @trusted
     import dun.builtins.fs : registerFsModule;
     import dun.builtins.path : registerPathModule;
     import dun.builtins.crypto : registerCryptoModule;
+    import dun.builtins.net : registerNetModule;
+    import dun.builtins.http : registerHttpModule;
+    import dun.builtins.buffer : registerBufferModule;
+    import dun.builtins.events : registerEventsModule;
+    import dun.builtins.url : registerUrlModule;
+    import dun.builtins.os : registerOsModule;
     import dun.modules.require : installRequire;
 
     installConsole(engine);
@@ -33,6 +39,12 @@ void installGlobals(IJSEngine engine, DunState* state) @trusted
     registerFsModule(engine);
     registerPathModule(engine);
     registerCryptoModule(engine);
+    registerNetModule(engine);
+    registerHttpModule(engine);
+    registerBufferModule(engine);
+    registerEventsModule(engine);
+    registerUrlModule(engine);
+    registerOsModule(engine);
     installRequire(engine);
 
     import dun.runtime.rejection_tracker : installRejectionTracker;
@@ -41,12 +53,8 @@ void installGlobals(IJSEngine engine, DunState* state) @trusted
     version (EngineQuickJS)
     {
         import dun.engine.quickjs.bindings : JSContext;
-        import dun.builtins.net : registerNetModule;
-        import dun.builtins.http : registerHttpModule;
-        auto ctx = cast(JSContext*) engine.rawContext();
-        registerNetModule(ctx);
-        registerHttpModule(ctx);
         import dun.runtime.worker_api : installWorkerAPI;
+        auto ctx = cast(JSContext*) engine.rawContext();
         installWorkerAPI(ctx, state);
     }
 }

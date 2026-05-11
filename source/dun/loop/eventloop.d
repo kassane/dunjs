@@ -48,14 +48,15 @@ struct EventLoop
         drainNextTicksAndMicrotasks();
 
         {
+            import dun.builtins.net : pollNetIO;
+            import dun.builtins.http : pollHttpIO;
+            pollNetIO();
+            pollHttpIO();
+
             version (EngineQuickJS)
             {
-                import dun.builtins.net : pollNetIO;
-                import dun.builtins.http : pollHttpIO;
                 import dun.workers.worker : pollWorkerMessages;
                 import dun.engine.quickjs.bindings : JSContext;
-                pollNetIO();
-                pollHttpIO();
                 pollWorkerMessages(cast(JSContext*) engine.rawContext());
             }
 
@@ -80,34 +81,37 @@ struct EventLoop
             import dun.loop.pending : drainPending;
             drainPending();
         }
+
+        import dun.loop.agnostic_pending : drainAgnosticPending;
+        drainAgnosticPending();
+
         drainNextTicksAndMicrotasks();
     }
 
     bool hasWork() @trusted
     {
+        import dun.builtins.net : hasActiveNetIO;
+        import dun.builtins.http : hasActiveHttpIO;
+        import dun.loop.agnostic_pending : hasAgnosticPending;
+
+        bool base = engine.hasPendingJobs()
+            || !timers.empty()
+            || !microtasks.empty()
+            || !nextTicks.empty()
+            || outstandingRefs > 0
+            || hasActiveNetIO()
+            || hasActiveHttpIO()
+            || hasAgnosticPending();
+
         version (EngineQuickJS)
         {
-            import dun.builtins.net : hasActiveNetIO;
-            import dun.builtins.http : hasActiveHttpIO;
             import dun.loop.pending : hasPending;
             import dun.workers.worker : hasActiveWorkers;
-            return engine.hasPendingJobs()
-                || !timers.empty()
-                || !microtasks.empty()
-                || !nextTicks.empty()
-                || outstandingRefs > 0
-                || hasActiveNetIO()
-                || hasActiveHttpIO()
-                || hasPending()
-                || hasActiveWorkers();
+            return base || hasPending() || hasActiveWorkers();
         }
         else
         {
-            return engine.hasPendingJobs()
-                || !timers.empty()
-                || !microtasks.empty()
-                || !nextTicks.empty()
-                || outstandingRefs > 0;
+            return base;
         }
     }
 
