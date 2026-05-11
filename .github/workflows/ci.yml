@@ -61,14 +61,14 @@ jobs:
           restore-keys: vendor-${{ matrix.engine }}-${{ matrix.os }}-
 
       - name: Build vendor deps
-        run: ${{ matrix.dc == 'ldc-latest' && 'ldc2' || 'dmd' }} -run build.d --backend=${{ matrix.engine }}
+        run: ${{ matrix.dc == 'ldc-latest' && 'ldc2' || 'dmd' }} -run build.d --backend=${{ matrix.engine }} --verbose
 
       - name: Build (debug)
-        run: dub build -c ${{ matrix.engine }}
+        run: dub build -v -c ${{ matrix.engine }}
 
       - name: Build (release)
         if: matrix.engine == 'quickjs'
-        run: dub build -c ${{ matrix.engine }} -b release
+        run: dub build -v -c ${{ matrix.engine }} -b release
 
       - name: Upload binary
         if: matrix.engine == 'quickjs'
@@ -107,7 +107,7 @@ jobs:
           restore-keys: vendor-quickjs-${{ matrix.os }}-
 
       - name: Run unit tests
-        run: dub test -c unittest
+        run: dub test -v -c unittest
 
   # ── Integration tests ─────────────────────────────────────────
   integration:
