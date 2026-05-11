@@ -15,6 +15,8 @@ int main(string[] args)
             return runRepl(config);
         case Command.eval_:
             return evalInline(config);
+        case Command.install:
+            return runInstall(config);
         case Command.version_:
             printVersion();
             return 0;
@@ -171,6 +173,31 @@ void printVersion()
     writeln("dun ", VERSION);
 }
 
+int runInstall(T)(T config)
+{
+    version (Posix)
+    {
+        import dun.modules.npm : installPackage;
+        if (config.installPackages.length == 0)
+        {
+            writeStderr("Usage: dun install <package> [package...]\n");
+            return 1;
+        }
+        bool allOk = true;
+        foreach (pkg; config.installPackages)
+        {
+            if (!installPackage(pkg))
+                allOk = false;
+        }
+        return allOk ? 0 : 1;
+    }
+    else
+    {
+        writeStderr("dun install is not yet supported on this platform\n");
+        return 1;
+    }
+}
+
 void printUsage()
 {
     import std.stdio : write;
@@ -180,6 +207,7 @@ void printUsage()
         ~ "  run <file>       Run a JavaScript/TypeScript file\n"
         ~ "  repl             Start interactive REPL\n"
         ~ "  eval <code>      Evaluate JavaScript code\n"
+        ~ "  install <pkg>    Install npm package to node_modules/\n"
         ~ "  version          Print version\n"
         ~ "  help             Show this help\n\n"
         ~ "Permission flags:\n"

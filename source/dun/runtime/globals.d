@@ -30,6 +30,7 @@ void installGlobals(IJSEngine engine, DunState* state) @trusted
     import dun.builtins.events : registerEventsModule;
     import dun.builtins.url : registerUrlModule;
     import dun.builtins.os : registerOsModule;
+    import dun.builtins.fetch : registerFetchGlobal;
     import dun.modules.require : installRequire;
 
     installConsole(engine);
@@ -45,6 +46,13 @@ void installGlobals(IJSEngine engine, DunState* state) @trusted
     registerEventsModule(engine);
     registerUrlModule(engine);
     registerOsModule(engine);
+
+    version (Posix)
+        registerFetchGlobal(engine);
+
+    import dun.runtime.deno_compat : installDenoCompat;
+    installDenoCompat(engine);
+
     installRequire(engine);
 
     import dun.runtime.rejection_tracker : installRejectionTracker;

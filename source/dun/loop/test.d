@@ -11,7 +11,7 @@ void testNextTickBeforeMicrotask(IJSEngine engine)
 {
     import dun.loop.eventloop : EventLoop;
 
-    string[] order;
+    auto orderPtr = new string[][1];
 
     static JSHandle tickCb(void* ctx, JSHandle thisVal, JSHandle[] args)
     {
@@ -27,7 +27,7 @@ void testNextTickBeforeMicrotask(IJSEngine engine)
         return JSHandle.init;
     }
 
-    engine.setContextOpaque(cast(void*) &order);
+    engine.setContextOpaque(cast(void*) &orderPtr[0]);
 
     EventLoop loop;
     loop.initialize(engine);
@@ -44,6 +44,7 @@ void testNextTickBeforeMicrotask(IJSEngine engine)
     while (loop.hasWork())
         loop.tick();
 
+    auto order = orderPtr[0];
     assert(order.length == 2);
     assert(order[0] == "nextTick", "nextTick must fire first, got: " ~ order[0]);
     assert(order[1] == "microtask", "microtask must fire second, got: " ~ order[1]);

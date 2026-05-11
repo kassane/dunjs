@@ -12,6 +12,7 @@ enum Command
     run,
     repl,
     eval_,
+    install,
     version_,
     help,
 }
@@ -22,6 +23,7 @@ struct CliConfig
     Command command = Command.help;
     string scriptPath;
     string evalSource;
+    string[] installPackages;
     string[] scriptArgs;
     PermissionRegistry permissions;
     import dun.engine.iface : DEFAULT_MEMORY_LIMIT, DEFAULT_MAX_STACK;
@@ -61,6 +63,16 @@ CliConfig parseArgs(string[] args) @safe
     {
         config.command = Command.eval_;
         i++;
+    }
+    else if (args[i] == "install" || args[i] == "i" || args[i] == "add")
+    {
+        config.command = Command.install;
+        i++;
+        while (i < args.length && !args[i].startsWith("-"))
+        {
+            config.installPackages ~= args[i];
+            i++;
+        }
     }
     else if (args[i] == "version" || args[i] == "--version" || args[i] == "-v")
     {

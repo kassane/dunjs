@@ -178,11 +178,15 @@
 		"m",
 		"dl",
 		"pthread",
-		"resolv"
+		"resolv",
+		"ssl",
+		"crypto"
 	],
 	"libs-osx": [
 		"m",
-		"pthread"
+		"pthread",
+		"ssl",
+		"crypto"
 	],
 	"toolchainRequirements": {
 		"frontend": ">=2.112.0"

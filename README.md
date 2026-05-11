@@ -1,256 +1,155 @@
 # DunJS
 
-A secure JavaScript/TypeScript runtime written in **D**, inspired by [Deno](https://deno.com), [Bun](https://bun.sh), and [Node.js](https://nodejs.org).
-
-## Features
-
-- **Pluggable JS engine** -- IJSEngine interface with QuickJS-NG, JavaScriptCore, and V8 backends
-- **TypeScript support** -- Run `.ts`/`.mts`/`.cts` directly via type stripping (like Node.js `--experimental-strip-types`)
-- **Security-first** -- Default-deny permissions (like Deno): `--allow-read`, `--allow-net`, etc.
-- **D language** -- Zero-cost C FFI, `@safe`/`@trusted` memory safety, RAII resource management
-- **C++ TMP bridge** -- Cross-language template metaprogramming between D and C++ (V8 + JSC backends)
-- **Cross-platform I/O** -- Native poller (epoll on Linux, kqueue on macOS/BSD, poll(2) fallback)
-- **Small binary** -- Target <5MB standalone executable
-- **Built-in modules** -- `dun:fs`, `dun:path`, `dun:net`, `dun:http`, `dun:crypto`, `dun:os`, `dun:buffer`, `dun:events`, `dun:url`
-
-## Quick Start
-
-### Prerequisites
-
-- **D compiler**: [LDC](https://github.com/ldc-developers/ldc/releases) >= 1.42.0 or [DMD](https://dlang.org/download.html) >= 2.112.1
-- **C compiler**: GCC or Clang
-- **CMake**: For building QuickJS-NG
-
-### Build
+A secure, multi-engine JavaScript/TypeScript runtime written in D.
 
 ```sh
-git clone https://github.com/kassane/dunjs.git
-cd dunjs
+dun run server.ts --allow-net --allow-read
+```
 
-# Build vendor dependencies (downloads + compiles automatically)
+## Why DunJS?
+
+- **Three JS engines, one API.** Switch between QuickJS-NG, JavaScriptCore, and V8 at build time. Same code runs on all three.
+- **Secure by default.** No file, network, or environment access unless explicitly granted. Modeled after Deno's permission system.
+- **TypeScript without a build step.** Run `.ts` files directly via type stripping.
+- **npm packages work.** `dun install express` fetches from the npm registry. `require()` resolves `node_modules/` the Node.js way.
+- **HTTPS out of the box.** `fetch()` supports TLS 1.2+ via OpenSSL.
+- **Deno compatibility.** `Deno.readTextFileSync`, `Deno.env`, `Deno.cwd`, and other Deno APIs are available.
+
+## Install
+
+Requires [LDC](https://github.com/ldc-developers/ldc/releases) >= 1.42.0 and a C compiler.
+
+```sh
+git clone https://github.com/kassane/dunjs.git && cd dunjs
 ldc2 -run build.d --backend=quickjs
-
-# Default (QuickJS-NG backend)
 dub build
-
-# Explicit backend selection
-dub build -c quickjs          # QuickJS-NG (default, ES2023)
-dub build -c jsc              # JavaScriptCore (Linux: GTK, macOS: framework)
-dub build -c v8               # V8 (via C++ shim, headers vendored from Node.js)
-
-# Release build
-dub build -c quickjs -b release
-
-# Run tests
-dub test -c unittest          # BDD-style engine + TS + security tests
 ```
 
-### Run
+Other backends:
 
 ```sh
-# Run a JavaScript file
-./dun run script.js
-
-# Run a TypeScript file (type stripping, no tsc needed)
-./dun run script.ts
-
-# Run with permissions
-./dun run --allow-read=./data --allow-net script.js
-
-# Interactive REPL
-./dun repl
-
-# Evaluate inline
-./dun eval "console.log('Hello from DunJS!')"
+dub build -c jsc    # JavaScriptCore (Linux: libjavascriptcoregtk, macOS: framework)
+dub build -c v8     # V8 (via C++ shim)
 ```
 
-## TypeScript
-
-DunJS runs `.ts`, `.mts`, and `.cts` files directly via type stripping -- no `tsc` or build step needed.
-Types are replaced with whitespace to preserve source positions for accurate error messages.
-
-```ts
-// hello.ts -- runs directly with: dun run hello.ts
-interface User { name: string; age: number }
-
-function greet(user: User): string {
-    return `Hello, ${user.name}!`;
-}
-
-console.log(greet({ name: "World", age: 42 }));
-```
-
-**Supported**: type annotations, `interface`, `type` aliases, `import type`, `as T`, `declare`, `abstract`, generics, optional parameters.
-
-**Not supported** (have runtime semantics): `enum`, `namespace`, constructor parameter properties.
-
-## Security
-
-DunJS uses a **default-deny** permission model. Scripts have no access to the
-file system, network, or environment unless explicitly granted:
+## Usage
 
 ```sh
-./dun run script.js                              # No I/O allowed
-./dun run --allow-read=./data script.js          # Read only ./data
-./dun run --allow-net=api.example.com script.js  # Network to one host
-./dun run --allow-all script.js                  # Full access
+dun run app.js                          # Run JavaScript
+dun run app.ts                          # Run TypeScript (type stripping)
+dun run --allow-read=./data app.js      # Scoped file access
+dun run --allow-net=api.example.com app.js  # Scoped network access
+dun run --allow-all app.js              # Unrestricted
+dun install lodash                      # Install npm package
+dun repl                                # Interactive REPL
+dun eval "1 + 1"                        # Evaluate expression
 ```
-
-See [SECURITY.md](SECURITY.md) for the full security policy and threat model.
-
-## Architecture
-
-DunJS is organized in 7 layers plus cross-cutting concerns:
-
-| Layer | Purpose | Directory |
-|-------|---------|-----------|
-| 7 | CLI & REPL | `source/dun/cli/` |
-| 6 | Runtime API (console, timers, process) | `source/dun/runtime/` |
-| 5 | Module System (ES modules, resolver) | `source/dun/modules/` |
-| 4 | Built-in Modules (fs, path, net, http, crypto, os, buffer, events, url) | `source/dun/builtins/` |
-| 3 | Event Loop (epoll/kqueue/poll, timers, microtasks) | `source/dun/loop/` |
-| 2 | JS Engine Abstraction (IJSEngine + backends) | `source/dun/engine/` |
-| 1 | Platform Abstraction (memory, threading) | `source/dun/platform/` |
-| Cross | TypeScript type stripping | `source/dun/ts/` |
-| Cross | Security (permissions, sandbox) | `source/dun/security/` |
-
-See [ARCHITECTURE.md](ARCHITECTURE.md) for detailed design documentation.
-
-## Engine Backends
-
-| Backend | API | FFI | Status | Use Case |
-|---------|-----|-----|--------|----------|
-| QuickJS-NG | C (quickjs.h) | `extern(C)` direct | **44/44 tests pass** | Default, ES2023 fallback |
-| JavaScriptCore | C (JSObjectRef) | `extern(C)` direct | **42/42 tests pass** | JIT, production (like Bun) |
-| V8 | C++ via C shim | `extern(C)` via v8shim | **42/42 tests pass** | JIT, Node.js compatibility |
-
-All backends support: `console.log/info/debug/warn/error/assert`, Promises, async/await,
-ES2020+ features (optional chaining, nullish coalescing, Array.at, Object.hasOwn).
-
-### C++ TMP Bridge
-
-V8 and JSC backends use a **cross-language template metaprogramming bridge** -- C++ templates
-(`withContext<F>`, `isV8Type<Tag>`) and D compile-time features (`V8TypeTag`, `V8TypeChecks`,
-`static foreach`) mirror each other across the FFI boundary. Both resolve at compile time
-with zero runtime overhead.
-
-```
-C++ side (v8shim_tmpl.hpp)           D side (cppbindings.d)
-  V8Tag enum                    <-->   V8TypeTag enum
-  V8TypeMap<Tag>                <-->   V8TypeName template
-  isV8Type<Tag> (if constexpr)  <-->   V8TypeChecks (fn ptr table)
-  withContext<F> (RAII scope)   <-->   backend.d checkType()
-```
-
-JSC uses the same pattern with `JSCTypeTag` mirroring `kJSType*` constants, plus a
-`getType()` fast path via `JSValueGetType()` for single-call type dispatch.
-
-### V8 C++ Shim
-
-V8 has no stable C API. DunJS uses a thin C++ wrapper (`vendor/v8shim/`) that exposes
-V8 operations as `extern "C"` functions callable from D:
-
-```
-D (backend.d) --extern(C)--> v8shim.cpp --C++--> V8 API
-                                |
-                    withContext<F> scope guard
-                    FunctionTemplate trampoline
-                    Ref-counted value wrappers
-```
-
-V8 headers are vendored from Node.js -- no `libv8-dev` needed for compilation.
 
 ## Built-in Modules
-
-| Module | Description | Engine Support |
-|--------|-------------|----------------|
-| `dun:fs` | File system operations (read, write, stat, mkdir) | All |
-| `dun:path` | Path manipulation (join, resolve, basename, dirname) | All |
-| `dun:net` | TCP sockets (createServer, createConnection) | All |
-| `dun:http` | HTTP/1.1 server (createServer, listen, close) | All |
-| `dun:crypto` | Hashing (createHash), randomBytes | All |
-| `dun:os` | Platform info (hostname, cpus, totalmem, freemem, uptime) | All |
-| `dun:buffer` | Buffer (from, alloc, concat, slice, toString, encodings) | All |
-| `dun:events` | EventEmitter (on, once, off, emit, listeners) | All |
-| `dun:url` | URL + URLSearchParams (parse, format, search params) | All |
 
 ```js
 import { readFileSync } from "dun:fs";
 import { join } from "dun:path";
+import { createHash } from "dun:crypto";
 
-const content = readFileSync(join(".", "data", "config.json"));
-console.log(content);
+// Also available via require()
+const http = require("http");
+const { Buffer } = require("buffer");
+const { EventEmitter } = require("events");
 ```
+
+| Module | API |
+|--------|-----|
+| `dun:fs` | readFileSync, writeFileSync, existsSync, statSync, mkdirSync |
+| `dun:path` | join, resolve, basename, dirname, extname, normalize |
+| `dun:net` | createServer, createConnection (TCP) |
+| `dun:http` | createServer, listen, close (HTTP/1.1) |
+| `dun:crypto` | createHash, randomBytes |
+| `dun:os` | platform, arch, hostname, cpus, totalmem, freemem, uptime |
+| `dun:buffer` | Buffer.from, Buffer.alloc, concat, slice, toString |
+| `dun:events` | EventEmitter (on, once, off, emit, listeners) |
+| `dun:url` | URL, URLSearchParams |
+
+Global: `fetch()`, `setTimeout`/`setInterval`, `console`, `process`, `Deno.*`
+
+## npm Support
+
+```sh
+dun install is-odd
+```
+
+```js
+const isOdd = require("is-odd");
+console.log(isOdd(3)); // true
+```
+
+Dependencies are resolved transitively. Packages are downloaded from `registry.npmjs.org` over HTTPS and extracted into `node_modules/`.
+
+## Permissions
+
+| Flag | Grants |
+|------|--------|
+| `--allow-read[=paths]` | File system read |
+| `--allow-write[=paths]` | File system write |
+| `--allow-net[=hosts]` | Network access |
+| `--allow-env[=vars]` | Environment variables |
+| `--allow-run[=cmds]` | Child processes |
+| `--allow-all` / `-A` | Everything |
+| `--deny-*` | Overrides allow (always wins) |
+
+## Engine Backends
+
+| Backend | Tests | Notes |
+|---------|-------|-------|
+| QuickJS-NG | 44/44 | Default. Interpreter, ES2023, smallest binary |
+| JavaScriptCore | 42/42 | JIT. Same engine as Safari/Bun |
+| V8 | 42/42 | JIT. Same engine as Chrome/Node.js. Via C++ shim |
+
+All 9 built-in modules, fetch, and Deno compat work on every backend.
+
+## Architecture
+
+Seven layers, zero coupling between engine backends and runtime APIs:
+
+```
+CLI/REPL  ->  Runtime (console, timers, process, Deno.*)
+          ->  Modules (ESM, CJS, npm resolver)
+          ->  Builtins (fs, path, net, http, crypto, os, buffer, events, url, fetch)
+          ->  Event Loop (epoll/kqueue/poll/io_uring, timer wheel, microtasks)
+          ->  Engine Abstraction (IJSEngine interface)
+          ->  Platform (OpenSSL TLS, memory, threading)
+```
+
+Upper layers use `IJSEngine` -- only `engine/<backend>/` touches raw engine APIs.
+
+See [ARCHITECTURE.md](ARCHITECTURE.md) for the full design.
 
 ## Testing
 
-### Unit Tests
-
 ```sh
-dub test -c unittest
+dub test -c unittest                    # ~150 unit tests
+./tests/integration/run.sh              # 44 integration tests
 ```
 
-| Suite | File | Tests |
-|-------|------|-------|
-| Engine contract | `source/dun/engine/test.d` | ~50 BDD-style tests |
-| Fuzz/stress | `source/dun/engine/fuzz.d` | ~50 edge-case tests |
-| TypeScript strip | `source/dun/ts/strip.d` | 20 inline tests |
-| Security perms | `source/dun/security/test.d` | 27 permission tests |
-
-### Integration Tests (44 fixtures)
-
-Standalone JS/TS scripts compared against expected stdout:
-
-| Category | Tests | Coverage |
-|----------|-------|----------|
-| Core JS | `hello`, `types`, `console_methods` | Basic output, typeof, multi-arg logging |
-| Async | `promises`, `promises_advanced`, `timers`, `phase2`, `phase2_rejection`, `async_io` | Promise.all/race/any, async/await, setTimeout, unhandledRejection |
-| ES2023+ | `es2023`, `closures`, `iterators`, `classes`, `regex`, `json_parsing` | findLast, generators, Map/Set, private fields, matchAll |
-| Errors | `error_handling` | try/catch, Error subtypes, Error.cause, finally |
-| Modules | `module_esm`, `module_cjs`, `module_chain`, `json_pipeline`, `npm_compat` | ESM import/export, CJS require, chained deps, JSON import |
-| Builtins | `fs_ops`, `path_ops`, `crypto_ops`, `stat_file`, `env_access` | readFile, join/resolve, hash/randomBytes, stat, process.env |
-| Node.js APIs | `buffer_api`, `event_emitter`, `url_api`, `os_api` | Buffer, EventEmitter, URL/URLSearchParams, os module |
-| Security | `perm_deny_read`, `perm_deny_write` | Permission denial enforcement |
-| TypeScript | `typescript`, `realworld_ts_library` | Type annotations, interfaces, as, arrow types |
-| Real-world | 8 end-to-end scenarios | Config loading, task runner, file processing, events, promise pool, nested require, security boundary, ESM pipeline |
+| Suite | Tests |
+|-------|-------|
+| Engine contract | ~50 BDD-style (eval, types, properties, exceptions, promises) |
+| Fuzz/stress | ~50 (rapid create/destroy, string stress, exception recovery) |
+| TypeScript strip | 20 (annotations, interfaces, as, declare, arrow types) |
+| Security | 27 (default deny, scoped grants, deny overrides, parseFlag) |
+| Integration | 44 fixtures (core JS, async, ES2023+, modules, builtins, TypeScript, real-world) |
 
 ## Comparison
 
-| | Node.js | Deno | Bun | **DunJS** |
-|--|---------|------|-----|-----------|
-| Language | C++ | Rust | Zig | **D** |
-| JS Engine | V8 | V8 | JSC | **Pluggable (3 backends)** |
-| TypeScript | Via tsc/swc | Built-in | Built-in | **Type stripping** |
-| Engine FFI | Native C++ | rusty_v8 | Zig extern(C++) | **extern(C) + C shim** |
-| Event Loop | libuv | Tokio | io_uring | **epoll/kqueue/poll** |
-| Permissions | None | Deny-all | None | **Deny-all** |
-| Module Prefix | `node:` | `node:` | `bun:` | **`dun:`** |
-| Memory Safety | Manual | Borrow checker | Manual | **@safe/@trusted** |
-| TMP Bridge | N/A | N/A | N/A | **C++ TMP <-> D TMP** |
-
-## Development Status
-
-DunJS is in active development. See the [phased roadmap](CLAUDE.md#phased-roadmap) for progress.
-
-| Phase | Status |
-|-------|--------|
-| Phase 1: MVP (`dun run hello.js`) | **Done** |
-| Phase 1b: Multi-engine (JSC + V8) | **Done** |
-| Phase 1c: TypeScript (`dun run file.ts`) | **Done** |
-| Phase 1d: Security tests (27 PermissionRegistry tests) | **Done** |
-| Phase 1e: C++ TMP <-> D TMP bridge (V8 + JSC) | **Done** |
-| Phase 2: Event loop + timers + Promises | **Done** |
-| Phase 2f: queueMicrotask + process.nextTick + unhandledRejection | **Done** |
-| Phase 3: Module system + fs/path/net/crypto | **Done** |
-| Phase 4: Permission enforcement wired to builtins | **Done** |
-| Phase 5: REPL + colored errors + stack traces | **Done** |
-| Phase 6a: Networking (TCP, npm compat, I/O polling) | **Done** |
-| Phase 6b: HTTP server (HTTP/1.1 createServer/listen/close) | **Done** |
-| Phase 6c: Workers (Web Workers, SharedArrayBuffer, Atomics) | **Done** |
-| Phase 6d: io_uring (Linux io_uring backend for IOPoller) | **Done** |
-| Phase 7a: Engine parity (net/http ported to engine-agnostic) | **Done** |
-| Phase 7b: Node.js APIs (Buffer, EventEmitter, URL, os) | **Done** |
-| Phase 7c: Safety (`-preview=safer` default) | **Done** |
+| | Node.js | Deno | Bun | DunJS |
+|--|---------|------|-----|-------|
+| Language | C++ | Rust | Zig | D |
+| Engine | V8 | V8 | JSC | Pluggable (3) |
+| TypeScript | Via tsc | Built-in | Built-in | Type stripping |
+| Permissions | None | Default-deny | None | Default-deny |
+| npm | Native | `npm:` specifier | Native | `dun install` |
+| TLS | OpenSSL | rustls | BoringSSL | OpenSSL |
+| Deno compat | No | -- | Partial | Partial |
 
 ## License
 
