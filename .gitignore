@@ -34,5 +34,6 @@ vendor/jsc/
 vendor/v8/
 vendor/v8shim/*.o
 vendor/v8shim/*.a
+vendor/v8shim/build/
 vendor/*.tar.gz
 vendor/*.tar.xz
