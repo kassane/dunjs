@@ -26,6 +26,8 @@ docs/
 # Build output
 build/
 
+.omc/
+
 # Downloaded vendor dependencies
 vendor/quickjs/
 vendor/jsc/
