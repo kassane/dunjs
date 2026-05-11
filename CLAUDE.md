@@ -336,7 +336,7 @@ dub build -c v8  && BACKEND=v8  ./tests/integration/run.sh
 | TypeScript | `typescript`, `realworld_ts_library` | Type annotations, interfaces, as, arrow types |
 | Real-world | 7 end-to-end scenarios | Config loading, task runner, file processing, events, promise pool, nested require, ESM pipeline |
 
-Backend test scores: **QuickJS 44/44**, **JSC 42/42+2skip**, **V8 42/42+2skip** (workers/phase2_rejection QuickJS-only).
+Backend test scores: **QuickJS 44/44**, **JSC 43/43+1skip**, **V8 43/43+1skip** (workers QuickJS-only).
 
 Test pattern: fixtures in `tests/integration/fixtures/*.{js,mjs,ts}`, expected stdout in `tests/integration/expected/*.txt`.
 

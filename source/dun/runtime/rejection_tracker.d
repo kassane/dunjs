@@ -108,19 +108,40 @@ version (EngineQuickJS)
 private void installJSRejectionTracker(IJSEngine engine, DunState* state) @trusted
 {
     auto global = engine.getGlobal();
-    engine.setProperty(global, "__dunRejections__", engine.newArray());
-    engine.setProperty(global, "__dunRejectionIdx__", engine.newInt(0));
 
     engine.setProperty(global, "__dunReportRejection__",
         engine.newFunction(&jsReportRejection, "__dunReportRejection__", 1));
 
+    // Polyfill: wrap Promise.reject and Promise.prototype.then/catch to track
+    // unhandled rejections. After 2 microtask ticks, any rejection still in the
+    // pending set is reported as unhandled.
     auto setupResult = engine.eval(
         `(function() {
-            if (typeof globalThis.addEventListener === 'function') {
-                globalThis.addEventListener('unhandledrejection', function(e) {
-                    __dunReportRejection__(e.reason);
+            var _pending = new Map();
+            var _origReject = Promise.reject.bind(Promise);
+            var _origThen = Promise.prototype.then;
+            var _origCatch = Promise.prototype.catch;
+            Promise.prototype.then = function(onFulfilled, onRejected) {
+                if (typeof onRejected === 'function') _pending.delete(this);
+                return _origThen.call(this, onFulfilled, onRejected);
+            };
+            Promise.prototype.catch = function(onRejected) {
+                _pending.delete(this);
+                return _origCatch.call(this, onRejected);
+            };
+            Promise.reject = function(reason) {
+                var p = _origReject(reason);
+                _pending.set(p, reason);
+                queueMicrotask(function() {
+                    queueMicrotask(function() {
+                        if (_pending.has(p)) {
+                            _pending.delete(p);
+                            __dunReportRejection__(reason);
+                        }
+                    });
                 });
-            }
+                return p;
+            };
         })()`, "<rejection-setup>");
     if (!setupResult.isError)
         engine.freeValue(setupResult.value);
