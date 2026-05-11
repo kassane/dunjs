@@ -1,5 +1,7 @@
 # CLAUDE.md - DunJS Development Guide
 
+<!-- CI diagnostic trigger -->
+
 ## Project Overview
 
 DunJS (`dun`) is a secure JavaScript runtime written in D, inspired by Deno, Bun, and Node.js.
