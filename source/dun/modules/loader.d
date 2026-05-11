@@ -17,6 +17,8 @@ struct ModuleLoader
 
 version (EngineQuickJS)
 {
+    import dun.engine.quickjs.bindings : JSContext, JSModuleDef;
+
     private extern (C) JSModuleDef* loadModuleCallback(
         JSContext* ctx, const(char)* module_name, void* opaque) nothrow
     {

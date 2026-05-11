@@ -675,7 +675,7 @@ void testResolvesPromises(IJSEngine e)
 
 @Describe("context opaque data")
 @Test("stores and retrieves opaque pointer")
-void testContextOpaque(IJSEngine e)
+void testContextOpaque(IJSEngine e) @trusted
 {
     int data = 12345;
     e.setContextOpaque(cast(void*)&data);

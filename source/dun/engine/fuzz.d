@@ -202,7 +202,7 @@ void fuzzLargeString(IJSEngine e)
     char[] big;
     big.length = 100_000;
     big[] = 'A';
-    auto h = e.newString(cast(string) big);
+    auto h = e.newString(big[]);
     auto s = e.extractString(h);
     assert(s.length == 100_000);
     e.freeValue(h);
@@ -238,13 +238,12 @@ void fuzzDeepObjectAccess(IJSEngine e)
 @Test("handles long property name")
 void fuzzLongPropertyName(IJSEngine e)
 {
-    char[] name;
-    name.length = 1000;
-    name[] = 'x';
+    import std.array : replicate;
+    string nameStr = "x".replicate(1000);
     auto obj = e.newObject();
     auto val = e.newInt(99);
-    e.setProperty(obj, cast(string) name, val);
-    auto got = e.getProperty(obj, cast(string) name);
+    e.setProperty(obj, nameStr, val);
+    auto got = e.getProperty(obj, nameStr);
     assert(e.extractInt(got) == 99);
     e.freeValue(got);
     e.freeValue(obj);
