@@ -36,7 +36,6 @@ import std.process;
 import std.range     : empty;
 import std.stdio;
 import std.string;
-import std.uni      : toLower;
 import std.datetime  : MonoTime, Duration, dur;
 import core.thread   : Thread;
 
@@ -57,7 +56,10 @@ enum QJS_VERSION     = "v0.9.0";
 enum QJS_URL_TAGGED  = "https://github.com/" ~ QJS_REPO ~ "/archive/refs/tags/"
                      ~ QJS_VERSION ~ ".tar.gz";
 enum QJS_URL_MASTER  = "https://github.com/" ~ QJS_REPO ~ "/archive/refs/heads/master.tar.gz";
-enum QJS_LIB_NAME    = "libqjs.a";
+version (Windows)
+    enum QJS_LIB_NAME = "qjs.lib";
+else
+    enum QJS_LIB_NAME = "libqjs.a";
 enum QJS_SRC_MARKER  = "quickjs.h";
 
 // JavaScriptCore configuration
@@ -894,6 +896,17 @@ bool buildQuickJS(ref const Toolchain tc, ref const BuildOptions opts)
     }
 
     // ── Verify ─────────────────────────────────────────────────────
+    // MSVC multi-config generators put output in Release/ subdirectory
+    if (!exists(libPath))
+    {
+        auto releasePath = buildPath(bDir, "Release", QJS_LIB_NAME);
+        if (exists(releasePath))
+        {
+            logVerbose(tag, "Copying from Release/ subdirectory...");
+            copy(releasePath, libPath);
+        }
+    }
+
     if (!exists(libPath))
     {
         logError(tag, QJS_LIB_NAME ~ " not found at expected path: " ~ libPath);
@@ -1052,7 +1065,10 @@ bool buildV8Shim(ref const Toolchain tc, ref const BuildOptions opts)
 {
     enum tag = "v8";
     immutable srcPath = buildPath(v8shimDir(), "v8shim.cpp");
-    immutable libPath = buildPath(v8shimDir(), "libv8shim.a");
+    version (Windows)
+        immutable libPath = buildPath(v8shimDir(), "v8shim.lib");
+    else
+        immutable libPath = buildPath(v8shimDir(), "libv8shim.a");
     immutable objPath = buildPath(v8shimDir(), "v8shim.o");
 
     // Skip if already built (unless --force)

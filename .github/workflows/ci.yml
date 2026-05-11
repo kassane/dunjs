@@ -21,11 +21,11 @@ jobs:
         include:
           # QuickJS: Linux + macOS + Windows
           - { os: ubuntu-latest,  engine: quickjs }
-          - { os: macos-13,       engine: quickjs }
+          - { os: macos-latest,       engine: quickjs }
           - { os: windows-latest, engine: quickjs }
           # JSC: system library (Linux + macOS only)
           - { os: ubuntu-latest, engine: jsc }
-          - { os: macos-13,      engine: jsc }
+          - { os: macos-latest,      engine: jsc }
           # V8: via C++ shim (best-effort)
           - { os: ubuntu-latest, engine: v8 }
 
@@ -84,11 +84,11 @@ jobs:
           fi
 
       - name: Build (release)
-        if: matrix.engine == 'quickjs'
+        if: matrix.engine != 'v8'
         run: dub build -v -c ${{ matrix.engine }} -b release
 
       - name: Upload binary (POSIX)
-        if: matrix.engine == 'quickjs' && runner.os != 'Windows'
+        if: matrix.engine != 'v8' && runner.os != 'Windows'
         uses: actions/upload-artifact@v4
         with:
           name: dun-${{ matrix.engine }}-${{ matrix.os }}
@@ -96,7 +96,7 @@ jobs:
           retention-days: 7
 
       - name: Upload binary (Windows)
-        if: matrix.engine == 'quickjs' && runner.os == 'Windows'
+        if: matrix.engine != 'v8' && runner.os == 'Windows'
         uses: actions/upload-artifact@v4
         with:
           name: dun-${{ matrix.engine }}-${{ matrix.os }}
@@ -112,7 +112,7 @@ jobs:
       matrix:
         include:
           - { os: ubuntu-latest }
-          - { os: macos-13 }
+          - { os: macos-latest }
           - { os: windows-latest }
 
     steps:
@@ -153,7 +153,7 @@ jobs:
       matrix:
         include:
           - { os: ubuntu-latest }
-          - { os: macos-13 }
+          - { os: macos-latest }
           - { os: windows-latest }
 
     steps:
