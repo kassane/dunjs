@@ -67,9 +67,12 @@ enum JSC_PKG_NAMES      = ["javascriptcoregtk-4.1", "javascriptcoregtk-6.0", "ja
 enum JSC_LIB_MARKER     = "lib/libJavaScriptCore.a";
 
 // V8 configuration
-// V8 requires system-installed headers (libv8-dev) to compile the C++ shim.
-// Downloading V8 source (~1GB) is impractical; use system packages instead.
-enum V8_INCLUDE_PATH = "/usr/include/v8";
+// V8 headers are vendored from Node.js headers tarball (same headers Node uses).
+// This eliminates the need for system libv8-dev at compile time.
+// Linking still requires system V8 libraries (libv8, libv8_libplatform).
+enum V8_NODE_VERSION   = "v22.15.0";
+enum V8_HEADERS_MARKER = "v8.h";
+enum V8_SYSTEM_INCLUDE = "/usr/include/v8";
 
 // Download retry configuration
 enum DOWNLOAD_MAX_RETRIES = 3;
@@ -85,6 +88,17 @@ string qjsArchive()  { return buildPath(vendorDir(), "quickjs.tar.gz"); }
 string jscDir()      { return buildPath(vendorDir(), "jsc"); }
 string jscArchive()  { return buildPath(vendorDir(), "jsc.tar.gz"); }
 string v8shimDir()   { return buildPath(vendorDir(), "v8shim"); }
+string v8Dir()       { return buildPath(vendorDir(), "v8"); }
+string v8IncludeDir(){ return buildPath(v8Dir(), "include"); }
+string v8Archive()   { return buildPath(vendorDir(), "node-headers.tar.gz"); }
+
+/// Build the download URL for Node.js headers tarball.
+/// Node.js headers contain V8's public API headers (v8.h, libplatform/, cppgc/).
+string nodeHeadersUrl()
+{
+    return "https://nodejs.org/dist/" ~ V8_NODE_VERSION
+         ~ "/node-" ~ V8_NODE_VERSION ~ "-headers.tar.gz";
+}
 
 // ════════════════════════════════════════════════════════════════════
 // Platform Detection
@@ -992,13 +1006,23 @@ bool buildV8Shim(ref const Toolchain tc, ref const BuildOptions opts)
     }
 
     // ── Locate V8 headers ─────────────────────────────────────────
-    string v8IncludeDir = "";
+    // Resolution order:
+    //   1. Vendored headers (vendor/v8/include/) — downloaded from Node.js
+    //   2. System headers (/usr/include/v8) — libv8-dev
+    //   3. pkg-config v8
+    //   4. Download from Node.js headers tarball (node method)
+    string v8Includes = "";
     bool v8PkgConfig = false;
 
-    if (exists(buildPath(V8_INCLUDE_PATH, "v8.h")))
+    if (exists(buildPath(v8IncludeDir(), "v8.h")))
     {
-        v8IncludeDir = V8_INCLUDE_PATH;
-        logVerbose(tag, "V8 headers found at system path: " ~ V8_INCLUDE_PATH);
+        v8Includes = v8IncludeDir();
+        logVerbose(tag, "V8 headers found (vendored): " ~ v8Includes);
+    }
+    else if (exists(buildPath(V8_SYSTEM_INCLUDE, "v8.h")))
+    {
+        v8Includes = V8_SYSTEM_INCLUDE;
+        logVerbose(tag, "V8 headers found (system): " ~ V8_SYSTEM_INCLUDE);
     }
     else if (tc.pkgConfig.found)
     {
@@ -1011,12 +1035,22 @@ bool buildV8Shim(ref const Toolchain tc, ref const BuildOptions opts)
         }
     }
 
-    if (v8IncludeDir.length == 0 && !v8PkgConfig)
+    // Download V8 headers from Node.js if not found locally
+    if (v8Includes.length == 0 && !v8PkgConfig)
     {
-        logError(tag, "V8 headers not found. Install system packages:");
-        logError(tag, "  Ubuntu/Debian: apt install libv8-dev");
-        logError(tag, "  Fedora:        dnf install v8-devel");
-        return false;
+        logInfo(tag, "V8 headers not found locally — downloading from Node.js...");
+        if (downloadV8Headers(tc))
+        {
+            v8Includes = v8IncludeDir();
+            logInfo(tag, "V8 headers vendored at " ~ v8Includes);
+        }
+        else
+        {
+            logError(tag, "V8 headers not available. Options:");
+            logError(tag, "  1. Install libv8-dev (apt install libv8-dev)");
+            logError(tag, "  2. Ensure curl/wget available for auto-download");
+            return false;
+        }
     }
 
     logVerbose(tag, "C++ compiler: " ~ tc.cxx.path);
@@ -1035,9 +1069,9 @@ bool buildV8Shim(ref const Toolchain tc, ref const BuildOptions opts)
         "-o", "v8shim.o",
     ];
 
-    // Add V8 include path (system or vendor)
-    if (v8IncludeDir.length > 0)
-        compileCmd ~= "-I" ~ v8IncludeDir;
+    // Add V8 include path (vendored, system, or pkg-config)
+    if (v8Includes.length > 0)
+        compileCmd ~= "-I" ~ v8Includes;
 
     // Try pkg-config cflags
     if (tc.pkgConfig.found)
@@ -1085,6 +1119,81 @@ bool buildV8Shim(ref const Toolchain tc, ref const BuildOptions opts)
 }
 
 // ════════════════════════════════════════════════════════════════════
+// V8 Header Download (Node.js method)
+// ════════════════════════════════════════════════════════════════════
+
+/**
+ * Download V8 headers from Node.js headers tarball.
+ *
+ * Node.js distributes a lightweight headers-only tarball (~8MB) that
+ * contains V8's complete public API headers.  This is the same approach
+ * Node.js native addons use (node-gyp downloads these headers).
+ *
+ * The tarball structure is:
+ *   node-vX.Y.Z/include/node/{v8.h, v8-*.h, libplatform/, cppgc/, ...}
+ *
+ * We extract the include/node/ subtree to vendor/v8/include/.
+ */
+bool downloadV8Headers(ref const Toolchain tc)
+{
+    enum tag = "v8";
+    immutable markerPath = buildPath(v8IncludeDir(), V8_HEADERS_MARKER);
+
+    if (exists(markerPath))
+    {
+        logInfo(tag, "V8 headers already present -- skipping download");
+        return true;
+    }
+
+    if (!tc.hasDownloader())
+    {
+        logError(tag, "No download tool (curl/wget) available");
+        return false;
+    }
+
+    string url = nodeHeadersUrl();
+    logInfo(tag, "Downloading Node.js " ~ V8_NODE_VERSION ~ " headers...");
+
+    mkdirRecurse(vendorDir());
+
+    // Download tarball
+    if (!downloadFile(tc, url, v8Archive(), tag))
+        return false;
+
+    // Extract only the include/node/ subtree
+    mkdirRecurse(v8IncludeDir());
+
+    // The tarball has structure: node-vX.Y.Z/include/node/...
+    // We use --strip-components=3 to extract contents directly into v8/include/
+    string stripPrefix = "node-" ~ V8_NODE_VERSION ~ "/include/node";
+    int exStatus = runCmd(
+        ["tar", "-xzf", v8Archive(),
+         "--strip-components=3", "-C", v8IncludeDir(),
+         stripPrefix ~ "/"],
+        vendorDir(), tag);
+
+    if (exStatus != 0)
+    {
+        logError(tag, "Failed to extract V8 headers from Node.js tarball");
+        return false;
+    }
+
+    // Clean up archive
+    if (exists(v8Archive()))
+        std.file.remove(v8Archive());
+
+    // Verify
+    if (!exists(markerPath))
+    {
+        logError(tag, "V8 headers extraction failed — v8.h not found");
+        return false;
+    }
+
+    logInfo(tag, "V8 headers ready at " ~ v8IncludeDir());
+    return true;
+}
+
+// ════════════════════════════════════════════════════════════════════
 // Clean
 // ════════════════════════════════════════════════════════════════════
 
@@ -1103,6 +1212,7 @@ void doClean()
         CleanTarget(qjsBuildDir(), true),
         CleanTarget(qjsArchive(), false),
         CleanTarget(jscArchive(), false),
+        CleanTarget(v8Archive(), false),
         CleanTarget(buildPath(v8shimDir(), "libv8shim.a"), false),
         CleanTarget(buildPath(v8shimDir(), "v8shim.o"), false),
     ];
@@ -1133,7 +1243,7 @@ void doDeepClean()
     enum tag = "clean";
     logInfo(tag, "Deep cleaning -- removing all vendor sources...");
 
-    foreach (dir; [qjsDir(), jscDir()])
+    foreach (dir; [qjsDir(), jscDir(), v8Dir()])
     {
         if (exists(dir))
         {

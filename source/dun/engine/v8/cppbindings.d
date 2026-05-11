@@ -1,33 +1,35 @@
 module dun.engine.v8.cppbindings;
 
-// Experimental: Direct D → V8 C++ bindings using extern(C++, "v8").
+// D → V8 C++ bindings using extern(C++, "v8") + core.stdcpp.
 //
-// V8's public API lives in namespace v8 and uses C++ classes with virtual
-// methods. D's extern(C++) can bind to these when the types don't use
-// templates. For template-heavy types (Local<T>, Global<T>, Maybe<T>),
-// we still need the C shim — D cannot instantiate C++ templates.
+// V8's public API uses C++ classes in namespace v8. D's extern(C++) can
+// bind to non-template classes and static methods.
 //
-// This module demonstrates what CAN be bound directly:
-//   - v8::V8 (static methods, no templates)
-//   - v8::Isolate (class with virtual methods)
-//   - v8::Platform (abstract interface)
-//   - v8::ArrayBuffer::Allocator (abstract)
+// For template-heavy types (Local<T>, Global<T>, Maybe<T>, MaybeLocal<T>),
+// D cannot instantiate C++ templates — the C shim (vendor/v8shim/) handles
+// those via extern "C" wrapper functions.
 //
-// What CANNOT be bound directly (requires C shim):
-//   - v8::Local<T>, v8::Global<T> (class templates)
-//   - v8::Maybe<T>, v8::MaybeLocal<T> (class templates)
-//   - v8::FunctionCallbackInfo<T> (class template)
-//   - v8::PropertyCallbackInfo<T> (class template)
+// core.stdcpp availability (LDC 1.42+):
+//   ✅ core.stdcpp.string       — std::string (GNU + LLVM runtimes)
+//   ✅ core.stdcpp.string_view  — std::string_view
+//   ✅ core.stdcpp.memory       — std::unique_ptr<T>
+//   ✅ core.stdcpp.allocator    — std::allocator<T>
+//   ❌ core.stdcpp.vector       — MSVC only, not usable on Linux/macOS
 //
-// Strategy: Use extern(C++) for static/namespace-level operations,
-// keep the C shim for value manipulation that touches templates.
+// Strategy: extern(C++) for static/class-level operations (V8::Initialize,
+// V8::GetVersion, platform creation). C shim for value manipulation that
+// touches templates (Local<T>, Global<T>, FunctionCallbackInfo<T>).
+//
+// To regenerate/verify these bindings against a specific V8 version:
+//   clang -Xclang -ast-dump -fsyntax-only -std=c++17 \
+//         -I vendor/v8/include vendor/v8shim/v8shim.cpp 2>/dev/null | \
+//         c++filt | grep -E '(CXXRecordDecl|CXXMethodDecl).*v8::'
 
 version (EngineV8):
 
 // --- v8 namespace: static initialization ---
 extern (C++, "v8")
 {
-    // v8::V8 — static methods for engine lifecycle
     extern class V8
     {
     static:
@@ -49,11 +51,10 @@ extern (C++, "v8", "platform")
 {
     void* NewDefaultPlatform(
         int thread_pool_size = 0,
-        // IdleTaskSupport = kDisabled, InProcessStackDumping = kDisabled
     );
 }
 
-// --- v8::ArrayBuffer::Allocator ---
+// --- v8::Isolate ---
 extern (C++, "v8")
 {
     extern class Isolate
@@ -61,7 +62,6 @@ extern (C++, "v8")
         struct CreateParams
         {
             void* array_buffer_allocator;
-            // other fields are opaque from D's perspective
         }
 
     static:
@@ -69,22 +69,16 @@ extern (C++, "v8")
     }
 }
 
-// --- Convenience: check V8 version at compile time via shim ---
-
+// --- C shim functions (for template-heavy V8 APIs) ---
 extern (C) nothrow @nogc
 {
     const(char)* dun_v8_version();
 }
 
-// Hybrid approach: use extern(C++) for init, extern(C) shim for values.
-// This is the recommended pattern — extern(C++) where possible,
-// C shim where C++ templates make direct binding impossible.
-
 unittest
 {
     version (DunTest)
     {
-        // Compile-time verification: these symbols resolve if V8 is linked
         static assert(is(typeof(&V8.GetVersion)));
         static assert(is(typeof(&V8.Initialize)));
     }

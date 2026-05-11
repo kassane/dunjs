@@ -47,7 +47,7 @@ jobs:
         continue-on-error: true
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y libv8-dev
+          sudo apt-get install -y libv8-dev || echo "libv8-dev not available — V8 headers will be vendored from Node.js"
 
       - name: Install CMake
         if: matrix.engine == 'quickjs'
