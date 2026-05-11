@@ -39,7 +39,7 @@ jobs:
           - { os: ubuntu-latest, engine: v8 }
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Install ldcup (POSIX)
         if: runner.os != 'Windows'
@@ -68,7 +68,7 @@ jobs:
         uses: lukka/get-cmake@latest
 
       - name: Cache vendor
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: vendor/
           key: vendor-${{ matrix.engine }}-${{ matrix.os }}-${{ hashFiles('build.d', 'dub.json') }}
@@ -109,7 +109,7 @@ jobs:
 
       - name: Post dub build failure
         if: runner.os == 'Windows' && steps.win_debug.outcome == 'failure'
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           script: |
             const fs = require('fs');
@@ -160,7 +160,7 @@ jobs:
 
       - name: Upload binary (POSIX)
         if: matrix.engine != 'v8' && runner.os != 'Windows'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: dun-${{ matrix.engine }}-${{ matrix.os }}
           path: build/dun
@@ -168,7 +168,7 @@ jobs:
 
       - name: Upload binary (Windows)
         if: matrix.engine != 'v8' && runner.os == 'Windows'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: dun-${{ matrix.engine }}-${{ matrix.os }}
           path: build/dun.exe
@@ -176,7 +176,7 @@ jobs:
 
       - name: Post Windows failure details
         if: runner.os == 'Windows' && steps.win_vendor.outcome == 'failure'
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           script: |
             const fs = require('fs');
@@ -216,7 +216,7 @@ jobs:
           - { os: windows-latest }
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Install ldcup (POSIX)
         if: runner.os != 'Windows'
@@ -237,7 +237,7 @@ jobs:
       - uses: lukka/get-cmake@latest
 
       - name: Cache vendor
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: vendor/
           key: vendor-quickjs-${{ matrix.os }}-${{ hashFiles('build.d', 'dub.json') }}
@@ -263,7 +263,7 @@ jobs:
 
       - name: Post test vendor failure
         if: runner.os == 'Windows' && steps.test_vendor.outcome == 'failure'
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           script: |
             const fs = require('fs');
@@ -313,10 +313,10 @@ jobs:
           - { os: windows-latest }
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Download binary
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v6
         with:
           name: dun-quickjs-${{ matrix.os }}
           path: build/
