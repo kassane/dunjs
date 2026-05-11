@@ -65,6 +65,18 @@ jobs:
         if: runner.os != 'Windows'
         run: ldc2 -run build.d --backend=${{ matrix.engine }} --verbose
 
+      - name: Diagnostics (Windows)
+        if: runner.os == 'Windows'
+        shell: cmd
+        run: |
+          where ldc2
+          where cl
+          where cmake
+          where ninja 2>NUL || echo ninja not found
+          where nmake 2>NUL || echo nmake not found
+          ldc2 --version
+          cmake --version
+
       - name: Build vendor deps (Windows)
         if: runner.os == 'Windows'
         shell: cmd
@@ -138,6 +150,16 @@ jobs:
           path: vendor/
           key: vendor-quickjs-${{ matrix.os }}-${{ hashFiles('build.d', 'dub.json') }}
           restore-keys: vendor-quickjs-${{ matrix.os }}-
+
+      - name: Diagnostics (Windows)
+        if: runner.os == 'Windows'
+        shell: cmd
+        run: |
+          where ldc2
+          where cl
+          where cmake
+          where ninja 2>NUL || echo ninja not found
+          where nmake 2>NUL || echo nmake not found
 
       - name: Build vendor deps (POSIX)
         if: runner.os != 'Windows'

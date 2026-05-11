@@ -836,8 +836,8 @@ bool buildQuickJS(ref const Toolchain tc, ref const BuildOptions opts)
 
     if (tc.platform == Platform.windows)
     {
-        // Use Ninja on Windows: single-config, fast, avoids VS multi-config complexity
-        cmakeArgs ~= ["-G", "Ninja", "-DCMAKE_BUILD_TYPE=Release"];
+        // Use NMake on Windows: single-config, available via MSVC dev env
+        cmakeArgs ~= ["-G", "NMake Makefiles", "-DCMAKE_BUILD_TYPE=Release"];
     }
     else
     {
