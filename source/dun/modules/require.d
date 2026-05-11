@@ -202,7 +202,7 @@ extern (C) JSValue jsRequire(JSContext* ctx, JSValueConst this_val,
         {
             JS_FreeValue(ctx, cache);
             JS_FreeValue(ctx, global);
-            return JS_ThrowTypeError(ctx, "Cannot require '%s': requires --allow-read");
+            return JS_ThrowTypeError(ctx, "require() denied: requires --allow-read");
         }
     }
 
