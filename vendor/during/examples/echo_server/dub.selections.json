@@ -1,8 +1,0 @@
-{
-	"fileVersion": 1,
-	"versions": {
-		"during": {"path":"../.."},
-		"mempooled": "0.4.0",
-		"silly": "1.1.1"
-	}
-}

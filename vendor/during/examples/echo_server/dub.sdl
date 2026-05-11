@@ -1,4 +1,0 @@
-name "echo_server"
-
-dependency "during" path="../.."
-dependency "mempooled" version="~>0.4.0"

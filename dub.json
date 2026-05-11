@@ -151,9 +151,6 @@
 			]
 		}
 	],
-	"subConfigurations": {
-		"eventcore": "epoll"
-	},
 	"targetName": "dun",
 	"authors": [
 		"Matheus C. Franca"
@@ -194,11 +191,7 @@
 		"frontend": ">=2.112.0"
 	},
 	"description": "A secure JavaScript runtime written in D",
-	"dependencies": {
-		"eventcore": {"path": "vendor/eventcore"},
-		"taggedalgebraic": {"path": "vendor/taggedalgebraic"},
-		"during": {"path": "vendor/during"}
-	},
+	"dependencies": {},
 	"targetType": "executable",
 	"buildTypes": {
 		"release": {
