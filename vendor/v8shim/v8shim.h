@@ -87,6 +87,10 @@ DunV8Value* dun_v8_throw_range_error(DunV8Context* ctx, const char* msg);
 DunV8Value* dun_v8_call(DunV8Context* ctx, DunV8Value* func,
     DunV8Value* this_obj, int argc, DunV8Value** argv, int* is_error);
 
+/* Promises */
+DunV8Value* dun_v8_new_promise(DunV8Context* ctx,
+    DunV8Value** resolve_out, DunV8Value** reject_out);
+
 /* Microtasks */
 int dun_v8_has_pending_microtasks(DunV8Isolate* isolate);
 void dun_v8_drain_microtasks(DunV8Isolate* isolate);

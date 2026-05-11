@@ -50,8 +50,12 @@ struct EventLoop
         {
             import dun.builtins.net : pollNetIO;
             import dun.builtins.http : pollHttpIO;
+            import dun.loop.async : asyncDrain, asyncHasWork;
             pollNetIO();
             pollHttpIO();
+
+            if (asyncDrain() > 0)
+                drainNextTicksAndMicrotasks();
 
             version (EngineQuickJS)
             {
@@ -63,6 +67,7 @@ struct EventLoop
             if (!engine.hasPendingJobs()
                 && microtasks.empty()
                 && nextTicks.empty()
+                && !asyncHasWork()
                 && !timers.empty())
             {
                 auto wait = timers.nextDeadline();
@@ -93,6 +98,7 @@ struct EventLoop
         import dun.builtins.net : hasActiveNetIO;
         import dun.builtins.http : hasActiveHttpIO;
         import dun.loop.agnostic_pending : hasAgnosticPending;
+        import dun.loop.async : asyncHasWork;
 
         bool base = engine.hasPendingJobs()
             || !timers.empty()
@@ -101,7 +107,8 @@ struct EventLoop
             || outstandingRefs > 0
             || hasActiveNetIO()
             || hasActiveHttpIO()
-            || hasAgnosticPending();
+            || hasAgnosticPending()
+            || asyncHasWork();
 
         version (EngineQuickJS)
         {

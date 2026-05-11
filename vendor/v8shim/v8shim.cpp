@@ -419,6 +419,54 @@ DunV8Value* dun_v8_call(DunV8Context* cw, DunV8Value* func,
     });
 }
 
+// --- Promises ---
+
+DunV8Value* dun_v8_new_promise(DunV8Context* cw,
+    DunV8Value** resolve_out, DunV8Value** reject_out)
+{
+    return dun::withContext(cw, [&](auto isolate, auto context, auto* iw) -> DunV8Value* {
+        auto resolver = v8::Promise::Resolver::New(context).ToLocalChecked();
+        auto promise = resolver->GetPromise();
+
+        auto* resolverVal = new DunV8Value();
+        resolverVal->value.Reset(isolate, resolver);
+        resolverVal->isolate_wrapper = iw;
+        resolverVal->ref_count = 2; // one for resolve, one for reject
+
+        auto resolveExt = v8::External::New(isolate, resolverVal);
+        auto resolveFunc = v8::Function::New(context,
+            [](const v8::FunctionCallbackInfo<v8::Value>& info) {
+                auto ext = v8::Local<v8::External>::Cast(info.Data());
+                auto* rw = static_cast<DunV8Value*>(ext->Value());
+                auto iso = info.GetIsolate();
+                auto ctx = iso->GetCurrentContext();
+                auto r = rw->value.Get(iso).template As<v8::Promise::Resolver>();
+                v8::Local<v8::Value> val;
+                if (info.Length() > 0) val = info[0];
+                else val = v8::Undefined(iso);
+                r->Resolve(ctx, val).FromMaybe(false);
+            }, resolveExt).ToLocalChecked();
+
+        auto rejectExt = v8::External::New(isolate, resolverVal);
+        auto rejectFunc = v8::Function::New(context,
+            [](const v8::FunctionCallbackInfo<v8::Value>& info) {
+                auto ext = v8::Local<v8::External>::Cast(info.Data());
+                auto* rw = static_cast<DunV8Value*>(ext->Value());
+                auto iso = info.GetIsolate();
+                auto ctx = iso->GetCurrentContext();
+                auto r = rw->value.Get(iso).template As<v8::Promise::Resolver>();
+                v8::Local<v8::Value> val;
+                if (info.Length() > 0) val = info[0];
+                else val = v8::Undefined(iso);
+                r->Reject(ctx, val).FromMaybe(false);
+            }, rejectExt).ToLocalChecked();
+
+        *resolve_out = wrapValue(iw, resolveFunc);
+        *reject_out = wrapValue(iw, rejectFunc);
+        return wrapValue(iw, promise);
+    });
+}
+
 // --- Microtasks ---
 
 int dun_v8_has_pending_microtasks(DunV8Isolate* iw) {

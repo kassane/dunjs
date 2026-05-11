@@ -228,37 +228,50 @@ JSHandle jsUnlinkSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
 JSHandle jsReadFileAsync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
+    import dun.engine.iface : PromiseHandles;
+    import dun.loop.async : asyncSubmit;
+
     auto state = cast(DunState*) ctx;
     auto engine = state.engine;
     if (args.length < 1) return engine.throwTypeError("readFile requires a path argument");
     auto path = engine.extractString(args[0]);
     if (!checkPerm(state, Permission.read, path))
-    {
-        auto r = engine.eval("Promise.reject(new Error('Requires --allow-read permission'))", "<readFile>");
-        return r.value;
-    }
-    try
-    {
+        return engine.throwTypeError("Requires --allow-read permission");
+
+    auto ph = engine.newPromise();
+    engine.dupValue(ph.resolve);
+    engine.dupValue(ph.reject);
+
+    asyncSubmit(engine, ph.resolve, ph.reject, () @trusted {
         import std.file : readText;
-        import std.string : replace;
-        auto content = readText(path);
-        auto escaped = content.replace("\\", "\\\\").replace("`", "\\`").replace("$", "\\$");
-        auto r = engine.eval("Promise.resolve(`" ~ escaped ~ "`)", "<readFile>");
-        return r.value;
-    }
-    catch (Exception)
-    {
-        auto r = engine.eval("Promise.reject(new Error('Failed to read file'))", "<readFile>");
-        return r.value;
-    }
+        return readText(path);
+    });
+
+    return ph.promise;
 }
 
 JSHandle jsWriteFileAsync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
+    import dun.engine.iface : PromiseHandles;
+    import dun.loop.async : asyncSubmit;
+
     auto state = cast(DunState*) ctx;
     auto engine = state.engine;
     if (args.length < 2) return engine.throwTypeError("writeFile requires path and data");
-    auto writeResult = jsWriteFileSync(ctx, thisVal, args);
-    auto r = engine.eval("Promise.resolve()", "<writeFile>");
-    return r.value;
+    auto path = engine.extractString(args[0]);
+    auto data = engine.extractString(args[1]);
+    if (!checkPerm(state, Permission.write, path))
+        return engine.throwTypeError("Requires --allow-write permission");
+
+    auto ph = engine.newPromise();
+    engine.dupValue(ph.resolve);
+    engine.dupValue(ph.reject);
+
+    asyncSubmit(engine, ph.resolve, ph.reject, () @trusted {
+        import std.file : write;
+        write(path, data);
+        return "ok";
+    });
+
+    return ph.promise;
 }

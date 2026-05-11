@@ -227,6 +227,17 @@ class V8Engine : IJSEngine
         return toHandle(dun_v8_throw_range_error(ctx, (cast(string) msg).toStringz));
     }
 
+    PromiseHandles newPromise() @trusted
+    {
+        PromiseHandles ph;
+        DunV8Value* resolveOut, rejectOut;
+        auto promise = dun_v8_new_promise(ctx, &resolveOut, &rejectOut);
+        ph.promise = toHandle(promise);
+        ph.resolve = toHandle(resolveOut);
+        ph.reject = toHandle(rejectOut);
+        return ph;
+    }
+
     bool hasPendingJobs() @trusted
     {
         return dun_v8_has_pending_microtasks(isolate) != 0;

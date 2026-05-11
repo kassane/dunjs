@@ -241,6 +241,18 @@ class JSCEngine : IJSEngine
         return throwTypeError(msg);
     }
 
+    PromiseHandles newPromise() @trusted
+    {
+        PromiseHandles ph;
+        JSObjectRef resolveFunc, rejectFunc;
+        JSValueRef exc = null;
+        auto promise = JSObjectMakeDeferredPromise(ctx, &resolveFunc, &rejectFunc, &exc);
+        ph.promise = toHandle(cast(void*) promise);
+        ph.resolve = toHandle(cast(void*) resolveFunc);
+        ph.reject = toHandle(cast(void*) rejectFunc);
+        return ph;
+    }
+
     bool hasPendingJobs() { return false; }
     bool executePendingJob() { return false; }
     void drainJobs() {}

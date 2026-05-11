@@ -3,6 +3,7 @@ module dun.modules.require;
 import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
 import dun.runtime.globals : DunState;
 import dun.security.permissions : Permission;
+import std.json : JSONValue;
 
 void installRequire(IJSEngine engine) @trusted
 {
@@ -92,13 +93,49 @@ JSHandle jsRequire(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
     try
     {
-        import std.file : exists;
+        import std.file : exists, isDir, isFile;
         if (!exists(resolved))
         {
-            static immutable exts = [".js", ".ts", ".cjs", ".cts"];
+            static immutable exts = [".js", ".ts", ".cjs", ".cts", ".json"];
+            bool found = false;
             foreach (ext; exts)
             {
-                if (exists(resolved ~ ext)) { resolved ~= ext; break; }
+                if (exists(resolved ~ ext)) { resolved ~= ext; found = true; break; }
+            }
+            if (!found)
+            {
+                static immutable idxExts = ["/index.js", "/index.ts", "/index.cjs"];
+                foreach (ext; idxExts)
+                {
+                    if (exists(resolved ~ ext)) { resolved ~= ext; break; }
+                }
+            }
+        }
+        else if (isDir(resolved))
+        {
+            import std.path : buildNormalizedPath;
+            import std.json : parseJSON;
+            import std.file : readText;
+            auto pkgJson = buildNormalizedPath(resolved, "package.json");
+            bool foundEntry = false;
+            if (exists(pkgJson))
+            {
+                try
+                {
+                    auto j = parseJSON(readText(pkgJson));
+                    auto entry = resolveMainEntry(j, resolved);
+                    if (entry.length > 0) { resolved = entry; foundEntry = true; }
+                }
+                catch (Exception) {}
+            }
+            if (!foundEntry)
+            {
+                static immutable dirIdx = ["index.js", "index.ts", "index.cjs"];
+                foreach (idx; dirIdx)
+                {
+                    auto p = buildNormalizedPath(resolved, idx);
+                    if (exists(p) && isFile(p)) { resolved = p; break; }
+                }
             }
         }
     }
@@ -112,6 +149,25 @@ JSHandle jsRequire(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     if (!checkPerm(state, Permission.read, resolved))
         return engine.throwTypeError("require() denied: requires --allow-read");
 
+    // JSON files: parse and return directly
+    import std.algorithm : endsWith;
+    if (resolved.endsWith(".json"))
+    {
+        try
+        {
+            import std.file : readText;
+            auto jsonSource = readText(resolved);
+            auto parseResult = engine.eval("(" ~ jsonSource ~ ")", resolved);
+            if (!parseResult.isError)
+            {
+                engine.setProperty(cache, resolved, engine.dupValue(parseResult.value));
+                return parseResult.value;
+            }
+        }
+        catch (Exception) {}
+        return engine.throwTypeError("Failed to parse JSON module");
+    }
+
     string source;
     try
     {
@@ -122,7 +178,6 @@ JSHandle jsRequire(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
     try
     {
-        import std.algorithm : endsWith;
         if (resolved.endsWith(".ts") || resolved.endsWith(".cts"))
         {
             import dun.ts.strip : stripTypes;
@@ -219,7 +274,7 @@ public string findNodeModule(string specifier, string fromDir) @trusted
 {
     import std.path : buildNormalizedPath;
     import std.file : exists, isFile, isDir, readText;
-    import std.json : parseJSON, JSONException;
+    import std.json : parseJSON, JSONException, JSONType;
     import std.algorithm : startsWith;
 
     string pkg = specifier, sub = "";
@@ -243,10 +298,25 @@ public string findNodeModule(string specifier, string fromDir) @trusted
         auto nmDir = buildNormalizedPath(dir, "node_modules", pkg);
         if (exists(nmDir) && isDir(nmDir))
         {
+            auto pkgJson = buildNormalizedPath(nmDir, "package.json");
+            JSONValue j;
+            bool hasPkgJson = false;
+            if (exists(pkgJson))
+            {
+                try { j = parseJSON(readText(pkgJson)); hasPkgJson = true; }
+                catch (Exception) {}
+            }
+
             if (sub.length > 0)
             {
-                static immutable exts2 = ["", ".js", ".cjs", "/index.js"];
-                foreach (ext; exts2)
+                if (hasPkgJson)
+                {
+                    auto exported = resolveExports(j, "./" ~ sub, nmDir);
+                    if (exported.length > 0) return exported;
+                }
+                static immutable subExts = ["", ".js", ".cjs", ".mjs",
+                    ".json", "/index.js", "/index.cjs"];
+                foreach (ext; subExts)
                 {
                     auto p = buildNormalizedPath(nmDir, sub ~ ext);
                     if (exists(p) && isFile(p)) return p;
@@ -254,24 +324,16 @@ public string findNodeModule(string specifier, string fromDir) @trusted
             }
             else
             {
-                auto pkgJson = buildNormalizedPath(nmDir, "package.json");
-                if (exists(pkgJson))
+                if (hasPkgJson)
                 {
-                    try
-                    {
-                        auto j = parseJSON(readText(pkgJson));
-                        if ("main" in j)
-                        {
-                            auto main = j["main"].str;
-                            auto mp = buildNormalizedPath(nmDir, main);
-                            if (exists(mp) && isFile(mp)) return mp;
-                            if (exists(mp ~ ".js") && isFile(mp ~ ".js")) return mp ~ ".js";
-                        }
-                    }
-                    catch (JSONException) {}
-                    catch (Exception) {}
+                    auto exported = resolveExports(j, ".", nmDir);
+                    if (exported.length > 0) return exported;
+
+                    auto entry = resolveMainEntry(j, nmDir);
+                    if (entry.length > 0) return entry;
                 }
-                static immutable idxCandidates = ["index.js", "index.cjs"];
+                static immutable idxCandidates = [
+                    "index.js", "index.cjs", "index.mjs", "index.json"];
                 foreach (idx; idxCandidates)
                 {
                     auto p = buildNormalizedPath(nmDir, idx);
@@ -283,6 +345,108 @@ public string findNodeModule(string specifier, string fromDir) @trusted
         auto parent = buildNormalizedPath(dir, "..");
         if (parent == dir) break;
         dir = parent;
+    }
+    return "";
+}
+
+private string resolveExports(JSONValue j, string subpath, string pkgDir) @trusted
+{
+    import std.path : buildNormalizedPath;
+    import std.file : exists, isFile;
+    import std.json : JSONType;
+
+    if ("exports" !in j) return "";
+    auto exports = j["exports"];
+
+    if (exports.type == JSONType.string)
+    {
+        if (subpath == ".")
+        {
+            auto p = buildNormalizedPath(pkgDir, exports.str);
+            if (exists(p) && isFile(p)) return p;
+        }
+        return "";
+    }
+
+    if (exports.type != JSONType.object) return "";
+    auto obj = exports.object;
+
+    if (subpath in obj)
+    {
+        auto target = obj[subpath];
+        return resolveExportTarget(target, pkgDir);
+    }
+
+    if ("." in obj)
+    {
+        auto dotExport = obj["."];
+        if (subpath == ".")
+            return resolveExportTarget(dotExport, pkgDir);
+    }
+
+    return "";
+}
+
+private string resolveExportTarget(JSONValue target, string pkgDir) @trusted
+{
+    import std.path : buildNormalizedPath;
+    import std.file : exists, isFile;
+    import std.json : JSONType;
+
+    if (target.type == JSONType.string)
+    {
+        auto p = buildNormalizedPath(pkgDir, target.str);
+        if (exists(p) && isFile(p)) return p;
+        return "";
+    }
+
+    if (target.type == JSONType.object)
+    {
+        auto obj = target.object;
+        static immutable conditions = ["require", "default", "node", "import"];
+        foreach (cond; conditions)
+        {
+            if (cond in obj)
+            {
+                auto resolved = resolveExportTarget(obj[cond], pkgDir);
+                if (resolved.length > 0) return resolved;
+            }
+        }
+    }
+
+    if (target.type == JSONType.array)
+    {
+        foreach (ref alt; target.array)
+        {
+            auto resolved = resolveExportTarget(alt, pkgDir);
+            if (resolved.length > 0) return resolved;
+        }
+    }
+
+    return "";
+}
+
+private string resolveMainEntry(JSONValue j, string pkgDir) @trusted
+{
+    import std.path : buildNormalizedPath;
+    import std.file : exists, isFile;
+
+    static immutable fields = ["main", "module"];
+    foreach (field; fields)
+    {
+        if (field in j)
+        {
+            try
+            {
+                auto entry = j[field].str;
+                auto mp = buildNormalizedPath(pkgDir, entry);
+                if (exists(mp) && isFile(mp)) return mp;
+                if (exists(mp ~ ".js") && isFile(mp ~ ".js")) return mp ~ ".js";
+                if (exists(mp ~ "/index.js") && isFile(mp ~ "/index.js"))
+                    return mp ~ "/index.js";
+            }
+            catch (Exception) {}
+        }
     }
     return "";
 }

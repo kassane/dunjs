@@ -38,6 +38,13 @@ alias NativeCCallback = extern (C) JSHandle function(
 alias ModuleLoaderCallback = void* function(
     void* engineCtx, const(char)[] moduleName) nothrow;
 
+struct PromiseHandles
+{
+    JSHandle promise;
+    JSHandle resolve;
+    JSHandle reject;
+}
+
 interface IJSEngine
 {
     // --- Lifecycle ---
@@ -90,6 +97,9 @@ interface IJSEngine
     string getException();
     JSHandle throwTypeError(const(char)[] msg);
     JSHandle throwRangeError(const(char)[] msg);
+
+    // --- Promises ---
+    PromiseHandles newPromise();
 
     // --- Microtasks / Promise jobs ---
     bool hasPendingJobs();

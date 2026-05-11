@@ -4,6 +4,7 @@ import dun.engine.iface;
 import dun.engine.quickjs.bindings;
 
 class QuickJSEngine : IJSEngine
+
 {
     private JSRuntime* rt;
     private JSContext* ctx;
@@ -214,6 +215,17 @@ class QuickJSEngine : IJSEngine
     {
         import std.string : toStringz;
         return toHandle(JS_ThrowRangeError(ctx, "%s", (cast(string) msg).toStringz));
+    }
+
+    PromiseHandles newPromise() @trusted
+    {
+        PromiseHandles ph;
+        JSValue[2] resolvingFuncs;
+        auto promise = JS_NewPromiseCapability(ctx, resolvingFuncs.ptr);
+        ph.promise = toHandle(promise);
+        ph.resolve = toHandle(resolvingFuncs[0]);
+        ph.reject = toHandle(resolvingFuncs[1]);
+        return ph;
     }
 
     bool hasPendingJobs() @trusted

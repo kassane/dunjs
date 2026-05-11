@@ -13,6 +13,9 @@ void registerFetchGlobal(IJSEngine engine) @trusted
 
 private JSHandle jsFetch(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
+    import dun.engine.iface : PromiseHandles;
+    import dun.loop.async : asyncSubmit;
+
     auto state = cast(DunState*) ctx;
     auto engine = state.engine;
 
@@ -21,7 +24,6 @@ private JSHandle jsFetch(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
     string url = engine.extractString(args[0]);
 
-    // Parse method and body from options
     string method = "GET";
     string reqBody;
     string[string] reqHeaders;
@@ -47,15 +49,85 @@ private JSHandle jsFetch(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
         engine.freeValue(hVal);
     }
 
-    try
-    {
+    import dun.engine.iface : PromiseHandles;
+    import dun.loop.async : asyncSubmit, ResultTransform;
+
+    auto ph = engine.newPromise();
+    engine.dupValue(ph.resolve);
+    engine.dupValue(ph.reject);
+
+    ResultTransform transform = (IJSEngine eng, string serialized) @trusted {
+        auto result = deserializeFetchResult(serialized);
+        return makeResponse(eng, result);
+    };
+
+    asyncSubmit(engine, ph.resolve, ph.reject, () @trusted {
         auto result = doFetch(url, method, reqBody, hasBody, reqHeaders);
-        return makeResponse(engine, result);
-    }
-    catch (Exception e)
+        return serializeFetchResult(result);
+    }, transform);
+
+    return ph.promise;
+}
+
+string serializeFetchResult(FetchResult r) @safe
+{
+    import std.conv : to;
+    string s = r.status.to!string ~ "\n";
+    s ~= (r.ok ? "1" : "0") ~ "\n";
+    s ~= r.statusText ~ "\n";
+    s ~= r.url ~ "\n";
+    string hdrs;
+    foreach (k, v; r.headers)
+        hdrs ~= k ~ ": " ~ v ~ "\r\n";
+    s ~= hdrs.length.to!string ~ "\n";
+    s ~= hdrs;
+    s ~= r.body_;
+    return s;
+}
+
+FetchResult deserializeFetchResult(string s) @safe
+{
+    import std.string : indexOf;
+    import std.conv : to;
+
+    FetchResult r;
+    string remaining = s;
+
+    string nextLine()
     {
-        return engine.throwTypeError("fetch failed: " ~ e.msg);
+        auto idx = remaining.indexOf('\n');
+        if (idx < 0) { auto l = remaining; remaining = ""; return l; }
+        auto l = remaining[0 .. idx];
+        remaining = remaining[idx + 1 .. $];
+        return l;
     }
+
+    try { r.status = nextLine().to!int; } catch (Exception) {}
+    r.ok = nextLine() == "1";
+    r.statusText = nextLine();
+    r.url = nextLine();
+    size_t hdrLen;
+    try { hdrLen = nextLine().to!size_t; } catch (Exception) {}
+    if (hdrLen > 0 && hdrLen <= remaining.length)
+    {
+        auto hdrBlock = remaining[0 .. hdrLen];
+        remaining = remaining[hdrLen .. $];
+        while (hdrBlock.length > 0)
+        {
+            auto lineEnd = hdrBlock.indexOf("\r\n");
+            if (lineEnd < 0) break;
+            auto line = hdrBlock[0 .. lineEnd];
+            hdrBlock = hdrBlock[lineEnd + 2 .. $];
+            auto colonIdx = line.indexOf(':');
+            if (colonIdx >= 0)
+            {
+                import std.string : strip;
+                r.headers[line[0 .. colonIdx].strip] = line[colonIdx + 1 .. $].strip;
+            }
+        }
+    }
+    r.body_ = remaining;
+    return r;
 }
 
 struct FetchResult
