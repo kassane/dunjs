@@ -39,6 +39,7 @@ enum : long
     JS_TAG_BIG_INT = -9,
     JS_TAG_SYMBOL = -8,
     JS_TAG_STRING = -7,
+    JS_TAG_STRING_ROPE = -6,   // quickjs.h line 167
     JS_TAG_MODULE = -3,
     JS_TAG_FUNCTION_BYTECODE = -2,
     JS_TAG_OBJECT = -1,
@@ -49,7 +50,8 @@ enum : long
     JS_TAG_UNINITIALIZED = 4,
     JS_TAG_CATCH_OFFSET = 5,
     JS_TAG_EXCEPTION = 6,
-    JS_TAG_FLOAT64 = 7,
+    JS_TAG_SHORT_BIG_INT = 7,  // quickjs.h line 179
+    JS_TAG_FLOAT64 = 8,        // quickjs.h line 180
 }
 
 // --- Inline value constructors (reimplemented from quickjs.h) ---
@@ -149,7 +151,7 @@ int JS_IsNumber(JSValueConst v) pure nothrow @nogc @safe
 
 int JS_IsString(JSValueConst v) pure nothrow @nogc @safe
 {
-    return v.tag == JS_TAG_STRING ? 1 : 0;
+    return (v.tag == JS_TAG_STRING || v.tag == JS_TAG_STRING_ROPE) ? 1 : 0;
 }
 
 int JS_IsObject(JSValueConst v) pure nothrow @nogc @safe
