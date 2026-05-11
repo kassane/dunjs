@@ -9,7 +9,7 @@ permissions:
   contents: write
 
 env:
-  DUB_HOME: ${{ github.workspace }}/.dub
+  LDC_VERSION: "1.42.0"
 
 jobs:
   build-release:
@@ -32,9 +32,20 @@ jobs:
         with:
           submodules: recursive
 
-      - uses: dlang-community/setup-dlang@v2
-        with:
-          compiler: ldc-latest
+      - name: Install LDC (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          curl -fsSL "https://github.com/ldc-developers/ldc/releases/download/v${LDC_VERSION}/ldc2-${LDC_VERSION}-linux-x86_64.tar.xz" -o /tmp/ldc2.tar.xz
+          tar -xf /tmp/ldc2.tar.xz -C /tmp/
+          echo "/tmp/ldc2-${LDC_VERSION}-linux-x86_64/bin" >> "$GITHUB_PATH"
+
+      - name: Install LDC (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          if [ "$(uname -m)" = "arm64" ]; then ARCH="arm64"; else ARCH="x86_64"; fi
+          curl -fsSL "https://github.com/ldc-developers/ldc/releases/download/v${LDC_VERSION}/ldc2-${LDC_VERSION}-osx-${ARCH}.tar.xz" -o /tmp/ldc2.tar.xz
+          tar -xf /tmp/ldc2.tar.xz -C /tmp/
+          echo "/tmp/ldc2-${LDC_VERSION}-osx-${ARCH}/bin" >> "$GITHUB_PATH"
 
       - name: Install JSC dev (Linux)
         if: matrix.engine == 'jsc' && runner.os == 'Linux'

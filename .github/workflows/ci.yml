@@ -16,6 +16,9 @@ concurrency:
   group: ci-${{ github.ref_name }}
   cancel-in-progress: true
 
+env:
+  LDC_VERSION: "1.42.0"
+
 jobs:
   # ── Build matrix (engine × OS) ──────────────────────────────────
   build:
@@ -27,30 +30,50 @@ jobs:
         include:
           # QuickJS: Linux + macOS + Windows
           - { os: ubuntu-latest,  engine: quickjs }
-          - { os: macos-latest,       engine: quickjs }
+          - { os: macos-latest,   engine: quickjs }
           - { os: windows-latest, engine: quickjs }
           # JSC: system library (Linux + macOS only)
           - { os: ubuntu-latest, engine: jsc }
-          - { os: macos-latest,      engine: jsc }
+          - { os: macos-latest,  engine: jsc }
           # V8: via C++ shim (best-effort)
           - { os: ubuntu-latest, engine: v8 }
 
     steps:
       - uses: actions/checkout@v4
 
-      - uses: dlang-community/setup-dlang@v2
-        with:
-          compiler: ldc-1.42.0
+      - name: Install LDC (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          curl -fsSL "https://github.com/ldc-developers/ldc/releases/download/v${LDC_VERSION}/ldc2-${LDC_VERSION}-linux-x86_64.tar.xz" -o /tmp/ldc2.tar.xz
+          tar -xf /tmp/ldc2.tar.xz -C /tmp/
+          echo "/tmp/ldc2-${LDC_VERSION}-linux-x86_64/bin" >> "$GITHUB_PATH"
+
+      - name: Install LDC (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          if [ "$(uname -m)" = "arm64" ]; then ARCH="arm64"; else ARCH="x86_64"; fi
+          curl -fsSL "https://github.com/ldc-developers/ldc/releases/download/v${LDC_VERSION}/ldc2-${LDC_VERSION}-osx-${ARCH}.tar.xz" -o /tmp/ldc2.tar.xz
+          tar -xf /tmp/ldc2.tar.xz -C /tmp/
+          echo "/tmp/ldc2-${LDC_VERSION}-osx-${ARCH}/bin" >> "$GITHUB_PATH"
+
+      - name: Install LDC (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $url = "https://github.com/ldc-developers/ldc/releases/download/v$env:LDC_VERSION/ldc2-$env:LDC_VERSION-windows-multilib.7z"
+          Invoke-WebRequest -Uri $url -OutFile "$env:TEMP\ldc2.7z"
+          7z x "$env:TEMP\ldc2.7z" -o"$env:TEMP\ldc2" -y
+          "$env:TEMP\ldc2\ldc2-$env:LDC_VERSION-windows-multilib\bin" | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
+
+      - name: Verify LDC
+        run: ldc2 --version
+        shell: bash
 
       - name: Install system deps (JSC · Linux)
         if: matrix.engine == 'jsc' && runner.os == 'Linux'
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y libjavascriptcoregtk-4.1-dev
-
-      - name: Install system deps (V8 · Linux)
-        if: matrix.engine == 'v8' && runner.os == 'Linux'
-        run: echo "V8 headers vendored from Node.js — no system packages needed"
 
       - name: Setup MSVC (Windows)
         if: runner.os == 'Windows'
@@ -66,23 +89,6 @@ jobs:
           path: vendor/
           key: vendor-${{ matrix.engine }}-${{ matrix.os }}-${{ hashFiles('build.d', 'dub.json') }}
           restore-keys: vendor-${{ matrix.engine }}-${{ matrix.os }}-
-
-      - name: Diagnostics (Windows)
-        if: runner.os == 'Windows'
-        shell: cmd
-        run: |
-          echo === Tool check ===
-          where ldc2
-          where dub
-          where cmake
-          where ninja 2>NUL || echo ninja: NOT FOUND
-          where cl 2>NUL || echo cl.exe: NOT FOUND
-          echo === Versions ===
-          ldc2 --version 2>&1
-          cmake --version 2>&1
-          echo === MSVC env check ===
-          if defined INCLUDE (echo INCLUDE is set) else (echo WARNING: INCLUDE not set)
-          if defined LIB (echo LIB is set) else (echo WARNING: LIB not set)
 
       - name: Build vendor deps (POSIX)
         if: runner.os != 'Windows'
@@ -149,8 +155,6 @@ jobs:
       - name: Compile check (V8)
         if: matrix.engine == 'v8'
         run: |
-          # V8 linking requires system libv8 which isn't available on CI.
-          # Verify D compilation succeeds; only the expected link failure is tolerated.
           output=$(dub build -v -c v8 2>&1) && exit 0
           if echo "$output" | grep -q 'cannot find -lv8'; then
             echo "D compilation OK — link skipped (no system libv8)"
@@ -230,9 +234,33 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: dlang-community/setup-dlang@v2
-        with:
-          compiler: ldc-1.42.0
+      - name: Install LDC (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          curl -fsSL "https://github.com/ldc-developers/ldc/releases/download/v${LDC_VERSION}/ldc2-${LDC_VERSION}-linux-x86_64.tar.xz" -o /tmp/ldc2.tar.xz
+          tar -xf /tmp/ldc2.tar.xz -C /tmp/
+          echo "/tmp/ldc2-${LDC_VERSION}-linux-x86_64/bin" >> "$GITHUB_PATH"
+
+      - name: Install LDC (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          if [ "$(uname -m)" = "arm64" ]; then ARCH="arm64"; else ARCH="x86_64"; fi
+          curl -fsSL "https://github.com/ldc-developers/ldc/releases/download/v${LDC_VERSION}/ldc2-${LDC_VERSION}-osx-${ARCH}.tar.xz" -o /tmp/ldc2.tar.xz
+          tar -xf /tmp/ldc2.tar.xz -C /tmp/
+          echo "/tmp/ldc2-${LDC_VERSION}-osx-${ARCH}/bin" >> "$GITHUB_PATH"
+
+      - name: Install LDC (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $url = "https://github.com/ldc-developers/ldc/releases/download/v$env:LDC_VERSION/ldc2-$env:LDC_VERSION-windows-multilib.7z"
+          Invoke-WebRequest -Uri $url -OutFile "$env:TEMP\ldc2.7z"
+          7z x "$env:TEMP\ldc2.7z" -o"$env:TEMP\ldc2" -y
+          "$env:TEMP\ldc2\ldc2-$env:LDC_VERSION-windows-multilib\bin" | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
+
+      - name: Verify LDC
+        run: ldc2 --version
+        shell: bash
 
       - name: Setup MSVC (Windows)
         if: runner.os == 'Windows'
