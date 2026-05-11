@@ -62,9 +62,11 @@
                 "source/dun/engine/quickjs/exceptions.d",
                 "source/dun/engine/quickjs/function_bind.d",
                 "source/dun/engine/v8/backend.d",
-                "source/dun/engine/v8/cppbindings.d"
+                "source/dun/engine/v8/cppbindings.d",
+                "source/dun/engine/jsc/cppbindings.d"
             ],
-            "libs-linux": ["javascriptcoregtk-4.1"],
+            "libs-linux": ["JavaScriptCore", "WTF", "bmalloc", "icui18n", "icuuc", "icudata", "icutu", "stdc++", "atomic"],
+            "lflags-linux": ["-L$PACKAGE_DIR/vendor/jsc/lib"],
             "lflags-osx": ["-framework", "JavaScriptCore"]
         },
         {

@@ -178,7 +178,7 @@ string jscPrebuiltUrl(Platform platform, string arch)
         case Platform.unknown: return "";
     }
     return "https://github.com/oven-sh/WebKit/releases/download/autobuild-"
-         ~ JSC_WEBKIT_VERSION ~ "/bun-webkit-" ~ os ~ "-" ~ arch ~ "-lto.tar.gz";
+         ~ JSC_WEBKIT_VERSION ~ "/bun-webkit-" ~ os ~ "-" ~ arch ~ ".tar.gz";
 }
 
 // ════════════════════════════════════════════════════════════════════
