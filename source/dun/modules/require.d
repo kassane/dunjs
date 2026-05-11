@@ -55,6 +55,8 @@ extern (C) JSValue jsRequire(JSContext* ctx, JSValueConst this_val,
         specifier = "dun:path";
     else if (specifier == "crypto")
         specifier = "dun:crypto";
+    else if (specifier == "net")
+        specifier = "dun:net";
 
     auto global = JS_GetGlobalObject(ctx);
 
@@ -65,6 +67,7 @@ extern (C) JSValue jsRequire(JSContext* ctx, JSValueConst this_val,
         if (specifier == "dun:fs")      propName = "__dun_cjs_fs__";
         else if (specifier == "dun:path")   propName = "__dun_cjs_path__";
         else if (specifier == "dun:crypto") propName = "__dun_cjs_crypto__";
+        else if (specifier == "dun:net")    propName = "__dun_cjs_net__";
 
         if (propName.length > 0)
         {
@@ -113,8 +116,41 @@ extern (C) JSValue jsRequire(JSContext* ctx, JSValueConst this_val,
         }
         else
         {
-            JS_FreeValue(ctx, global);
-            return JS_ThrowTypeError(ctx, "Cannot find module (bare specifiers require node_modules support)");
+            // node_modules resolution: walk up directory tree
+            string curDir;
+            try
+            {
+                auto stack = JS_GetPropertyStr(ctx, global, "__dunCjsStack__");
+                int len;
+                auto lenVal = JS_GetPropertyStr(ctx, stack, "length");
+                JS_ToInt32(ctx, &len, lenVal);
+                JS_FreeValue(ctx, lenVal);
+                if (len > 0)
+                {
+                    auto topVal = JS_GetPropertyUint32(ctx, stack, cast(uint)(len - 1));
+                    string top = jsArgToString(ctx, topVal);
+                    JS_FreeValue(ctx, topVal);
+                    curDir = dirName(top);
+                }
+                else
+                {
+                    import std.file : getcwd;
+                    try { curDir = getcwd(); } catch (Exception) { curDir = "."; }
+                }
+                JS_FreeValue(ctx, stack);
+            }
+            catch (Exception)
+            {
+                import std.file : getcwd;
+                try { curDir = getcwd(); } catch (Exception) { curDir = "."; }
+            }
+
+            resolved = findNodeModule(specifier, curDir);
+            if (resolved.length == 0)
+            {
+                JS_FreeValue(ctx, global);
+                return JS_ThrowTypeError(ctx, "Cannot find module");
+            }
         }
     }
     catch (Exception)
@@ -267,6 +303,93 @@ extern (C) JSValue jsRequire(JSContext* ctx, JSValueConst this_val,
     JS_FreeValue(ctx, cache);
     JS_FreeValue(ctx, global);
     return result;
+}
+
+// Walk up directory tree looking for node_modules/specifier/index.js
+// (or package.json "main" field). Returns resolved path or empty string.
+public string findNodeModule(string specifier, string fromDir) @trusted
+{
+    import std.path : buildNormalizedPath, isAbsolute;
+    import std.file : exists, isFile, isDir, readText;
+    import std.json : parseJSON, JSONException;
+    import std.algorithm : startsWith;
+
+    // Split off subpath (e.g. "lodash/fp" → pkg="lodash", sub="fp")
+    string pkg = specifier, sub = "";
+    {
+        // scoped packages: @scope/name
+        size_t start = specifier.startsWith("@") ? 1u : 0u;
+        auto slash = specifier.length;
+        foreach (i, c; specifier)
+        {
+            if (i > start && c == '/')
+            {
+                slash = i;
+                break;
+            }
+        }
+        if (slash < specifier.length)
+        {
+            pkg = specifier[0 .. slash];
+            sub = specifier[slash + 1 .. $];
+        }
+    }
+
+    // Walk up from fromDir
+    string dir = fromDir;
+    while (true)
+    {
+        auto nmDir = buildNormalizedPath(dir, "node_modules", pkg);
+        if (exists(nmDir) && isDir(nmDir))
+        {
+            if (sub.length > 0)
+            {
+                // Explicit subpath
+                static immutable exts2 = ["", ".js", ".cjs", "/index.js"];
+                foreach (ext; exts2)
+                {
+                    auto p = buildNormalizedPath(nmDir, sub ~ ext);
+                    if (exists(p) && isFile(p)) return p;
+                }
+            }
+            else
+            {
+                // Check package.json "main"
+                auto pkgJson = buildNormalizedPath(nmDir, "package.json");
+                if (exists(pkgJson))
+                {
+                    try
+                    {
+                        auto j = parseJSON(readText(pkgJson));
+                        if ("main" in j)
+                        {
+                            auto main = j["main"].str;
+                            auto mp = buildNormalizedPath(nmDir, main);
+                            if (exists(mp) && isFile(mp)) return mp;
+                            // try adding .js
+                            if (exists(mp ~ ".js") && isFile(mp ~ ".js"))
+                                return mp ~ ".js";
+                        }
+                    }
+                    catch (JSONException) {}
+                    catch (Exception) {}
+                }
+                // Fall back to index.js
+                static immutable idxCandidates = ["index.js", "index.cjs"];
+                foreach (idx; idxCandidates)
+                {
+                    auto p = buildNormalizedPath(nmDir, idx);
+                    if (exists(p) && isFile(p)) return p;
+                }
+            }
+        }
+
+        // Move up one level
+        auto parent = buildNormalizedPath(dir, "..");
+        if (parent == dir) break; // filesystem root
+        dir = parent;
+    }
+    return "";
 }
 
 static import dun.runtime.globals;

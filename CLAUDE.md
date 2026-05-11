@@ -389,4 +389,5 @@ Not supported (have runtime semantics):
 | 3 | Real scripts | Module system + fs/path/net/crypto | **Done** |
 | 4 | Secure by default | Permission enforcement wired to builtins | **Done** |
 | 5 | DX polish | REPL + colored errors + stack traces | **Done** |
-| 6 | Performance | io_uring, workers, HTTP server, npm compat | Planned |
+| 6a | Networking | net.d TCP + npm compat (node_modules) + I/O polling | **Done** |
+| 6b | Performance | io_uring (eventcore), workers, HTTP server | Planned |

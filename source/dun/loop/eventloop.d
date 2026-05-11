@@ -57,32 +57,65 @@ struct EventLoop
         // Phase 3: Drain microtasks from timers.
         drainNextTicksAndMicrotasks();
 
-        // Phase 4: Poll I/O (eventcore integration — future).
-
-        // Phase 5: Drain post-I/O microtasks.
-        drainNextTicksAndMicrotasks();
-
-        // Sleep until next timer deadline when there is no immediate work,
-        // to avoid busy-spinning while waiting for the next scheduled callback.
-        if (!engine.hasPendingJobs()
-            && microtasks.empty()
-            && nextTicks.empty()
-            && !timers.empty())
+        // Phase 4: Poll I/O.  Use the raw epoll poller for net.d sockets, then
+        // sleep (or yield) until the next timer deadline when idle.  On Linux
+        // the epoll fd inside IOPoller acts as a lightweight I/O wait; on other
+        // platforms we fall back to a short Thread.sleep so we don't spin.
         {
-            import core.thread : Thread;
-            auto wait = timers.nextDeadline();
-            if (wait > dur!"msecs"(0))
-                Thread.sleep(wait);
+            version (EngineQuickJS)
+            {
+                import dun.builtins.net : pollNetIO;
+                pollNetIO();
+            }
+
+            if (!engine.hasPendingJobs()
+                && microtasks.empty()
+                && nextTicks.empty()
+                && !timers.empty())
+            {
+                auto wait = timers.nextDeadline();
+                if (wait > dur!"msecs"(0))
+                {
+                    import core.thread : Thread;
+                    // Cap sleep so we don't miss net I/O for too long.
+                    if (wait > dur!"msecs"(10))
+                        wait = dur!"msecs"(10);
+                    Thread.sleep(wait);
+                }
+            }
         }
+
+        // Phase 5: Drain post-I/O pending callbacks then microtasks.
+        version (EngineQuickJS)
+        {
+            import dun.loop.pending : drainPending;
+            drainPending();
+        }
+        drainNextTicksAndMicrotasks();
     }
 
     bool hasWork() @trusted
     {
-        return engine.hasPendingJobs()
-            || !timers.empty()
-            || !microtasks.empty()
-            || !nextTicks.empty()
-            || outstandingRefs > 0;
+        version (EngineQuickJS)
+        {
+            import dun.builtins.net : hasActiveNetIO;
+            import dun.loop.pending : hasPending;
+            return engine.hasPendingJobs()
+                || !timers.empty()
+                || !microtasks.empty()
+                || !nextTicks.empty()
+                || outstandingRefs > 0
+                || hasActiveNetIO()
+                || hasPending();
+        }
+        else
+        {
+            return engine.hasPendingJobs()
+                || !timers.empty()
+                || !microtasks.empty()
+                || !nextTicks.empty()
+                || outstandingRefs > 0;
+        }
     }
 
     void stop()

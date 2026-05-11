@@ -52,9 +52,16 @@ struct ModuleResolver
 
         // 4. URL imports (future)
         if (specifier.startsWith("http://") || specifier.startsWith("https://"))
-            return null; // Not yet implemented
+            return null;
 
-        // 5. node_modules (future)
+        // 5. node_modules walk (npm compat)
+        {
+            import dun.modules.require : findNodeModule;
+            auto base = dirName(importerPath);
+            auto resolved_ = findNodeModule(specifier, base);
+            if (resolved_.length > 0) return resolved_;
+        }
+
         return null; // Unresolved
     }
 }
