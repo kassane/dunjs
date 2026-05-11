@@ -1,6 +1,6 @@
 module dun.runtime.rejection_tracker;
 
-import dun.engine.iface : IJSEngine;
+import dun.engine.iface : IJSEngine, JSHandle;
 import dun.loop.eventloop : RejectedPromise;
 import dun.runtime.globals : DunState;
 
@@ -8,7 +8,8 @@ void installRejectionTracker(IJSEngine engine, DunState* state) @trusted
 {
     version (EngineQuickJS)
     {
-        import dun.engine.quickjs.bindings : JSRuntime, JS_GetRuntime;
+        import dun.engine.quickjs.bindings : JSRuntime, JS_GetRuntime,
+            JS_SetHostPromiseRejectionTracker;
         alias CB = extern (C) void function(
             dun.engine.quickjs.bindings.JSContext*,
             dun.engine.quickjs.bindings.JSValueConst,
@@ -106,8 +107,6 @@ version (EngineQuickJS)
 
 private void installJSRejectionTracker(IJSEngine engine, DunState* state) @trusted
 {
-    import dun.engine.iface : NativeCallback, JSHandle;
-
     auto global = engine.getGlobal();
     engine.setProperty(global, "__dunRejections__", engine.newArray());
     engine.setProperty(global, "__dunRejectionIdx__", engine.newInt(0));
@@ -129,7 +128,6 @@ private void installJSRejectionTracker(IJSEngine engine, DunState* state) @trust
 
 private JSHandle jsReportRejection(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
-    import dun.engine.iface : JSHandle;
     auto state = cast(DunState*) ctx;
     auto engine = state.engine;
 
