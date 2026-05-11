@@ -19,7 +19,17 @@
     "dflags-ldc": ["-preview=fixImmutableConv", "-preview=fixAliasThis", "-preview=rvaluerefparam"],
     "dflags-dmd": ["-preview=fixImmutableConv", "-preview=fixAliasThis", "-preview=rvalueRefParam"],
 
-    "libs-linux": ["m", "dl", "pthread"],
+    "dependencies": {
+        "eventcore": {"path": "vendor/eventcore"},
+        "taggedalgebraic": {"path": "vendor/taggedalgebraic"},
+        "during": {"path": "vendor/during"}
+    },
+
+    "subConfigurations": {
+        "eventcore": "epoll"
+    },
+
+    "libs-linux": ["m", "dl", "pthread", "resolv"],
     "libs-osx": ["m", "pthread"],
     "libs-windows": ["legacy_stdio_definitions"],
 
