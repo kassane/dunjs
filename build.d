@@ -836,7 +836,8 @@ bool buildQuickJS(ref const Toolchain tc, ref const BuildOptions opts)
 
     if (tc.platform == Platform.windows)
     {
-        // MSVC multi-config: don't set CMAKE_BUILD_TYPE, use --config Release below
+        // Use Ninja on Windows: single-config, fast, avoids VS multi-config complexity
+        cmakeArgs ~= ["-G", "Ninja", "-DCMAKE_BUILD_TYPE=Release"];
     }
     else
     {
@@ -873,9 +874,6 @@ bool buildQuickJS(ref const Toolchain tc, ref const BuildOptions opts)
         "-j", jobCount.to!string,
     ];
 
-    if (tc.platform == Platform.windows)
-        buildCmd ~= ["--config", "Release"];
-
     if (runCmd(buildCmd, bDir, tag) != 0)
     {
         // Retry with single job for clearer error output
@@ -885,8 +883,6 @@ bool buildQuickJS(ref const Toolchain tc, ref const BuildOptions opts)
             "--target", "qjs",
             "-j", "1",
         ];
-        if (tc.platform == Platform.windows)
-            retryCmd ~= ["--config", "Release"];
 
         if (runCmd(retryCmd, bDir, tag) != 0)
         {
