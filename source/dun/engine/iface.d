@@ -30,7 +30,7 @@ struct EngineConfig
 }
 
 alias NativeCallback = JSHandle function(
-    void* engineCtx, JSHandle thisVal, JSHandle[] args) nothrow;
+    void* engineCtx, JSHandle thisVal, JSHandle[] args);
 
 alias NativeCCallback = extern (C) JSHandle function(
     void* ctx, JSHandle thisVal, int argc, JSHandle* argv) nothrow;
@@ -48,6 +48,8 @@ interface IJSEngine
     JSResult eval(const(char)[] source, string filename);
 
     // --- Value creation ---
+    JSHandle newUndefined();
+    JSHandle newNull();
     JSHandle newString(const(char)[] s);
     JSHandle newInt(int v);
     JSHandle newFloat(double v);
@@ -80,6 +82,9 @@ interface IJSEngine
     bool isFunction(JSHandle val);
     bool isBool(JSHandle val);
     bool isNumber(JSHandle val);
+
+    // --- Invocation ---
+    JSHandle callFunction(JSHandle func, JSHandle thisVal, JSHandle[] args);
 
     // --- Exceptions ---
     string getException();

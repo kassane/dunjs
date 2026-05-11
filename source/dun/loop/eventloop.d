@@ -47,20 +47,13 @@ struct EventLoop
 
     void tick() @trusted
     {
-        // Phase 1: drain nextTick + microtasks, then flush unhandled rejections.
         drainNextTicksAndMicrotasks();
         flushUnhandledRejections();
 
-        // Phase 2: Fire expired timers.
         timers.processExpired();
 
-        // Phase 3: Drain microtasks from timers.
         drainNextTicksAndMicrotasks();
 
-        // Phase 4: Poll I/O.  Use the raw epoll poller for net.d sockets, then
-        // sleep (or yield) until the next timer deadline when idle.  On Linux
-        // the epoll fd inside IOPoller acts as a lightweight I/O wait; on other
-        // platforms we fall back to a short Thread.sleep so we don't spin.
         {
             version (EngineQuickJS)
             {
@@ -81,7 +74,6 @@ struct EventLoop
                 if (wait > dur!"msecs"(0))
                 {
                     import core.thread : Thread;
-                    // Cap sleep so we don't miss net I/O for too long.
                     if (wait > dur!"msecs"(10))
                         wait = dur!"msecs"(10);
                     Thread.sleep(wait);
@@ -89,7 +81,6 @@ struct EventLoop
             }
         }
 
-        // Phase 5: Drain post-I/O pending callbacks then microtasks.
         version (EngineQuickJS)
         {
             import dun.loop.pending : drainPending;
@@ -142,13 +133,8 @@ struct EventLoop
             outstandingRefs--;
     }
 
-    // Drain all pending microtasks, nextTick callbacks, and Promise reactions.
-    // Called by the REPL after each line to settle Promises before showing the prompt.
     void drainMicrotasks() @trusted { drainNextTicksAndMicrotasks(); }
 
-    // Loops until nextTick queue, JS promise reactions, and microtask queue
-    // are all quiescent. Guarantees nextTick fires before WHATWG microtasks
-    // at every phase boundary, and handles cross-scheduling between them.
     private void drainNextTicksAndMicrotasks() @trusted
     {
         do {
@@ -158,9 +144,6 @@ struct EventLoop
         } while (!nextTicks.empty() || engine.hasPendingJobs() || !microtasks.empty());
     }
 
-    // Prints each unhandled rejection to stderr and sets exitCode = 1.
-    // Swaps the list out before iterating so a re-entrant tracker callback
-    // cannot corrupt the iteration (C2).
     public void flushUnhandledRejections() @trusted
     {
         version (EngineQuickJS)
@@ -197,5 +180,4 @@ struct EventLoop
             exitCode = 1;
         }
     }
-
 }

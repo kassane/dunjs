@@ -51,6 +51,16 @@ class QuickJSEngine : IJSEngine
         return result;
     }
 
+    JSHandle newUndefined() @trusted
+    {
+        return toHandle(JS_UNDEFINED());
+    }
+
+    JSHandle newNull() @trusted
+    {
+        return toHandle(JS_NULL());
+    }
+
     JSHandle newString(const(char)[] s) @trusted
     {
         return toHandle(JS_NewStringLen(ctx, s.ptr, s.length));
@@ -81,9 +91,15 @@ class QuickJSEngine : IJSEngine
         return toHandle(JS_NewArray(ctx));
     }
 
-    JSHandle newFunction(NativeCallback cb, string name, int argc)
+    JSHandle newFunction(NativeCallback cb, string name, int argc) @trusted
     {
-        assert(false, "Use registerCFunction for QuickJS backend");
+        import std.string : toStringz;
+        import dun.engine.callbacks : register;
+        int slot = register(cb);
+        auto fn = JS_NewCFunction2(ctx,
+            cast(JSCFunction) &qjsNativeTrampoline,
+            name.toStringz, argc, JS_CFUNC_generic_magic, slot);
+        return toHandle(fn);
     }
 
     string extractString(JSHandle val) @trusted
@@ -136,6 +152,31 @@ class QuickJSEngine : IJSEngine
     JSHandle getGlobal() @trusted
     {
         return toHandle(JS_GetGlobalObject(ctx));
+    }
+
+    JSHandle callFunction(JSHandle func, JSHandle thisVal, JSHandle[] args) @trusted
+    {
+        JSValue[16] argv = void;
+        auto argc = cast(int) args.length;
+        JSValue* argp = null;
+        if (argc > 0)
+        {
+            if (argc <= 16)
+            {
+                foreach (i; 0 .. argc)
+                    argv[i] = fromHandle(args[i]);
+                argp = argv.ptr;
+            }
+            else
+            {
+                auto buf = new JSValue[argc];
+                foreach (i; 0 .. argc)
+                    buf[i] = fromHandle(args[i]);
+                argp = buf.ptr;
+            }
+        }
+        auto ret = JS_Call(ctx, fromHandle(func), fromHandle(thisVal), argc, argp);
+        return toHandle(ret);
     }
 
     JSHandle dupValue(JSHandle val) @trusted
@@ -267,5 +308,42 @@ class QuickJSEngine : IJSEngine
     static JSValue fromHandle(JSHandle h) pure nothrow @nogc @trusted
     {
         return *cast(JSValue*)&h;
+    }
+}
+
+private extern (C) JSValue qjsNativeTrampoline(JSContext* ctx,
+    JSValueConst this_val, int argc, JSValueConst* argv,
+    int magic) nothrow @trusted
+{
+    import dun.engine.callbacks : get;
+    auto cb = get(magic);
+    if (cb is null)
+        return JS_UNDEFINED();
+
+    auto opaque = JS_GetContextOpaque(ctx);
+    JSHandle thisH;
+    *cast(JSValue*)&thisH = cast(JSValue) this_val;
+    JSHandle[] args;
+    try
+    {
+        if (argc > 0)
+        {
+            args = new JSHandle[argc];
+            foreach (i; 0 .. argc)
+                *cast(JSValue*)&args[i] = cast(JSValue) argv[i];
+        }
+    }
+    catch (Exception)
+    {
+        return JS_UNDEFINED();
+    }
+    try
+    {
+        auto result = cb(opaque, thisH, args);
+        return *cast(JSValue*)&result;
+    }
+    catch (Exception)
+    {
+        return JS_UNDEFINED();
     }
 }

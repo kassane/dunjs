@@ -1,24 +1,25 @@
 module dun.runtime.microtask_api;
 
-version (EngineQuickJS):
-
-import dun.engine.quickjs.bindings;
+import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
 import dun.runtime.globals : DunState;
 
-void installMicrotask(JSContext* ctx) @trusted
+void installMicrotask(IJSEngine engine) @trusted
 {
-    auto global = JS_GetGlobalObject(ctx);
-    JS_SetPropertyStr(ctx, global, "queueMicrotask",
-        JS_NewCFunction(ctx, &jsQueueMicrotask, "queueMicrotask", 1));
-    JS_FreeValue(ctx, global);
+    auto global = engine.getGlobal();
+    engine.setProperty(global, "queueMicrotask",
+        engine.newFunction(&jsQueueMicrotask, "queueMicrotask", 1));
 }
 
-private extern (C) JSValue jsQueueMicrotask(JSContext* ctx, JSValueConst this_val,
-    int argc, JSValueConst* argv) nothrow @trusted
+private:
+
+JSHandle jsQueueMicrotask(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
-    if (argc < 1 || !JS_IsFunction(ctx, argv[0]))
-        return JS_ThrowTypeError(ctx, "queueMicrotask requires a function");
-    auto state = cast(DunState*) JS_GetContextOpaque(ctx);
-    state.eventLoop.microtasks.enqueue(ctx, cast(JSValue) argv[0]);
-    return JS_UNDEFINED();
+    auto state = cast(DunState*) ctx;
+    auto engine = state.engine;
+
+    if (args.length < 1 || !engine.isFunction(args[0]))
+        return engine.throwTypeError("queueMicrotask requires a function");
+
+    state.eventLoop.microtasks.enqueue(engine, args[0]);
+    return engine.newUndefined();
 }

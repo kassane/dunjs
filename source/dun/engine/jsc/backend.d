@@ -55,6 +55,16 @@ class JSCEngine : IJSEngine
         return result;
     }
 
+    JSHandle newUndefined() @trusted
+    {
+        return toHandle(cast(void*) JSValueMakeUndefined(ctx));
+    }
+
+    JSHandle newNull() @trusted
+    {
+        return toHandle(cast(void*) JSValueMakeNull(ctx));
+    }
+
     JSHandle newString(const(char)[] s) @trusted
     {
         import std.string : toStringz;
@@ -89,9 +99,21 @@ class JSCEngine : IJSEngine
         return toHandle(cast(void*) JSObjectMakeArray(ctx, 0, null, null));
     }
 
-    JSHandle newFunction(NativeCallback cb, string name, int argc)
+    JSHandle newFunction(NativeCallback cb, string name, int argc) @trusted
     {
-        assert(false, "Use registerJSCFunction for JSC backend");
+        import std.string : toStringz;
+        import dun.engine.callbacks : register;
+        int slot = register(cb);
+        auto jsName = JSStringCreateWithUTF8CString(name.toStringz);
+        auto fn = JSObjectMakeFunctionWithCallback(ctx, jsName, &jscNativeTrampoline);
+        JSStringRelease(jsName);
+        auto slotName = JSStringCreateWithUTF8CString("__cbSlot__");
+        JSValueRef exc = null;
+        JSObjectSetProperty(ctx, fn, slotName,
+            JSValueMakeNumber(ctx, cast(double) slot),
+            kJSPropertyAttributeReadOnly | kJSPropertyAttributeDontEnum, &exc);
+        JSStringRelease(slotName);
+        return toHandle(cast(void*) fn);
     }
 
     string extractString(JSHandle val) @trusted
@@ -141,6 +163,26 @@ class JSCEngine : IJSEngine
     JSHandle getGlobal() @trusted
     {
         return toHandle(cast(void*) JSContextGetGlobalObject(ctx));
+    }
+
+    JSHandle callFunction(JSHandle func, JSHandle thisVal, JSHandle[] args) @trusted
+    {
+        auto jsFunc = cast(JSObjectRef) fromHandle(func);
+        auto jsThis = cast(JSObjectRef) fromHandle(thisVal);
+        JSValueRef exc = null;
+        if (args.length == 0)
+        {
+            auto ret = JSObjectCallAsFunction(ctx, jsFunc, jsThis, 0, null, &exc);
+            if (exc !is null) return toHandle(cast(void*) exc);
+            return toHandle(cast(void*) ret);
+        }
+        auto argv = new const(JSValueRef)[args.length];
+        foreach (i; 0 .. args.length)
+            argv[i] = cast(JSValueRef) fromHandle(args[i]);
+        auto ret = JSObjectCallAsFunction(ctx, jsFunc, jsThis,
+            argv.length, argv.ptr, &exc);
+        if (exc !is null) return toHandle(cast(void*) exc);
+        return toHandle(cast(void*) ret);
     }
 
     JSHandle dupValue(JSHandle val) @trusted
@@ -201,8 +243,16 @@ class JSCEngine : IJSEngine
     bool executePendingJob() { return false; }
     void drainJobs() {}
 
-    void setContextOpaque(void* ptr) { opaquePtr = ptr; }
-    void* getContextOpaque() { return opaquePtr; }
+    void setContextOpaque(void* ptr) @trusted
+    {
+        opaquePtr = ptr;
+        jscSetContextOpaque(ctx, ptr);
+    }
+
+    void* getContextOpaque() @trusted
+    {
+        return opaquePtr;
+    }
 
     void setModuleLoader(ModuleLoaderCallback loader) {}
 
@@ -266,4 +316,67 @@ class JSCEngine : IJSEngine
     {
         return h.opaque[0];
     }
+}
+
+private extern (C) JSValueRef jscNativeTrampoline(JSContextRef ctx,
+    JSObjectRef func, JSObjectRef thisObject,
+    size_t argumentCount, const(JSValueRef)* arguments,
+    JSValueRef* exception) nothrow @trusted
+{
+    import dun.engine.callbacks : get;
+    import dun.engine.jsc.backend : JSCEngine;
+
+    auto slotName = JSStringCreateWithUTF8CString("__cbSlot__");
+    JSValueRef exc = null;
+    auto slotVal = JSObjectGetProperty(ctx, func, slotName, &exc);
+    JSStringRelease(slotName);
+    int slot = cast(int) JSValueToNumber(ctx, slotVal, &exc);
+
+    auto cb = get(slot);
+    if (cb is null)
+        return JSValueMakeUndefined(ctx);
+
+    void* ctxOpaque = jscGetContextOpaque(cast(JSGlobalContextRef) cast(void*) ctx);
+
+    JSHandle thisH;
+    thisH.opaque[0] = cast(void*) thisObject;
+    JSHandle[] args;
+    try
+    {
+        if (argumentCount > 0)
+        {
+            args = new JSHandle[argumentCount];
+            foreach (i; 0 .. argumentCount)
+                args[i].opaque[0] = cast(void*) arguments[i];
+        }
+    }
+    catch (Exception)
+    {
+        return JSValueMakeUndefined(ctx);
+    }
+    try
+    {
+        auto result = cb(ctxOpaque, thisH, args);
+        return cast(JSValueRef) result.opaque[0];
+    }
+    catch (Exception)
+    {
+        return JSValueMakeUndefined(ctx);
+    }
+}
+
+// JSC doesn't have a context opaque API, so we maintain our own map.
+private __gshared void*[size_t] jscContextOpaqueMap;
+
+package void jscSetContextOpaque(JSGlobalContextRef ctx, void* ptr) nothrow @trusted
+{
+    try { jscContextOpaqueMap[cast(size_t) cast(void*) ctx] = ptr; }
+    catch (Exception) {}
+}
+
+package void* jscGetContextOpaque(JSGlobalContextRef ctx) nothrow @trusted
+{
+    if (auto p = cast(size_t) cast(void*) ctx in jscContextOpaqueMap)
+        return *p;
+    return null;
 }

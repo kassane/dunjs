@@ -52,6 +52,16 @@ class V8Engine : IJSEngine
         return result;
     }
 
+    JSHandle newUndefined() @trusted
+    {
+        return toHandle(dun_v8_new_undefined(ctx));
+    }
+
+    JSHandle newNull() @trusted
+    {
+        return toHandle(dun_v8_new_null(ctx));
+    }
+
     JSHandle newString(const(char)[] s) @trusted
     {
         return toHandle(dun_v8_new_string(ctx, s.ptr, s.length));
@@ -82,9 +92,14 @@ class V8Engine : IJSEngine
         return toHandle(dun_v8_new_array(ctx, 0));
     }
 
-    JSHandle newFunction(NativeCallback cb, string name, int argc)
+    JSHandle newFunction(NativeCallback cb, string name, int argc) @trusted
     {
-        assert(false, "Use registerV8Function for V8 backend");
+        import std.string : toStringz;
+        import dun.engine.callbacks : register;
+        int slot = register(cb);
+        auto fn = dun_v8_new_function(ctx, &v8NativeTrampoline,
+            name.toStringz, cast(void*) cast(size_t) slot);
+        return toHandle(fn);
     }
 
     string extractString(JSHandle val) @trusted
@@ -130,6 +145,24 @@ class V8Engine : IJSEngine
     JSHandle getGlobal() @trusted
     {
         return toHandle(dun_v8_global(ctx));
+    }
+
+    JSHandle callFunction(JSHandle func, JSHandle thisVal, JSHandle[] args) @trusted
+    {
+        auto jsFunc = fromHandle(func);
+        auto jsThis = fromHandle(thisVal);
+        int isError;
+        if (args.length == 0)
+        {
+            auto ret = dun_v8_call(ctx, jsFunc, jsThis, 0, null, &isError);
+            return toHandle(ret);
+        }
+        auto argv = new DunV8Value*[args.length];
+        foreach (i; 0 .. args.length)
+            argv[i] = fromHandle(args[i]);
+        auto ret = dun_v8_call(ctx, jsFunc, jsThis,
+            cast(int) args.length, argv.ptr, &isError);
+        return toHandle(ret);
     }
 
     JSHandle dupValue(JSHandle val) @trusted
@@ -268,5 +301,44 @@ class V8Engine : IJSEngine
     static DunV8Value* fromHandle(JSHandle h) pure nothrow @nogc @trusted
     {
         return cast(DunV8Value*) h.opaque[0];
+    }
+}
+
+private extern (C) DunV8Value* v8NativeTrampoline(DunV8Context* ctx,
+    DunV8Value* thisVal, int argc, DunV8Value** argv, void* data) nothrow @trusted
+{
+    import dun.engine.callbacks : get;
+
+    int slot = cast(int) cast(size_t) data;
+    auto cb = get(slot);
+    if (cb is null)
+        return dun_v8_new_undefined(ctx);
+
+    auto ctxOpaque = dun_v8_get_context_data(ctx);
+
+    JSHandle thisH;
+    thisH.opaque[0] = cast(void*) thisVal;
+    JSHandle[] args;
+    try
+    {
+        if (argc > 0)
+        {
+            args = new JSHandle[argc];
+            foreach (i; 0 .. argc)
+                args[i].opaque[0] = cast(void*) argv[i];
+        }
+    }
+    catch (Exception)
+    {
+        return dun_v8_new_undefined(ctx);
+    }
+    try
+    {
+        auto result = cb(ctxOpaque, thisH, args);
+        return cast(DunV8Value*) result.opaque[0];
+    }
+    catch (Exception)
+    {
+        return dun_v8_new_undefined(ctx);
     }
 }

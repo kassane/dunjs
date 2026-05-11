@@ -1,114 +1,85 @@
 module dun.runtime.console;
 
-version (EngineQuickJS):
-
-import dun.engine.iface : IJSEngine, JSHandle;
-import dun.engine.quickjs.bindings;
+import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
+import dun.runtime.globals : DunState;
 
 void installConsole(IJSEngine engine) @trusted
 {
-    auto ctx = cast(JSContext*) engine.rawContext();
+    auto console = engine.newObject();
+    auto global = engine.getGlobal();
 
-    auto console = JS_NewObject(ctx);
+    engine.setProperty(console, "log", engine.newFunction(&consoleLog, "log", 1));
+    engine.setProperty(console, "info", engine.newFunction(&consoleLog, "info", 1));
+    engine.setProperty(console, "debug", engine.newFunction(&consoleLog, "debug", 1));
+    engine.setProperty(console, "warn", engine.newFunction(&consoleWarn, "warn", 1));
+    engine.setProperty(console, "error", engine.newFunction(&consoleError, "error", 1));
+    engine.setProperty(console, "assert", engine.newFunction(&consoleAssert, "assert", 2));
 
-    JS_SetPropertyStr(ctx, console, "log",
-        JS_NewCFunction(ctx, &jsConsoleLog, "log", 1));
-    JS_SetPropertyStr(ctx, console, "info",
-        JS_NewCFunction(ctx, &jsConsoleLog, "info", 1));
-    JS_SetPropertyStr(ctx, console, "debug",
-        JS_NewCFunction(ctx, &jsConsoleLog, "debug", 1));
-    JS_SetPropertyStr(ctx, console, "warn",
-        JS_NewCFunction(ctx, &jsConsoleWarn, "warn", 1));
-    JS_SetPropertyStr(ctx, console, "error",
-        JS_NewCFunction(ctx, &jsConsoleError, "error", 1));
-    JS_SetPropertyStr(ctx, console, "assert",
-        JS_NewCFunction(ctx, &jsConsoleAssert, "assert", 2));
-
-    auto global = JS_GetGlobalObject(ctx);
-    JS_SetPropertyStr(ctx, global, "console", console);
-    JS_FreeValue(ctx, global);
+    engine.setProperty(global, "console", console);
 }
 
 private:
 
-imported!"core.stdc.stdio".FILE* getStdout() @trusted nothrow @nogc
+JSHandle consoleLog(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
-    import core.stdc.stdio : stdout;
-    return cast(imported!"core.stdc.stdio".FILE*) cast(void*) stdout;
+    auto state = cast(DunState*) ctx;
+    writeArgs(state.engine, args, false);
+    return state.engine.newUndefined();
 }
 
-imported!"core.stdc.stdio".FILE* getStderr() @trusted nothrow @nogc
+JSHandle consoleWarn(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
-    import core.stdc.stdio : stderr;
-    return cast(imported!"core.stdc.stdio".FILE*) cast(void*) stderr;
+    auto state = cast(DunState*) ctx;
+    writeArgs(state.engine, args, true);
+    return state.engine.newUndefined();
 }
 
-extern (C) JSValue jsConsoleLog(JSContext* ctx, JSValueConst this_val,
-    int argc, JSValueConst* argv) nothrow @trusted
+JSHandle consoleError(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
-    import core.stdc.stdio : fputc;
-    writeArgs(getStdout(), ctx, argc, argv);
-    fputc('\n', getStdout());
-    return JS_UNDEFINED();
+    auto state = cast(DunState*) ctx;
+    writeArgs(state.engine, args, true);
+    return state.engine.newUndefined();
 }
 
-extern (C) JSValue jsConsoleWarn(JSContext* ctx, JSValueConst this_val,
-    int argc, JSValueConst* argv) nothrow @trusted
+JSHandle consoleAssert(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
-    import core.stdc.stdio : fputc;
-    writeArgs(getStderr(), ctx, argc, argv);
-    fputc('\n', getStderr());
-    return JS_UNDEFINED();
-}
+    auto state = cast(DunState*) ctx;
+    auto engine = state.engine;
 
-extern (C) JSValue jsConsoleError(JSContext* ctx, JSValueConst this_val,
-    int argc, JSValueConst* argv) nothrow @trusted
-{
-    import core.stdc.stdio : fputc;
-    writeArgs(getStderr(), ctx, argc, argv);
-    fputc('\n', getStderr());
-    return JS_UNDEFINED();
-}
+    if (args.length > 0 && engine.extractBool(args[0]))
+        return engine.newUndefined();
 
-extern (C) JSValue jsConsoleAssert(JSContext* ctx, JSValueConst this_val,
-    int argc, JSValueConst* argv) nothrow @trusted
-{
-    if (argc > 0 && JS_ToBool(ctx, argv[0]) != 0)
-        return JS_UNDEFINED();
-
-    import core.stdc.stdio : fwrite, fputc;
-
-    enum msg = "Assertion failed: ";
-    fwrite(&msg[0], 1, msg.length, getStderr());
-
-    if (argc > 1)
-        writeArgs(getStderr(), ctx, argc - 1, argv + 1);
-    else
+    try
     {
-        enum defaultMsg = "console.assert";
-        fwrite(&defaultMsg[0], 1, defaultMsg.length, getStderr());
-    }
-
-    fputc('\n', getStderr());
-    return JS_UNDEFINED();
-}
-
-void writeArgs(imported!"core.stdc.stdio".FILE* file, JSContext* ctx,
-    int argc, JSValueConst* argv) nothrow @trusted
-{
-    import core.stdc.stdio : fwrite, fputc;
-
-    for (int i = 0; i < argc; i++)
-    {
-        if (i > 0)
-            fputc(' ', file);
-
-        size_t len;
-        const(char)* str = JS_ToCStringLen2(ctx, &len, argv[i], 0);
-        if (str !is null)
+        import std.stdio : stderr;
+        stderr.write("Assertion failed: ");
+        if (args.length > 1)
+            writeArgs(engine, args[1 .. $], true);
+        else
         {
-            fwrite(str, 1, len, file);
-            JS_FreeCString(ctx, str);
+            stderr.writeln("console.assert");
+            stderr.flush();
         }
     }
+    catch (Exception) {}
+    return engine.newUndefined();
+}
+
+void writeArgs(IJSEngine engine, JSHandle[] args, bool useStderr) @trusted
+{
+    try
+    {
+        import std.stdio : stdout, stderr;
+        auto output = useStderr ? stderr : stdout;
+
+        foreach (i, arg; args)
+        {
+            if (i > 0)
+                output.write(' ');
+            output.write(engine.extractString(arg));
+        }
+        output.writeln();
+        output.flush();
+    }
+    catch (Exception) {}
 }

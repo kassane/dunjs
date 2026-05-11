@@ -1,51 +1,46 @@
 module dun.runtime.process_api;
 
-version (EngineQuickJS):
-
-import dun.engine.quickjs.bindings;
+import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
 import dun.runtime.globals : DunState;
+import dun.security.permissions : Permission;
 
-void installProcess(JSContext* ctx) @trusted
+void installProcess(IJSEngine engine) @trusted
 {
-    import dun.security.permissions : Permission;
+    auto state = cast(DunState*) engine.getContextOpaque();
+    auto global = engine.getGlobal();
+    auto process = engine.newObject();
 
-    auto global = JS_GetGlobalObject(ctx);
-    auto process = JS_NewObject(ctx);
+    engine.setProperty(process, "nextTick",
+        engine.newFunction(&jsNextTick, "nextTick", 1));
 
-    JS_SetPropertyStr(ctx, process, "nextTick",
-        JS_NewCFunction(ctx, &jsNextTick, "nextTick", 1));
-
-    // process.env — populated only when --allow-env is granted
-    auto envObj = JS_NewObject(ctx);
-    auto state = cast(DunState*) JS_GetContextOpaque(ctx);
+    auto envObj = engine.newObject();
     bool envAllowed = state !is null && state.permissions !is null &&
         state.permissions.check(Permission.env);
     if (envAllowed)
     {
-        import std.process : environment;
         try
         {
+            import std.process : environment;
             foreach (key, val; environment.toAA())
-            {
-                import std.string : toStringz;
-                auto jsVal = JS_NewStringLen(ctx, val.ptr, val.length);
-                JS_SetPropertyStr(ctx, envObj, key.toStringz, jsVal);
-            }
+                engine.setProperty(envObj, key, engine.newString(val));
         }
         catch (Exception) {}
     }
-    JS_SetPropertyStr(ctx, process, "env", envObj);
+    engine.setProperty(process, "env", envObj);
 
-    JS_SetPropertyStr(ctx, global, "process", process);
-    JS_FreeValue(ctx, global);
+    engine.setProperty(global, "process", process);
 }
 
-private extern (C) JSValue jsNextTick(JSContext* ctx, JSValueConst this_val,
-    int argc, JSValueConst* argv) nothrow @trusted
+private:
+
+JSHandle jsNextTick(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
-    if (argc < 1 || !JS_IsFunction(ctx, argv[0]))
-        return JS_ThrowTypeError(ctx, "process.nextTick requires a function");
-    auto state = cast(DunState*) JS_GetContextOpaque(ctx);
-    state.eventLoop.nextTicks.enqueue(ctx, cast(JSValue) argv[0]);
-    return JS_UNDEFINED();
+    auto state = cast(DunState*) ctx;
+    auto engine = state.engine;
+
+    if (args.length < 1 || !engine.isFunction(args[0]))
+        return engine.throwTypeError("process.nextTick requires a function");
+
+    state.eventLoop.nextTicks.enqueue(engine, args[0]);
+    return engine.newUndefined();
 }
