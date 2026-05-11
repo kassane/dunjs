@@ -614,9 +614,9 @@ void blankRange(char[] buf, size_t from, size_t to) @safe pure nothrow @nogc
 // Unit tests
 // ---------------------------------------------------------------------------
 
+@("strip: basic type annotations on variables")
 unittest
 {
-    // Basic type annotations on variables
     auto r1 = stripTypes("let x: number = 1;");
     assert(r1.length == 18);
     assert(r1[0 .. 5] == "let x", r1);
@@ -630,9 +630,9 @@ unittest
     foreach (j; 7 .. 16) assert(r2[j] == ' ', r2);
 }
 
+@("strip: interface removal")
 unittest
 {
-    // Interface removal
     auto result = stripTypes("interface Foo { x: number; }");
     // Should be all spaces (preserving length)
     assert(result.length == "interface Foo { x: number; }".length);
@@ -640,26 +640,26 @@ unittest
         assert(c == ' ');
 }
 
+@("strip: type alias removal")
 unittest
 {
-    // Type alias removal
     auto result = stripTypes("type ID = string | number;");
     assert(result.length == "type ID = string | number;".length);
     foreach (c; result)
         assert(c == ' ');
 }
 
+@("strip: import type removal")
 unittest
 {
-    // import type removal
     auto r = stripTypes("import type { Foo } from './foo';");
     foreach (c; r)
         assert(c == ' ' || c == '\n');
 }
 
+@("strip: as type assertion")
 unittest
 {
-    // as assertion — "as string" stripped, rest preserved
     immutable input = "const x = value as string;";
     auto r = stripTypes(input);
     assert(r.length == input.length);
@@ -668,9 +668,9 @@ unittest
     foreach (j; 16 .. r.length - 1) assert(r[j] == ' ', r);
 }
 
+@("strip: function parameter types")
 unittest
 {
-    // Function parameter types
     immutable input = "function add(a: number, b: number) {}";
     auto r = stripTypes(input);
     assert(r.length == input.length);
@@ -682,9 +682,9 @@ unittest
     assert(r[$ - 3 .. $] == " {}", r);
 }
 
+@("strip: return type annotation")
 unittest
 {
-    // Return type
     immutable input = "function f(): number { return 1; }";
     auto r = stripTypes(input);
     assert(r.length == input.length);
@@ -696,30 +696,30 @@ unittest
     foreach (j; 12 .. bracePos) assert(r[j] == ' ', r);
 }
 
+@("strip: preserves strings with colons")
 unittest
 {
-    // Preserves strings containing colons
     auto input = `const x = "a: b";`;
     assert(stripTypes(input) == input);
 }
 
+@("strip: preserves object literal colons")
 unittest
 {
-    // Preserves object literals (colon as key-value separator)
     auto input = "const o = { key: 1 };";
     assert(stripTypes(input) == input);
 }
 
+@("strip: preserves ternary operator")
 unittest
 {
-    // Preserves ternary
     auto input = "const x = a ? b : c;";
     assert(stripTypes(input) == input);
 }
 
+@("strip: arrow function param and return type")
 unittest
 {
-    // Arrow function param + return type
     immutable input = "const f = (x: number): number => x * 2;";
     auto r = stripTypes(input);
     assert(r.length == input.length);
@@ -731,42 +731,42 @@ unittest
     assert(canFind(r, "=> x * 2;"), r);
 }
 
+@("strip: declare block fully blanked")
 unittest
 {
-    // declare block — fully blanked
     auto r = stripTypes("declare function foo(): void;");
     assert(r.length == "declare function foo(): void;".length);
     foreach (c; r) assert(c == ' ');
 }
 
+@("strip: abstract keyword blanked")
 unittest
 {
-    // abstract class — only "abstract" keyword blanked
     auto r = stripTypes("abstract class Foo {}");
     assert(r.length == "abstract class Foo {}".length);
     assert(r[0 .. 8] == "        ", r); // "abstract" → 8 spaces
     assert(r[8 .. $] == " class Foo {}", r);
 }
 
+@("strip: export interface fully blanked")
 unittest
 {
-    // export interface — fully blanked
     auto r = stripTypes("export interface Bar { x: number; }");
     assert(r.length == "export interface Bar { x: number; }".length);
     foreach (c; r) assert(c == ' ');
 }
 
+@("strip: export type alias fully blanked")
 unittest
 {
-    // export type alias — fully blanked
     auto r = stripTypes("export type Baz = string;");
     assert(r.length == "export type Baz = string;".length);
     foreach (c; r) assert(c == ' ');
 }
 
+@("strip: multiline preserves newlines")
 unittest
 {
-    // Multiline with newlines preserved
     auto input = "interface Foo {\n  x: number;\n}";
     auto r = stripTypes(input);
     assert(r.length == input.length);
@@ -774,16 +774,16 @@ unittest
     assert(count(r, '\n') == 2);
 }
 
+@("strip: comments preserved")
 unittest
 {
-    // Comments are preserved
     auto input = "// type annotation\nconst x = 1;";
     assert(stripTypes(input) == input);
 }
 
+@("strip: optional parameter")
 unittest
 {
-    // Optional parameter — blank ? and type
     immutable input = "function f(x?: number) {}";
     auto r = stripTypes(input);
     assert(r.length == input.length);
@@ -792,15 +792,15 @@ unittest
     foreach (j; 12 .. r.length - 4) assert(r[j] == ' ', r);
 }
 
+@("strip: empty input")
 unittest
 {
-    // Empty input
     assert(stripTypes("") == "");
 }
 
+@("strip: plain JS passes through unchanged")
 unittest
 {
-    // Plain JavaScript passes through unchanged
     auto js = "function hello() { console.log('world'); }";
     assert(stripTypes(js) == js);
 }

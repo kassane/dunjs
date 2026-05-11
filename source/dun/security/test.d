@@ -6,6 +6,7 @@ import dun.security.permissions;
 // Default deny
 // ---------------------------------------------------------------------------
 
+@("default deny: all permissions denied by default")
 unittest
 {
     PermissionRegistry perms;
@@ -18,6 +19,7 @@ unittest
     assert(!perms.check(Permission.hrtime));
 }
 
+@("default deny: scoped paths denied by default")
 unittest
 {
     PermissionRegistry perms;
@@ -29,6 +31,7 @@ unittest
 // Global grant
 // ---------------------------------------------------------------------------
 
+@("global grant: read allows all paths")
 unittest
 {
     PermissionRegistry perms;
@@ -38,6 +41,7 @@ unittest
     assert(!perms.check(Permission.write));
 }
 
+@("global grant: net allows all hosts")
 unittest
 {
     PermissionRegistry perms;
@@ -51,6 +55,7 @@ unittest
 // --allow-all
 // ---------------------------------------------------------------------------
 
+@("allow-all: grants every permission")
 unittest
 {
     PermissionRegistry perms;
@@ -64,6 +69,7 @@ unittest
     assert(perms.check(Permission.hrtime));
 }
 
+@("allow-all: grants any scoped path")
 unittest
 {
     PermissionRegistry perms;
@@ -76,6 +82,7 @@ unittest
 // Scoped grants
 // ---------------------------------------------------------------------------
 
+@("scoped grant: read limited to directory")
 unittest
 {
     PermissionRegistry perms;
@@ -85,6 +92,7 @@ unittest
     assert(!perms.check(Permission.read, "/etc/passwd"));
 }
 
+@("scoped grant: net limited to host")
 unittest
 {
     PermissionRegistry perms;
@@ -93,6 +101,7 @@ unittest
     assert(!perms.check(Permission.net, "evil.com"));
 }
 
+@("scoped grant: multiple paths")
 unittest
 {
     PermissionRegistry perms;
@@ -106,6 +115,7 @@ unittest
 // Deny overrides allow
 // ---------------------------------------------------------------------------
 
+@("deny overrides: global grant + scoped deny")
 unittest
 {
     PermissionRegistry perms;
@@ -115,6 +125,7 @@ unittest
     assert(!perms.check(Permission.read, "/etc/passwd"));
 }
 
+@("deny overrides: allow-all + scoped deny")
 unittest
 {
     PermissionRegistry perms;
@@ -124,6 +135,7 @@ unittest
     assert(!perms.check(Permission.write, "/etc/shadow"));
 }
 
+@("deny overrides: scoped grant + scoped deny subtree")
 unittest
 {
     PermissionRegistry perms;
@@ -137,6 +149,7 @@ unittest
 // parseFlag
 // ---------------------------------------------------------------------------
 
+@("parseFlag: --allow-read")
 unittest
 {
     PermissionRegistry perms;
@@ -145,6 +158,7 @@ unittest
     assert(!perms.check(Permission.write));
 }
 
+@("parseFlag: --allow-all grants everything")
 unittest
 {
     PermissionRegistry perms;
@@ -154,6 +168,7 @@ unittest
     assert(perms.check(Permission.net));
 }
 
+@("parseFlag: -A shorthand for --allow-all")
 unittest
 {
     PermissionRegistry perms;
@@ -162,6 +177,7 @@ unittest
     assert(perms.check(Permission.write));
 }
 
+@("parseFlag: --allow-read=paths scoped")
 unittest
 {
     PermissionRegistry perms;
@@ -171,6 +187,7 @@ unittest
     assert(!perms.check(Permission.read, "/etc"));
 }
 
+@("parseFlag: --allow-net=hosts scoped")
 unittest
 {
     PermissionRegistry perms;
@@ -180,6 +197,7 @@ unittest
     assert(!perms.check(Permission.net, "evil.com"));
 }
 
+@("parseFlag: --deny-write overrides --allow-write")
 unittest
 {
     PermissionRegistry perms;
@@ -189,6 +207,7 @@ unittest
     assert(!perms.check(Permission.write, "/etc/passwd"));
 }
 
+@("parseFlag: --allow-env=scoped")
 unittest
 {
     PermissionRegistry perms;
@@ -198,6 +217,7 @@ unittest
     assert(!perms.check(Permission.env, "SECRET_KEY"));
 }
 
+@("parseFlag: --allow-run=scoped")
 unittest
 {
     PermissionRegistry perms;
@@ -207,6 +227,7 @@ unittest
     assert(!perms.check(Permission.run, "rm"));
 }
 
+@("parseFlag: --allow-ffi")
 unittest
 {
     PermissionRegistry perms;
@@ -214,6 +235,7 @@ unittest
     assert(perms.check(Permission.ffi));
 }
 
+@("parseFlag: --allow-hrtime")
 unittest
 {
     PermissionRegistry perms;
@@ -225,12 +247,14 @@ unittest
 // Edge cases
 // ---------------------------------------------------------------------------
 
+@("edge: empty path denied by default")
 unittest
 {
     PermissionRegistry perms;
     assert(!perms.check(Permission.read, ""));
 }
 
+@("edge: empty path allowed with global grant")
 unittest
 {
     PermissionRegistry perms;
@@ -238,6 +262,7 @@ unittest
     assert(perms.check(Permission.read, ""));
 }
 
+@("edge: empty scope matches everything")
 unittest
 {
     PermissionRegistry perms;
@@ -245,18 +270,17 @@ unittest
     assert(perms.check(Permission.read, "/anything"));
 }
 
+@("edge: --deny-read without grant stays denied")
 unittest
 {
-    // Global deny then global grant — grant overwrites the state.
-    // To truly deny, use scoped deny which is checked separately.
     PermissionRegistry perms;
     perms.parseFlag("--deny-read");
     assert(!perms.check(Permission.read));
 }
 
+@("edge: scoped deny persists after global grant")
 unittest
 {
-    // Scoped deny persists even after global grant
     PermissionRegistry perms;
     perms.parseFlag("--deny-read=/etc");
     perms.grant(Permission.read);
