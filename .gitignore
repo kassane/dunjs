@@ -28,5 +28,7 @@ build/
 
 # Downloaded vendor dependencies
 vendor/quickjs/
+vendor/jsc/
 vendor/v8shim/*.o
 vendor/v8shim/*.a
+vendor/*.tar.gz
