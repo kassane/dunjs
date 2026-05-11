@@ -1,7 +1,15 @@
 #!/usr/bin/env bash
 set -euo pipefail
 DUN=${DUN:-./build/dun}
-BACKEND=${BACKEND:-quickjs}
+# Auto-detect backend from binary strings if not set explicitly
+if [ -z "${BACKEND:-}" ]; then
+  _engine=$(strings "$DUN" 2>/dev/null | grep -oE '\b(QuickJS|JavaScriptCore|V8)\b' | head -1)
+  case "$_engine" in
+    JavaScriptCore) BACKEND=jsc ;;
+    V8)             BACKEND=v8 ;;
+    *)              BACKEND=quickjs ;;
+  esac
+fi
 FIXTURES=tests/integration/fixtures
 EXPECTED=tests/integration/expected
 fails=0
