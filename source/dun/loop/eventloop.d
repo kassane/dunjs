@@ -65,7 +65,9 @@ struct EventLoop
             version (EngineQuickJS)
             {
                 import dun.builtins.net : pollNetIO;
+                import dun.builtins.http : pollHttpIO;
                 pollNetIO();
+                pollHttpIO();
             }
 
             if (!engine.hasPendingJobs()
@@ -99,6 +101,7 @@ struct EventLoop
         version (EngineQuickJS)
         {
             import dun.builtins.net : hasActiveNetIO;
+            import dun.builtins.http : hasActiveHttpIO;
             import dun.loop.pending : hasPending;
             return engine.hasPendingJobs()
                 || !timers.empty()
@@ -106,6 +109,7 @@ struct EventLoop
                 || !nextTicks.empty()
                 || outstandingRefs > 0
                 || hasActiveNetIO()
+                || hasActiveHttpIO()
                 || hasPending();
         }
         else

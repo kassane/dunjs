@@ -28,6 +28,7 @@ void installGlobals(IJSEngine engine, DunState* state) @trusted
         import dun.builtins.path : registerPathModule;
         import dun.builtins.crypto : registerCryptoModule;
         import dun.builtins.net : registerNetModule;
+        import dun.builtins.http : registerHttpModule;
         import dun.modules.require : installRequire;
         import dun.engine.quickjs.bindings : JSContext, JS_GetRuntime;
         auto ctx = cast(JSContext*) engine.rawContext();
@@ -40,6 +41,7 @@ void installGlobals(IJSEngine engine, DunState* state) @trusted
         registerPathModule(ctx);
         registerCryptoModule(ctx);
         registerNetModule(ctx);
+        registerHttpModule(ctx);
         installRequire(ctx);
     }
     else version (EngineJSC)

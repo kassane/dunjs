@@ -11,4 +11,5 @@ version (EngineQuickJS)
     public import dun.builtins.path;
     public import dun.builtins.crypto;
     public import dun.builtins.net;
+    public import dun.builtins.http;
 }

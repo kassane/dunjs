@@ -49,7 +49,8 @@ enum : long
     JS_TAG_UNINITIALIZED = 4,
     JS_TAG_CATCH_OFFSET = 5,
     JS_TAG_EXCEPTION = 6,
-    JS_TAG_FLOAT64 = 7,
+    JS_TAG_SHORT_BIG_INT = 7,
+    JS_TAG_FLOAT64 = 8,
 }
 
 // --- Inline value constructors (reimplemented from quickjs.h) ---

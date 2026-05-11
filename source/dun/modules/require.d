@@ -57,6 +57,8 @@ extern (C) JSValue jsRequire(JSContext* ctx, JSValueConst this_val,
         specifier = "dun:crypto";
     else if (specifier == "net")
         specifier = "dun:net";
+    else if (specifier == "http")
+        specifier = "dun:http";
 
     auto global = JS_GetGlobalObject(ctx);
 
@@ -68,6 +70,7 @@ extern (C) JSValue jsRequire(JSContext* ctx, JSValueConst this_val,
         else if (specifier == "dun:path")   propName = "__dun_cjs_path__";
         else if (specifier == "dun:crypto") propName = "__dun_cjs_crypto__";
         else if (specifier == "dun:net")    propName = "__dun_cjs_net__";
+        else if (specifier == "dun:http")   propName = "__dun_cjs_http__";
 
         if (propName.length > 0)
         {
