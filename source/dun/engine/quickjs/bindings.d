@@ -331,7 +331,7 @@ int JS_DeleteProperty(JSContext* ctx, JSValueConst obj, JSAtom prop, int flags);
 // --- Type checks (exported) ---
 bool JS_IsArray(JSValueConst val);
 bool JS_IsFunction(JSContext* ctx, JSValueConst val);
-bool JS_IsError(JSValueConst val);
+bool JS_IsError(JSContext* ctx, JSValueConst val);
 bool JS_IsArrayBuffer(JSValueConst obj);
 
 // --- Module detection ---
