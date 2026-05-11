@@ -195,11 +195,9 @@
 	},
 	"description": "A secure JavaScript runtime written in D",
 	"dependencies": {
-		"during": "~>0.4.0",
-		"eventcore": {
-			"version": "ced22593f38dd9b4514aff58a390ce313e62d283",
-			"repository": "git+https://github.com/vibe-d/eventcore.git"
-		}
+		"eventcore": {"path": "vendor/eventcore"},
+		"taggedalgebraic": {"path": "vendor/taggedalgebraic"},
+		"during": {"path": "vendor/during"}
 	},
 	"targetType": "executable",
 	"buildTypes": {
