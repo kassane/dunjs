@@ -6,15 +6,380 @@ on:
   pull_request:
     branches: [main]
 
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+  actions: read
+
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  smoke:
-    name: Smoke test
-    runs-on: ubuntu-latest
+  # ── Build matrix (engine × OS) ──────────────────────────────────
+  build:
+    name: ${{ matrix.engine }} · ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # QuickJS: Linux + macOS + Windows
+          - { os: ubuntu-latest,  engine: quickjs }
+          - { os: macos-latest,       engine: quickjs }
+          - { os: windows-latest, engine: quickjs }
+          # JSC: system library (Linux + macOS only)
+          - { os: ubuntu-latest, engine: jsc }
+          - { os: macos-latest,      engine: jsc }
+          # V8: via C++ shim (best-effort)
+          - { os: ubuntu-latest, engine: v8 }
+
     steps:
-      - run: echo "GitHub Actions runner is alive"
       - uses: actions/checkout@v4
-      - run: ls -la
+
+      - uses: dlang-community/setup-dlang@v2
+        with:
+          compiler: ldc-latest
+
+      - name: Install system deps (JSC · Linux)
+        if: matrix.engine == 'jsc' && runner.os == 'Linux'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y libjavascriptcoregtk-4.1-dev
+
+      - name: Install system deps (V8 · Linux)
+        if: matrix.engine == 'v8' && runner.os == 'Linux'
+        run: echo "V8 headers vendored from Node.js — no system packages needed"
+
+      - name: Setup MSVC (Windows)
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Install CMake
+        if: matrix.engine == 'quickjs'
+        uses: lukka/get-cmake@latest
+
+      - name: Cache vendor
+        uses: actions/cache@v4
+        with:
+          path: vendor/
+          key: vendor-${{ matrix.engine }}-${{ matrix.os }}-${{ hashFiles('build.d', 'dub.json') }}
+          restore-keys: vendor-${{ matrix.engine }}-${{ matrix.os }}-
+
+      - name: Diagnostics (Windows)
+        if: runner.os == 'Windows'
+        shell: cmd
+        run: |
+          echo === Tool check ===
+          where ldc2
+          where dub
+          where cmake
+          where ninja 2>NUL || echo ninja: NOT FOUND
+          where cl 2>NUL || echo cl.exe: NOT FOUND
+          echo === Versions ===
+          ldc2 --version 2>&1
+          cmake --version 2>&1
+          echo === MSVC env check ===
+          if defined INCLUDE (echo INCLUDE is set) else (echo WARNING: INCLUDE not set)
+          if defined LIB (echo LIB is set) else (echo WARNING: LIB not set)
+
+      - name: Build vendor deps (POSIX)
+        if: runner.os != 'Windows'
+        run: ldc2 -run build.d --backend=${{ matrix.engine }} --verbose
+
+      - name: Build vendor deps (Windows)
+        if: runner.os == 'Windows'
+        id: win_vendor
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          $output = ldc2 -run build.d --backend=${{ matrix.engine }} --verbose --force 2>&1 | Out-String
+          $output | Out-File -FilePath vendor-build.log -Encoding utf8
+          Write-Host $output
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "::error::Vendor build failed with exit code $LASTEXITCODE"
+            exit $LASTEXITCODE
+          }
+
+      - name: Build (debug, POSIX)
+        if: matrix.engine != 'v8' && runner.os != 'Windows'
+        run: dub build -v -c ${{ matrix.engine }}
+
+      - name: Build (debug, Windows)
+        if: matrix.engine != 'v8' && runner.os == 'Windows' && steps.win_vendor.outcome != 'failure'
+        id: win_debug
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          $output = dub build -v -c ${{ matrix.engine }} 2>&1 | Out-String
+          $output | Out-File -FilePath dub-build.log -Encoding utf8
+          Write-Host $output
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Post dub build failure
+        if: runner.os == 'Windows' && steps.win_debug.outcome == 'failure'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            let log = 'No log file found';
+            try {
+              log = fs.readFileSync('dub-build.log', 'utf8');
+              if (log.length > 6000) log = '...(truncated)\n' + log.slice(-6000);
+            } catch(e) { log = 'Could not read log: ' + e.message; }
+            const prNumbers = context.payload.pull_request
+              ? [context.payload.pull_request.number]
+              : (await github.rest.repos.listPullRequestsAssociatedWithCommit({
+                  owner: context.repo.owner, repo: context.repo.repo,
+                  commit_sha: context.sha
+                })).data.map(pr => pr.number);
+            for (const prNum of prNumbers) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner, repo: context.repo.repo,
+                issue_number: prNum,
+                body: `**CI Windows dub build failed** (\`${{ matrix.engine }} · ${{ matrix.os }}\`)\n\n\`\`\`\n${log}\n\`\`\``
+              });
+            }
+
+      - name: Fail if dub build failed (Windows)
+        if: runner.os == 'Windows' && steps.win_debug.outcome == 'failure'
+        run: exit 1
+
+      - name: Compile check (V8)
+        if: matrix.engine == 'v8'
+        run: |
+          # V8 linking requires system libv8 which isn't available on CI.
+          # Verify D compilation succeeds; only the expected link failure is tolerated.
+          output=$(dub build -v -c v8 2>&1) && exit 0
+          if echo "$output" | grep -q 'cannot find -lv8'; then
+            echo "D compilation OK — link skipped (no system libv8)"
+          else
+            echo "$output"
+            exit 1
+          fi
+
+      - name: Build (release, POSIX)
+        if: matrix.engine != 'v8' && runner.os != 'Windows'
+        run: dub build -v -c ${{ matrix.engine }} -b release
+
+      - name: Build (release, Windows)
+        if: matrix.engine != 'v8' && runner.os == 'Windows' && steps.win_vendor.outcome != 'failure' && steps.win_debug.outcome != 'failure'
+        shell: cmd
+        run: dub build -v -c %engine% -b release
+        env:
+          engine: ${{ matrix.engine }}
+
+      - name: Upload binary (POSIX)
+        if: matrix.engine != 'v8' && runner.os != 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: dun-${{ matrix.engine }}-${{ matrix.os }}
+          path: build/dun
+          retention-days: 7
+
+      - name: Upload binary (Windows)
+        if: matrix.engine != 'v8' && runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: dun-${{ matrix.engine }}-${{ matrix.os }}
+          path: build/dun.exe
+          retention-days: 7
+
+      - name: Post Windows failure details
+        if: runner.os == 'Windows' && steps.win_vendor.outcome == 'failure'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            let log = 'No log file found';
+            try {
+              log = fs.readFileSync('vendor-build.log', 'utf8');
+              if (log.length > 6000) log = '...(truncated)\n' + log.slice(-6000);
+            } catch(e) { log = 'Could not read log: ' + e.message; }
+            const prNumbers = context.payload.pull_request
+              ? [context.payload.pull_request.number]
+              : (await github.rest.repos.listPullRequestsAssociatedWithCommit({
+                  owner: context.repo.owner, repo: context.repo.repo,
+                  commit_sha: context.sha
+                })).data.map(pr => pr.number);
+            for (const prNum of prNumbers) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner, repo: context.repo.repo,
+                issue_number: prNum,
+                body: `**CI Windows vendor build failed** (\`${{ matrix.engine }} · ${{ matrix.os }}\`)\n\n\`\`\`\n${log}\n\`\`\``
+              });
+            }
+
+      - name: Fail if vendor build failed (Windows)
+        if: runner.os == 'Windows' && steps.win_vendor.outcome == 'failure'
+        run: exit 1
+
+  # ── Unit tests ────────────────────────────────────────────────
+  test:
+    name: Test · ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest }
+          - { os: macos-latest }
+          - { os: windows-latest }
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dlang-community/setup-dlang@v2
+        with:
+          compiler: ldc-latest
+
+      - name: Setup MSVC (Windows)
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - uses: lukka/get-cmake@latest
+
+      - name: Cache vendor
+        uses: actions/cache@v4
+        with:
+          path: vendor/
+          key: vendor-quickjs-${{ matrix.os }}-${{ hashFiles('build.d', 'dub.json') }}
+          restore-keys: vendor-quickjs-${{ matrix.os }}-
+
+      - name: Build vendor deps (POSIX)
+        if: runner.os != 'Windows'
+        run: ldc2 -run build.d --backend=quickjs --verbose
+
+      - name: Build vendor deps (Windows)
+        if: runner.os == 'Windows'
+        id: test_vendor
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          $output = ldc2 -run build.d --backend=quickjs --verbose --force 2>&1 | Out-String
+          $output | Out-File -FilePath vendor-build.log -Encoding utf8
+          Write-Host $output
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "::error::Vendor build failed with exit code $LASTEXITCODE"
+            exit $LASTEXITCODE
+          }
+
+      - name: Post test vendor failure
+        if: runner.os == 'Windows' && steps.test_vendor.outcome == 'failure'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            let log = 'No log file found';
+            try {
+              log = fs.readFileSync('vendor-build.log', 'utf8');
+              if (log.length > 6000) log = '...(truncated)\n' + log.slice(-6000);
+            } catch(e) { log = 'Could not read log: ' + e.message; }
+            const prNumbers = context.payload.pull_request
+              ? [context.payload.pull_request.number]
+              : (await github.rest.repos.listPullRequestsAssociatedWithCommit({
+                  owner: context.repo.owner, repo: context.repo.repo,
+                  commit_sha: context.sha
+                })).data.map(pr => pr.number);
+            for (const prNum of prNumbers) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner, repo: context.repo.repo,
+                issue_number: prNum,
+                body: `**CI Windows test vendor build failed** (\`Test · ${{ matrix.os }}\`)\n\n\`\`\`\n${log}\n\`\`\``
+              });
+            }
+
+      - name: Fail if test vendor failed (Windows)
+        if: runner.os == 'Windows' && steps.test_vendor.outcome == 'failure'
+        run: exit 1
+
+      - name: Run unit tests (POSIX)
+        if: runner.os != 'Windows'
+        run: dub test -v -c unittest
+
+      - name: Run unit tests (Windows)
+        if: runner.os == 'Windows'
+        shell: cmd
+        run: dub test -v -c unittest
+
+  # ── Integration tests ─────────────────────────────────────────
+  integration:
+    name: Integration · ${{ matrix.os }}
+    needs: build
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest }
+          - { os: macos-latest }
+          - { os: windows-latest }
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download binary
+        uses: actions/download-artifact@v4
+        with:
+          name: dun-quickjs-${{ matrix.os }}
+          path: build/
+
+      - name: Run integration tests (POSIX)
+        if: runner.os != 'Windows'
+        run: |
+          chmod +x build/dun
+          pass=0 fail=0 skip=0
+          for fixture in tests/integration/fixtures/*.js; do
+            name=$(basename "$fixture" .js)
+            expected="tests/integration/expected/${name}.txt"
+            if [ ! -f "$expected" ]; then
+              echo "SKIP $name"
+              skip=$((skip + 1))
+              continue
+            fi
+            if output=$(./build/dun run "$fixture" 2>&1) && \
+               diff -u "$expected" <(printf '%s\n' "$output") >/dev/null 2>&1; then
+              echo "PASS $name"
+              pass=$((pass + 1))
+            else
+              echo "FAIL $name"
+              diff -u "$expected" <(printf '%s\n' "$output") || true
+              fail=$((fail + 1))
+            fi
+          done
+          echo ""
+          echo "Results: $pass passed, $fail failed, $skip skipped"
+          [ "$fail" -eq 0 ]
+
+      - name: Run integration tests (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $pass = 0; $fail = 0; $skip = 0
+          foreach ($fixture in Get-ChildItem tests/integration/fixtures/*.js) {
+            $name = $fixture.BaseName
+            $expected = "tests/integration/expected/${name}.txt"
+            if (-not (Test-Path $expected)) {
+              Write-Host "SKIP $name"
+              $skip++
+              continue
+            }
+            $expectedContent = (Get-Content $expected -Raw).TrimEnd()
+            $output = (& build/dun.exe run $fixture.FullName 2>&1) | Out-String
+            $output = $output.TrimEnd()
+            if ($output -eq $expectedContent) {
+              Write-Host "PASS $name"
+              $pass++
+            } else {
+              Write-Host "FAIL $name"
+              Write-Host "Expected:"
+              Write-Host $expectedContent
+              Write-Host "Got:"
+              Write-Host $output
+              $fail++
+            }
+          }
+          Write-Host ""
+          Write-Host "Results: $pass passed, $fail failed, $skip skipped"
+          if ($fail -gt 0) { exit 1 }
