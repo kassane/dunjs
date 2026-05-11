@@ -790,7 +790,8 @@ bool buildQuickJS(ref const Toolchain tc, ref const BuildOptions opts)
         logError(tag, "Make not found. Install make (e.g., apt install make).");
         return false;
     }
-    if (!tc.cc.found)
+    // On Windows, cmake finds MSVC via registry; CC in PATH is optional
+    if (!tc.cc.found && tc.platform != Platform.windows)
     {
         logError(tag, "C compiler not found. Install gcc or clang.");
         return false;
@@ -835,8 +836,7 @@ bool buildQuickJS(ref const Toolchain tc, ref const BuildOptions opts)
 
     if (tc.platform == Platform.windows)
     {
-        // MSVC: use multi-config generator, build Release below
-        cmakeArgs ~= "-DCMAKE_C_FLAGS=/O2";
+        // MSVC multi-config: don't set CMAKE_BUILD_TYPE, use --config Release below
     }
     else
     {

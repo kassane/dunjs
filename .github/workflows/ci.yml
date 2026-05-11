@@ -46,6 +46,10 @@ jobs:
         if: matrix.engine == 'v8' && runner.os == 'Linux'
         run: echo "V8 headers vendored from Node.js — no system packages needed"
 
+      - name: Setup MSVC (Windows)
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+
       - name: Install CMake
         if: matrix.engine == 'quickjs'
         uses: lukka/get-cmake@latest
@@ -121,6 +125,10 @@ jobs:
       - uses: dlang-community/setup-dlang@v2
         with:
           compiler: ldc-latest
+
+      - name: Setup MSVC (Windows)
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
 
       - uses: lukka/get-cmake@latest
 
