@@ -887,6 +887,11 @@ bool buildQuickJS(ref const Toolchain tc, ref const BuildOptions opts)
         // QuickJS sets cmake_minimum_required(3.10), so the policy defaults to OLD.
         cmakeArgs ~= "-DCMAKE_POLICY_DEFAULT_CMP0091=NEW";
         cmakeArgs ~= "-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded";
+        // Belt-and-suspenders: force /MT via C flags in case CMP0091 doesn't
+        // take effect (e.g. QuickJS CMakeLists overrides flags manually).
+        cmakeArgs ~= `-DCMAKE_C_FLAGS=/MT /O2 /DNDEBUG`;
+        cmakeArgs ~= `-DCMAKE_C_FLAGS_RELEASE=/MT /O2 /DNDEBUG`;
+        cmakeArgs ~= `-DCMAKE_C_FLAGS_DEBUG=/MTd /Od`;
 
         if (useNinja)
         {

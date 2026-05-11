@@ -188,6 +188,10 @@
 		"ssl",
 		"crypto"
 	],
+	"lflags-osx": [
+		"-L/opt/homebrew/opt/openssl/lib",
+		"-L/usr/local/opt/openssl/lib"
+	],
 	"toolchainRequirements": {
 		"frontend": ">=2.112.0"
 	},
