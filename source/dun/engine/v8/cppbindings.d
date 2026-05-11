@@ -33,6 +33,9 @@ enum V8TypeTag
     Function,
 }
 
+static assert(__traits(allMembers, V8TypeTag).length == 9,
+    "V8TypeTag member count changed — update V8TypeChecks table and V8TypeName template");
+
 /// Compile-time map: V8TypeTag → C shim function name suffix.
 /// Mirrors C++ V8TypeMap<Tag> — both are compile-time dispatch tables.
 template V8TypeName(V8TypeTag tag)
@@ -75,6 +78,8 @@ struct V8TypeChecks
 
     bool check(V8TypeTag tag, DunV8Value* val) @trusted nothrow @nogc
     {
+        assert(cast(size_t) tag <= V8TypeTag.max, "V8TypeTag out of range");
+        assert(val !is null, "Null DunV8Value in V8TypeChecks.check");
         return table[tag](val) != 0;
     }
 }

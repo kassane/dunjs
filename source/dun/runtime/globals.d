@@ -15,6 +15,10 @@ struct DunState
 
 void installGlobals(IJSEngine engine, DunState* state) @trusted
 {
+    assert(engine !is null, "Null engine");
+    assert(state !is null, "Null state");
+    assert(state.engine is engine, "State engine mismatch");
+
     engine.setContextOpaque(cast(void*) state);
 
     import dun.runtime.console : installConsole;

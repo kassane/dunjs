@@ -10,6 +10,7 @@ struct ModuleLoader
 
         void install(JSRuntime* rt) @trusted
         {
+            assert(rt !is null, "Null JSRuntime in ModuleLoader.install");
             JS_SetModuleLoaderFunc(rt, &normalizeModuleFunc, &loadModuleCallback,
                 cast(void*) &this);
         }
@@ -23,6 +24,8 @@ version (EngineQuickJS)
     private extern (C) char* normalizeModuleFunc(JSContext* ctx,
         const(char)* base_name, const(char)* module_name, void* opaque) nothrow @system
     {
+        assert(ctx !is null, "Null JSContext in normalizeModuleFunc");
+        assert(module_name !is null, "Null module_name in normalizeModuleFunc");
         try
         {
             import std.algorithm : startsWith;
@@ -62,6 +65,9 @@ version (EngineQuickJS)
     private extern (C) JSModuleDef* loadModuleCallback(
         JSContext* ctx, const(char)* module_name, void* opaque) nothrow @system
     {
+        assert(ctx !is null, "Null JSContext in loadModuleCallback");
+        assert(module_name !is null, "Null module_name in loadModuleCallback");
+        assert(opaque !is null, "Null opaque in loadModuleCallback");
         import std.string : fromStringz, toStringz;
         import std.algorithm : endsWith;
 

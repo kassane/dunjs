@@ -4,6 +4,8 @@ import dun.engine.iface;
 import dun.engine.v8.bindings;
 import dun.engine.v8.cppbindings : V8TypeTag, V8TypeChecks;
 
+static assert(JSHandle.sizeof >= (void*).sizeof, "JSHandle too small for V8 pointer");
+
 class V8Engine : IJSEngine
 {
     private DunV8Isolate* isolate;
@@ -11,6 +13,7 @@ class V8Engine : IJSEngine
 
     void initialize(EngineConfig config) @trusted
     {
+        assert(isolate is null && ctx is null, "Double initialization of V8Engine");
         isolate = dun_v8_isolate_new();
         assert(isolate !is null, "Failed to create V8 Isolate");
         ctx = dun_v8_context_new(isolate);
@@ -40,6 +43,7 @@ class V8Engine : IJSEngine
     {
         import std.string : toStringz;
 
+        assert(ctx !is null, "V8 context not initialized");
         int isError;
         auto val = dun_v8_eval(ctx, source.ptr, source.length,
             filename.toStringz, &isError);
@@ -64,31 +68,37 @@ class V8Engine : IJSEngine
 
     JSHandle newString(const(char)[] s) @trusted
     {
+        assert(ctx !is null, "V8 context not initialized");
         return toHandle(dun_v8_new_string(ctx, s.ptr, s.length));
     }
 
     JSHandle newInt(int v) @trusted
     {
+        assert(ctx !is null, "V8 context not initialized");
         return toHandle(dun_v8_new_int(ctx, v));
     }
 
     JSHandle newFloat(double v) @trusted
     {
+        assert(ctx !is null, "V8 context not initialized");
         return toHandle(dun_v8_new_number(ctx, v));
     }
 
     JSHandle newBool(bool v) @trusted
     {
+        assert(ctx !is null, "V8 context not initialized");
         return toHandle(dun_v8_new_bool(ctx, v ? 1 : 0));
     }
 
     JSHandle newObject() @trusted
     {
+        assert(ctx !is null, "V8 context not initialized");
         return toHandle(dun_v8_new_object(ctx));
     }
 
     JSHandle newArray() @trusted
     {
+        assert(ctx !is null, "V8 context not initialized");
         return toHandle(dun_v8_new_array(ctx, 0));
     }
 
@@ -96,6 +106,8 @@ class V8Engine : IJSEngine
     {
         import std.string : toStringz;
         import dun.engine.callbacks : register;
+        assert(ctx !is null, "V8 context not initialized");
+        assert(cb !is null, "Null callback in V8 newFunction");
         int slot = register(cb);
         auto fn = dun_v8_new_function(ctx, &v8NativeTrampoline,
             name.toStringz, cast(void*) cast(size_t) slot);
@@ -104,6 +116,7 @@ class V8Engine : IJSEngine
 
     string extractString(JSHandle val) @trusted
     {
+        assert(ctx !is null, "V8 context not initialized");
         size_t len;
         auto cstr = dun_v8_value_to_string(ctx, fromHandle(val), &len);
         if (cstr is null)
@@ -115,22 +128,26 @@ class V8Engine : IJSEngine
 
     int extractInt(JSHandle val) @trusted
     {
+        assert(ctx !is null, "V8 context not initialized");
         return dun_v8_value_to_int(ctx, fromHandle(val));
     }
 
     double extractFloat(JSHandle val) @trusted
     {
+        assert(ctx !is null, "V8 context not initialized");
         return dun_v8_value_to_number(ctx, fromHandle(val));
     }
 
     bool extractBool(JSHandle val) @trusted
     {
+        assert(ctx !is null, "V8 context not initialized");
         return dun_v8_value_to_bool(ctx, fromHandle(val)) != 0;
     }
 
     JSHandle getProperty(JSHandle obj, const(char)[] name) @trusted
     {
         import std.string : toStringz;
+        assert(ctx !is null, "V8 context not initialized");
         return toHandle(dun_v8_get_property(ctx, fromHandle(obj),
             (cast(string) name).toStringz));
     }
@@ -138,17 +155,20 @@ class V8Engine : IJSEngine
     void setProperty(JSHandle obj, const(char)[] name, JSHandle val) @trusted
     {
         import std.string : toStringz;
+        assert(ctx !is null, "V8 context not initialized");
         dun_v8_set_property(ctx, fromHandle(obj),
             (cast(string) name).toStringz, fromHandle(val));
     }
 
     JSHandle getGlobal() @trusted
     {
+        assert(ctx !is null, "V8 context not initialized");
         return toHandle(dun_v8_global(ctx));
     }
 
     JSHandle callFunction(JSHandle func, JSHandle thisVal, JSHandle[] args) @trusted
     {
+        assert(ctx !is null, "V8 context not initialized");
         auto jsFunc = fromHandle(func);
         auto jsThis = fromHandle(thisVal);
         int isError;
@@ -167,6 +187,7 @@ class V8Engine : IJSEngine
 
     JSHandle dupValue(JSHandle val) @trusted
     {
+        assert(ctx !is null, "V8 context not initialized");
         auto v = fromHandle(val);
         if (v !is null)
             dun_v8_value_ref(v);
@@ -175,6 +196,7 @@ class V8Engine : IJSEngine
 
     void freeValue(JSHandle val) @trusted
     {
+        assert(ctx !is null, "V8 context not initialized");
         auto v = fromHandle(val);
         if (v !is null)
             dun_v8_value_unref(v);
@@ -218,17 +240,20 @@ class V8Engine : IJSEngine
     JSHandle throwTypeError(const(char)[] msg) @trusted
     {
         import std.string : toStringz;
+        assert(ctx !is null, "V8 context not initialized");
         return toHandle(dun_v8_throw_type_error(ctx, (cast(string) msg).toStringz));
     }
 
     JSHandle throwRangeError(const(char)[] msg) @trusted
     {
         import std.string : toStringz;
+        assert(ctx !is null, "V8 context not initialized");
         return toHandle(dun_v8_throw_range_error(ctx, (cast(string) msg).toStringz));
     }
 
     PromiseHandles newPromise() @trusted
     {
+        assert(ctx !is null, "V8 context not initialized");
         PromiseHandles ph;
         DunV8Value* resolveOut, rejectOut;
         auto promise = dun_v8_new_promise(ctx, &resolveOut, &rejectOut);
@@ -240,6 +265,7 @@ class V8Engine : IJSEngine
 
     bool hasPendingJobs() @trusted
     {
+        assert(isolate !is null, "V8 isolate not initialized");
         return dun_v8_has_pending_microtasks(isolate) != 0;
     }
 

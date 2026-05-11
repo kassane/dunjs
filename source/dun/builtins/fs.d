@@ -6,6 +6,7 @@ import dun.security.permissions : Permission;
 
 void registerFsModule(IJSEngine engine) @trusted
 {
+    assert(engine !is null, "Null IJSEngine in registerFsModule");
     auto obj = engine.newObject();
 
     engine.setProperty(obj, "readFileSync", engine.newFunction(&jsReadFileSync, "readFileSync", 1));
@@ -42,6 +43,8 @@ version (EngineQuickJS)
 
     private extern (C) int fsModuleInit(JSContext* ctx, JSModuleDef* m) nothrow @trusted
     {
+        assert(ctx !is null, "Null JSContext in fsModuleInit");
+        assert(m !is null, "Null JSModuleDef in fsModuleInit");
         auto global = JS_GetGlobalObject(ctx);
         auto fsObj = JS_GetPropertyStr(ctx, global, "__dun_cjs_fs__");
         foreach (name; ["readFileSync", "writeFileSync", "existsSync", "readdirSync",
@@ -67,7 +70,9 @@ bool checkPerm(DunState* state, Permission perm, string resource = "") nothrow @
 
 JSHandle jsReadFileSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
+    assert(ctx !is null, "Null ctx in jsReadFileSync");
     auto state = cast(DunState*) ctx;
+    assert(state !is null, "Null DunState in jsReadFileSync");
     auto engine = state.engine;
     if (args.length < 1) return engine.throwTypeError("readFileSync requires a path argument");
     auto path = engine.extractString(args[0]);
@@ -83,7 +88,9 @@ JSHandle jsReadFileSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
 JSHandle jsWriteFileSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
+    assert(ctx !is null, "Null ctx in jsWriteFileSync");
     auto state = cast(DunState*) ctx;
+    assert(state !is null, "Null DunState in jsWriteFileSync");
     auto engine = state.engine;
     if (args.length < 2) return engine.throwTypeError("writeFileSync requires path and data");
     auto path = engine.extractString(args[0]);
@@ -101,7 +108,9 @@ JSHandle jsWriteFileSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
 JSHandle jsExistsSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
+    assert(ctx !is null, "Null ctx in jsExistsSync");
     auto state = cast(DunState*) ctx;
+    assert(state !is null, "Null DunState in jsExistsSync");
     auto engine = state.engine;
     if (args.length < 1) return engine.throwTypeError("existsSync requires a path argument");
     auto path = engine.extractString(args[0]);
@@ -117,7 +126,9 @@ JSHandle jsExistsSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
 JSHandle jsReaddirSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
+    assert(ctx !is null, "Null ctx in jsReaddirSync");
     auto state = cast(DunState*) ctx;
+    assert(state !is null, "Null DunState in jsReaddirSync");
     auto engine = state.engine;
     if (args.length < 1) return engine.throwTypeError("readdirSync requires a path argument");
     auto path = engine.extractString(args[0]);
@@ -139,7 +150,9 @@ JSHandle jsReaddirSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
 JSHandle jsStatSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
+    assert(ctx !is null, "Null ctx in jsStatSync");
     auto state = cast(DunState*) ctx;
+    assert(state !is null, "Null DunState in jsStatSync");
     auto engine = state.engine;
     if (args.length < 1) return engine.throwTypeError("statSync requires a path argument");
     auto path = engine.extractString(args[0]);
@@ -172,7 +185,9 @@ JSHandle jsStatSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
 JSHandle jsStatIsFile(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
+    assert(ctx !is null, "Null ctx in jsStatIsFile");
     auto state = cast(DunState*) ctx;
+    assert(state !is null, "Null DunState in jsStatIsFile");
     auto engine = state.engine;
     auto typeVal = engine.getProperty(thisVal, "_type");
     return engine.newBool(engine.extractInt(typeVal) == 1);
@@ -180,7 +195,9 @@ JSHandle jsStatIsFile(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
 JSHandle jsStatIsDirectory(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
+    assert(ctx !is null, "Null ctx in jsStatIsDirectory");
     auto state = cast(DunState*) ctx;
+    assert(state !is null, "Null DunState in jsStatIsDirectory");
     auto engine = state.engine;
     auto typeVal = engine.getProperty(thisVal, "_type");
     return engine.newBool(engine.extractInt(typeVal) == 2);
@@ -188,7 +205,9 @@ JSHandle jsStatIsDirectory(void* ctx, JSHandle thisVal, JSHandle[] args) @truste
 
 JSHandle jsMkdirSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
+    assert(ctx !is null, "Null ctx in jsMkdirSync");
     auto state = cast(DunState*) ctx;
+    assert(state !is null, "Null DunState in jsMkdirSync");
     auto engine = state.engine;
     if (args.length < 1) return engine.throwTypeError("mkdirSync requires a path argument");
     auto path = engine.extractString(args[0]);
@@ -211,7 +230,9 @@ JSHandle jsMkdirSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
 JSHandle jsUnlinkSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
+    assert(ctx !is null, "Null ctx in jsUnlinkSync");
     auto state = cast(DunState*) ctx;
+    assert(state !is null, "Null DunState in jsUnlinkSync");
     auto engine = state.engine;
     if (args.length < 1) return engine.throwTypeError("unlinkSync requires a path argument");
     auto path = engine.extractString(args[0]);
@@ -231,7 +252,9 @@ JSHandle jsReadFileAsync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     import dun.engine.iface : PromiseHandles;
     import dun.loop.async : asyncSubmit;
 
+    assert(ctx !is null, "Null ctx in jsReadFileAsync");
     auto state = cast(DunState*) ctx;
+    assert(state !is null, "Null DunState in jsReadFileAsync");
     auto engine = state.engine;
     if (args.length < 1) return engine.throwTypeError("readFile requires a path argument");
     auto path = engine.extractString(args[0]);
@@ -255,7 +278,9 @@ JSHandle jsWriteFileAsync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     import dun.engine.iface : PromiseHandles;
     import dun.loop.async : asyncSubmit;
 
+    assert(ctx !is null, "Null ctx in jsWriteFileAsync");
     auto state = cast(DunState*) ctx;
+    assert(state !is null, "Null DunState in jsWriteFileAsync");
     auto engine = state.engine;
     if (args.length < 2) return engine.throwTypeError("writeFile requires path and data");
     auto path = engine.extractString(args[0]);

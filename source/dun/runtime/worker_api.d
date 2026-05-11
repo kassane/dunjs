@@ -10,6 +10,8 @@ version (linux)
 
 void installWorkerAPI(JSContext* ctx, DunState* state) @trusted
 {
+    assert(ctx !is null, "Null JSContext in installWorkerAPI");
+    assert(state !is null, "Null DunState in installWorkerAPI");
     auto global = JS_GetGlobalObject(ctx);
 
     auto workerCtor = JS_NewCFunction2(ctx, &_workerCtor, "Worker", 1,
@@ -41,6 +43,7 @@ void installWorkerAPI(JSContext* ctx, DunState* state) @trusted
 private extern (C) JSValue _workerCtor(JSContext* ctx,
     JSValueConst new_target, int argc, JSValueConst* argv) nothrow @system
 {
+    assert(ctx !is null, "Null JSContext in Worker constructor");
     if (argc < 1)
         return JS_ThrowTypeError(ctx, "Worker(path) requires a script path");
 
@@ -100,6 +103,7 @@ private extern (C) JSValue _workerCtor(JSContext* ctx,
 private extern (C) JSValue _workerPostMessage(JSContext* ctx,
     JSValueConst this_val, int argc, JSValueConst* argv) nothrow @system
 {
+    assert(ctx !is null, "Null JSContext in Worker.postMessage");
     if (argc < 1)
         return JS_UNDEFINED();
 
@@ -148,6 +152,7 @@ private extern (C) void _sabFree(JSRuntime* rt, void* opaque, void* ptr) nothrow
 private extern (C) JSValue _sabCtor(JSContext* ctx,
     JSValueConst new_target, int argc, JSValueConst* argv) nothrow @system
 {
+    assert(ctx !is null, "Null JSContext in SharedArrayBuffer constructor");
     uint size = 0;
     if (argc >= 1)
         JS_ToUint32(ctx, &size, argv[0]);
@@ -166,6 +171,7 @@ private extern (C) JSValue _sabCtor(JSContext* ctx,
 
 private int* _taPtr(JSContext* ctx, JSValueConst ta, int idx) nothrow @system
 {
+    assert(ctx !is null, "Null JSContext in Atomics typed array access");
     size_t byteOff, byteLen, bytesPerElem;
     auto abuf = JS_GetTypedArrayBuffer(ctx, ta, &byteOff, &byteLen, &bytesPerElem);
     scope (exit) JS_FreeValue(ctx, abuf);
@@ -192,6 +198,7 @@ private int _toI32(JSContext* ctx, JSValueConst v) nothrow @system
 private extern (C) JSValue _atomicsLoad(JSContext* ctx,
     JSValueConst this_val, int argc, JSValueConst* argv) nothrow @system
 {
+    assert(ctx !is null, "Null JSContext in Atomics.load");
     if (argc < 2) return JS_UNDEFINED();
     int idx;
     JS_ToInt32(ctx, &idx, argv[1]);
@@ -204,6 +211,7 @@ private extern (C) JSValue _atomicsLoad(JSContext* ctx,
 private extern (C) JSValue _atomicsStore(JSContext* ctx,
     JSValueConst this_val, int argc, JSValueConst* argv) nothrow @system
 {
+    assert(ctx !is null, "Null JSContext in Atomics.store");
     if (argc < 3) return JS_UNDEFINED();
     int idx; JS_ToInt32(ctx, &idx, argv[1]);
     int val = _toI32(ctx, argv[2]);
@@ -217,6 +225,7 @@ private extern (C) JSValue _atomicsStore(JSContext* ctx,
 private extern (C) JSValue _atomicsAdd(JSContext* ctx,
     JSValueConst this_val, int argc, JSValueConst* argv) nothrow @system
 {
+    assert(ctx !is null, "Null JSContext in Atomics.add");
     if (argc < 3) return JS_UNDEFINED();
     int idx; JS_ToInt32(ctx, &idx, argv[1]);
     int val = _toI32(ctx, argv[2]);
@@ -229,6 +238,7 @@ private extern (C) JSValue _atomicsAdd(JSContext* ctx,
 private extern (C) JSValue _atomicsSub(JSContext* ctx,
     JSValueConst this_val, int argc, JSValueConst* argv) nothrow @system
 {
+    assert(ctx !is null, "Null JSContext in Atomics.sub");
     if (argc < 3) return JS_UNDEFINED();
     int idx; JS_ToInt32(ctx, &idx, argv[1]);
     int val = _toI32(ctx, argv[2]);
@@ -251,6 +261,7 @@ private int _casLoop(int* rawPtr, int function(int) nothrow @safe pure op) nothr
 private extern (C) JSValue _atomicsAnd(JSContext* ctx,
     JSValueConst this_val, int argc, JSValueConst* argv) nothrow @system
 {
+    assert(ctx !is null, "Null JSContext in Atomics.and");
     if (argc < 3) return JS_UNDEFINED();
     int idx; JS_ToInt32(ctx, &idx, argv[1]);
     int val = _toI32(ctx, argv[2]);
@@ -267,6 +278,7 @@ private extern (C) JSValue _atomicsAnd(JSContext* ctx,
 private extern (C) JSValue _atomicsOr(JSContext* ctx,
     JSValueConst this_val, int argc, JSValueConst* argv) nothrow @system
 {
+    assert(ctx !is null, "Null JSContext in Atomics.or");
     if (argc < 3) return JS_UNDEFINED();
     int idx; JS_ToInt32(ctx, &idx, argv[1]);
     int val = _toI32(ctx, argv[2]);
@@ -283,6 +295,7 @@ private extern (C) JSValue _atomicsOr(JSContext* ctx,
 private extern (C) JSValue _atomicsXor(JSContext* ctx,
     JSValueConst this_val, int argc, JSValueConst* argv) nothrow @system
 {
+    assert(ctx !is null, "Null JSContext in Atomics.xor");
     if (argc < 3) return JS_UNDEFINED();
     int idx; JS_ToInt32(ctx, &idx, argv[1]);
     int val = _toI32(ctx, argv[2]);
@@ -299,6 +312,7 @@ private extern (C) JSValue _atomicsXor(JSContext* ctx,
 private extern (C) JSValue _atomicsCmpXch(JSContext* ctx,
     JSValueConst this_val, int argc, JSValueConst* argv) nothrow @system
 {
+    assert(ctx !is null, "Null JSContext in Atomics.compareExchange");
     if (argc < 4) return JS_UNDEFINED();
     int idx; JS_ToInt32(ctx, &idx, argv[1]);
     int expected = _toI32(ctx, argv[2]);
@@ -315,6 +329,7 @@ private extern (C) JSValue _atomicsCmpXch(JSContext* ctx,
 private extern (C) JSValue _atomicsWait(JSContext* ctx,
     JSValueConst this_val, int argc, JSValueConst* argv) nothrow @system
 {
+    assert(ctx !is null, "Null JSContext in Atomics.wait");
     // Per spec: Atomics.wait is not allowed on the main thread
     import dun.workers.worker : gIsWorkerThread;
     if (!gIsWorkerThread)
@@ -382,6 +397,7 @@ private extern (C) JSValue _atomicsWait(JSContext* ctx,
 private extern (C) JSValue _atomicsNotify(JSContext* ctx,
     JSValueConst this_val, int argc, JSValueConst* argv) nothrow @system
 {
+    assert(ctx !is null, "Null JSContext in Atomics.notify");
     if (argc < 2) return JS_UNDEFINED();
     int idx; JS_ToInt32(ctx, &idx, argv[1]);
     int count = (argc >= 3) ? _toI32(ctx, argv[2]) : int.max;
@@ -407,5 +423,6 @@ private extern (C) JSValue _atomicsNotify(JSContext* ctx,
 private void _addFn(JSContext* ctx, JSValue obj, const(char)* name,
     JSCFunction fn, int length) nothrow @trusted
 {
+    assert(ctx !is null, "Null JSContext in _addFn");
     JS_SetPropertyStr(ctx, obj, name, JS_NewCFunction(ctx, fn, name, length));
 }

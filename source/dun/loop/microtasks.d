@@ -14,6 +14,7 @@ struct NextTickQueue
 
     void enqueue(IJSEngine engine, JSHandle func) nothrow @trusted
     {
+        assert(engine !is null, "Null engine in NextTickQueue.enqueue");
         try { queue ~= Entry(engine, engine.dupValue(func)); }
         catch (Exception) {}
     }
@@ -46,6 +47,7 @@ struct MicrotaskQueue
 
     void enqueue(IJSEngine engine, JSHandle func) nothrow @trusted
     {
+        assert(engine !is null, "Null engine in MicrotaskQueue.enqueue");
         try { queue ~= Entry(engine, engine.dupValue(func)); }
         catch (Exception) {}
     }

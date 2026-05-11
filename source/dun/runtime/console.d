@@ -5,6 +5,7 @@ import dun.runtime.globals : DunState;
 
 void installConsole(IJSEngine engine) @trusted
 {
+    assert(engine !is null, "Null engine");
     auto console = engine.newObject();
     auto global = engine.getGlobal();
 
@@ -22,13 +23,16 @@ private:
 
 JSHandle consoleLog(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
+    assert(ctx !is null, "Null ctx in console.log");
     auto state = cast(DunState*) ctx;
+    assert(state.engine !is null, "Null engine in console.log");
     writeArgs(state.engine, args, false);
     return state.engine.newUndefined();
 }
 
 JSHandle consoleWarn(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
+    assert(ctx !is null, "Null ctx in console.warn");
     auto state = cast(DunState*) ctx;
     writeArgs(state.engine, args, true);
     return state.engine.newUndefined();
@@ -36,6 +40,7 @@ JSHandle consoleWarn(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
 JSHandle consoleError(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
+    assert(ctx !is null, "Null ctx in console.error");
     auto state = cast(DunState*) ctx;
     writeArgs(state.engine, args, true);
     return state.engine.newUndefined();
@@ -43,6 +48,7 @@ JSHandle consoleError(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
 JSHandle consoleAssert(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
+    assert(ctx !is null, "Null ctx in console.assert");
     auto state = cast(DunState*) ctx;
     auto engine = state.engine;
 

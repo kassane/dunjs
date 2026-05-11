@@ -6,6 +6,7 @@ import dun.loop.agnostic_pending : pushAgnosticPending;
 
 void registerHttpModule(IJSEngine engine) @trusted
 {
+    assert(engine !is null, "Null IJSEngine in registerHttpModule");
     auto obj = engine.newObject();
     engine.setProperty(obj, "createServer", engine.newFunction(&jsHttpCreateServer, "createServer", 1));
 
@@ -31,6 +32,8 @@ version (EngineQuickJS)
 
     private extern (C) int httpModuleInit(JSContext* ctx, JSModuleDef* m) nothrow @trusted
     {
+        assert(ctx !is null, "Null JSContext in httpModuleInit");
+        assert(m !is null, "Null JSModuleDef in httpModuleInit");
         auto global = JS_GetGlobalObject(ctx);
         auto httpObj = JS_GetPropertyStr(ctx, global, "__dun_cjs_http__");
         foreach (name; ["createServer", "STATUS_CODES"])
@@ -97,7 +100,9 @@ int nextHttpConnId;
 
 JSHandle jsHttpCreateServer(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
+    assert(ctx !is null, "Null ctx in jsHttpCreateServer");
     auto state = cast(DunState*) ctx;
+    assert(state !is null, "Null DunState in jsHttpCreateServer");
     auto engine = state.engine;
 
     JSHandle cb;
@@ -126,6 +131,7 @@ JSHandle jsHttpCreateServer(void* ctx, JSHandle thisVal, JSHandle[] args) @trust
 
 JSHandle makeHttpServerObj(IJSEngine engine, int id) @trusted
 {
+    assert(engine !is null, "Null IJSEngine in makeHttpServerObj");
     auto obj = engine.newObject();
     engine.setProperty(obj, "__hid", engine.newInt(id));
     engine.setProperty(obj, "listen", engine.newFunction(&jsHttpServerListen, "listen", 1));
@@ -136,6 +142,7 @@ JSHandle makeHttpServerObj(IJSEngine engine, int id) @trusted
 
 JSHandle jsHttpServerListen(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
+    assert(ctx !is null, "Null ctx in jsHttpServerListen");
     version (Posix)
     {
         import core.sys.posix.sys.socket;
@@ -144,6 +151,7 @@ JSHandle jsHttpServerListen(void* ctx, JSHandle thisVal, JSHandle[] args) @trust
         import core.stdc.string : memset;
 
         auto state = cast(DunState*) ctx;
+        assert(state !is null, "Null DunState in jsHttpServerListen");
         auto engine = state.engine;
 
         auto idProp = engine.getProperty(thisVal, "__hid");
@@ -230,10 +238,12 @@ JSHandle jsHttpServerListen(void* ctx, JSHandle thisVal, JSHandle[] args) @trust
 
 JSHandle jsHttpServerClose(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
+    assert(ctx !is null, "Null ctx in jsHttpServerClose");
     version (Posix)
     {
         import core.sys.posix.unistd : close;
         auto state = cast(DunState*) ctx;
+        assert(state !is null, "Null DunState in jsHttpServerClose");
         auto engine = state.engine;
 
         auto idProp = engine.getProperty(thisVal, "__hid");
@@ -260,7 +270,9 @@ JSHandle jsHttpServerClose(void* ctx, JSHandle thisVal, JSHandle[] args) @truste
 
 JSHandle jsHttpServerOn(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
+    assert(ctx !is null, "Null ctx in jsHttpServerOn");
     auto state = cast(DunState*) ctx;
+    assert(state !is null, "Null DunState in jsHttpServerOn");
     auto engine = state.engine;
     if (args.length < 2) return thisVal;
 
@@ -303,7 +315,9 @@ JSHandle makeReqObj(IJSEngine engine, int connId) @trusted
 
 JSHandle jsReqOn(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
+    assert(ctx !is null, "Null ctx in jsReqOn");
     auto state = cast(DunState*) ctx;
+    assert(state !is null, "Null DunState in jsReqOn");
     auto engine = state.engine;
     if (args.length < 2 || !engine.isFunction(args[1])) return thisVal;
 
@@ -355,7 +369,9 @@ JSHandle makeResObj(IJSEngine engine, int connId) @trusted
 
 JSHandle jsResSetHeader(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
+    assert(ctx !is null, "Null ctx in jsResSetHeader");
     auto state = cast(DunState*) ctx;
+    assert(state !is null, "Null DunState in jsResSetHeader");
     auto engine = state.engine;
     if (args.length < 2) return engine.newUndefined();
 
@@ -375,7 +391,9 @@ JSHandle jsResSetHeader(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
 JSHandle jsResWriteHead(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
+    assert(ctx !is null, "Null ctx in jsResWriteHead");
     auto state = cast(DunState*) ctx;
+    assert(state !is null, "Null DunState in jsResWriteHead");
     auto engine = state.engine;
 
     auto idProp = engine.getProperty(thisVal, "__cid");
@@ -392,7 +410,9 @@ JSHandle jsResWriteHead(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
 JSHandle jsResWrite(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
+    assert(ctx !is null, "Null ctx in jsResWrite");
     auto state = cast(DunState*) ctx;
+    assert(state !is null, "Null DunState in jsResWrite");
     auto engine = state.engine;
     if (args.length < 1) return engine.newBool(false);
 
@@ -411,11 +431,13 @@ JSHandle jsResWrite(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
 JSHandle jsResEnd(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
+    assert(ctx !is null, "Null ctx in jsResEnd");
     version (Posix)
     {
         import core.sys.posix.unistd : close;
 
         auto state = cast(DunState*) ctx;
+        assert(state !is null, "Null DunState in jsResEnd");
         auto engine = state.engine;
 
         auto idProp = engine.getProperty(thisVal, "__cid");
@@ -451,6 +473,7 @@ JSHandle jsResEnd(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
 void sendStatusLine(HttpConnState* conn) nothrow @trusted
 {
+    assert(conn !is null, "Null HttpConnState in sendStatusLine");
     if (conn.headersSent || conn.fd < 0) return;
     conn.headersSent = true;
 
@@ -488,6 +511,7 @@ void sendStatusLine(HttpConnState* conn) nothrow @trusted
 
 void sendRaw(HttpConnState* conn, string data) nothrow @trusted
 {
+    assert(conn !is null, "Null HttpConnState in sendRaw");
     version (Posix)
     {
         if (conn.fd < 0 || data.length == 0) return;
@@ -593,6 +617,7 @@ void readHttpData(int cid) nothrow @trusted
 
 void tryParseHeaders(HttpConnState* conn, int cid) nothrow @trusted
 {
+    assert(conn !is null, "Null HttpConnState in tryParseHeaders");
     size_t sepPos = 0;
     bool found = false;
     for (size_t i = 0; i + 3 < conn.bufLen; i++)
@@ -640,6 +665,7 @@ void tryParseHeaders(HttpConnState* conn, int cid) nothrow @trusted
 
 void parseRequestHeaders(HttpConnState* conn, const(char)[] text) nothrow @trusted
 {
+    assert(conn !is null, "Null HttpConnState in parseRequestHeaders");
     try
     {
         import std.string : toLower, strip;

@@ -23,6 +23,8 @@ struct TimerWheel
     TimerID addTimer(IJSEngine engine, JSHandle callback, Duration delay,
         Duration interval = Duration.zero) nothrow @trusted
     {
+        assert(engine !is null, "Null engine in addTimer");
+        assert(nextId > 0, "TimerID overflow");
         auto id = nextId++;
         auto deadline = MonoTime.currTime + delay;
 

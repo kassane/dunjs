@@ -7,6 +7,7 @@ import std.json : JSONValue;
 
 void installRequire(IJSEngine engine) @trusted
 {
+    assert(engine !is null, "Null engine in installRequire");
     auto global = engine.getGlobal();
     engine.setProperty(global, "require", engine.newFunction(&jsRequire, "require", 1));
     engine.setProperty(global, "__dunCjsCache__", engine.newObject());
@@ -20,7 +21,9 @@ JSHandle jsRequire(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     import std.algorithm : startsWith, endsWith;
     import std.path : buildNormalizedPath, isAbsolute, dirName;
 
+    assert(ctx !is null, "Null ctx in jsRequire");
     auto state = cast(DunState*) ctx;
+    assert(state.engine !is null, "Null engine in jsRequire");
     auto engine = state.engine;
 
     if (args.length < 1)

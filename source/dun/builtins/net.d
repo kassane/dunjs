@@ -6,6 +6,7 @@ import dun.loop.agnostic_pending : pushAgnosticPending;
 
 void registerNetModule(IJSEngine engine) @trusted
 {
+    assert(engine !is null, "Null IJSEngine in registerNetModule");
     auto obj = engine.newObject();
 
     engine.setProperty(obj, "createServer", engine.newFunction(&jsCreateServer, "createServer", 1));
@@ -35,6 +36,8 @@ version (EngineQuickJS)
 
     private extern (C) int netModuleInit(JSContext* ctx, JSModuleDef* m) nothrow @trusted
     {
+        assert(ctx !is null, "Null JSContext in netModuleInit");
+        assert(m !is null, "Null JSModuleDef in netModuleInit");
         auto global = JS_GetGlobalObject(ctx);
         auto netObj = JS_GetPropertyStr(ctx, global, "__dun_cjs_net__");
         foreach (name; ["createServer", "createConnection", "connect"])
@@ -92,7 +95,9 @@ int nextSocketId = 0;
 
 JSHandle jsCreateServer(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
+    assert(ctx !is null, "Null ctx in jsCreateServer");
     auto state = cast(DunState*) ctx;
+    assert(state !is null, "Null DunState in jsCreateServer");
     auto engine = state.engine;
 
     JSHandle connCb;
@@ -127,6 +132,7 @@ JSHandle jsCreateServer(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
 JSHandle jsCreateConnection(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
+    assert(ctx !is null, "Null ctx in jsCreateConnection");
     version (Posix)
     {
         import core.sys.posix.sys.socket;
@@ -136,6 +142,7 @@ JSHandle jsCreateConnection(void* ctx, JSHandle thisVal, JSHandle[] args) @trust
         import core.stdc.string : memset;
 
         auto state = cast(DunState*) ctx;
+        assert(state !is null, "Null DunState in jsCreateConnection");
         auto engine = state.engine;
 
         int port = 0;
@@ -237,6 +244,7 @@ JSHandle jsCreateConnection(void* ctx, JSHandle thisVal, JSHandle[] args) @trust
 
 JSHandle makeServerObject(IJSEngine engine, int id) @trusted
 {
+    assert(engine !is null, "Null IJSEngine in makeServerObject");
     auto obj = engine.newObject();
     engine.setProperty(obj, "__id", engine.newInt(id));
     engine.setProperty(obj, "listen", engine.newFunction(&jsServerListen, "listen", 1));
@@ -247,6 +255,7 @@ JSHandle makeServerObject(IJSEngine engine, int id) @trusted
 
 JSHandle makeSocketObject(IJSEngine engine, int id) @trusted
 {
+    assert(engine !is null, "Null IJSEngine in makeSocketObject");
     auto obj = engine.newObject();
     engine.setProperty(obj, "__id", engine.newInt(id));
     engine.setProperty(obj, "on", engine.newFunction(&jsSocketOn, "on", 2));
@@ -258,6 +267,7 @@ JSHandle makeSocketObject(IJSEngine engine, int id) @trusted
 
 JSHandle jsServerListen(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
+    assert(ctx !is null, "Null ctx in jsServerListen");
     version (Posix)
     {
         import core.sys.posix.sys.socket;
@@ -266,6 +276,7 @@ JSHandle jsServerListen(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
         import core.stdc.string : memset;
 
         auto state = cast(DunState*) ctx;
+        assert(state !is null, "Null DunState in jsServerListen");
         auto engine = state.engine;
 
         auto idProp = engine.getProperty(thisVal, "__id");
@@ -350,10 +361,12 @@ JSHandle jsServerListen(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
 JSHandle jsServerClose(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
+    assert(ctx !is null, "Null ctx in jsServerClose");
     version (Posix)
     {
         import core.sys.posix.unistd : close;
         auto state = cast(DunState*) ctx;
+        assert(state !is null, "Null DunState in jsServerClose");
         auto engine = state.engine;
 
         auto idProp = engine.getProperty(thisVal, "__id");
@@ -380,7 +393,9 @@ JSHandle jsServerClose(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
 JSHandle jsServerOn(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
+    assert(ctx !is null, "Null ctx in jsServerOn");
     auto state = cast(DunState*) ctx;
+    assert(state !is null, "Null DunState in jsServerOn");
     auto engine = state.engine;
     if (args.length < 2) return thisVal;
 
@@ -402,7 +417,9 @@ JSHandle jsServerOn(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
 JSHandle jsSocketOn(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
+    assert(ctx !is null, "Null ctx in jsSocketOn");
     auto state = cast(DunState*) ctx;
+    assert(state !is null, "Null DunState in jsSocketOn");
     auto engine = state.engine;
     if (args.length < 2) return thisVal;
 
@@ -430,11 +447,13 @@ JSHandle jsSocketOn(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
 JSHandle jsSocketWrite(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
+    assert(ctx !is null, "Null ctx in jsSocketWrite");
     version (Posix)
     {
         import core.sys.posix.unistd : write;
 
         auto state = cast(DunState*) ctx;
+        assert(state !is null, "Null DunState in jsSocketWrite");
         auto engine = state.engine;
         if (args.length < 1) return engine.newBool(false);
 
@@ -467,11 +486,13 @@ JSHandle jsSocketWrite(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
 JSHandle jsSocketEnd(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
+    assert(ctx !is null, "Null ctx in jsSocketEnd");
     version (Posix)
     {
         import core.sys.posix.unistd : close;
 
         auto state = cast(DunState*) ctx;
+        assert(state !is null, "Null DunState in jsSocketEnd");
         auto engine = state.engine;
 
         auto idProp = engine.getProperty(thisVal, "__id");

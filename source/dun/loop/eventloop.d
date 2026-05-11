@@ -28,11 +28,13 @@ struct EventLoop
 
     void initialize(IJSEngine engine) @trusted
     {
+        assert(engine !is null, "Null engine");
         this.engine = engine;
     }
 
     void run() @trusted
     {
+        assert(engine !is null, "Event loop not initialized");
         running = true;
         while (running && hasWork())
             tick();
@@ -40,6 +42,7 @@ struct EventLoop
 
     void tick() @trusted
     {
+        assert(engine !is null, "Event loop not initialized");
         drainNextTicksAndMicrotasks();
         flushUnhandledRejections();
 
@@ -129,13 +132,14 @@ struct EventLoop
 
     void ref_()
     {
+        assert(outstandingRefs >= 0, "Negative outstanding refs before increment");
         outstandingRefs++;
     }
 
     void unref()
     {
-        if (outstandingRefs > 0)
-            outstandingRefs--;
+        assert(outstandingRefs > 0, "unref() called with no outstanding refs");
+        outstandingRefs--;
     }
 
     void drainMicrotasks() @trusted { drainNextTicksAndMicrotasks(); }

@@ -7,6 +7,7 @@ import core.time : dur;
 
 void installTimers(IJSEngine engine) @trusted
 {
+    assert(engine !is null, "Null engine");
     auto global = engine.getGlobal();
 
     engine.setProperty(global, "setTimeout",
@@ -23,8 +24,10 @@ private:
 
 JSHandle jsSetTimeout(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
+    assert(ctx !is null, "Null ctx in setTimeout");
     auto state = cast(DunState*) ctx;
     auto engine = state.engine;
+    assert(engine !is null, "Null engine in setTimeout");
 
     if (args.length < 1 || !engine.isFunction(args[0]))
         return engine.newUndefined();
@@ -46,8 +49,10 @@ JSHandle jsSetTimeout(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
 JSHandle jsSetInterval(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
+    assert(ctx !is null, "Null ctx in setInterval");
     auto state = cast(DunState*) ctx;
     auto engine = state.engine;
+    assert(engine !is null, "Null engine in setInterval");
 
     if (args.length < 1 || !engine.isFunction(args[0]))
         return engine.newUndefined();
@@ -70,8 +75,10 @@ JSHandle jsSetInterval(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
 JSHandle jsClearTimer(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
+    assert(ctx !is null, "Null ctx in clearTimer");
     auto state = cast(DunState*) ctx;
     auto engine = state.engine;
+    assert(engine !is null, "Null engine in clearTimer");
 
     if (args.length < 1)
         return engine.newUndefined();

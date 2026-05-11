@@ -39,6 +39,9 @@ enum JSCTypeTag
     Date,
 }
 
+static assert(__traits(allMembers, JSCTypeTag).length == 10,
+    "JSCTypeTag member count changed — update JSCTypeChecks table and JSCTypeName template");
+
 /// Compile-time map: JSCTypeTag → display name.
 template JSCTypeName(JSCTypeTag tag)
 {
@@ -90,6 +93,8 @@ version (EngineJSC)
         /// Function is handled specially (requires JSObjectIsFunction).
         bool check(JSCTypeTag tag, JSContextRef ctx, JSValueRef val) @trusted nothrow @nogc
         {
+            assert(ctx !is null, "Null JSContextRef in JSCTypeChecks.check");
+            assert(cast(size_t) tag <= JSCTypeTag.max, "JSCTypeTag out of range");
             if (tag == JSCTypeTag.Function)
             {
                 if (!JSValueIsObject(ctx, val))

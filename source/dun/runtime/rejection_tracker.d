@@ -6,6 +6,9 @@ import dun.runtime.globals : DunState;
 
 void installRejectionTracker(IJSEngine engine, DunState* state) @trusted
 {
+    assert(engine !is null, "Null engine");
+    assert(state !is null, "Null state");
+
     version (EngineQuickJS)
     {
         import dun.engine.quickjs.bindings : JSRuntime, JS_GetRuntime,
@@ -38,7 +41,10 @@ version (EngineQuickJS)
         bool is_handled, void* opaque) nothrow @trusted
     {
         import dun.engine.quickjs.backend : QuickJSEngine;
+        assert(ctx !is null, "Null JSContext in rejection tracker");
+        assert(opaque !is null, "Null opaque in rejection tracker");
         auto state = cast(DunState*) opaque;
+        assert(state.engine !is null, "Null engine in rejection tracker");
 
         if (is_handled)
         {
@@ -149,8 +155,10 @@ private void installJSRejectionTracker(IJSEngine engine, DunState* state) @trust
 
 private JSHandle jsReportRejection(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
+    assert(ctx !is null, "Null ctx in jsReportRejection");
     auto state = cast(DunState*) ctx;
     auto engine = state.engine;
+    assert(engine !is null, "Null engine in jsReportRejection");
 
     string reasonStr;
     if (args.length > 0)

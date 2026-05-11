@@ -5,6 +5,7 @@ import dun.runtime.globals : DunState;
 
 void registerCryptoModule(IJSEngine engine) @trusted
 {
+    assert(engine !is null, "Null IJSEngine in registerCryptoModule");
     auto obj = engine.newObject();
 
     engine.setProperty(obj, "randomBytes", engine.newFunction(&jsCryptoRandomBytes, "randomBytes", 1));
@@ -33,6 +34,8 @@ version (EngineQuickJS)
 
     private extern (C) int cryptoModuleInit(JSContext* ctx, JSModuleDef* m) nothrow @trusted
     {
+        assert(ctx !is null, "Null JSContext in cryptoModuleInit");
+        assert(m !is null, "Null JSModuleDef in cryptoModuleInit");
         auto global = JS_GetGlobalObject(ctx);
         auto cryptoObj = JS_GetPropertyStr(ctx, global, "__dun_cjs_crypto__");
         foreach (name; ["randomBytes", "randomUUID", "createHash"])
@@ -50,7 +53,9 @@ private:
 
 JSHandle jsCryptoRandomBytes(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
+    assert(ctx !is null, "Null ctx in jsCryptoRandomBytes");
     auto state = cast(DunState*) ctx;
+    assert(state !is null, "Null DunState in jsCryptoRandomBytes");
     auto engine = state.engine;
     if (args.length < 1) return engine.throwTypeError("randomBytes requires a length argument");
     int n = engine.extractInt(args[0]);
@@ -69,7 +74,9 @@ JSHandle jsCryptoRandomBytes(void* ctx, JSHandle thisVal, JSHandle[] args) @trus
 
 JSHandle jsCryptoRandomUUID(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
+    assert(ctx !is null, "Null ctx in jsCryptoRandomUUID");
     auto state = cast(DunState*) ctx;
+    assert(state !is null, "Null DunState in jsCryptoRandomUUID");
     auto engine = state.engine;
     try
     {
@@ -89,7 +96,9 @@ JSHandle jsCryptoRandomUUID(void* ctx, JSHandle thisVal, JSHandle[] args) @trust
 
 JSHandle jsCryptoCreateHash(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
+    assert(ctx !is null, "Null ctx in jsCryptoCreateHash");
     auto state = cast(DunState*) ctx;
+    assert(state !is null, "Null DunState in jsCryptoCreateHash");
     auto engine = state.engine;
     if (args.length < 1) return engine.throwTypeError("createHash requires an algorithm argument");
     auto algo = engine.extractString(args[0]);
@@ -106,7 +115,9 @@ JSHandle jsCryptoCreateHash(void* ctx, JSHandle thisVal, JSHandle[] args) @trust
 
 JSHandle jsHashUpdate(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
+    assert(ctx !is null, "Null ctx in jsHashUpdate");
     auto state = cast(DunState*) ctx;
+    assert(state !is null, "Null DunState in jsHashUpdate");
     auto engine = state.engine;
     if (args.length < 1) return engine.dupValue(thisVal);
     try
@@ -121,7 +132,9 @@ JSHandle jsHashUpdate(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
 JSHandle jsHashDigest(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
+    assert(ctx !is null, "Null ctx in jsHashDigest");
     auto state = cast(DunState*) ctx;
+    assert(state !is null, "Null DunState in jsHashDigest");
     auto engine = state.engine;
     try
     {

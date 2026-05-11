@@ -4,6 +4,8 @@ import dun.engine.iface;
 import dun.engine.jsc.bindings;
 import dun.engine.jsc.cppbindings : JSCTypeTag, JSCTypeChecks;
 
+static assert(JSHandle.sizeof >= (void*).sizeof, "JSHandle too small for JSC pointer");
+
 class JSCEngine : IJSEngine
 {
     private JSGlobalContextRef ctx;
@@ -11,6 +13,7 @@ class JSCEngine : IJSEngine
 
     void initialize(EngineConfig config) @trusted
     {
+        assert(ctx is null, "Double initialization of JSCEngine");
         ctx = JSGlobalContextCreate(null);
         assert(ctx !is null, "Failed to create JSGlobalContext");
     }
@@ -28,6 +31,7 @@ class JSCEngine : IJSEngine
     {
         import std.string : toStringz;
 
+        assert(ctx !is null, "JSC context not initialized");
         auto jsSource = JSStringCreateWithUTF8CString(source.toStringz);
         scope (exit) JSStringRelease(jsSource);
 
@@ -57,18 +61,22 @@ class JSCEngine : IJSEngine
 
     JSHandle newUndefined() @trusted
     {
+        assert(ctx !is null, "JSC context not initialized");
         return toHandle(cast(void*) JSValueMakeUndefined(ctx));
     }
 
     JSHandle newNull() @trusted
     {
+        assert(ctx !is null, "JSC context not initialized");
         return toHandle(cast(void*) JSValueMakeNull(ctx));
     }
 
     JSHandle newString(const(char)[] s) @trusted
     {
         import std.string : toStringz;
+        assert(ctx !is null, "JSC context not initialized");
         auto jsStr = JSStringCreateWithUTF8CString(s.toStringz);
+        assert(jsStr !is null, "JSStringCreateWithUTF8CString returned null");
         auto val = JSValueMakeString(ctx, jsStr);
         JSStringRelease(jsStr);
         return toHandle(cast(void*) val);
@@ -76,26 +84,31 @@ class JSCEngine : IJSEngine
 
     JSHandle newInt(int v) @trusted
     {
+        assert(ctx !is null, "JSC context not initialized");
         return toHandle(cast(void*) JSValueMakeNumber(ctx, cast(double) v));
     }
 
     JSHandle newFloat(double v) @trusted
     {
+        assert(ctx !is null, "JSC context not initialized");
         return toHandle(cast(void*) JSValueMakeNumber(ctx, v));
     }
 
     JSHandle newBool(bool v) @trusted
     {
+        assert(ctx !is null, "JSC context not initialized");
         return toHandle(cast(void*) JSValueMakeBoolean(ctx, v));
     }
 
     JSHandle newObject() @trusted
     {
+        assert(ctx !is null, "JSC context not initialized");
         return toHandle(cast(void*) JSObjectMake(ctx, null, null));
     }
 
     JSHandle newArray() @trusted
     {
+        assert(ctx !is null, "JSC context not initialized");
         return toHandle(cast(void*) JSObjectMakeArray(ctx, 0, null, null));
     }
 
@@ -103,6 +116,8 @@ class JSCEngine : IJSEngine
     {
         import std.string : toStringz;
         import dun.engine.callbacks : register;
+        assert(ctx !is null, "JSC context not initialized");
+        assert(cb !is null, "Null callback in newFunction");
         int slot = register(cb);
         auto jsName = JSStringCreateWithUTF8CString(name.toStringz);
         auto fn = JSObjectMakeFunctionWithCallback(ctx, jsName, &jscNativeTrampoline);
@@ -118,29 +133,34 @@ class JSCEngine : IJSEngine
 
     string extractString(JSHandle val) @trusted
     {
+        assert(ctx !is null, "JSC context not initialized");
         return jscStringToD(cast(JSValueRef) fromHandle(val));
     }
 
     int extractInt(JSHandle val) @trusted
     {
+        assert(ctx !is null, "JSC context not initialized");
         JSValueRef exc = null;
         return cast(int) JSValueToNumber(ctx, cast(JSValueRef) fromHandle(val), &exc);
     }
 
     double extractFloat(JSHandle val) @trusted
     {
+        assert(ctx !is null, "JSC context not initialized");
         JSValueRef exc = null;
         return JSValueToNumber(ctx, cast(JSValueRef) fromHandle(val), &exc);
     }
 
     bool extractBool(JSHandle val) @trusted
     {
+        assert(ctx !is null, "JSC context not initialized");
         return JSValueToBoolean(ctx, cast(JSValueRef) fromHandle(val));
     }
 
     JSHandle getProperty(JSHandle obj, const(char)[] name) @trusted
     {
         import std.string : toStringz;
+        assert(ctx !is null, "JSC context not initialized");
         auto jsName = JSStringCreateWithUTF8CString((cast(string) name).toStringz);
         scope (exit) JSStringRelease(jsName);
         JSValueRef exc = null;
@@ -152,6 +172,7 @@ class JSCEngine : IJSEngine
     void setProperty(JSHandle obj, const(char)[] name, JSHandle val) @trusted
     {
         import std.string : toStringz;
+        assert(ctx !is null, "JSC context not initialized");
         auto jsName = JSStringCreateWithUTF8CString((cast(string) name).toStringz);
         scope (exit) JSStringRelease(jsName);
         JSValueRef exc = null;
@@ -162,11 +183,13 @@ class JSCEngine : IJSEngine
 
     JSHandle getGlobal() @trusted
     {
+        assert(ctx !is null, "JSC context not initialized");
         return toHandle(cast(void*) JSContextGetGlobalObject(ctx));
     }
 
     JSHandle callFunction(JSHandle func, JSHandle thisVal, JSHandle[] args) @trusted
     {
+        assert(ctx !is null, "JSC context not initialized");
         auto jsFunc = cast(JSObjectRef) fromHandle(func);
         auto jsThis = cast(JSObjectRef) fromHandle(thisVal);
         JSValueRef exc = null;
@@ -187,6 +210,7 @@ class JSCEngine : IJSEngine
 
     JSHandle dupValue(JSHandle val) @trusted
     {
+        assert(ctx !is null, "JSC context not initialized");
         auto v = cast(JSValueRef) fromHandle(val);
         JSValueProtect(ctx, v);
         return val;
@@ -194,6 +218,7 @@ class JSCEngine : IJSEngine
 
     void freeValue(JSHandle val) @trusted
     {
+        assert(ctx !is null, "JSC context not initialized");
         JSValueUnprotect(ctx, cast(JSValueRef) fromHandle(val));
     }
 
@@ -205,6 +230,7 @@ class JSCEngine : IJSEngine
 
     private bool checkType(JSCTypeTag tag, JSHandle val) @trusted
     {
+        assert(ctx !is null, "JSC context not initialized");
         if (!_typeChecksReady)
         {
             _typeChecks = JSCTypeChecks.create();
@@ -228,6 +254,7 @@ class JSCEngine : IJSEngine
 
     JSHandle throwTypeError(const(char)[] msg) @trusted
     {
+        assert(ctx !is null, "JSC context not initialized");
         auto jsMsg = newString(msg);
         auto args = cast(JSValueRef) fromHandle(jsMsg);
         JSValueRef exc = null;
@@ -243,6 +270,7 @@ class JSCEngine : IJSEngine
 
     PromiseHandles newPromise() @trusted
     {
+        assert(ctx !is null, "JSC context not initialized");
         PromiseHandles ph;
         JSObjectRef resolveFunc, rejectFunc;
         JSValueRef exc = null;
@@ -259,6 +287,7 @@ class JSCEngine : IJSEngine
 
     void setContextOpaque(void* ptr) @trusted
     {
+        assert(ctx !is null, "JSC context not initialized");
         opaquePtr = ptr;
         jscSetContextOpaque(ctx, ptr);
     }

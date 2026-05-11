@@ -11,6 +11,8 @@ class QuickJSEngine : IJSEngine
 
     void initialize(EngineConfig config) @trusted
     {
+        assert(rt is null, "Double initialization: runtime already exists");
+        assert(ctx is null, "Double initialization: context already exists");
         rt = JS_NewRuntime();
         assert(rt !is null, "Failed to create JSRuntime");
 
@@ -39,6 +41,8 @@ class QuickJSEngine : IJSEngine
 
     JSResult eval(const(char)[] source, string filename) @trusted
     {
+        assert(ctx !is null, "Engine not initialized");
+        assert(source.ptr !is null, "Null source pointer");
         import std.string : toStringz;
 
         auto srcz = source.toStringz;
@@ -54,46 +58,55 @@ class QuickJSEngine : IJSEngine
 
     JSHandle newUndefined() @trusted
     {
+        assert(ctx !is null, "Engine not initialized");
         return toHandle(JS_UNDEFINED());
     }
 
     JSHandle newNull() @trusted
     {
+        assert(ctx !is null, "Engine not initialized");
         return toHandle(JS_NULL());
     }
 
     JSHandle newString(const(char)[] s) @trusted
     {
+        assert(ctx !is null, "Engine not initialized");
         return toHandle(JS_NewStringLen(ctx, s.ptr, s.length));
     }
 
     JSHandle newInt(int v) @trusted
     {
+        assert(ctx !is null, "Engine not initialized");
         return toHandle(JS_NewInt32(ctx, v));
     }
 
     JSHandle newFloat(double v) @trusted
     {
+        assert(ctx !is null, "Engine not initialized");
         return toHandle(JS_NewFloat64(ctx, v));
     }
 
     JSHandle newBool(bool v) @trusted
     {
+        assert(ctx !is null, "Engine not initialized");
         return toHandle(JS_NewBool(ctx, v ? 1 : 0));
     }
 
     JSHandle newObject() @trusted
     {
+        assert(ctx !is null, "Engine not initialized");
         return toHandle(JS_NewObject(ctx));
     }
 
     JSHandle newArray() @trusted
     {
+        assert(ctx !is null, "Engine not initialized");
         return toHandle(JS_NewArray(ctx));
     }
 
     JSHandle newFunction(NativeCallback cb, string name, int argc) @trusted
     {
+        assert(ctx !is null, "Engine not initialized");
         import std.string : toStringz;
         import dun.engine.callbacks : register;
         int slot = register(cb);
@@ -105,6 +118,7 @@ class QuickJSEngine : IJSEngine
 
     string extractString(JSHandle val) @trusted
     {
+        assert(ctx !is null, "Engine not initialized");
         auto jsv = fromHandle(val);
         size_t len;
         const(char)* cstr = JS_ToCStringLen2(ctx, &len, jsv, 0);
@@ -117,6 +131,7 @@ class QuickJSEngine : IJSEngine
 
     int extractInt(JSHandle val) @trusted
     {
+        assert(ctx !is null, "Engine not initialized");
         auto jsv = fromHandle(val);
         int result;
         JS_ToInt32(ctx, &result, jsv);
@@ -125,6 +140,7 @@ class QuickJSEngine : IJSEngine
 
     double extractFloat(JSHandle val) @trusted
     {
+        assert(ctx !is null, "Engine not initialized");
         auto jsv = fromHandle(val);
         double result;
         JS_ToFloat64(ctx, &result, jsv);
@@ -133,11 +149,13 @@ class QuickJSEngine : IJSEngine
 
     bool extractBool(JSHandle val) @trusted
     {
+        assert(ctx !is null, "Engine not initialized");
         return JS_ToBool(ctx, fromHandle(val)) != 0;
     }
 
     JSHandle getProperty(JSHandle obj, const(char)[] name) @trusted
     {
+        assert(ctx !is null, "Engine not initialized");
         import std.string : toStringz;
         return toHandle(JS_GetPropertyStr(ctx, fromHandle(obj),
             (cast(string) name).toStringz));
@@ -145,6 +163,7 @@ class QuickJSEngine : IJSEngine
 
     void setProperty(JSHandle obj, const(char)[] name, JSHandle val) @trusted
     {
+        assert(ctx !is null, "Engine not initialized");
         import std.string : toStringz;
         JS_SetPropertyStr(ctx, fromHandle(obj),
             (cast(string) name).toStringz, fromHandle(val));
@@ -152,11 +171,13 @@ class QuickJSEngine : IJSEngine
 
     JSHandle getGlobal() @trusted
     {
+        assert(ctx !is null, "Engine not initialized");
         return toHandle(JS_GetGlobalObject(ctx));
     }
 
     JSHandle callFunction(JSHandle func, JSHandle thisVal, JSHandle[] args) @trusted
     {
+        assert(ctx !is null, "Engine not initialized");
         JSValue[16] argv = void;
         auto argc = cast(int) args.length;
         JSValue* argp = null;
@@ -182,11 +203,13 @@ class QuickJSEngine : IJSEngine
 
     JSHandle dupValue(JSHandle val) @trusted
     {
+        assert(ctx !is null, "Engine not initialized");
         return toHandle(JS_DupValue(ctx, fromHandle(val)));
     }
 
     void freeValue(JSHandle val) @trusted
     {
+        assert(ctx !is null, "Engine not initialized");
         JS_FreeValue(ctx, fromHandle(val));
     }
 
@@ -207,18 +230,21 @@ class QuickJSEngine : IJSEngine
 
     JSHandle throwTypeError(const(char)[] msg) @trusted
     {
+        assert(ctx !is null, "Engine not initialized");
         import std.string : toStringz;
         return toHandle(JS_ThrowTypeError(ctx, "%s", (cast(string) msg).toStringz));
     }
 
     JSHandle throwRangeError(const(char)[] msg) @trusted
     {
+        assert(ctx !is null, "Engine not initialized");
         import std.string : toStringz;
         return toHandle(JS_ThrowRangeError(ctx, "%s", (cast(string) msg).toStringz));
     }
 
     PromiseHandles newPromise() @trusted
     {
+        assert(ctx !is null, "Engine not initialized");
         PromiseHandles ph;
         JSValue[2] resolvingFuncs;
         auto promise = JS_NewPromiseCapability(ctx, resolvingFuncs.ptr);
@@ -230,11 +256,13 @@ class QuickJSEngine : IJSEngine
 
     bool hasPendingJobs() @trusted
     {
+        assert(rt !is null, "Engine not initialized");
         return JS_IsJobPending(rt);
     }
 
     bool executePendingJob() @trusted
     {
+        assert(rt !is null, "Engine not initialized");
         JSContext* pctx;
         return JS_ExecutePendingJob(rt, &pctx) > 0;
     }
@@ -247,11 +275,13 @@ class QuickJSEngine : IJSEngine
 
     void setContextOpaque(void* ptr) @trusted
     {
+        assert(ctx !is null, "Engine not initialized");
         JS_SetContextOpaque(ctx, ptr);
     }
 
     void* getContextOpaque() @trusted
     {
+        assert(ctx !is null, "Engine not initialized");
         return JS_GetContextOpaque(ctx);
     }
 
@@ -259,6 +289,8 @@ class QuickJSEngine : IJSEngine
 
     JSResult evalModule(const(char)[] source, string filename) @trusted
     {
+        assert(ctx !is null, "Engine not initialized");
+        assert(source.ptr !is null, "Null source pointer");
         import std.string : toStringz;
         auto compiled = JS_Eval(ctx, source.toStringz, source.length,
             filename.toStringz, JS_EVAL_TYPE_MODULE | JS_EVAL_FLAG_COMPILE_ONLY);
@@ -286,12 +318,14 @@ class QuickJSEngine : IJSEngine
 
     void setMemoryLimit(size_t bytes) @trusted
     {
+        assert(rt !is null, "Engine not initialized");
         if (bytes > 0)
             JS_SetMemoryLimit(rt, bytes);
     }
 
     void setMaxStackSize(size_t bytes) @trusted
     {
+        assert(rt !is null, "Engine not initialized");
         if (bytes > 0)
             JS_SetMaxStackSize(rt, bytes);
     }
@@ -303,6 +337,7 @@ class QuickJSEngine : IJSEngine
 
     void registerCFunction(string name, JSCFunction func, int argc) @trusted
     {
+        assert(func !is null, "Null function pointer");
         import std.string : toStringz;
         auto global = JS_GetGlobalObject(ctx);
         auto fnVal = JS_NewCFunction(ctx, func, name.toStringz, argc);
@@ -312,6 +347,7 @@ class QuickJSEngine : IJSEngine
 
     static JSHandle toHandle(JSValue v) pure nothrow @nogc @trusted
     {
+        static assert(JSHandle.sizeof >= JSValue.sizeof, "JSHandle too small to hold a JSValue");
         JSHandle h;
         *cast(JSValue*)&h = v;
         return h;
@@ -327,6 +363,7 @@ private extern (C) JSValue qjsNativeTrampoline(JSContext* ctx,
     JSValueConst this_val, int argc, JSValueConst* argv,
     int magic) nothrow @trusted
 {
+    assert(ctx !is null, "Null JSContext in trampoline");
     import dun.engine.callbacks : get;
     auto cb = get(magic);
     if (cb is null)

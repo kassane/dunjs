@@ -5,6 +5,7 @@ import dun.runtime.globals : DunState;
 
 void registerPathModule(IJSEngine engine) @trusted
 {
+    assert(engine !is null, "Null IJSEngine in registerPathModule");
     auto obj = engine.newObject();
 
     engine.setProperty(obj, "join", engine.newFunction(&jsPathJoin, "join", 2));
@@ -52,6 +53,8 @@ version (EngineQuickJS)
 
     private extern (C) int pathModuleInit(JSContext* ctx, JSModuleDef* m) nothrow @trusted
     {
+        assert(ctx !is null, "Null JSContext in pathModuleInit");
+        assert(m !is null, "Null JSModuleDef in pathModuleInit");
         auto global = JS_GetGlobalObject(ctx);
         auto pathObj = JS_GetPropertyStr(ctx, global, "__dun_cjs_path__");
         foreach (name; ["join", "basename", "dirname", "extname", "isAbsolute",
@@ -70,7 +73,9 @@ private:
 
 JSHandle jsPathJoin(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
+    assert(ctx !is null, "Null ctx in jsPathJoin");
     auto state = cast(DunState*) ctx;
+    assert(state !is null, "Null DunState in jsPathJoin");
     auto engine = state.engine;
     if (args.length < 1) return engine.newString(".");
     try
@@ -86,7 +91,9 @@ JSHandle jsPathJoin(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
 JSHandle jsPathBasename(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
+    assert(ctx !is null, "Null ctx in jsPathBasename");
     auto state = cast(DunState*) ctx;
+    assert(state !is null, "Null DunState in jsPathBasename");
     auto engine = state.engine;
     if (args.length < 1) return engine.newString("");
     try
@@ -102,7 +109,9 @@ JSHandle jsPathBasename(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
 JSHandle jsPathDirname(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
+    assert(ctx !is null, "Null ctx in jsPathDirname");
     auto state = cast(DunState*) ctx;
+    assert(state !is null, "Null DunState in jsPathDirname");
     auto engine = state.engine;
     if (args.length < 1) return engine.newString(".");
     try
@@ -115,7 +124,9 @@ JSHandle jsPathDirname(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
 JSHandle jsPathExtname(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
+    assert(ctx !is null, "Null ctx in jsPathExtname");
     auto state = cast(DunState*) ctx;
+    assert(state !is null, "Null DunState in jsPathExtname");
     auto engine = state.engine;
     if (args.length < 1) return engine.newString("");
     try
@@ -128,7 +139,9 @@ JSHandle jsPathExtname(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
 JSHandle jsPathIsAbsolute(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
+    assert(ctx !is null, "Null ctx in jsPathIsAbsolute");
     auto state = cast(DunState*) ctx;
+    assert(state !is null, "Null DunState in jsPathIsAbsolute");
     auto engine = state.engine;
     if (args.length < 1) return engine.newBool(false);
     try
@@ -141,7 +154,9 @@ JSHandle jsPathIsAbsolute(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
 JSHandle jsPathResolve(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
+    assert(ctx !is null, "Null ctx in jsPathResolve");
     auto state = cast(DunState*) ctx;
+    assert(state !is null, "Null DunState in jsPathResolve");
     auto engine = state.engine;
     try
     {
@@ -164,7 +179,9 @@ JSHandle jsPathResolve(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
 JSHandle jsPathNormalize(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
+    assert(ctx !is null, "Null ctx in jsPathNormalize");
     auto state = cast(DunState*) ctx;
+    assert(state !is null, "Null DunState in jsPathNormalize");
     auto engine = state.engine;
     if (args.length < 1) return engine.newString(".");
     try
@@ -177,7 +194,9 @@ JSHandle jsPathNormalize(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
 JSHandle jsPathRelative(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
+    assert(ctx !is null, "Null ctx in jsPathRelative");
     auto state = cast(DunState*) ctx;
+    assert(state !is null, "Null DunState in jsPathRelative");
     auto engine = state.engine;
     if (args.length < 2) return engine.newString("");
     try
@@ -190,7 +209,9 @@ JSHandle jsPathRelative(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
 JSHandle jsPathParse(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
+    assert(ctx !is null, "Null ctx in jsPathParse");
     auto state = cast(DunState*) ctx;
+    assert(state !is null, "Null DunState in jsPathParse");
     auto engine = state.engine;
     if (args.length < 1) return engine.throwTypeError("parse requires a path argument");
     try
@@ -215,7 +236,9 @@ JSHandle jsPathParse(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
 JSHandle jsPathFormat(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
+    assert(ctx !is null, "Null ctx in jsPathFormat");
     auto state = cast(DunState*) ctx;
+    assert(state !is null, "Null DunState in jsPathFormat");
     auto engine = state.engine;
     if (args.length < 1 || !engine.isObject(args[0])) return engine.newString("");
     try

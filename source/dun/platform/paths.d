@@ -21,6 +21,8 @@ string canonicalizePath(string path) @trusted
 /// Both paths should be canonicalized first.
 bool isSubpathOf(string child, string parent) @safe
 {
+    assert(child.length > 0 || parent.length > 0,
+        "Both child and parent are empty in isSubpathOf");
     if (child.length < parent.length)
         return false;
 
