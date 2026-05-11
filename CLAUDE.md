@@ -39,9 +39,9 @@ dub build -b release                 # Release build (optimized)
 
 ```
 Layer 7: CLI & REPL           source/dun/cli/
-Layer 6: Runtime API           source/dun/runtime/     (console, timers, process)
-Layer 5: Module System         source/dun/modules/     (ES modules, resolver, loader)
-Layer 4: Built-in Modules      source/dun/builtins/    (dun:fs, dun:path, dun:net, dun:http, dun:os, dun:buffer, dun:events, dun:url)
+Layer 6: Runtime API           source/dun/runtime/     (console, timers, process, Deno.*)
+Layer 5: Module System         source/dun/modules/     (ES modules, resolver, loader, npm installer)
+Layer 4: Built-in Modules      source/dun/builtins/    (dun:fs, dun:path, dun:net, dun:http, dun:os, dun:buffer, dun:events, dun:url, fetch)
 Layer 3: Event Loop            source/dun/loop/        (epoll/kqueue/poll, timer wheel, microtasks)
 Layer 2: JS Engine Abstraction source/dun/engine/      (IJSEngine interface + backends)
 Layer 1: Platform Abstraction  source/dun/platform/    (memory, threading, OS I/O)
@@ -87,6 +87,9 @@ source/dun/ts/           # TypeScript type stripping
 +-- strip.d              # Scanner-based type eraser (~600 lines, 20 unit tests)
 +-- package.d            # Re-exports strip
 
+source/dun/platform/
++-- openssl.d            # extern(C) OpenSSL bindings (libssl, libcrypto)
+
 source/dun/security/
 +-- permissions.d        # PermissionRegistry (default-deny model)
 +-- test.d               # Security unit tests (27 tests)
@@ -110,6 +113,8 @@ All runtime globals are **engine-agnostic** (use `IJSEngine` + `NativeCallback`)
 | `crypto` | `registerCryptoModule(engine)` | `require('crypto')`, ESM `import from 'dun:crypto'` |
 | `net` | `registerNetModule(engine)` | `require('net')`, ESM `import from 'dun:net'` |
 | `http` | `registerHttpModule(engine)` | `require('http')`, ESM `import from 'dun:http'` |
+| `fetch` | `registerFetchGlobal(engine)` | Global `fetch()` (Posix, HTTPS via OpenSSL) |
+| `Deno.*` | `installDenoCompat(engine)` | Global `Deno` object (env, readTextFileSync, cwd, exit, build, version) |
 
 All modules work identically across QuickJS, JSC, and V8 backends.
 Workers remain QuickJS-only (requires threading primitives).
@@ -404,3 +409,6 @@ Not supported (have runtime semantics):
 | 7a | Node APIs | Buffer, EventEmitter, URL/URLSearchParams, os module | **Done** |
 | 7b | Engine parity | net/http ported engine-agnostic (JSC/V8 fully usable) | **Done** |
 | 7c | Safety | `-preview=safer` enabled for all code | **Done** |
+| 8a | TLS/HTTPS | OpenSSL bindings + TlsSocket + fetch() with HTTPS | **Done** |
+| 8b | npm install | `dun install <pkg>` with transitive deps from registry | **Done** |
+| 8c | Deno compat | Deno.env, readTextFileSync, writeTextFileSync, cwd, exit, build | **Done** |

@@ -6,8 +6,9 @@ DunJS is a 7-layer JavaScript/TypeScript runtime with a **pluggable engine archi
 (IJSEngine interface), a cross-platform I/O poller (epoll/kqueue/poll), and a Deno-inspired permission system.
 
 Three backends are fully functional: QuickJS-NG (default), JavaScriptCore, and V8.
-All 44 integration tests pass on QuickJS (42 on JSC/V8 + 2 QuickJS-only).
-All built-in modules (fs, path, crypto, net, http, buffer, events, url, os) are engine-agnostic.
+All 43 integration tests pass on QuickJS (42 on JSC/V8 + 1 QuickJS-only).
+All built-in modules (fs, path, crypto, net, http, buffer, events, url, os, fetch) are engine-agnostic.
+HTTPS via OpenSSL, npm package install, and Deno API compatibility are included.
 
 Reference: [Bun's Zig->Rust port](https://github.com/oven-sh/bun/pull/30412) -- modular
 workspace with `bun_jsc` engine layer, `*_jsc` suffix pattern for engine-specific modules,
@@ -26,23 +27,23 @@ RAII wrappers, and pointer safety auditing.
 |  +---------+ +------+ +------+ +---------+                    |
 +--------------------------------------------------------------+
 |  Layer 6: Runtime API (Globals)                               |
-|  +---------+ +------------+ +---------+ +----------+          |
-|  | console | | timers_api | | process | | encoding |          |
-|  | (all 3) | |            | |         | |          |          |
-|  +---------+ +------------+ +---------+ +----------+          |
+|  +---------+ +------------+ +---------+ +------------+        |
+|  | console | | timers_api | | process | | deno_compat|        |
+|  | (all 3) | |            | |         | | (Deno.*)   |        |
+|  +---------+ +------------+ +---------+ +------------+        |
 +--------------------------------------------------------------+
 |  Layer 5: Module System                                       |
-|  +----------+ +--------+ +-----+ +----------+                 |
-|  | resolver | | loader | | esm | | builtins |                 |
-|  +----------+ +--------+ +-----+ +----------+                 |
+|  +----------+ +--------+ +-----+ +----------+ +-----+         |
+|  | resolver | | loader | | esm | | builtins | | npm |         |
+|  +----------+ +--------+ +-----+ +----------+ +-----+         |
 +--------------------------------------------------------------+
 |  Layer 4: Built-in Modules (all engine-agnostic)              |
 |  +----+ +------+ +-----+ +------+ +--------+ +-----+         |
 |  | fs | | path | | net | | http | | crypto | | os  |         |
 |  +----+ +------+ +-----+ +------+ +--------+ +-----+         |
-|  +--------+ +--------+ +-----+                                |
-|  | buffer | | events | | url |                                |
-|  +--------+ +--------+ +-----+                                |
+|  +--------+ +--------+ +-----+ +-------+                       |
+|  | buffer | | events | | url | | fetch |                       |
+|  +--------+ +--------+ +-----+ +-------+                       |
 +--------------------------------------------------------------+
 |  Cross-Cutting Concerns                                       |
 |  +----------------+ +------------------+ +----------------+   |
@@ -72,11 +73,11 @@ RAII wrappers, and pointer safety auditing.
 |  +-----------------------------------------------+            |
 +--------------------------------------------------------------+
 |  Layer 1: Platform Abstraction                                |
-|  +--------+ +-----------+ +----+ +-------+                    |
-|  | memory | | threading | | io | | paths |                    |
-|  +--------+ +-----------+ +----+ +-------+                    |
+|  +--------+ +-----------+ +----+ +-------+ +---------+        |
+|  | memory | | threading | | io | | paths | | openssl |        |
+|  +--------+ +-----------+ +----+ +-------+ +---------+        |
 +--------------------------------------------------------------+
-|  Vendor: Engine (C/C++) | OS syscalls (epoll/kqueue/poll)    |
+|  Vendor: Engine (C/C++) | OS syscalls | OpenSSL (TLS 1.2+)  |
 +--------------------------------------------------------------+
 ```
 
