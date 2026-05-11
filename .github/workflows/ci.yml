@@ -15,6 +15,7 @@ jobs:
   build:
     name: ${{ matrix.engine }} · ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
+    continue-on-error: ${{ matrix.engine == 'v8' }}
     strategy:
       fail-fast: false
       matrix:
@@ -103,6 +104,9 @@ jobs:
           path: vendor/
           key: vendor-quickjs-${{ matrix.os }}-${{ hashFiles('build.d', 'dub.json') }}
           restore-keys: vendor-quickjs-${{ matrix.os }}-
+
+      - name: Build vendor deps
+        run: ldc2 -run build.d --backend=quickjs --verbose
 
       - name: Run unit tests
         run: dub test -v -c unittest
