@@ -1413,87 +1413,180 @@ bool buildV8Shim(ref const Toolchain tc, ref const BuildOptions opts)
     logVerbose(tag, "C++ compiler: " ~ tc.cxx.path);
     logVerbose(tag, "Archiver:     " ~ tc.ar.path);
 
-    // ── Compile ────────────────────────────────────────────────────
-    logStep(tag, 1, 2, "Compiling v8shim.cpp...");
+    // ── Build: prefer CMake when available, fallback to manual ────
+    immutable cmakeLists = buildPath(v8shimDir(), "CMakeLists.txt");
+    bool useCMake = tc.cmake.found && exists(cmakeLists);
 
-    string[] compileCmd;
-    bool isMSVC = tc.cxx.name == "cl" || tc.cxx.name == "clang-cl";
-
-    if (isMSVC)
+    if (useCMake)
     {
-        compileCmd = [
-            tc.cxx.path,
-            "/std:c++20",
-            "/EHsc",
-            "/O2",
-            "/c",
-            "v8shim.cpp",
-            "/Fov8shim.obj",
+        logInfo(tag, "Building v8shim via CMake...");
+
+        immutable bDir = buildPath(v8shimDir(), "build");
+
+        if (opts.force && exists(bDir))
+            rmdirRecurse(bDir);
+
+        mkdirRecurse(bDir);
+
+        string[] cmakeArgs = [
+            tc.cmake.path, "..",
+            "-DCMAKE_BUILD_TYPE=Release",
         ];
-        if (v8Includes.length > 0)
-            compileCmd ~= "/I" ~ v8Includes;
-    }
-    else
-    {
-        compileCmd = [
-            tc.cxx.path,
-            "-std=c++20",
-            "-fPIC",
-            "-O2",
-            "-c",
-            "v8shim.cpp",
-            "-o", "v8shim.o",
-        ];
-        if (v8Includes.length > 0)
-            compileCmd ~= "-I" ~ v8Includes;
-    }
 
-    // Try pkg-config cflags (POSIX only)
-    if (!isMSVC && tc.pkgConfig.found)
-    {
-        auto r = executeShell(tc.pkgConfig.path ~ " --cflags v8 2>/dev/null");
-        if (r.status == 0 && r.output.strip().length > 0)
+        if (v8Includes.length > 0)
+            cmakeArgs ~= "-DV8_INCLUDE_DIR=" ~ v8Includes;
+
+        if (tc.platform == Platform.windows)
         {
-            foreach (flag; r.output.strip().splitter(" "))
+            cmakeArgs ~= "-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded";
+            // Detect Ninja for single-config builds
+            auto ninjaCheck = executeShell("ninja --version 2>NUL");
+            if (ninjaCheck.status == 0)
             {
-                auto f = flag.strip();
-                if (f.length > 0)
-                    compileCmd ~= f;
+                cmakeArgs ~= "-G";
+                cmakeArgs ~= "Ninja";
+            }
+        }
+
+        logStep(tag, 1, 2, "Configuring with CMake...");
+        if (runCmd(cmakeArgs, bDir, tag) != 0)
+        {
+            logWarning(tag, "CMake configure failed -- falling back to manual build");
+            useCMake = false;
+        }
+
+        if (useCMake)
+        {
+            logStep(tag, 2, 2, "Compiling...");
+            int jobCount = opts.jobs > 0 ? opts.jobs : tc.cpuCount;
+            string[] buildCmd = [
+                tc.cmake.path, "--build", ".", "-j", jobCount.to!string,
+            ];
+
+            if (tc.platform == Platform.windows)
+            {
+                auto ninjaCheck = executeShell("ninja --version 2>NUL");
+                if (ninjaCheck.status != 0)
+                {
+                    buildCmd ~= "--config";
+                    buildCmd ~= "Release";
+                }
+            }
+
+            if (runCmd(buildCmd, bDir, tag) != 0)
+            {
+                logWarning(tag, "CMake build failed -- falling back to manual build");
+                useCMake = false;
+            }
+            else
+            {
+                // Copy built library to expected location
+                version (Windows)
+                    immutable builtLib = buildPath(bDir, "v8shim.lib");
+                else
+                    immutable builtLib = buildPath(bDir, "libv8shim.a");
+
+                if (exists(builtLib))
+                    std.file.copy(builtLib, libPath);
+
+                // Also check Release/ subdirectory (MSVC multi-config)
+                if (!exists(libPath))
+                {
+                    version (Windows)
+                        immutable releaseLib = buildPath(bDir, "Release", "v8shim.lib");
+                    else
+                        immutable releaseLib = buildPath(bDir, "Release", "libv8shim.a");
+                    if (exists(releaseLib))
+                        std.file.copy(releaseLib, libPath);
+                }
             }
         }
     }
 
-    if (runCmd(compileCmd, v8shimDir(), tag) != 0)
+    if (!useCMake)
     {
-        logError(tag, "Compilation failed -- is libv8-dev installed?");
-        return false;
-    }
+        // ── Manual compile + archive fallback ─────────────────────
+        logStep(tag, 1, 2, "Compiling v8shim.cpp...");
 
-    // ── Archive ────────────────────────────────────────────────────
-    logStep(tag, 2, 2, "Creating static library...");
+        string[] compileCmd;
+        bool isMSVC = tc.cxx.name == "cl" || tc.cxx.name == "clang-cl";
 
-    if (isMSVC)
-    {
-        if (runCmd([tc.ar.path, "/OUT:v8shim.lib", "v8shim.obj"],
-                   v8shimDir(), tag) != 0)
+        if (isMSVC)
         {
-            logError(tag, "Failed to create static library");
+            compileCmd = [
+                tc.cxx.path,
+                "/std:c++20",
+                "/EHsc",
+                "/O2",
+                "/c",
+                "v8shim.cpp",
+                "/Fov8shim.obj",
+            ];
+            if (v8Includes.length > 0)
+                compileCmd ~= "/I" ~ v8Includes;
+        }
+        else
+        {
+            compileCmd = [
+                tc.cxx.path,
+                "-std=c++20",
+                "-fPIC",
+                "-O2",
+                "-c",
+                "v8shim.cpp",
+                "-o", "v8shim.o",
+            ];
+            if (v8Includes.length > 0)
+                compileCmd ~= "-I" ~ v8Includes;
+        }
+
+        // Try pkg-config cflags (POSIX only)
+        if (!isMSVC && tc.pkgConfig.found)
+        {
+            auto r = executeShell(tc.pkgConfig.path ~ " --cflags v8 2>/dev/null");
+            if (r.status == 0 && r.output.strip().length > 0)
+            {
+                foreach (flag; r.output.strip().splitter(" "))
+                {
+                    auto f = flag.strip();
+                    if (f.length > 0)
+                        compileCmd ~= f;
+                }
+            }
+        }
+
+        if (runCmd(compileCmd, v8shimDir(), tag) != 0)
+        {
+            logError(tag, "Compilation failed -- is libv8-dev installed?");
             return false;
         }
-        auto msvcObj = buildPath(v8shimDir(), "v8shim.obj");
-        if (exists(msvcObj))
-            std.file.remove(msvcObj);
-    }
-    else
-    {
-        if (runCmd([tc.ar.path, "rcs", "libv8shim.a", "v8shim.o"],
-                   v8shimDir(), tag) != 0)
+
+        // ── Archive ───────────────────────────────────────────────
+        logStep(tag, 2, 2, "Creating static library...");
+
+        if (isMSVC)
         {
-            logError(tag, "Failed to create static library");
-            return false;
+            if (runCmd([tc.ar.path, "/OUT:v8shim.lib", "v8shim.obj"],
+                       v8shimDir(), tag) != 0)
+            {
+                logError(tag, "Failed to create static library");
+                return false;
+            }
+            auto msvcObj = buildPath(v8shimDir(), "v8shim.obj");
+            if (exists(msvcObj))
+                std.file.remove(msvcObj);
         }
-        if (exists(objPath))
-            std.file.remove(objPath);
+        else
+        {
+            if (runCmd([tc.ar.path, "rcs", "libv8shim.a", "v8shim.o"],
+                       v8shimDir(), tag) != 0)
+            {
+                logError(tag, "Failed to create static library");
+                return false;
+            }
+            if (exists(objPath))
+                std.file.remove(objPath);
+        }
     }
 
     auto elapsed = MonoTime.currTime - startTime;
