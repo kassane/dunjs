@@ -33,5 +33,6 @@ bool isSubpathOf(string child, string parent) @safe
     if (child.length == parent.length)
         return true;
 
-    return child[parent.length] == '/' || parent[$ - 1] == '/';
+    import std.path : isDirSeparator;
+    return isDirSeparator(child[parent.length]) || isDirSeparator(parent[$ - 1]);
 }

@@ -36,7 +36,9 @@ import std.process;
 import std.range     : empty;
 import std.stdio;
 import std.string;
+import std.uni      : toLower;
 import std.datetime  : MonoTime, Duration, dur;
+import core.thread   : Thread;
 
 // ════════════════════════════════════════════════════════════════════
 // Configuration Constants
@@ -147,8 +149,23 @@ int detectCpuCount()
         catch (Exception) {}
     }
 
+    // Windows: NUMBER_OF_PROCESSORS environment variable
+    version (Windows)
+    {
+        auto np = environment.get("NUMBER_OF_PROCESSORS", "");
+        if (np.length > 0)
+        {
+            try { return np.to!int; }
+            catch (ConvException) {}
+        }
+    }
+
     // Fallback: nproc / sysctl
-    auto r = executeShell("nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4");
+    version (Windows)
+        auto r = executeShell("echo %NUMBER_OF_PROCESSORS%");
+    else
+        auto r = executeShell("nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4");
+
     if (r.status == 0)
     {
         try
@@ -166,17 +183,30 @@ int detectCpuCount()
 /// Detect CPU architecture for prebuilt binary downloads.
 string detectArch()
 {
-    auto r = executeShell("uname -m 2>/dev/null");
-    if (r.status == 0)
+    // Windows: use PROCESSOR_ARCHITECTURE
+    version (Windows)
     {
-        string arch = r.output.strip();
-        if (arch == "x86_64" || arch == "amd64")
+        auto arch = environment.get("PROCESSOR_ARCHITECTURE", "AMD64");
+        if (arch == "AMD64" || arch == "x86_64")
             return "amd64";
-        if (arch == "aarch64" || arch == "arm64")
+        if (arch == "ARM64" || arch == "aarch64")
             return "arm64";
-        return arch;
+        return arch.toLower();
     }
-    return "amd64";
+    else
+    {
+        auto r = executeShell("uname -m 2>/dev/null");
+        if (r.status == 0)
+        {
+            string arch = r.output.strip();
+            if (arch == "x86_64" || arch == "amd64")
+                return "amd64";
+            if (arch == "aarch64" || arch == "arm64")
+                return "arm64";
+            return arch;
+        }
+        return "amd64";
+    }
 }
 
 /// Build the download URL for prebuilt JSC from oven-sh/WebKit releases.
@@ -314,13 +344,26 @@ Toolchain detectToolchain()
     // On BSDs, prefer gmake over make
     if (tc.platform == Platform.freebsd)
         tc.make = findProgram("gmake", "make");
+    else if (tc.platform == Platform.windows)
+        tc.make = findProgram("nmake", "make", "mingw32-make");
     else
         tc.make = findProgram("make", "gmake");
 
-    tc.cmake     = findProgram("cmake");
-    tc.cc        = findProgram("cc", "gcc", "clang");
-    tc.cxx       = findProgram("c++", "g++", "clang++");
-    tc.ar        = findProgram("ar", "llvm-ar");
+    tc.cmake = findProgram("cmake");
+
+    if (tc.platform == Platform.windows)
+    {
+        tc.cc  = findProgram("cl", "clang-cl", "gcc", "cc");
+        tc.cxx = findProgram("cl", "clang-cl", "g++", "c++");
+        tc.ar  = findProgram("lib", "llvm-lib", "ar", "llvm-ar");
+    }
+    else
+    {
+        tc.cc  = findProgram("cc", "gcc", "clang");
+        tc.cxx = findProgram("c++", "g++", "clang++");
+        tc.ar  = findProgram("ar", "llvm-ar");
+    }
+
     tc.pkgConfig = findProgram("pkg-config", "pkgconf");
     tc.curl      = findProgram("curl");
     tc.wget      = findProgram("wget");
@@ -546,8 +589,7 @@ bool downloadFile(ref const Toolchain tc, string url, string dest, string tag = 
                           ~ DOWNLOAD_MAX_RETRIES.to!string
                           ~ " after " ~ DOWNLOAD_RETRY_DELAY_SECS.to!string
                           ~ " second delay...");
-            // Simple retry delay using sleep command
-            executeShell("sleep " ~ DOWNLOAD_RETRY_DELAY_SECS.to!string);
+            Thread.sleep(dur!"seconds"(DOWNLOAD_RETRY_DELAY_SECS));
         }
 
         int status;
@@ -604,8 +646,16 @@ bool downloadFile(ref const Toolchain tc, string url, string dest, string tag = 
 /// Quote a string for shell use.
 string shellQuote(string s)
 {
-    // Simple quoting: wrap in single quotes, escape internal single quotes
-    return "'" ~ s.replace("'", "'\\''") ~ "'";
+    version (Windows)
+    {
+        // Windows cmd: wrap in double quotes, escape internal double quotes
+        return "\"" ~ s.replace("\"", "\\\"") ~ "\"";
+    }
+    else
+    {
+        // POSIX: wrap in single quotes, escape internal single quotes
+        return "'" ~ s.replace("'", "'\\''") ~ "'";
+    }
 }
 
 // ════════════════════════════════════════════════════════════════════
@@ -667,7 +717,7 @@ bool downloadAndExtract(ref const Toolchain tc, string url, string archive,
     if (!downloadFile(tc, url, archive, tag))
         return false;
 
-    // Extract
+    // Extract (tar is built into Windows 10+ and all POSIX systems)
     logVerbose(tag, "Extracting archive...");
     mkdirRecurse(destDir);
 
@@ -733,7 +783,7 @@ bool buildQuickJS(ref const Toolchain tc, ref const BuildOptions opts)
         logError(tag, "CMake not found. Install cmake (e.g., apt install cmake).");
         return false;
     }
-    if (!tc.make.found)
+    if (!tc.make.found && tc.platform != Platform.windows)
     {
         logError(tag, "Make not found. Install make (e.g., apt install make).");
         return false;
@@ -777,15 +827,24 @@ bool buildQuickJS(ref const Toolchain tc, ref const BuildOptions opts)
     string[] cmakeArgs = [
         tc.cmake.path,
         "..",
-        "-DCMAKE_BUILD_TYPE=Release",
-        "-DCMAKE_C_FLAGS=-fPIC -O2",
         "-DBUILD_SHARED_LIBS=OFF",
         "-DBUILD_EXAMPLES=OFF",
     ];
 
-    // Use detected C compiler
-    if (tc.cc.found)
-        cmakeArgs ~= "-DCMAKE_C_COMPILER=" ~ tc.cc.path;
+    if (tc.platform == Platform.windows)
+    {
+        // MSVC: use multi-config generator, build Release below
+        cmakeArgs ~= "-DCMAKE_C_FLAGS=/O2";
+    }
+    else
+    {
+        cmakeArgs ~= "-DCMAKE_BUILD_TYPE=Release";
+        cmakeArgs ~= "-DCMAKE_C_FLAGS=-fPIC -O2";
+
+        // Use detected C compiler
+        if (tc.cc.found)
+            cmakeArgs ~= "-DCMAKE_C_COMPILER=" ~ tc.cc.path;
+    }
 
     // macOS: set minimum deployment target
     if (tc.platform == Platform.macos)
@@ -805,12 +864,29 @@ bool buildQuickJS(ref const Toolchain tc, ref const BuildOptions opts)
     int jobCount = opts.jobs > 0 ? opts.jobs : tc.cpuCount;
     logStep(tag, 4, 4, "Compiling with " ~ jobCount.to!string ~ " parallel jobs...");
 
-    // Build the qjs library target (not the full project with executables)
-    if (runCmd([tc.make.path, "-j" ~ jobCount.to!string, "qjs"], bDir, tag) != 0)
+    // Use cmake --build for cross-platform compatibility (works with Make, Ninja, MSVC)
+    string[] buildCmd = [
+        tc.cmake.path, "--build", ".",
+        "--target", "qjs",
+        "-j", jobCount.to!string,
+    ];
+
+    if (tc.platform == Platform.windows)
+        buildCmd ~= ["--config", "Release"];
+
+    if (runCmd(buildCmd, bDir, tag) != 0)
     {
         // Retry with single job for clearer error output
-        logWarning(tag, "Parallel build failed, retrying with -j1...");
-        if (runCmd([tc.make.path, "-j1", "qjs"], bDir, tag) != 0)
+        logWarning(tag, "Parallel build failed, retrying with -j 1...");
+        string[] retryCmd = [
+            tc.cmake.path, "--build", ".",
+            "--target", "qjs",
+            "-j", "1",
+        ];
+        if (tc.platform == Platform.windows)
+            retryCmd ~= ["--config", "Release"];
+
+        if (runCmd(retryCmd, bDir, tag) != 0)
         {
             logError(tag, "QuickJS-NG compilation failed");
             return false;
@@ -824,8 +900,12 @@ bool buildQuickJS(ref const Toolchain tc, ref const BuildOptions opts)
 
         // Try to find it somewhere in the build tree
         logVerbose(tag, "Searching build tree for " ~ QJS_LIB_NAME ~ "...");
-        auto findResult = executeShell(
-            "find " ~ shellQuote(bDir) ~ " -name '" ~ QJS_LIB_NAME ~ "' 2>/dev/null");
+        version (Windows)
+            auto findResult = executeShell(
+                "where /R " ~ shellQuote(bDir) ~ " " ~ QJS_LIB_NAME ~ " 2>NUL");
+        else
+            auto findResult = executeShell(
+                "find " ~ shellQuote(bDir) ~ " -name '" ~ QJS_LIB_NAME ~ "' 2>/dev/null");
         if (findResult.status == 0 && findResult.output.strip().length > 0)
         {
             logError(tag, "Found at: " ~ findResult.output.strip());
@@ -1059,22 +1139,40 @@ bool buildV8Shim(ref const Toolchain tc, ref const BuildOptions opts)
     // ── Compile ────────────────────────────────────────────────────
     logStep(tag, 1, 2, "Compiling v8shim.cpp...");
 
-    string[] compileCmd = [
-        tc.cxx.path,
-        "-std=c++17",
-        "-fPIC",
-        "-O2",
-        "-c",
-        "v8shim.cpp",
-        "-o", "v8shim.o",
-    ];
+    string[] compileCmd;
+    bool isMSVC = tc.cxx.name == "cl" || tc.cxx.name == "clang-cl";
 
-    // Add V8 include path (vendored, system, or pkg-config)
-    if (v8Includes.length > 0)
-        compileCmd ~= "-I" ~ v8Includes;
+    if (isMSVC)
+    {
+        compileCmd = [
+            tc.cxx.path,
+            "/std:c++17",
+            "/EHsc",
+            "/O2",
+            "/c",
+            "v8shim.cpp",
+            "/Fov8shim.obj",
+        ];
+        if (v8Includes.length > 0)
+            compileCmd ~= "/I" ~ v8Includes;
+    }
+    else
+    {
+        compileCmd = [
+            tc.cxx.path,
+            "-std=c++17",
+            "-fPIC",
+            "-O2",
+            "-c",
+            "v8shim.cpp",
+            "-o", "v8shim.o",
+        ];
+        if (v8Includes.length > 0)
+            compileCmd ~= "-I" ~ v8Includes;
+    }
 
-    // Try pkg-config cflags
-    if (tc.pkgConfig.found)
+    // Try pkg-config cflags (POSIX only)
+    if (!isMSVC && tc.pkgConfig.found)
     {
         auto r = executeShell(tc.pkgConfig.path ~ " --cflags v8 2>/dev/null");
         if (r.status == 0 && r.output.strip().length > 0)
@@ -1097,16 +1195,29 @@ bool buildV8Shim(ref const Toolchain tc, ref const BuildOptions opts)
     // ── Archive ────────────────────────────────────────────────────
     logStep(tag, 2, 2, "Creating static library...");
 
-    if (runCmd([tc.ar.path, "rcs", "libv8shim.a", "v8shim.o"],
-               v8shimDir(), tag) != 0)
+    if (isMSVC)
     {
-        logError(tag, "Failed to create static library");
-        return false;
+        if (runCmd([tc.ar.path, "/OUT:v8shim.lib", "v8shim.obj"],
+                   v8shimDir(), tag) != 0)
+        {
+            logError(tag, "Failed to create static library");
+            return false;
+        }
+        auto msvcObj = buildPath(v8shimDir(), "v8shim.obj");
+        if (exists(msvcObj))
+            std.file.remove(msvcObj);
     }
-
-    // Clean up object file
-    if (exists(objPath))
-        std.file.remove(objPath);
+    else
+    {
+        if (runCmd([tc.ar.path, "rcs", "libv8shim.a", "v8shim.o"],
+                   v8shimDir(), tag) != 0)
+        {
+            logError(tag, "Failed to create static library");
+            return false;
+        }
+        if (exists(objPath))
+            std.file.remove(objPath);
+    }
 
     auto elapsed = MonoTime.currTime - startTime;
     auto libSize = getSize(libPath);

@@ -35,7 +35,8 @@ struct ModuleResolver
             return buildNormalizedPath(specifier);
 
         // 3. Relative paths
-        if (specifier.startsWith("./") || specifier.startsWith("../"))
+        if (specifier.startsWith("./") || specifier.startsWith("../")
+            || specifier.startsWith(".\\") || specifier.startsWith("..\\"))
         {
             auto base = dirName(importerPath);
             return buildNormalizedPath(base, specifier);

@@ -21,11 +21,13 @@
 
     "libs-linux": ["m", "dl", "pthread"],
     "libs-osx": ["m", "pthread"],
+    "libs-windows": ["legacy_stdio_definitions"],
 
     "buildTypes": {
         "release": {
             "dflags": ["-O", "-release", "-boundscheck=off"],
-            "lflags-posix": ["-s"]
+            "lflags-posix": ["-s"],
+            "lflags-windows": ["/OPT:REF", "/OPT:ICF"]
         },
         "release-debug": {
             "dflags": ["-O", "-g"]
@@ -39,6 +41,9 @@
             "preBuildCommands-posix": [
                 "$DC -run $PACKAGE_DIR/build.d --backend=quickjs"
             ],
+            "preBuildCommands-windows": [
+                "$DC -run $PACKAGE_DIR\\build.d --backend=quickjs"
+            ],
             "excludedSourceFiles": [
                 "source/dun/engine/jsc/backend.d",
                 "source/dun/engine/jsc/cppbindings.d",
@@ -46,7 +51,9 @@
                 "source/dun/engine/v8/cppbindings.d"
             ],
             "libs-posix": ["qjs"],
-            "lflags-posix": ["-L$PACKAGE_DIR/vendor/quickjs/build"]
+            "lflags-posix": ["-L$PACKAGE_DIR/vendor/quickjs/build"],
+            "libs-windows": ["qjs"],
+            "lflags-windows": ["/LIBPATH:$PACKAGE_DIR\\vendor\\quickjs\\build"]
         },
         {
             "name": "jsc",
@@ -75,6 +82,9 @@
             "preBuildCommands-posix": [
                 "$DC -run $PACKAGE_DIR/build.d --backend=v8"
             ],
+            "preBuildCommands-windows": [
+                "$DC -run $PACKAGE_DIR\\build.d --backend=v8"
+            ],
             "excludedSourceFiles": [
                 "source/dun/engine/quickjs/backend.d",
                 "source/dun/engine/quickjs/context.d",
@@ -87,7 +97,9 @@
             ],
             "libs-linux": ["v8shim", "v8", "v8_libplatform", "stdc++"],
             "libs-osx": ["v8shim", "v8", "v8_libplatform", "c++"],
-            "lflags-posix": ["-L$PACKAGE_DIR/vendor/v8shim"]
+            "libs-windows": ["v8shim", "v8", "v8_libplatform"],
+            "lflags-posix": ["-L$PACKAGE_DIR/vendor/v8shim"],
+            "lflags-windows": ["/LIBPATH:$PACKAGE_DIR\\vendor\\v8shim"]
         },
         {
             "name": "unittest",
@@ -97,6 +109,9 @@
             "preBuildCommands-posix": [
                 "$DC -run $PACKAGE_DIR/build.d --backend=quickjs"
             ],
+            "preBuildCommands-windows": [
+                "$DC -run $PACKAGE_DIR\\build.d --backend=quickjs"
+            ],
             "excludedSourceFiles": [
                 "source/dun/engine/jsc/backend.d",
                 "source/dun/engine/jsc/cppbindings.d",
@@ -104,7 +119,9 @@
                 "source/dun/engine/v8/cppbindings.d"
             ],
             "libs-posix": ["qjs"],
-            "lflags-posix": ["-L$PACKAGE_DIR/vendor/quickjs/build"]
+            "lflags-posix": ["-L$PACKAGE_DIR/vendor/quickjs/build"],
+            "libs-windows": ["qjs"],
+            "lflags-windows": ["/LIBPATH:$PACKAGE_DIR\\vendor\\quickjs\\build"]
         }
     ]
 }

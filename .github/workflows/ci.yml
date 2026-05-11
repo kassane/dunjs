@@ -19,10 +19,11 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # QuickJS: Linux + macOS
-          - { os: ubuntu-latest, engine: quickjs }
-          - { os: macos-13,      engine: quickjs }
-          # JSC: system library
+          # QuickJS: Linux + macOS + Windows
+          - { os: ubuntu-latest,  engine: quickjs }
+          - { os: macos-13,       engine: quickjs }
+          - { os: windows-latest, engine: quickjs }
+          # JSC: system library (Linux + macOS only)
           - { os: ubuntu-latest, engine: jsc }
           - { os: macos-13,      engine: jsc }
           # V8: via C++ shim (best-effort)
@@ -56,7 +57,13 @@ jobs:
           key: vendor-${{ matrix.engine }}-${{ matrix.os }}-${{ hashFiles('build.d', 'dub.json') }}
           restore-keys: vendor-${{ matrix.engine }}-${{ matrix.os }}-
 
-      - name: Build vendor deps
+      - name: Build vendor deps (POSIX)
+        if: runner.os != 'Windows'
+        run: ldc2 -run build.d --backend=${{ matrix.engine }} --verbose
+
+      - name: Build vendor deps (Windows)
+        if: runner.os == 'Windows'
+        shell: cmd
         run: ldc2 -run build.d --backend=${{ matrix.engine }} --verbose
 
       - name: Build (debug)
@@ -80,12 +87,20 @@ jobs:
         if: matrix.engine == 'quickjs'
         run: dub build -v -c ${{ matrix.engine }} -b release
 
-      - name: Upload binary
-        if: matrix.engine == 'quickjs'
+      - name: Upload binary (POSIX)
+        if: matrix.engine == 'quickjs' && runner.os != 'Windows'
         uses: actions/upload-artifact@v4
         with:
           name: dun-${{ matrix.engine }}-${{ matrix.os }}
           path: build/dun
+          retention-days: 7
+
+      - name: Upload binary (Windows)
+        if: matrix.engine == 'quickjs' && runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: dun-${{ matrix.engine }}-${{ matrix.os }}
+          path: build/dun.exe
           retention-days: 7
 
   # ── Unit tests ────────────────────────────────────────────────
@@ -98,6 +113,7 @@ jobs:
         include:
           - { os: ubuntu-latest }
           - { os: macos-13 }
+          - { os: windows-latest }
 
     steps:
       - uses: actions/checkout@v4
@@ -115,7 +131,13 @@ jobs:
           key: vendor-quickjs-${{ matrix.os }}-${{ hashFiles('build.d', 'dub.json') }}
           restore-keys: vendor-quickjs-${{ matrix.os }}-
 
-      - name: Build vendor deps
+      - name: Build vendor deps (POSIX)
+        if: runner.os != 'Windows'
+        run: ldc2 -run build.d --backend=quickjs --verbose
+
+      - name: Build vendor deps (Windows)
+        if: runner.os == 'Windows'
+        shell: cmd
         run: ldc2 -run build.d --backend=quickjs --verbose
 
       - name: Run unit tests
@@ -132,6 +154,7 @@ jobs:
         include:
           - { os: ubuntu-latest }
           - { os: macos-13 }
+          - { os: windows-latest }
 
     steps:
       - uses: actions/checkout@v4
@@ -142,7 +165,8 @@ jobs:
           name: dun-quickjs-${{ matrix.os }}
           path: build/
 
-      - name: Run integration tests
+      - name: Run integration tests (POSIX)
+        if: runner.os != 'Windows'
         run: |
           chmod +x build/dun
           pass=0 fail=0 skip=0
@@ -167,3 +191,35 @@ jobs:
           echo ""
           echo "Results: $pass passed, $fail failed, $skip skipped"
           [ "$fail" -eq 0 ]
+
+      - name: Run integration tests (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $pass = 0; $fail = 0; $skip = 0
+          foreach ($fixture in Get-ChildItem tests/integration/fixtures/*.js) {
+            $name = $fixture.BaseName
+            $expected = "tests/integration/expected/${name}.txt"
+            if (-not (Test-Path $expected)) {
+              Write-Host "SKIP $name"
+              $skip++
+              continue
+            }
+            $expectedContent = (Get-Content $expected -Raw).TrimEnd()
+            $output = (& build/dun.exe run $fixture.FullName 2>&1) | Out-String
+            $output = $output.TrimEnd()
+            if ($output -eq $expectedContent) {
+              Write-Host "PASS $name"
+              $pass++
+            } else {
+              Write-Host "FAIL $name"
+              Write-Host "Expected:"
+              Write-Host $expectedContent
+              Write-Host "Got:"
+              Write-Host $output
+              $fail++
+            }
+          }
+          Write-Host ""
+          Write-Host "Results: $pass passed, $fail failed, $skip skipped"
+          if ($fail -gt 0) { exit 1 }
