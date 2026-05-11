@@ -1,0 +1,12 @@
+test error
+true
+true
+true
+wrapper
+original
+caught
+finally
+MyError
+custom
+true
+true
