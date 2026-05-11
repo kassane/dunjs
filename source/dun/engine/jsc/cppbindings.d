@@ -40,7 +40,7 @@ enum JSCTypeTag
 }
 
 static assert(__traits(allMembers, JSCTypeTag).length == 10,
-    "JSCTypeTag member count changed — update JSCTypeChecks table and JSCTypeName template");
+    "JSCTypeTag member count changed -- update JSCTypeChecks table and JSCTypeName template");
 
 /// Compile-time map: JSCTypeTag → display name.
 template JSCTypeName(JSCTypeTag tag)

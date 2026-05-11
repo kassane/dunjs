@@ -34,7 +34,7 @@ enum V8TypeTag
 }
 
 static assert(__traits(allMembers, V8TypeTag).length == 9,
-    "V8TypeTag member count changed — update V8TypeChecks table and V8TypeName template");
+    "V8TypeTag member count changed -- update V8TypeChecks table and V8TypeName template");
 
 /// Compile-time map: V8TypeTag → C shim function name suffix.
 /// Mirrors C++ V8TypeMap<Tag> — both are compile-time dispatch tables.

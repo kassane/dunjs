@@ -18,7 +18,7 @@ enum Permission
 }
 
 static assert(__traits(allMembers, Permission).length == 8,
-    "Permission enum member count changed — update parseFlag mappings");
+    "Permission enum member count changed -- update parseFlag mappings");
 
 /// State of a permission.
 enum PermissionState

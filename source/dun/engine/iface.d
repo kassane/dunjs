@@ -9,9 +9,7 @@ struct JSHandle
 static assert(JSHandle.sizeof >= 2 * (void*).sizeof,
     "JSHandle must hold at least two pointers for engine value storage");
 static assert(JSHandle.sizeof <= 24,
-    "JSHandle unexpectedly large — review layout");
-static assert(__traits(allMembers, EngineBackend).length == 3,
-    "EngineBackend member count changed — update createEngine and CLAUDE.md");
+    "JSHandle unexpectedly large -- review layout");
 
 struct JSResult
 {
@@ -137,6 +135,9 @@ enum EngineBackend
     jsc,
     v8,
 }
+
+static assert(__traits(allMembers, EngineBackend).length == 3,
+    "EngineBackend member count changed -- update createEngine and CLAUDE.md");
 
 IJSEngine createEngine()
 {
