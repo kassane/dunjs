@@ -34,7 +34,7 @@ jobs:
 
       - uses: dlang-community/setup-dlang@v2
         with:
-          compiler: ldc-1.42.0
+          compiler: ldc-latest
 
       - name: Install system deps (JSC · Linux)
         if: matrix.engine == 'jsc' && runner.os == 'Linux'
@@ -94,7 +94,7 @@ jobs:
 
       - uses: dlang-community/setup-dlang@v2
         with:
-          compiler: ldc-1.42.0
+          compiler: ldc-latest
 
       - uses: lukka/get-cmake@latest
 
