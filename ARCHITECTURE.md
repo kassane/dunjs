@@ -3,7 +3,7 @@
 ## Overview
 
 DunJS is a 7-layer JavaScript/TypeScript runtime with a **pluggable engine architecture**
-(IJSEngine interface), an eventcore-based event loop, and a Deno-inspired permission system.
+(IJSEngine interface), a cross-platform I/O poller (epoll/kqueue/poll), and a Deno-inspired permission system.
 
 Three backends are fully functional: QuickJS-NG (default), JavaScriptCore, and V8.
 All 38 integration tests pass on QuickJS (including 9 real-world end-to-end scenarios).
@@ -72,7 +72,7 @@ RAII wrappers, and pointer safety auditing.
 |  | memory | | threading | | io | | paths |                    |
 |  +--------+ +-----------+ +----+ +-------+                    |
 +--------------------------------------------------------------+
-|  Vendor: Engine (C/C++) | eventcore (D) | OS (POSIX/Win32)   |
+|  Vendor: Engine (C/C++) | OS syscalls (epoll/kqueue/poll)    |
 +--------------------------------------------------------------+
 ```
 
@@ -405,7 +405,7 @@ that require linking against V8's C++ objects -- these MUST go through the C shi
 | TypeScript | Via tsc/swc | Built-in check+strip | Built-in transpile | **Type stripping** |
 | Engine FFI | Native C++ | rusty_v8 (Rust bindings) | Zig extern(C++) | **extern(C) + C shim** |
 | TMP Bridge | N/A | N/A | N/A | **C++ TMP <-> D TMP** |
-| Event Loop | libuv | Tokio | io_uring | **eventcore** |
+| Event Loop | libuv | Tokio | io_uring | **epoll/kqueue/poll** |
 | Permission | None | Deny-all | None | **Deny-all** |
 | Module Prefix | `node:` | `node:` | `bun:` | **`dun:`** |
 | Memory Safety | Manual | Borrow checker | Manual | **@safe/@trusted** |
@@ -427,7 +427,7 @@ that require linking against V8's C++ objects -- these MUST go through the C shi
 | D TMP (JSC) | JSCTypeChecks + getType() | Single-dispatch via JSValueGetType(), mirrors kJSType* |
 | C++ FFI (direct) | extern(C++, "v8") | Only for static-method classes (no vtable) |
 | V8 headers | Vendored from Node.js | Eliminate libv8-dev compile dependency |
-| Event loop | eventcore | D-native, proactor pattern, cross-platform |
+| Event loop | epoll/kqueue/poll | D stdlib syscalls, zero deps, cross-platform |
 | Build system | DUB (JSON) | Standard D tooling, configurations per engine |
 | Build orchestrator | build.d | CMake, curl downloads, toolchain detection |
 | Async model | Callback loop + Promise jobs | Matches engine internal async handling |

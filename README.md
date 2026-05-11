@@ -9,7 +9,7 @@ A secure JavaScript/TypeScript runtime written in **D**, inspired by [Deno](http
 - **Security-first** -- Default-deny permissions (like Deno): `--allow-read`, `--allow-net`, etc.
 - **D language** -- Zero-cost C FFI, `@safe`/`@trusted` memory safety, RAII resource management
 - **C++ TMP bridge** -- Cross-language template metaprogramming between D and C++ (V8 + JSC backends)
-- **eventcore async I/O** -- Native D event loop with epoll/kqueue/IOCP support
+- **Cross-platform I/O** -- Native poller (epoll on Linux, kqueue on macOS/BSD, poll(2) fallback)
 - **Small binary** -- Target <5MB standalone executable
 - **Built-in modules** -- `dun:fs`, `dun:path`, `dun:net`, `dun:http`, `dun:crypto`
 
@@ -108,7 +108,7 @@ DunJS is organized in 7 layers plus cross-cutting concerns:
 | 6 | Runtime API (console, timers, process) | `source/dun/runtime/` |
 | 5 | Module System (ES modules, resolver) | `source/dun/modules/` |
 | 4 | Built-in Modules (fs, path, net, http) | `source/dun/builtins/` |
-| 3 | Event Loop (eventcore, timers, microtasks) | `source/dun/loop/` |
+| 3 | Event Loop (epoll/kqueue/poll, timers, microtasks) | `source/dun/loop/` |
 | 2 | JS Engine Abstraction (IJSEngine + backends) | `source/dun/engine/` |
 | 1 | Platform Abstraction (memory, threading) | `source/dun/platform/` |
 | Cross | TypeScript type stripping | `source/dun/ts/` |
@@ -219,7 +219,7 @@ Standalone JS/TS scripts compared against expected stdout:
 | JS Engine | V8 | V8 | JSC | **Pluggable (3 backends)** |
 | TypeScript | Via tsc/swc | Built-in | Built-in | **Type stripping** |
 | Engine FFI | Native C++ | rusty_v8 | Zig extern(C++) | **extern(C) + C shim** |
-| Event Loop | libuv | Tokio | io_uring | **eventcore** |
+| Event Loop | libuv | Tokio | io_uring | **epoll/kqueue/poll** |
 | Permissions | None | Deny-all | None | **Deny-all** |
 | Module Prefix | `node:` | `node:` | `bun:` | **`dun:`** |
 | Memory Safety | Manual | Borrow checker | Manual | **@safe/@trusted** |
