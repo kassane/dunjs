@@ -387,4 +387,4 @@ Not supported (have runtime semantics):
 | 6a | Networking | net.d TCP + npm compat (node_modules) + I/O polling | **Done** |
 | 6b | HTTP server | http.d HTTP/1.1 createServer/listen/close, req/res, epoll | **Done** |
 | 6c | Workers | Web Workers + SharedArrayBuffer + Atomics (QuickJS-only) | **Done** |
-| 6d | io_uring | Linux io_uring backend for IOPoller (IORING_OP_POLL_ADD) | **In Progress** |
+| 6d | io_uring | Linux io_uring backend for IOPoller (IORING_OP_POLL_ADD) | **Done** |
