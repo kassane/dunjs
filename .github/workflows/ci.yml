@@ -11,30 +11,29 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # ── Build matrix (engine × OS × compiler) ─────────────────────
+  # ── Build matrix (engine × OS) ──────────────────────────────────
   build:
-    name: ${{ matrix.engine }} · ${{ matrix.os }} · ${{ matrix.dc }}
+    name: ${{ matrix.engine }} · ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         include:
-          # QuickJS: Linux + macOS, LDC + DMD (DMD linux-only, no macOS ARM64)
-          - { os: ubuntu-latest, dc: ldc-latest, engine: quickjs }
-          - { os: ubuntu-latest, dc: dmd-latest, engine: quickjs }
-          - { os: macos-13,      dc: ldc-latest, engine: quickjs }
+          # QuickJS: Linux + macOS
+          - { os: ubuntu-latest, engine: quickjs }
+          - { os: macos-13,      engine: quickjs }
           # JSC: system library
-          - { os: ubuntu-latest, dc: ldc-latest, engine: jsc }
-          - { os: macos-13,      dc: ldc-latest, engine: jsc }
+          - { os: ubuntu-latest, engine: jsc }
+          - { os: macos-13,      engine: jsc }
           # V8: via C++ shim (best-effort)
-          - { os: ubuntu-latest, dc: ldc-latest, engine: v8 }
+          - { os: ubuntu-latest, engine: v8 }
 
     steps:
       - uses: actions/checkout@v4
 
       - uses: dlang-community/setup-dlang@v2
         with:
-          compiler: ${{ matrix.dc }}
+          compiler: ldc-latest
 
       - name: Install system deps (JSC · Linux)
         if: matrix.engine == 'jsc' && runner.os == 'Linux'
@@ -61,7 +60,7 @@ jobs:
           restore-keys: vendor-${{ matrix.engine }}-${{ matrix.os }}-
 
       - name: Build vendor deps
-        run: ${{ matrix.dc == 'ldc-latest' && 'ldc2' || 'dmd' }} -run build.d --backend=${{ matrix.engine }} --verbose
+        run: ldc2 -run build.d --backend=${{ matrix.engine }} --verbose
 
       - name: Build (debug)
         run: dub build -v -c ${{ matrix.engine }}
@@ -74,28 +73,27 @@ jobs:
         if: matrix.engine == 'quickjs'
         uses: actions/upload-artifact@v4
         with:
-          name: dun-${{ matrix.engine }}-${{ matrix.os }}-${{ matrix.dc }}
+          name: dun-${{ matrix.engine }}-${{ matrix.os }}
           path: build/dun
           retention-days: 7
 
   # ── Unit tests ────────────────────────────────────────────────
   test:
-    name: Test · ${{ matrix.os }} · ${{ matrix.dc }}
+    name: Test · ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         include:
-          - { os: ubuntu-latest, dc: ldc-latest }
-          - { os: ubuntu-latest, dc: dmd-latest }
-          - { os: macos-13,      dc: ldc-latest }
+          - { os: ubuntu-latest }
+          - { os: macos-13 }
 
     steps:
       - uses: actions/checkout@v4
 
       - uses: dlang-community/setup-dlang@v2
         with:
-          compiler: ${{ matrix.dc }}
+          compiler: ldc-latest
 
       - uses: lukka/get-cmake@latest
 
@@ -127,7 +125,7 @@ jobs:
       - name: Download binary
         uses: actions/download-artifact@v4
         with:
-          name: dun-quickjs-${{ matrix.os }}-ldc-latest
+          name: dun-quickjs-${{ matrix.os }}
           path: build/
 
       - name: Run integration tests

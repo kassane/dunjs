@@ -50,13 +50,25 @@ enum Platform { linux, macos, freebsd, windows, unknown }
 enum Verbosity { normal, verbose }
 
 // QuickJS-NG configuration
-enum QJS_VERSION    = "v0.9.0";
-enum QJS_URL_TAGGED = "https://github.com/quickjs-ng/quickjs/archive/refs/tags/"
-                    ~ QJS_VERSION ~ ".tar.gz";
-enum QJS_URL_MASTER = "https://github.com/quickjs-ng/quickjs/archive/refs/heads/master.tar.gz";
-enum QJS_LIB_NAME   = "libqjs.a";
+enum QJS_REPO        = "quickjs-ng/quickjs";
+enum QJS_VERSION     = "v0.9.0";
+enum QJS_URL_TAGGED  = "https://github.com/" ~ QJS_REPO ~ "/archive/refs/tags/"
+                     ~ QJS_VERSION ~ ".tar.gz";
+enum QJS_URL_MASTER  = "https://github.com/" ~ QJS_REPO ~ "/archive/refs/heads/master.tar.gz";
+enum QJS_LIB_NAME    = "libqjs.a";
+enum QJS_SRC_MARKER  = "quickjs.h";
 
-// V8 shim configuration
+// JavaScriptCore configuration
+// Prebuilt JSC static libraries from oven-sh/WebKit (same as Bun uses).
+// Falls back to system packages (libjavascriptcoregtk-4.1-dev) if download
+// fails or on unsupported platforms.
+enum JSC_WEBKIT_VERSION = "88b2f7a2159c913f7dd0d73c0e88d66138cd67ba";
+enum JSC_PKG_NAMES      = ["javascriptcoregtk-4.1", "javascriptcoregtk-6.0", "javascriptcoregtk-4.0"];
+enum JSC_LIB_MARKER     = "lib/libJavaScriptCore.a";
+
+// V8 configuration
+// V8 requires system-installed headers (libv8-dev) to compile the C++ shim.
+// Downloading V8 source (~1GB) is impractical; use system packages instead.
 enum V8_INCLUDE_PATH = "/usr/include/v8";
 
 // Download retry configuration
@@ -66,10 +78,12 @@ enum DOWNLOAD_RETRY_DELAY_SECS = 2;
 // Derived paths (computed at module init via immutable + CTFE-safe dirName)
 immutable PACKAGE_DIR = __FILE_FULL_PATH__.dirName;
 
-string vendorDir()   { return buildPath(PACKAGE_DIR, "vendor"); }
-string qjsDir()     { return buildPath(vendorDir(), "quickjs"); }
+string vendorDir()    { return buildPath(PACKAGE_DIR, "vendor"); }
+string qjsDir()      { return buildPath(vendorDir(), "quickjs"); }
 string qjsBuildDir() { return buildPath(qjsDir(), "build"); }
-string qjsArchive() { return buildPath(vendorDir(), "quickjs.tar.gz"); }
+string qjsArchive()  { return buildPath(vendorDir(), "quickjs.tar.gz"); }
+string jscDir()      { return buildPath(vendorDir(), "jsc"); }
+string jscArchive()  { return buildPath(vendorDir(), "jsc.tar.gz"); }
 string v8shimDir()   { return buildPath(vendorDir(), "v8shim"); }
 
 // ════════════════════════════════════════════════════════════════════
@@ -133,6 +147,38 @@ int detectCpuCount()
         }
     }
     return 4;
+}
+
+/// Detect CPU architecture for prebuilt binary downloads.
+string detectArch()
+{
+    auto r = executeShell("uname -m 2>/dev/null");
+    if (r.status == 0)
+    {
+        string arch = r.output.strip();
+        if (arch == "x86_64" || arch == "amd64")
+            return "amd64";
+        if (arch == "aarch64" || arch == "arm64")
+            return "arm64";
+        return arch;
+    }
+    return "amd64";
+}
+
+/// Build the download URL for prebuilt JSC from oven-sh/WebKit releases.
+string jscPrebuiltUrl(Platform platform, string arch)
+{
+    string os;
+    final switch (platform)
+    {
+        case Platform.linux:   os = "linux";   break;
+        case Platform.macos:   os = "macos";   break;
+        case Platform.freebsd: os = "freebsd"; break;
+        case Platform.windows: os = "windows"; break;
+        case Platform.unknown: return "";
+    }
+    return "https://github.com/oven-sh/WebKit/releases/download/autobuild-"
+         ~ JSC_WEBKIT_VERSION ~ "/bun-webkit-" ~ os ~ "-" ~ arch ~ "-lto.tar.gz";
 }
 
 // ════════════════════════════════════════════════════════════════════
@@ -549,6 +595,95 @@ string shellQuote(string s)
 }
 
 // ════════════════════════════════════════════════════════════════════
+// Shared Download & Extract Helper
+// ════════════════════════════════════════════════════════════════════
+
+/**
+ * Download a source tarball from a URL and extract it into a destination
+ * directory.  Skips the download when `marker` (a path relative to `destDir`)
+ * already exists, indicating a previous successful extraction.
+ *
+ * This is the common pattern used by every backend that fetches vendor
+ * sources from GitHub:
+ *   1. If marker file exists → skip (already extracted).
+ *   2. Remove any stale `destDir`.
+ *   3. Download the tarball to `archive`.
+ *   4. Extract with `tar --strip-components=1`.
+ *   5. Verify the marker file appeared.
+ *   6. Delete the archive.
+ *
+ * Params:
+ *   tc       = Detected toolchain (for download tool).
+ *   url      = Remote URL of the .tar.gz archive.
+ *   archive  = Local path for the downloaded archive.
+ *   destDir  = Directory to extract into.
+ *   marker   = Relative path inside `destDir` whose existence proves success.
+ *   tag      = Logging tag (e.g. "quickjs", "jsc", "v8").
+ *
+ * Returns: `true` on success (or if already present), `false` on failure.
+ */
+bool downloadAndExtract(ref const Toolchain tc, string url, string archive,
+                         string destDir, string marker, string tag)
+{
+    immutable markerPath = buildPath(destDir, marker);
+
+    if (exists(markerPath))
+    {
+        logInfo(tag, "Source already present -- skipping download");
+        return true;
+    }
+
+    // Require a download tool
+    if (!tc.hasDownloader())
+    {
+        logError(tag, "No download tool (curl/wget) found.");
+        return false;
+    }
+
+    // Clean any partial previous download
+    if (exists(destDir))
+    {
+        logVerbose(tag, "Removing stale source directory...");
+        rmdirRecurse(destDir);
+    }
+
+    mkdirRecurse(vendorDir());
+
+    // Download the tarball
+    if (!downloadFile(tc, url, archive, tag))
+        return false;
+
+    // Extract
+    logVerbose(tag, "Extracting archive...");
+    mkdirRecurse(destDir);
+
+    int exStatus = runCmd(
+        ["tar", "-xzf", archive, "--strip-components=1", "-C", destDir],
+        vendorDir(), tag);
+
+    if (exStatus != 0)
+    {
+        logError(tag, "Failed to extract archive");
+        return false;
+    }
+
+    // Clean up archive
+    if (exists(archive))
+        std.file.remove(archive);
+
+    // Verify extraction
+    if (!exists(markerPath))
+    {
+        logError(tag, "Extraction succeeded but " ~ marker ~ " not found -- "
+                    ~ "archive structure may have changed");
+        return false;
+    }
+
+    logInfo(tag, "Source downloaded and extracted");
+    return true;
+}
+
+// ════════════════════════════════════════════════════════════════════
 // QuickJS-NG Backend
 // ════════════════════════════════════════════════════════════════════
 
@@ -607,57 +742,9 @@ bool buildQuickJS(ref const Toolchain tc, ref const BuildOptions opts)
     // ── Step 2: Download source ────────────────────────────────────
     logStep(tag, 2, 4, "Downloading source...");
 
-    immutable qjsSrcDir = qjsDir();
-    immutable qjsSrcMarker = buildPath(qjsSrcDir, "quickjs.h");
-    immutable archive = qjsArchive();
-
-    if (!exists(qjsSrcMarker))
-    {
-        // Clean any partial previous download
-        if (exists(qjsSrcDir))
-        {
-            logVerbose(tag, "Removing stale source directory...");
-            rmdirRecurse(qjsSrcDir);
-        }
-
-        mkdirRecurse(vendorDir());
-
-        // Download the tarball
-        if (!downloadFile(tc, opts.qjsUrl, archive, tag))
-            return false;
-
-        // Extract
-        logVerbose(tag, "Extracting archive...");
-        mkdirRecurse(qjsSrcDir);
-
-        int exStatus = runCmd(
-            ["tar", "-xzf", archive, "--strip-components=1", "-C", qjsSrcDir],
-            vendorDir(), tag);
-
-        if (exStatus != 0)
-        {
-            logError(tag, "Failed to extract archive");
-            return false;
-        }
-
-        // Clean up archive
-        if (exists(archive))
-            std.file.remove(archive);
-
-        // Verify extraction
-        if (!exists(qjsSrcMarker))
-        {
-            logError(tag, "Extraction succeeded but quickjs.h not found -- "
-                        ~ "archive structure may have changed");
-            return false;
-        }
-
-        logInfo(tag, "Source downloaded and extracted");
-    }
-    else
-    {
-        logInfo(tag, "Source already present -- skipping download");
-    }
+    if (!downloadAndExtract(tc, opts.qjsUrl, qjsArchive(),
+                             qjsDir(), QJS_SRC_MARKER, tag))
+        return false;
 
     // ── Step 3: Configure with CMake ───────────────────────────────
     logStep(tag, 3, 4, "Configuring with CMake...");
@@ -748,92 +835,109 @@ bool buildQuickJS(ref const Toolchain tc, ref const BuildOptions opts)
 // ════════════════════════════════════════════════════════════════════
 
 /**
- * Check JSC system availability and optionally download headers.
+ * Check JSC system availability and optionally download WebKitGTK source.
  *
- * On Linux:  Requires libjavascriptcoregtk-4.1-dev (checked via pkg-config)
- * On macOS:  Uses system JavaScriptCore.framework
+ * On Linux:  Prefers libjavascriptcoregtk-4.1-dev via pkg-config.
+ *            Falls back to downloading WebKitGTK source from GitHub when
+ *            system packages are unavailable and a download tool exists.
+ * On macOS:  Uses system JavaScriptCore.framework.
+ */
+/**
+ * Build/fetch JSC static libraries.
+ *
+ * Resolution order:
+ *   1. Vendor dir already populated → skip
+ *   2. Download prebuilt from oven-sh/WebKit releases (Bun's approach)
+ *   3. System packages via pkg-config (libjavascriptcoregtk)
+ *   4. macOS system framework
  */
 bool checkJSC(ref const Toolchain tc, ref const BuildOptions opts)
 {
     enum tag = "jsc";
-    logInfo(tag, "Checking JavaScriptCore availability...");
+    immutable markerPath = buildPath(jscDir(), JSC_LIB_MARKER);
 
-    final switch (tc.platform)
+    // Already fetched
+    if (!opts.force && exists(markerPath))
     {
-        case Platform.linux:
-        case Platform.freebsd:
-            return checkJSCLinux(tc, tag);
+        logInfo(tag, "Prebuilt JSC already present -- skipping (use --force to re-download)");
+        return true;
+    }
 
-        case Platform.macos:
-            logInfo(tag, "JavaScriptCore.framework available (system framework)");
-            // Verify the framework exists
-            if (exists("/System/Library/Frameworks/JavaScriptCore.framework"))
+    logInfo(tag, "Setting up JavaScriptCore...");
+
+    // ── macOS: system framework is sufficient ─────────────────────
+    if (tc.platform == Platform.macos)
+    {
+        if (exists("/System/Library/Frameworks/JavaScriptCore.framework"))
+        {
+            logInfo(tag, "Using system JavaScriptCore.framework");
+            return true;
+        }
+    }
+
+    // ── Try prebuilt download (Bun's oven-sh/WebKit releases) ─────
+    if (tc.hasDownloader())
+    {
+        string arch = detectArch();
+        string url = jscPrebuiltUrl(tc.platform, arch);
+
+        if (url.length > 0)
+        {
+            logInfo(tag, "Downloading prebuilt JSC (" ~ platformName(tc.platform)
+                       ~ "/" ~ arch ~ ")...");
+
+            if (downloadAndExtract(tc, url, jscArchive(),
+                                    jscDir(), JSC_LIB_MARKER, tag))
             {
-                logInfo(tag, "  /System/Library/Frameworks/JavaScriptCore.framework");
+                auto libPath = buildPath(jscDir(), "lib", "libJavaScriptCore.a");
+                if (exists(libPath))
+                    logInfo(tag, "JSC static library: " ~ fmtKB(getSize(libPath)));
+                logInfo(tag, "Prebuilt JSC ready at " ~ jscDir());
                 return true;
             }
-            logWarning(tag, "JavaScriptCore.framework not found at expected path");
-            return false;
 
-        case Platform.windows:
-            logError(tag, "JSC is not supported on Windows");
-            return false;
-
-        case Platform.unknown:
-            logError(tag, "Cannot detect platform for JSC check");
-            return false;
+            logWarning(tag, "Prebuilt download failed -- trying system packages");
+        }
     }
+
+    // ── System packages fallback (Linux/FreeBSD) ──────────────────
+    if (tc.platform == Platform.linux || tc.platform == Platform.freebsd)
+        return checkJSCSystem(tc, tag);
+
+    logError(tag, "JSC not available on " ~ platformName(tc.platform));
+    return false;
 }
 
-bool checkJSCLinux(ref const Toolchain tc, string tag)
+bool checkJSCSystem(ref const Toolchain tc, string tag)
 {
-    if (!tc.pkgConfig.found)
+    if (tc.pkgConfig.found)
     {
-        logWarning(tag, "pkg-config not found -- cannot verify JSC installation");
-        logWarning(tag, "  Install pkg-config: apt install pkg-config");
-        // Try direct path check as fallback
-        if (exists("/usr/include/webkitgtk-4.1/jsc/jsc.h") ||
-            exists("/usr/include/webkitgtk-6.0/jsc/jsc.h"))
+        foreach (pkgName; JSC_PKG_NAMES)
         {
-            logInfo(tag, "Found JSC headers via direct path check");
-            return true;
-        }
-        logError(tag, "JSC headers not found");
-        return false;
-    }
-
-    // Try multiple pkg-config names (different distro versions)
-    string[] pkgNames = [
-        "javascriptcoregtk-4.1",
-        "javascriptcoregtk-6.0",
-        "javascriptcoregtk-4.0",
-    ];
-
-    foreach (pkgName; pkgNames)
-    {
-        auto r = executeShell(
-            tc.pkgConfig.path ~ " --exists " ~ pkgName ~ " 2>/dev/null");
-        if (r.status == 0)
-        {
-            // Get version and flags
-            auto ver = executeShell(
-                tc.pkgConfig.path ~ " --modversion " ~ pkgName);
-            auto cflags = executeShell(
-                tc.pkgConfig.path ~ " --cflags " ~ pkgName);
-            auto libs = executeShell(
-                tc.pkgConfig.path ~ " --libs " ~ pkgName);
-
-            logInfo(tag, "Found " ~ pkgName ~ " version "
-                       ~ ver.output.strip());
-            logVerbose(tag, "  CFLAGS: " ~ cflags.output.strip());
-            logVerbose(tag, "  LIBS:   " ~ libs.output.strip());
-            return true;
+            auto r = executeShell(
+                tc.pkgConfig.path ~ " --exists " ~ pkgName ~ " 2>/dev/null");
+            if (r.status == 0)
+            {
+                auto ver = executeShell(
+                    tc.pkgConfig.path ~ " --modversion " ~ pkgName);
+                logInfo(tag, "Found system " ~ pkgName ~ " version "
+                           ~ ver.output.strip());
+                return true;
+            }
         }
     }
 
-    logError(tag, "JavaScriptCore not found via pkg-config");
-    logError(tag, "  Install: apt install libjavascriptcoregtk-4.1-dev");
-    logError(tag, "       or: apt install libjavascriptcoregtk-6.0-dev");
+    if (exists("/usr/include/webkitgtk-4.1/jsc/jsc.h") ||
+        exists("/usr/include/webkitgtk-6.0/jsc/jsc.h"))
+    {
+        logInfo(tag, "Found JSC headers via direct path check");
+        return true;
+    }
+
+    logError(tag, "JavaScriptCore not found. Install system packages:");
+    logError(tag, "  Ubuntu/Debian: apt install libjavascriptcoregtk-4.1-dev");
+    logError(tag, "  Fedora:        dnf install webkit2gtk4.1-devel");
+    logError(tag, "  Arch:          pacman -S webkit2gtk-4.1");
     return false;
 }
 
@@ -844,7 +948,10 @@ bool checkJSCLinux(ref const Toolchain tc, string tag)
 /**
  * Build the V8 shim library (a thin C++ wrapper around V8's C++ API).
  *
- * Requires system-installed libv8-dev.
+ * Prefers system-installed libv8-dev headers.  When system headers are
+ * absent and a download tool is available, falls back to downloading V8
+ * source from GitHub for the headers.
+ *
  * Compiles vendor/v8shim/v8shim.cpp → libv8shim.a
  */
 bool buildV8Shim(ref const Toolchain tc, ref const BuildOptions opts)
@@ -884,23 +991,31 @@ bool buildV8Shim(ref const Toolchain tc, ref const BuildOptions opts)
         return false;
     }
 
-    // Check V8 headers
-    bool hasV8Headers = exists(buildPath(V8_INCLUDE_PATH, "v8.h"));
-    if (!hasV8Headers)
+    // ── Locate V8 headers ─────────────────────────────────────────
+    string v8IncludeDir = "";
+    bool v8PkgConfig = false;
+
+    if (exists(buildPath(V8_INCLUDE_PATH, "v8.h")))
     {
-        // Try pkg-config
-        if (tc.pkgConfig.found)
+        v8IncludeDir = V8_INCLUDE_PATH;
+        logVerbose(tag, "V8 headers found at system path: " ~ V8_INCLUDE_PATH);
+    }
+    else if (tc.pkgConfig.found)
+    {
+        auto r = executeShell(
+            tc.pkgConfig.path ~ " --exists v8 2>/dev/null");
+        if (r.status == 0)
         {
-            auto r = executeShell(
-                tc.pkgConfig.path ~ " --exists v8 2>/dev/null");
-            hasV8Headers = (r.status == 0);
+            v8PkgConfig = true;
+            logVerbose(tag, "V8 found via pkg-config");
         }
     }
 
-    if (!hasV8Headers)
+    if (v8IncludeDir.length == 0 && !v8PkgConfig)
     {
-        logError(tag, "V8 headers not found at " ~ V8_INCLUDE_PATH);
-        logError(tag, "  Install: apt install libv8-dev");
+        logError(tag, "V8 headers not found. Install system packages:");
+        logError(tag, "  Ubuntu/Debian: apt install libv8-dev");
+        logError(tag, "  Fedora:        dnf install v8-devel");
         return false;
     }
 
@@ -920,9 +1035,9 @@ bool buildV8Shim(ref const Toolchain tc, ref const BuildOptions opts)
         "-o", "v8shim.o",
     ];
 
-    // Add V8 include path
-    if (exists(V8_INCLUDE_PATH))
-        compileCmd ~= "-I" ~ V8_INCLUDE_PATH;
+    // Add V8 include path (system or vendor)
+    if (v8IncludeDir.length > 0)
+        compileCmd ~= "-I" ~ v8IncludeDir;
 
     // Try pkg-config cflags
     if (tc.pkgConfig.found)
@@ -987,6 +1102,7 @@ void doClean()
     CleanTarget[] targets = [
         CleanTarget(qjsBuildDir(), true),
         CleanTarget(qjsArchive(), false),
+        CleanTarget(jscArchive(), false),
         CleanTarget(buildPath(v8shimDir(), "libv8shim.a"), false),
         CleanTarget(buildPath(v8shimDir(), "v8shim.o"), false),
     ];
@@ -1017,10 +1133,13 @@ void doDeepClean()
     enum tag = "clean";
     logInfo(tag, "Deep cleaning -- removing all vendor sources...");
 
-    if (exists(qjsDir()))
+    foreach (dir; [qjsDir(), jscDir()])
     {
-        rmdirRecurse(qjsDir());
-        logInfo(tag, "  removed: " ~ qjsDir());
+        if (exists(dir))
+        {
+            rmdirRecurse(dir);
+            logInfo(tag, "  removed: " ~ dir);
+        }
     }
 
     doClean();
