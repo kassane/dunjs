@@ -4,7 +4,7 @@ A secure JavaScript runtime written in **D**, inspired by [Deno](https://deno.co
 
 ## Features
 
-- **Pluggable JS engine** — IJSEngine interface with QuickJS, JSC, and V8 backends
+- **Pluggable JS engine** — IJSEngine interface with QuickJS, JSC, and V8 backends (all fully functional)
 - **Security-first** — Default-deny permissions (like Deno)
 - **D language** — Zero-cost C FFI, `@safe`/`@trusted` memory safety, RAII resource management
 - **eventcore** async I/O — Native D event loop with epoll/kqueue/IOCP support
@@ -25,19 +25,22 @@ A secure JavaScript runtime written in **D**, inspired by [Deno](https://deno.co
 git clone https://github.com/kassane/dunjs.git
 cd dunjs
 
-# Default (QuickJS-NG backend — downloaded and built automatically)
+# Build vendor dependencies (downloads + compiles automatically)
+ldc2 -run build.d --backend=quickjs
+
+# Default (QuickJS-NG backend)
 dub build
 
 # Explicit backend selection
-dub build -c quickjs          # QuickJS-NG (fallback, ES2023)
+dub build -c quickjs          # QuickJS-NG (default, ES2023)
 dub build -c jsc              # JavaScriptCore (Linux: GTK, macOS: framework)
-dub build -c v8               # V8 (via C++ shim)
+dub build -c v8               # V8 (via C++ shim, headers vendored from Node.js)
 
 # Release build
 dub build -c quickjs -b release
 
-# Run unit tests (43 contract + 80+ fuzz tests)
-dub test -c unittest
+# Run tests
+dub test -c unittest          # 49 BDD-style engine contract + fuzz tests
 ```
 
 ### Run
@@ -86,6 +89,32 @@ DunJS is organized in 7 layers:
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for detailed design documentation.
 
+## Engine Backends
+
+| Backend | API | FFI | Status | Use Case |
+|---------|-----|-----|--------|----------|
+| QuickJS-NG | C (quickjs.h) | `extern(C)` direct | **12/12 tests pass** | Default, ES2023 fallback |
+| JavaScriptCore | C (JSObjectRef) | `extern(C)` direct | **12/12 tests pass** | JIT, production (like Bun) |
+| V8 | C++ via C shim | `extern(C)` → v8shim | **12/12 tests pass** | JIT, Node.js compatibility |
+
+All backends support: `console.log/info/debug/warn/error/assert`, Promises, async/await,
+ES2020+ features (optional chaining, nullish coalescing, Array.at, Object.hasOwn).
+
+### V8 C++ Shim
+
+V8 has no stable C API. DunJS uses a thin C++ wrapper (`vendor/v8shim/`) that exposes
+V8 operations as `extern "C"` functions callable from D:
+
+```
+D (backend.d) ──extern(C)──> v8shim.cpp ──C++──> V8 API
+                                │
+                    FunctionTemplate trampoline
+                    Context::Scope on every op
+                    Ref-counted value wrappers
+```
+
+V8 headers are vendored from Node.js — no `libv8-dev` needed for compilation.
+
 ## Built-in Modules
 
 | Module | Description |
@@ -106,27 +135,58 @@ const content = readFileSync(join(".", "data", "config.json"));
 console.log(content);
 ```
 
+## Testing
+
+### Unit Tests (49 tests)
+
+BDD-style engine contract tests + fuzz/stress tests:
+
+```sh
+dub test -c unittest
+```
+
+### Integration Tests (12 tests × 3 backends)
+
+Standalone JS scripts compared against expected stdout (inspired by Node.js test patterns):
+
+| Test | Coverage |
+|------|----------|
+| `hello` | Basic console.log |
+| `types` | typeof for all JS types |
+| `console_methods` | log/info/debug, multiple args, type coercion |
+| `promises` | Promise + async/await |
+| `promises_advanced` | Promise.all/race/any, async error handling |
+| `es2023` | findLast, optional chaining, nullish coalescing, Array.at |
+| `error_handling` | try/catch, Error subtypes, Error.cause, finally, custom errors |
+| `closures` | Closures, IIFE, block scoping, generators, destructuring |
+| `iterators` | Map, Set, WeakRef, for...of, Array.from, method chains |
+| `json_parsing` | JSON parse/stringify, replacer/reviver, error handling |
+| `classes` | Inheritance, static methods, private fields, computed properties |
+| `regex` | Named groups, matchAll, replace, split, flags |
+
 ## Comparison
 
 | | Node.js | Deno | Bun | **DunJS** |
 |--|---------|------|-----|-----------|
 | Language | C++ | Rust | Zig→Rust | **D** |
-| JS Engine | V8 | V8 | JSC | **Pluggable** |
+| JS Engine | V8 | V8 | JSC | **Pluggable (3 backends)** |
+| Engine FFI | Native C++ | rusty_v8 | Zig extern(C++) | **extern(C) + C shim** |
 | Event Loop | libuv | Tokio | io_uring | **eventcore** |
 | Permissions | None | Deny-all | None | **Deny-all** |
 | Module Prefix | `node:` | `node:` | `bun:` | **`dun:`** |
-
-## Engine Backends
-
-| Backend | API | Status | Use Case |
-|---------|-----|--------|----------|
-| QuickJS-NG | C API (`extern(C)`) | Working | Default, ES2023 fallback |
-| JavaScriptCore | C API (`extern(C)`) | Implemented | JIT, production (like Bun) |
-| V8 | C++ via C shim (`extern(C)`) | Implemented | JIT, Node.js compatibility |
+| Memory Safety | Manual | Borrow checker | Manual | **@safe/@trusted** |
 
 ## Development Status
 
-DunJS is in early development (Phase 1: MVP). See the [phased roadmap](CLAUDE.md#phased-roadmap) for implementation progress.
+DunJS is in early development. See the [phased roadmap](CLAUDE.md#phased-roadmap) for progress.
+
+| Phase | Status |
+|-------|--------|
+| Phase 1: MVP (`dun run hello.js`) | **Done** |
+| Phase 1b: Multi-engine (JSC + V8) | **Done** |
+| Phase 2: Event loop + timers | In progress |
+| Phase 3: Module system + builtins | Planned |
+| Phase 4: Permission enforcement | Planned |
 
 ## License
 
