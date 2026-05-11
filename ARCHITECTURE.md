@@ -294,6 +294,7 @@ V8 receives return value via FunctionCallbackInfo::GetReturnValue()
 3. `extern(C)` callbacks **MUST** be `nothrow`
 4. Custom allocator enforces memory limits
 5. `dupValue()` must be called when storing a handle beyond its original scope
+6. **TIGER_STYLE assertions**: Every `@trusted` block and FFI callback gets precondition asserts (null ctx/engine/state checks, double-init guards, `static assert` for type layout and enum member counts). ~290 assertions across 25 files -- fail fast at point of corruption, not downstream
 
 ## Permission Enforcement Flow
 

@@ -58,6 +58,7 @@ vendor/v8shim/       # V8 C++ shim (~300 LOC, uses TMP templates)
 5. **Permission checks before I/O** -- `state.permissions.check(Permission.read, path)`
 6. **Named constants for limits** -- `DEFAULT_MEMORY_LIMIT`, not `256 * 1024 * 1024`
 7. **Engine-agnostic builtins** -- all modules work identically across QuickJS, JSC, V8
+8. **TIGER_STYLE assertions** -- every @trusted block and extern(C)/NativeCallback gets precondition asserts (null ctx, null engine, double-init guards, static asserts for layout/enum counts)
 
 ## Adding a New Engine Feature
 

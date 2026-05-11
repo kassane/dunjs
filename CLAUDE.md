@@ -188,7 +188,21 @@ if (!state.permissions.check(Permission.read, path))
 - `@nogc`: Hot-path allocations, extern(C) callbacks where possible
 - `nothrow`: ALL extern(C) callbacks
 
-### 6. Event Loop Phases (per tick)
+### 6. TIGER_STYLE Assertions (TigerBeetle-inspired)
+
+Fail fast at the point of corruption rather than propagating invalid state through FFI.
+Applied across all 7 layers (~290 assertions in 25 files).
+
+**Patterns**:
+- Every `@trusted` block: `assert(ctx !is null)`, `assert(engine !is null)`
+- Every `extern(C)` callback: `assert(ctx !is null)`, `assert(state.engine !is null)`
+- Every `NativeCallback`: `assert(ctx !is null)` (ctx is `DunState*`), then `assert(state.engine !is null)`
+- Double-init guards: `assert(ctx is null, "Double initialization of XxxEngine")`
+- `static assert` for layout: `JSHandle.sizeof >= 2 * (void*).sizeof`
+- `static assert` for enum drift: `__traits(allMembers, EngineBackend).length == 3`
+- Bounds checks: refcount overflow, buffer write limits, type tag ranges
+
+### 7. Event Loop Phases (per tick)
 
 1. Drain microtask queue (Promise jobs + queueMicrotask)
 2. Process expired timers (setTimeout/setInterval)
