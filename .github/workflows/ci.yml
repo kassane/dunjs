@@ -64,16 +64,23 @@ jobs:
       - name: Build vendor deps
         run: ldc2 -run build.d --backend=${{ matrix.engine }} --verbose
 
-      - name: Verify vendor build (Windows)
+      - name: Verify vendor (Windows)
         if: runner.os == 'Windows' && matrix.engine == 'quickjs'
         shell: pwsh
         run: |
-          Write-Host "=== Checking vendor/quickjs/build ==="
+          Write-Host "=== vendor/quickjs/build contents ==="
           if (Test-Path vendor/quickjs/build) {
-            Get-ChildItem vendor/quickjs/build -Recurse -Filter "*.lib" | ForEach-Object { Write-Host $_.FullName }
+            Get-ChildItem vendor/quickjs/build -Recurse | ForEach-Object {
+              Write-Host "$($_.FullName) ($($_.Length) bytes)"
+            }
           } else {
-            Write-Host "vendor/quickjs/build does not exist!"
+            Write-Host "ERROR: vendor/quickjs/build does not exist!"
+            exit 1
           }
+          Write-Host "=== LDC version ==="
+          ldc2 --version | Select-Object -First 3
+          Write-Host "=== DUB version ==="
+          dub --version
 
       - name: Build (debug)
         if: matrix.engine != 'v8'
@@ -111,6 +118,45 @@ jobs:
           name: dun-${{ matrix.engine }}-${{ matrix.os }}
           path: build/dun.exe
           retention-days: 7
+
+      - name: Post failure logs to PR
+        if: failure() && github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const job = '${{ matrix.engine }} · ${{ matrix.os }}';
+            // Get this job's logs via the API
+            const jobs = await github.rest.actions.listJobsForWorkflowRun({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              run_id: context.runId,
+            });
+            const thisJob = jobs.data.jobs.find(j => j.name === job);
+            let body = `**CI failed**: \`${job}\`\n\n`;
+            if (thisJob) {
+              const failedSteps = thisJob.steps.filter(s => s.conclusion === 'failure');
+              body += `**Failed steps**: ${failedSteps.map(s => s.name).join(', ')}\n\n`;
+              // Get full logs
+              try {
+                const logs = await github.rest.actions.downloadJobLogsForWorkflowRun({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  job_id: thisJob.id,
+                });
+                let logText = typeof logs.data === 'string' ? logs.data : Buffer.from(logs.data).toString('utf8');
+                // Get last 3000 chars
+                if (logText.length > 3000) logText = '...(truncated)\n' + logText.slice(-3000);
+                body += `\`\`\`\n${logText}\n\`\`\``;
+              } catch(e) {
+                body += `Could not fetch logs: ${e.message}`;
+              }
+            }
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: body,
+            });
 
   # ── Unit tests ────────────────────────────────────────────────
   test:
