@@ -35,14 +35,15 @@ void installGlobals(IJSEngine engine, DunState* state) @trusted
     registerCryptoModule(engine);
     installRequire(engine);
 
+    import dun.runtime.rejection_tracker : installRejectionTracker;
+    installRejectionTracker(engine, state);
+
     version (EngineQuickJS)
     {
-        import dun.engine.quickjs.bindings : JSContext, JS_GetRuntime;
-        import dun.runtime.rejection_tracker : installRejectionTracker;
+        import dun.engine.quickjs.bindings : JSContext;
         import dun.builtins.net : registerNetModule;
         import dun.builtins.http : registerHttpModule;
         auto ctx = cast(JSContext*) engine.rawContext();
-        installRejectionTracker(JS_GetRuntime(ctx), state);
         registerNetModule(ctx);
         registerHttpModule(ctx);
         import dun.runtime.worker_api : installWorkerAPI;

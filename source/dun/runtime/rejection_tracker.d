@@ -1,66 +1,157 @@
 module dun.runtime.rejection_tracker;
 
-version (EngineQuickJS):
-
-import dun.engine.quickjs.bindings;
+import dun.engine.iface : IJSEngine;
 import dun.loop.eventloop : RejectedPromise;
 import dun.runtime.globals : DunState;
 
-void installRejectionTracker(JSRuntime* rt, DunState* state) @trusted
+void installRejectionTracker(IJSEngine engine, DunState* state) @trusted
 {
-    // Cast away @nogc: the D GC remains functional during C->D callbacks.
-    // The callback allocates (RejectedPromise[]) but is wrapped in try-catch.
-    alias CB = extern (C) void function(
-        JSContext*, JSValueConst, JSValueConst, bool, void*) nothrow @nogc;
-    JS_SetHostPromiseRejectionTracker(rt, cast(CB) &onPromiseRejection, cast(void*) state);
+    version (EngineQuickJS)
+    {
+        import dun.engine.quickjs.bindings : JSRuntime, JS_GetRuntime;
+        alias CB = extern (C) void function(
+            dun.engine.quickjs.bindings.JSContext*,
+            dun.engine.quickjs.bindings.JSValueConst,
+            dun.engine.quickjs.bindings.JSValueConst,
+            bool, void*) nothrow @nogc;
+        auto ctx = cast(dun.engine.quickjs.bindings.JSContext*) engine.rawContext();
+        JS_SetHostPromiseRejectionTracker(
+            JS_GetRuntime(ctx),
+            cast(CB) &qjsOnPromiseRejection,
+            cast(void*) state);
+    }
+    else
+    {
+        // JSC/V8: install JS-based rejection tracking
+        installJSRejectionTracker(engine, state);
+    }
 }
 
-private extern (C) void onPromiseRejection(JSContext* ctx,
-    JSValueConst promise, JSValueConst reason,
-    bool is_handled, void* opaque) nothrow @trusted
+version (EngineQuickJS)
 {
-    auto state = cast(DunState*) opaque;
+    import dun.engine.quickjs.bindings;
+    import dun.engine.iface : JSHandle;
 
-    if (is_handled)
+    private extern (C) void qjsOnPromiseRejection(JSContext* ctx,
+        JSValueConst promise, JSValueConst reason,
+        bool is_handled, void* opaque) nothrow @trusted
     {
-        size_t found = size_t.max;
-        foreach (i, ref entry; state.eventLoop.unhandledRejections)
+        import dun.engine.quickjs.backend : QuickJSEngine;
+        auto state = cast(DunState*) opaque;
+
+        if (is_handled)
         {
-            if (JS_IsSameValue(ctx, entry.promise, promise))
+            size_t found = size_t.max;
+            foreach (i, ref entry; state.eventLoop.unhandledRejections)
             {
-                JS_FreeValue(entry.ctx, entry.promise);
-                JS_FreeValue(entry.ctx, entry.reason);
-                found = i;
-                break;
+                auto entryPromise = QuickJSEngine.fromHandle(entry.promise);
+                if (JS_IsSameValue(ctx, entryPromise, promise))
+                {
+                    try
+                    {
+                        state.engine.freeValue(entry.promise);
+                        state.engine.freeValue(entry.reason);
+                    }
+                    catch (Throwable) {}
+                    found = i;
+                    break;
+                }
             }
+            if (found != size_t.max)
+            {
+                try
+                {
+                    state.eventLoop.unhandledRejections =
+                        state.eventLoop.unhandledRejections[0 .. found] ~
+                        state.eventLoop.unhandledRejections[found + 1 .. $];
+                }
+                catch (Throwable) {}
+            }
+            return;
         }
-        if (found != size_t.max)
+
+        string reasonStr;
+        try
+        {
+            size_t cstr_len;
+            const(char)* cstr = JS_ToCStringLen2(ctx, &cstr_len, reason, false);
+            if (JS_HasException(ctx))
+            {
+                auto exc = JS_GetException(ctx);
+                JS_FreeValue(ctx, exc);
+            }
+            reasonStr = cstr ? cstr[0 .. cstr_len].idup : "";
+            if (cstr) JS_FreeCString(ctx, cstr);
+        }
+        catch (Throwable) {}
+
+        auto entry = RejectedPromise(
+            state.engine,
+            QuickJSEngine.toHandle(JS_DupValue(ctx, cast(JSValue) promise)),
+            QuickJSEngine.toHandle(JS_DupValue(ctx, cast(JSValue) reason)),
+            reasonStr);
+
+        try { state.eventLoop.unhandledRejections ~= entry; }
+        catch (Throwable)
         {
             try
             {
-                state.eventLoop.unhandledRejections =
-                    state.eventLoop.unhandledRejections[0 .. found] ~
-                    state.eventLoop.unhandledRejections[found + 1 .. $];
+                state.engine.freeValue(entry.promise);
+                state.engine.freeValue(entry.reason);
             }
             catch (Throwable) {}
         }
-        return;
+    }
+}
+
+private void installJSRejectionTracker(IJSEngine engine, DunState* state) @trusted
+{
+    import dun.engine.iface : NativeCallback, JSHandle;
+
+    auto global = engine.getGlobal();
+    engine.setProperty(global, "__dunRejections__", engine.newArray());
+    engine.setProperty(global, "__dunRejectionIdx__", engine.newInt(0));
+
+    engine.setProperty(global, "__dunReportRejection__",
+        engine.newFunction(&jsReportRejection, "__dunReportRejection__", 1));
+
+    auto setupResult = engine.eval(
+        `(function() {
+            if (typeof globalThis.addEventListener === 'function') {
+                globalThis.addEventListener('unhandledrejection', function(e) {
+                    __dunReportRejection__(e.reason);
+                });
+            }
+        })()`, "<rejection-setup>");
+    if (!setupResult.isError)
+        engine.freeValue(setupResult.value);
+}
+
+private JSHandle jsReportRejection(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+{
+    import dun.engine.iface : JSHandle;
+    auto state = cast(DunState*) ctx;
+    auto engine = state.engine;
+
+    string reasonStr;
+    if (args.length > 0)
+    {
+        try { reasonStr = engine.extractString(args[0]); }
+        catch (Exception) {}
     }
 
     auto entry = RejectedPromise(
-        ctx,
-        JS_DupValue(ctx, cast(JSValue) promise),
-        JS_DupValue(ctx, cast(JSValue) reason));
+        engine,
+        engine.newUndefined(),
+        args.length > 0 ? engine.dupValue(args[0]) : engine.newUndefined(),
+        reasonStr);
 
-    // M2: ~= may throw OutOfMemoryError; absorb it — lossy under OOM,
-    // acceptable for Phase 2 (tracked as follow-up S8 / ring buffer).
-    try
-    {
-        state.eventLoop.unhandledRejections ~= entry;
-    }
+    try { state.eventLoop.unhandledRejections ~= entry; }
     catch (Throwable)
     {
-        JS_FreeValue(ctx, entry.promise);
-        JS_FreeValue(ctx, entry.reason);
+        engine.freeValue(entry.promise);
+        engine.freeValue(entry.reason);
     }
+
+    return engine.newUndefined();
 }

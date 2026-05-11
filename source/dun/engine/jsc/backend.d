@@ -176,11 +176,11 @@ class JSCEngine : IJSEngine
             if (exc !is null) return toHandle(cast(void*) exc);
             return toHandle(cast(void*) ret);
         }
-        auto argv = new const(JSValueRef)[args.length];
+        auto argv = new JSValueRef[args.length];
         foreach (i; 0 .. args.length)
             argv[i] = cast(JSValueRef) fromHandle(args[i]);
         auto ret = JSObjectCallAsFunction(ctx, jsFunc, jsThis,
-            argv.length, argv.ptr, &exc);
+            argv.length, cast(const(JSValueRef)*) argv.ptr, &exc);
         if (exc !is null) return toHandle(cast(void*) exc);
         return toHandle(cast(void*) ret);
     }
@@ -230,7 +230,9 @@ class JSCEngine : IJSEngine
     {
         auto jsMsg = newString(msg);
         auto args = cast(JSValueRef) fromHandle(jsMsg);
-        auto err = JSObjectMakeError(ctx, 1, &args, null);
+        JSValueRef exc = null;
+        auto err = JSObjectMakeError(ctx, 1, &args, &exc);
+        _jscPendingThrow = err;
         return toHandle(cast(void*) err);
     }
 
@@ -258,11 +260,20 @@ class JSCEngine : IJSEngine
 
     JSResult evalModule(const(char)[] source, string filename) @trusted
     {
-        JSResult result;
-        result.isError = true;
-        result.errorMessage = "ESM not yet supported on JSC backend";
-        result.value = toHandle(cast(void*) null);
-        return result;
+        import dun.modules.esm_shim : transpileESM;
+        try
+        {
+            auto transpiled = transpileESM(cast(string) source, filename);
+            return eval(transpiled, filename);
+        }
+        catch (Exception e)
+        {
+            JSResult result;
+            result.isError = true;
+            result.errorMessage = "ESM transpile error: " ~ e.msg;
+            result.value = toHandle(cast(void*) null);
+            return result;
+        }
     }
 
     void registerNativeModule(string name, void* initFunc) @trusted {}
@@ -336,7 +347,7 @@ private extern (C) JSValueRef jscNativeTrampoline(JSContextRef ctx,
     if (cb is null)
         return JSValueMakeUndefined(ctx);
 
-    void* ctxOpaque = jscGetContextOpaque(cast(JSGlobalContextRef) cast(void*) ctx);
+    void* ctxOpaque = jscGetContextOpaque(JSContextGetGlobalContext(ctx));
 
     JSHandle thisH;
     thisH.opaque[0] = cast(void*) thisObject;
@@ -357,6 +368,12 @@ private extern (C) JSValueRef jscNativeTrampoline(JSContextRef ctx,
     try
     {
         auto result = cb(ctxOpaque, thisH, args);
+        if (_jscPendingThrow !is null)
+        {
+            *exception = _jscPendingThrow;
+            _jscPendingThrow = null;
+            return null;
+        }
         return cast(JSValueRef) result.opaque[0];
     }
     catch (Exception)
@@ -364,6 +381,8 @@ private extern (C) JSValueRef jscNativeTrampoline(JSContextRef ctx,
         return JSValueMakeUndefined(ctx);
     }
 }
+
+private JSValueRef _jscPendingThrow;
 
 // JSC doesn't have a context opaque API, so we maintain our own map.
 private __gshared void*[size_t] jscContextOpaqueMap;

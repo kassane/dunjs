@@ -1,22 +1,16 @@
 module dun.loop.eventloop;
 
 import core.time : Duration, dur;
-import dun.engine.iface : IJSEngine;
+import dun.engine.iface : IJSEngine, JSHandle;
 import dun.loop.timers : TimerWheel;
 import dun.loop.microtasks : MicrotaskQueue, NextTickQueue;
 
-version (EngineQuickJS)
+struct RejectedPromise
 {
-    import dun.engine.quickjs.bindings :
-        JSContext, JSValue, JS_ToCStringLen2, JS_HasException,
-        JS_GetException, JS_FreeValue, JS_FreeCString, JS_IsSameValue;
-
-    struct RejectedPromise
-    {
-        JSContext* ctx;
-        JSValue promise;
-        JSValue reason;
-    }
+    IJSEngine engine;
+    JSHandle promise;
+    JSHandle reason;
+    string reasonStr;
 }
 
 struct EventLoop
@@ -26,8 +20,7 @@ struct EventLoop
     NextTickQueue nextTicks;
     int exitCode;
 
-    version (EngineQuickJS)
-        RejectedPromise[] unhandledRejections;
+    RejectedPromise[] unhandledRejections;
 
     private IJSEngine engine;
     private bool running;
@@ -60,6 +53,7 @@ struct EventLoop
                 import dun.builtins.net : pollNetIO;
                 import dun.builtins.http : pollHttpIO;
                 import dun.workers.worker : pollWorkerMessages;
+                import dun.engine.quickjs.bindings : JSContext;
                 pollNetIO();
                 pollHttpIO();
                 pollWorkerMessages(cast(JSContext*) engine.rawContext());
@@ -146,38 +140,27 @@ struct EventLoop
 
     public void flushUnhandledRejections() @trusted
     {
-        version (EngineQuickJS)
+        if (unhandledRejections.length == 0) return;
+        import std.stdio : stderr;
+
+        auto pending = unhandledRejections;
+        unhandledRejections = null;
+
+        import dun.cli.errors : isColorEnabled, formatRejection;
+        bool color = isColorEnabled();
+        foreach (ref entry; pending)
         {
-            if (unhandledRejections.length == 0) return;
-            import std.stdio : stderr;
-
-            auto pending = unhandledRejections;
-            unhandledRejections = null;
-
-            import dun.cli.errors : isColorEnabled, formatRejection;
-            bool color = isColorEnabled();
-            foreach (ref entry; pending)
+            try
             {
-                size_t cstr_len;
-                const(char)* cstr =
-                    JS_ToCStringLen2(entry.ctx, &cstr_len, entry.reason, false);
-                if (JS_HasException(entry.ctx))
-                {
-                    auto exc = JS_GetException(entry.ctx);
-                    JS_FreeValue(entry.ctx, exc);
-                }
-                try
-                {
-                    string reason = cstr ? cstr[0 .. cstr_len].idup : "<unknown>";
-                    stderr.write(formatRejection(reason, color));
-                    stderr.flush();
-                }
-                catch (Exception) {}
-                if (cstr) JS_FreeCString(entry.ctx, cstr);
-                JS_FreeValue(entry.ctx, entry.promise);
-                JS_FreeValue(entry.ctx, entry.reason);
+                string reason = entry.reasonStr.length > 0
+                    ? entry.reasonStr : "<unknown>";
+                stderr.write(formatRejection(reason, color));
+                stderr.flush();
             }
-            exitCode = 1;
+            catch (Exception) {}
+            entry.engine.freeValue(entry.promise);
+            entry.engine.freeValue(entry.reason);
         }
+        exitCode = 1;
     }
 }

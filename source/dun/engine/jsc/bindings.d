@@ -127,6 +127,7 @@ void JSGlobalContextRelease(JSGlobalContextRef ctx);
 // --- Context ---
 JSObjectRef JSContextGetGlobalObject(JSContextRef ctx);
 JSContextGroupRef JSContextGetGroup(JSContextRef ctx);
+JSGlobalContextRef JSContextGetGlobalContext(JSContextRef ctx);
 
 // --- Script evaluation ---
 JSValueRef JSEvaluateScript(JSContextRef ctx, JSStringRef script,

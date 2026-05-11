@@ -257,11 +257,20 @@ class V8Engine : IJSEngine
 
     JSResult evalModule(const(char)[] source, string filename) @trusted
     {
-        JSResult result;
-        result.isError = true;
-        result.errorMessage = "ESM not yet supported on V8 backend";
-        result.value = toHandle(cast(DunV8Value*) null);
-        return result;
+        import dun.modules.esm_shim : transpileESM;
+        try
+        {
+            auto transpiled = transpileESM(cast(string) source, filename);
+            return eval(transpiled, filename);
+        }
+        catch (Exception e)
+        {
+            JSResult result;
+            result.isError = true;
+            result.errorMessage = "ESM transpile error: " ~ e.msg;
+            result.value = toHandle(cast(DunV8Value*) null);
+            return result;
+        }
     }
 
     void registerNativeModule(string name, void* initFunc) @trusted {}

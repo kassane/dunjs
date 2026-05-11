@@ -54,6 +54,7 @@ Cross:   Security              source/dun/security/    (permissions, sandbox, 27
 ```
 source/dun/engine/
 +-- iface.d          # IJSEngine interface, JSHandle, JSResult, EngineConfig
++-- callbacks.d      # Global NativeCallback registry (register/get by slot ID)
 +-- package.d        # Re-exports iface + factory
 +-- test.d           # BDD-style engine contract tests (~50 cases)
 +-- fuzz.d           # Fuzz/stress tests (~50 cases)
@@ -301,7 +302,7 @@ dub test -c unittest    # All unit tests
 | V8 TMP bridge | `source/dun/engine/v8/cppbindings.d` | compile-time | V8TypeName coverage, tag->name mapping |
 | JSC TMP bridge | `source/dun/engine/jsc/cppbindings.d` | compile-time | JSCTypeName coverage, kJSType* alignment |
 
-### Integration Tests (38 fixtures)
+### Integration Tests (40 fixtures)
 
 ```sh
 # Run against a specific backend
