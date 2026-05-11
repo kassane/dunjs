@@ -10,10 +10,10 @@ permissions:
   contents: read
   pull-requests: write
   issues: write
-  actions: read
+  actions: write
 
 concurrency:
-  group: ci-${{ github.event_name }}-${{ github.ref }}
+  group: ci-${{ github.ref_name }}
   cancel-in-progress: true
 
 jobs:
