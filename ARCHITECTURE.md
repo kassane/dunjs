@@ -2,98 +2,102 @@
 
 ## Overview
 
-DunJS is a 7-layer JavaScript runtime with a **pluggable engine architecture**
+DunJS is a 7-layer JavaScript/TypeScript runtime with a **pluggable engine architecture**
 (IJSEngine interface), an eventcore-based event loop, and a Deno-inspired permission system.
 
 Three backends are fully functional: QuickJS-NG (default), JavaScriptCore, and V8.
-All 12 integration tests pass identically on all 3 engines.
+All 12 JS integration tests pass identically on all 3 engines. TypeScript test passes on QuickJS.
 
-Reference: [Bun's Zig→Rust port](https://github.com/oven-sh/bun/pull/30412) — modular
+Reference: [Bun's Zig->Rust port](https://github.com/oven-sh/bun/pull/30412) -- modular
 workspace with `bun_jsc` engine layer, `*_jsc` suffix pattern for engine-specific modules,
 RAII wrappers, and pointer safety auditing.
 
 ## System Architecture
 
 ```
-┌──────────────────────────────────────────────────────────────┐
-│                    JavaScript User Code                       │
-│              (ES2023+ modules, async/await, etc.)             │
-├──────────────────────────────────────────────────────────────┤
-│  Layer 7: CLI & REPL                                         │
-│  ┌─────────┐ ┌──────┐ ┌──────┐ ┌─────────┐                  │
-│  │  args   │ │ repl │ │ run  │ │   fmt   │                  │
-│  └─────────┘ └──────┘ └──────┘ └─────────┘                  │
-├──────────────────────────────────────────────────────────────┤
-│  Layer 6: Runtime API (Globals)                              │
-│  ┌─────────┐ ┌────────────┐ ┌─────────┐ ┌──────────┐       │
-│  │ console │ │ timers_api │ │ process │ │ encoding │       │
-│  │ (all 3) │ │            │ │         │ │          │       │
-│  └─────────┘ └────────────┘ └─────────┘ └──────────┘       │
-├──────────────────────────────────────────────────────────────┤
-│  Layer 5: Module System                                      │
-│  ┌──────────┐ ┌────────┐ ┌─────┐ ┌──────────┐              │
-│  │ resolver │ │ loader │ │ esm │ │ builtins │              │
-│  └──────────┘ └────────┘ └─────┘ └──────────┘              │
-├──────────────────────────────────────────────────────────────┤
-│  Layer 4: Built-in Modules                                   │
-│  ┌────┐ ┌──────┐ ┌─────┐ ┌──────┐ ┌────────┐ ┌─────┐      │
-│  │ fs │ │ path │ │ net │ │ http │ │ crypto │ │ url │      │
-│  └────┘ └──────┘ └─────┘ └──────┘ └────────┘ └─────┘      │
-├──────────────────────────────────────────────────────────────┤
-│  Security: Permission System (cross-cutting)                 │
-│  ┌─────────────┐ ┌─────────┐ ┌────────┐                     │
-│  │ permissions │ │ sandbox │ │ policy │                     │
-│  └─────────────┘ └─────────┘ └────────┘                     │
-├──────────────────────────────────────────────────────────────┤
-│  Layer 3: Event Loop & Async Runtime                         │
-│  ┌───────────┐ ┌────────┐ ┌────────────┐ ┌───────┐         │
-│  │ eventloop │ │ timers │ │ microtasks │ │ tasks │         │
-│  └───────────┘ └────────┘ └────────────┘ └───────┘         │
-├──────────────────────────────────────────────────────────────┤
-│  Layer 2: JS Engine Abstraction                              │
-│  ┌───────────────────────────────────────────────┐           │
-│  │  IJSEngine (iface.d)                          │           │
-│  │  ┌──────────────┬──────────────┬──────────┐   │           │
-│  │  │ quickjs/     │  jsc/        │  v8/     │   │           │
-│  │  │ backend.d    │ backend.d    │ backend.d│   │           │
-│  │  │ bindings.d   │ bindings.d   │ bindings.d   │           │
-│  │  │ cimport.c    │ cppbindings.d│ cppbindings.d│           │
-│  │  │ runtime.d    │              │          │   │           │
-│  │  │ context.d    │              │ v8shim/  │   │           │
-│  │  │ value.d      │              │ (C++ shim)   │           │
-│  │  └──────────────┴──────────────┴──────────┘   │           │
-│  └───────────────────────────────────────────────┘           │
-├──────────────────────────────────────────────────────────────┤
-│  Layer 1: Platform Abstraction                               │
-│  ┌────────┐ ┌───────────┐ ┌────┐ ┌───────┐                  │
-│  │ memory │ │ threading │ │ io │ │ paths │                  │
-│  └────────┘ └───────────┘ └────┘ └───────┘                  │
-├──────────────────────────────────────────────────────────────┤
-│  Vendor: Engine (C/C++) │ eventcore (D) │ OS (POSIX/Win32)  │
-└──────────────────────────────────────────────────────────────┘
++--------------------------------------------------------------+
+|                    JavaScript / TypeScript User Code           |
+|              (ES2023+ modules, async/await, .ts/.mts/.cts)    |
++--------------------------------------------------------------+
+|  Layer 7: CLI & REPL                                          |
+|  +---------+ +------+ +------+ +---------+                    |
+|  |  args   | | repl | | run  | |   fmt   |                    |
+|  +---------+ +------+ +------+ +---------+                    |
++--------------------------------------------------------------+
+|  Layer 6: Runtime API (Globals)                               |
+|  +---------+ +------------+ +---------+ +----------+          |
+|  | console | | timers_api | | process | | encoding |          |
+|  | (all 3) | |            | |         | |          |          |
+|  +---------+ +------------+ +---------+ +----------+          |
++--------------------------------------------------------------+
+|  Layer 5: Module System                                       |
+|  +----------+ +--------+ +-----+ +----------+                 |
+|  | resolver | | loader | | esm | | builtins |                 |
+|  +----------+ +--------+ +-----+ +----------+                 |
++--------------------------------------------------------------+
+|  Layer 4: Built-in Modules                                    |
+|  +----+ +------+ +-----+ +------+ +--------+ +-----+         |
+|  | fs | | path | | net | | http | | crypto | | url |         |
+|  +----+ +------+ +-----+ +------+ +--------+ +-----+         |
++--------------------------------------------------------------+
+|  Cross-Cutting Concerns                                       |
+|  +----------------+ +------------------+ +----------------+   |
+|  | Security       | | TypeScript       | | TMP Bridge     |   |
+|  | permissions.d  | | strip.d          | | cppbindings.d  |   |
+|  | test.d (27)    | | (type stripping) | | (V8 + JSC)     |   |
+|  +----------------+ +------------------+ +----------------+   |
++--------------------------------------------------------------+
+|  Layer 3: Event Loop & Async Runtime                          |
+|  +-----------+ +--------+ +------------+ +-------+            |
+|  | eventloop | | timers | | microtasks | | tasks |            |
+|  +-----------+ +--------+ +------------+ +-------+            |
++--------------------------------------------------------------+
+|  Layer 2: JS Engine Abstraction                               |
+|  +-----------------------------------------------+            |
+|  |  IJSEngine (iface.d)                          |            |
+|  |  +--------------+--------------+----------+   |            |
+|  |  | quickjs/     |  jsc/        |  v8/     |   |            |
+|  |  | backend.d    | backend.d    | backend.d|   |            |
+|  |  | bindings.d   | bindings.d   | bindings.d   |            |
+|  |  | cimport.c    | cppbindings.d| cppbindings.d|            |
+|  |  | runtime.d    | (TMP bridge) | (TMP bridge) |            |
+|  |  | context.d    |              |              |            |
+|  |  | value.d      |              | v8shim/      |            |
+|  |  |              |              | (C++ shim)   |            |
+|  |  +--------------+--------------+----------+   |            |
+|  +-----------------------------------------------+            |
++--------------------------------------------------------------+
+|  Layer 1: Platform Abstraction                                |
+|  +--------+ +-----------+ +----+ +-------+                    |
+|  | memory | | threading | | io | | paths |                    |
+|  +--------+ +-----------+ +----+ +-------+                    |
++--------------------------------------------------------------+
+|  Vendor: Engine (C/C++) | eventcore (D) | OS (POSIX/Win32)   |
++--------------------------------------------------------------+
 ```
 
 ## Engine Abstraction Pattern
 
 ```
   Upper Layers (app, runtime, builtins, loop)
-            │
-            ▼
-  ┌─────────────────────┐
-  │   IJSEngine          │  interface in iface.d
-  │   - eval()           │
-  │   - newString()      │
-  │   - getProperty()    │
-  │   - drainJobs()      │
-  │   - ...              │
-  └──────────┬──────────┘
-             │ implements
-    ┌────────┼────────┐
-    ▼        ▼        ▼
+            |
+            v
+  +---------------------+
+  |   IJSEngine          |  interface in iface.d
+  |   - eval()           |
+  |   - newString()      |
+  |   - getProperty()    |
+  |   - drainJobs()      |
+  |   - isUndefined()    |  <-- dispatches via TMP type checks
+  |   - ...              |
+  +----------+-----------+
+             | implements
+    +--------+--------+
+    v        v        v
  QuickJS    JSC      V8
  Engine   Engine   Engine
-    │        │        │
-    ▼        ▼        ▼
+    |        |        |
+    v        v        v
  extern(C)  extern(C)  extern(C)
  quickjs.h  JSC C API  v8shim.cpp
 ```
@@ -106,25 +110,30 @@ engine-specific C/C++ bindings.
 ## Data Flow: Script Execution
 
 ```
-CLI (args.d) ──parse──> CliConfig
-                              │
-                    ┌─────────▼──────────┐
-                    │ createEngine()      │  IJSEngine factory
-                    │ engine.initialize() │  EngineConfig
-                    │ installGlobals()    │  console (per-backend)
-                    └─────────┬──────────┘
-                              │
-                    ┌─────────▼──────────┐
-                    │ engine.eval(source) │  Evaluates JS source
-                    └─────────┬──────────┘
-                              │
-                    ┌─────────▼──────────┐
-                    │ engine.drainJobs()  │  Promise microtasks
-                    └─────────┬──────────┘
-                              │
-                    ┌─────────▼──────────┐
-                    │ engine.shutdown()   │  Cleanup
-                    └────────────────────┘
+CLI (args.d) --parse--> CliConfig
+                              |
+                    +---------v----------+
+                    | createEngine()      |  IJSEngine factory
+                    | engine.initialize() |  EngineConfig
+                    | installGlobals()    |  console (per-backend)
+                    +---------+----------+
+                              |
+                    +---------v----------+
+                    | isTypeScript(path)? |  .ts/.mts/.cts detection
+                    | stripTypes(source)  |  whitespace-preserving
+                    +---------+----------+
+                              |
+                    +---------v----------+
+                    | engine.eval(source) |  Evaluates JS source
+                    +---------+----------+
+                              |
+                    +---------v----------+
+                    | engine.drainJobs()  |  Promise microtasks
+                    +---------+----------+
+                              |
+                    +---------v----------+
+                    | engine.shutdown()   |  Cleanup
+                    +--------------------+
 ```
 
 ## Console Implementation (per-backend)
@@ -133,66 +142,136 @@ Each backend uses its native callback mechanism to implement `console.*`:
 
 ```
                     installGlobals()
-                          │
-          ┌───────────────┼───────────────┐
-          ▼               ▼               ▼
+                          |
+          +---------------+---------------+
+          v               v               v
     EngineQuickJS    EngineJSC        EngineV8
-          │               │               │
+          |               |               |
     console.d:        globals.d:       globals.d:
     JS_NewCFunction   JSObjectMake     dun_v8_new_function
-    → core.stdc.stdio FunctionWith     → FunctionTemplate
-                      Callback         → v8FunctionTrampoline
-                      → std.stdio      → std.stdio
+    -> core.stdc.stdio FunctionWith     -> FunctionTemplate
+                      Callback         -> v8FunctionTrampoline
+                      -> std.stdio      -> std.stdio
 ```
+
+## C++ TMP <-> D TMP Bridge Pattern
+
+The V8 and JSC backends use a cross-language template metaprogramming bridge where
+C++ templates and D compile-time features mirror each other across the FFI boundary.
+Both sides resolve at compile time with zero runtime overhead.
+
+### V8 Bridge
+
+```
+C++ side (vendor/v8shim/)                D side (engine/v8/)
+=========================                ====================
+
+v8shim_tmpl.hpp:                         cppbindings.d:
+  enum V8Tag { Undefined,                  enum V8TypeTag { Undefined,
+    Null, Bool, Int, Number,                 Null, Bool, Int, Number,
+    String, Object, Array,                   String, Object, Array,
+    Function }                               Function }
+
+  V8TypeMap<Tag> (type map)                V8TypeName!tag (name map)
+
+  isV8Type<Tag>(isolate, vw)               V8TypeChecks.check(tag, val)
+    -> if constexpr dispatch                 -> function pointer table
+
+  withContext<F>(cw, fn)                   backend.d:
+    -> RAII scope guard                      checkType(tag, handle)
+    -> eliminates 4-line                     -> lazy-init dispatch table
+       boilerplate in ~20 fns                -> 7 isXxx() one-liners
+
+v8shim.cpp:
+  valueIsType<Tag>(vw)
+    -> withIsolate + isV8Type
+  9 type-check fns = 1-liners
+  ~20 fns use withContext<F>
+```
+
+**Adding a new V8 type** only requires:
+1. C++: add enum value + `if constexpr` case + `V8TypeMap` specialization
+2. D: add enum value + `V8TypeName` entry + `V8TypeChecks` table row
+
+### JSC Bridge
+
+JSC has `JSValueGetType()` returning a `JSType` enum directly -- a single C call
+replaces multiple type-check calls:
+
+```
+JSC C API (bindings.d)                   D side (engine/jsc/)
+======================                   ====================
+
+JSType enum:                             cppbindings.d:
+  kJSTypeUndefined = 0                    enum JSCTypeTag { Undefined = 0,
+  kJSTypeNull      = 1                      Null = 1, Boolean = 2,
+  kJSTypeBoolean   = 2                      Number = 3, String = 4,
+  kJSTypeNumber    = 3                      Object = 5, Symbol = 6,
+  kJSTypeString    = 4                      Array, Function, Date }
+  kJSTypeObject    = 5
+  kJSTypeSymbol    = 6                   JSCTypeName!tag (name map)
+
+JSValueGetType(ctx, val)                 JSCTypeChecks:
+  -> returns JSType (single call)          .getType() -> single dispatch
+                                           .check(tag) -> fn ptr table
+JSValueIsXxx(ctx, val)                     .typeofString() -> JS typeof
+  -> individual type checks
+                                         backend.d:
+                                           checkType(tag, handle)
+                                           -> 7 isXxx() one-liners
+```
+
+**JSC advantage**: `getType()` returns the type in one call (O(1) dispatch),
+while V8 requires testing each type individually.
 
 ## V8 Native Function Trampoline
 
-V8 has no C API — the C++ shim uses FunctionTemplate with an extern "C" trampoline:
+V8 has no C API -- the C++ shim uses FunctionTemplate with an extern "C" trampoline:
 
 ```
 D function pointer (DunV8NativeCallback)
-          │
-          │ stored in DunV8FunctionData struct
-          ▼
+          |
+          | stored in DunV8FunctionData struct
+          v
 v8::External wraps pointer to FunctionData
-          │
-          │ passed as data to FunctionTemplate
-          ▼
+          |
+          | passed as data to FunctionTemplate
+          v
 v8FunctionTrampoline (C++ function)
-          │
-          │ extracts DunV8FunctionData* from External
-          │ wraps argv in DunV8Value* array
-          │ calls D callback via function pointer
-          ▼
+          |
+          | extracts DunV8FunctionData* from External
+          | wraps argv in DunV8Value* array
+          | calls D callback via function pointer
+          v
 D callback executes, returns DunV8Value*
-          │
-          │ trampoline unwraps result
-          ▼
+          |
+          | trampoline unwraps result
+          v
 V8 receives return value via FunctionCallbackInfo::GetReturnValue()
 ```
 
 ## Memory Management Bridge
 
 ```
-┌─────────────────────┐        ┌─────────────────────────────┐
-│   D World (GC)      │        │  Engine World (C/C++)       │
-│                     │        │                             │
-│  IJSEngine    ──────┼─call──>│  QuickJS: extern(C) direct  │
-│                     │        │  JSC: extern(C) to C API    │
-│                     │        │  V8: extern(C) to C++ shim  │
-│                     │        │                             │
-│  JSHandle     ──────┼─map───>│  QJS: JSValue (tagged union) │
-│                     │        │  JSC: JSValueRef (opaque ptr)│
-│                     │        │  V8: DunV8Value* (ref-counted)│
-│                     │        │                             │
-│  DunState*    <─────┼─opaque─│  QJS: JS_GetContextOpaque   │
-│                     │        │  JSC: opaquePtr field        │
-│                     │        │  V8: dun_v8_get_context_data │
-│                     │        │                             │
-│  GC.addRoot() ──────┼─pin───>│  Engine class opaque         │
-│  @trusted block ────┼─call──>│  eval, call                  │
-│                     │        │                             │
-└─────────────────────┘        └─────────────────────────────┘
++---------------------+        +-----------------------------+
+|   D World (GC)      |        |  Engine World (C/C++)       |
+|                     |        |                             |
+|  IJSEngine    ------+-call-->|  QuickJS: extern(C) direct  |
+|                     |        |  JSC: extern(C) to C API    |
+|                     |        |  V8: extern(C) to C++ shim  |
+|                     |        |                             |
+|  JSHandle     ------+-map--->|  QJS: JSValue (tagged union) |
+|                     |        |  JSC: JSValueRef (opaque ptr)|
+|                     |        |  V8: DunV8Value* (ref-counted)|
+|                     |        |                             |
+|  DunState*    <-----+-opaque-|  QJS: JS_GetContextOpaque   |
+|                     |        |  JSC: opaquePtr field        |
+|                     |        |  V8: dun_v8_get_context_data |
+|                     |        |                             |
+|  GC.addRoot() ------+-pin--->|  Engine class opaque         |
+|  @trusted block ----+-call-->|  eval, call                  |
+|                     |        |                             |
++---------------------+        +-----------------------------+
 ```
 
 ### Value Lifetime Rules
@@ -201,7 +280,7 @@ V8 receives return value via FunctionCallbackInfo::GetReturnValue()
 |--------|-----|--------|---------|
 | QuickJS | `JS_Eval`, `JS_NewString`, etc. | `argv[]` in callbacks | `JS_FreeValue(ctx, val)` |
 | JSC | All JSValueRef are GC-managed | Same refs | `JSValueUnprotect(ctx, val)` |
-| V8 | `wrapValue` → `DunV8Value*` (ref=1) | N/A | `dun_v8_value_unref` (ref--) |
+| V8 | `wrapValue` -> `DunV8Value*` (ref=1) | N/A | `dun_v8_value_unref` (ref--) |
 
 ### Rules
 
@@ -216,21 +295,21 @@ V8 receives return value via FunctionCallbackInfo::GetReturnValue()
 ```
 JS code calls:  import { readFileSync } from "dun:fs";
                 readFileSync("/etc/passwd")
-                        │
-                        ▼
+                        |
+                        v
                extern(C) jsReadFileSync(ctx, ...)
-                        │
-                        ▼
+                        |
+                        v
                DunState* state = getContextOpaque()
-                        │
-                        ▼
+                        |
+                        v
                state.permissions.check(Permission.read, "/etc/passwd")
-                        │
-                ┌───────┴───────┐
-                │               │
+                        |
+                +-------+-------+
+                |               |
               DENIED          GRANTED
-                │               │
-                ▼               ▼
+                |               |
+                v               v
         throwTypeError()    std.file.read("/etc/passwd")
         "Requires           return newString(content)
          --allow-read"
@@ -263,6 +342,7 @@ interface IJSEngine {
     void setProperty(JSHandle obj, const(char)[] name, JSHandle val);
     JSHandle getProperty(JSHandle obj, const(char)[] name);
     string extractString(JSHandle val);
+    bool isUndefined(JSHandle val);  // dispatches via TMP type checks
     string getException();
     void drainJobs();
     void* rawContext();   // Escape hatch for backend-specific code
@@ -275,26 +355,27 @@ interface IJSEngine {
 |--------|-----------|-------|------|----------------------|
 | QuickJS | C API | extern(C) direct | None | `JS_NewCFunction(ctx, &fn, name, argc)` |
 | JSC | C API | extern(C) direct | None | `JSObjectMakeFunctionWithCallback(ctx, name, &fn)` |
-| V8 | C++ only | extern(C) via shim | vendor/v8shim/ (~540 LOC) | `dun_v8_new_function(ctx, &fn, name, data)` → FunctionTemplate |
+| V8 | C++ only | extern(C) via shim | vendor/v8shim/ (~300 LOC) | `dun_v8_new_function(ctx, &fn, name, data)` -> FunctionTemplate |
 
 ### V8 C++ Shim Details
 
-V8 has no stable C API. The shim (`vendor/v8shim/v8shim.cpp`) exposes ~37 functions:
+V8 has no stable C API. The shim (`vendor/v8shim/v8shim.cpp`) exposes ~38 functions,
+refactored via `withContext<F>` to eliminate scope guard boilerplate:
 
-| Category | Functions |
-|----------|-----------|
-| Lifecycle | `isolate_new`, `isolate_dispose`, `context_new`, `context_free` |
-| Eval | `eval` (with Script::Compile + Run, Context::Scope) |
-| Values | `new_undefined/null/bool/int/number/string/object/array/function` |
-| Extract | `value_to_string/int/number/bool`, `free_string` |
-| Types | `value_is_undefined/null/bool/number/string/object/function/array` |
-| Props | `get_property`, `set_property`, `global` |
-| Refs | `value_ref`, `value_unref` (ref-counted `v8::Global<Value>`) |
-| Errors | `get_exception`, `throw_error/type_error/range_error` |
-| Calls | `call` (invoke JS function from native) |
-| Microtasks | `has_pending_microtasks`, `drain_microtasks` |
-| Data | `set_context_data`, `get_context_data` |
-| Limits | `set_memory_limit`, `set_stack_limit` |
+| Category | Functions | TMP Pattern |
+|----------|-----------|-------------|
+| Lifecycle | `isolate_new`, `isolate_dispose`, `context_new`, `context_free` | -- |
+| Eval | `eval` (with Script::Compile + Run) | `withContext<F>` |
+| Values | `new_undefined/null/bool/int/number/string/object/array/function` | `withContext<F>` |
+| Extract | `value_to_string/int/number/bool`, `free_string` | `withContext<F>` |
+| Types | `value_is_undefined/null/bool/int/number/string/object/function/array` | `valueIsType<Tag>` -> `isV8Type<Tag>` |
+| Props | `get_property`, `set_property`, `global` | `withContext<F>` |
+| Refs | `value_ref`, `value_unref` (ref-counted `v8::Global<Value>`) | -- |
+| Errors | `get_exception`, `throw_error/type_error/range_error` | `withContext<F>` |
+| Calls | `call` (invoke JS function from native) | `withContext<F>` |
+| Microtasks | `has_pending_microtasks`, `drain_microtasks` | -- |
+| Data | `set_context_data`, `get_context_data` | -- |
+| Limits | `set_memory_limit`, `set_stack_limit` | -- |
 
 ### D extern(C++, "v8") Direct Bindings
 
@@ -313,20 +394,22 @@ extern(C++, "v8") {
 ```
 
 Instance methods on V8 C++ classes (Isolate, Context, etc.) generate vtable entries
-that require linking against V8's C++ objects — these MUST go through the C shim.
+that require linking against V8's C++ objects -- these MUST go through the C shim.
 
 ## Comparison with Other Runtimes
 
 | Aspect | Node.js | Deno | Bun | **DunJS** |
 |--------|---------|------|-----|-----------|
-| Language | C++ | Rust | Zig→Rust | **D** |
+| Language | C++ | Rust | Zig | **D** |
 | JS Engine | V8 | V8 | JSC | **Pluggable (QuickJS, JSC, V8)** |
+| TypeScript | Via tsc/swc | Built-in check+strip | Built-in transpile | **Type stripping** |
 | Engine FFI | Native C++ | rusty_v8 (Rust bindings) | Zig extern(C++) | **extern(C) + C shim** |
+| TMP Bridge | N/A | N/A | N/A | **C++ TMP <-> D TMP** |
 | Event Loop | libuv | Tokio | io_uring | **eventcore** |
 | Permission | None | Deny-all | None | **Deny-all** |
 | Module Prefix | `node:` | `node:` | `bun:` | **`dun:`** |
 | Memory Safety | Manual | Borrow checker | Manual | **@safe/@trusted** |
-| Build System | gyp → cmake | cargo | zig build | **DUB + build.d** |
+| Build System | gyp -> cmake | cargo | zig build | **DUB + build.d** |
 
 ## Design Decisions
 
@@ -335,9 +418,13 @@ that require linking against V8's C++ objects — these MUST go through the C sh
 | JS Engine | Pluggable (IJSEngine) | Swap backends without rewriting upper layers |
 | Default backend | QuickJS-NG | Pure C API, ES2023, easy extern(C), MIT license |
 | Tier 2 backends | JSC + V8 | JIT performance for production use |
+| TypeScript | Type stripping | Same as Node.js `--experimental-strip-types`; preserves source positions |
 | C FFI | extern(C) | Auditable bindings, no external tooling |
 | C++ FFI (V8) | C shim + extern(C) | V8 templates/RAII require C++ wrapper |
+| C++ FFI (V8 TMP) | withContext<F> + isV8Type<Tag> | Eliminates scope guard boilerplate in ~20 functions |
 | C++ FFI (JSC) | extern(C) public API | JSC has a stable C API (JSObjectRef) |
+| D TMP (V8) | V8TypeChecks dispatch table | Function pointer table mirrors C++ isV8Type<Tag> |
+| D TMP (JSC) | JSCTypeChecks + getType() | Single-dispatch via JSValueGetType(), mirrors kJSType* |
 | C++ FFI (direct) | extern(C++, "v8") | Only for static-method classes (no vtable) |
 | V8 headers | Vendored from Node.js | Eliminate libv8-dev compile dependency |
 | Event loop | eventcore | D-native, proactor pattern, cross-platform |
@@ -352,29 +439,36 @@ that require linking against V8's C++ objects — these MUST go through the C sh
 
 ```
 tests/
-├── integration/
-│   ├── fixtures/       # 13 JS test scripts
-│   │   ├── hello.js           # Basic smoke test
-│   │   ├── types.js           # typeof for all JS types
-│   │   ├── console_methods.js # log/info/debug, multiple args
-│   │   ├── promises.js        # Promise + async/await
-│   │   ├── promises_advanced.js # all/race/any, async errors
-│   │   ├── es2023.js          # findLast, optional chaining, Array.at
-│   │   ├── error_handling.js  # try/catch, Error subtypes, Error.cause
-│   │   ├── closures.js        # Closures, generators, destructuring
-│   │   ├── iterators.js       # Map, Set, WeakRef, Array.from
-│   │   ├── json_parsing.js    # JSON parse/stringify, replacer/reviver
-│   │   ├── classes.js         # Inheritance, private fields, valueOf
-│   │   ├── regex.js           # Named groups, matchAll, flags
-│   │   └── timers.js          # setTimeout/setInterval (Phase 2)
-│   └── expected/       # 12 expected stdout files (1 skipped: timers)
-└── bench/              # Benchmarks
++-- integration/
+|   +-- fixtures/       # 14 test scripts (13 JS + 1 TS)
+|   |   +-- hello.js           # Basic smoke test
+|   |   +-- types.js           # typeof for all JS types
+|   |   +-- console_methods.js # log/info/debug, multiple args
+|   |   +-- promises.js        # Promise + async/await
+|   |   +-- promises_advanced.js # all/race/any, async errors
+|   |   +-- es2023.js          # findLast, optional chaining, Array.at
+|   |   +-- error_handling.js  # try/catch, Error subtypes, Error.cause
+|   |   +-- closures.js        # Closures, generators, destructuring
+|   |   +-- iterators.js       # Map, Set, WeakRef, Array.from
+|   |   +-- json_parsing.js    # JSON parse/stringify, replacer/reviver
+|   |   +-- classes.js         # Inheritance, private fields, valueOf
+|   |   +-- regex.js           # Named groups, matchAll, flags
+|   |   +-- typescript.ts      # TS type stripping (QuickJS only)
+|   |   +-- timers.js          # setTimeout/setInterval (Phase 2)
+|   +-- expected/       # 13 expected stdout files (timers skipped)
++-- bench/              # Benchmarks
 
 source/dun/engine/
-├── test.d              # 46 BDD-style engine contract tests
-└── fuzz.d              # Stress/fuzz tests (rapid create/destroy, exception recovery)
-                        # Total: 49 unit tests
++-- test.d              # ~50 BDD-style engine contract tests
++-- fuzz.d              # ~50 fuzz/stress tests
+
+source/dun/ts/
++-- strip.d             # 20 TypeScript stripper tests (inline)
+
+source/dun/security/
++-- test.d              # 27 permission registry tests (inline)
 ```
 
 Test pattern inspired by Node.js standalone scripts: run fixture, compare stdout to expected file.
-All 12 integration tests pass identically on QuickJS, JSC, and V8.
+All 12 JS integration tests pass identically on QuickJS, JSC, and V8.
+TypeScript integration test passes on QuickJS.

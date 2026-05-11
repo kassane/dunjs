@@ -1,15 +1,13 @@
 # CLAUDE.md - DunJS Development Guide
 
-<!-- CI diagnostic trigger -->
-
 ## Project Overview
 
-DunJS (`dun`) is a secure JavaScript runtime written in D, inspired by Deno, Bun, and Node.js.
+DunJS (`dun`) is a secure JavaScript/TypeScript runtime written in D, inspired by Deno, Bun, and Node.js.
 It uses a **pluggable engine architecture** (IJSEngine interface) with backends for
 QuickJS-NG (default), JavaScriptCore (Tier 2), or V8 (Tier 2), and **eventcore** for async I/O.
 
-**Reference**: Architecture inspired by [Bun's Zig→Rust port](https://github.com/oven-sh/bun/pull/30412)
-— modular crate structure, engine abstraction layer, RAII wrappers, safety auditing.
+**Reference**: Architecture inspired by [Bun's Zig->Rust port](https://github.com/oven-sh/bun/pull/30412)
+-- modular crate structure, engine abstraction layer, RAII wrappers, safety auditing.
 
 ## Build Commands
 
@@ -21,7 +19,7 @@ dub build                            # Debug build (default: QuickJS backend)
 dub build -c quickjs                 # Explicit QuickJS backend
 dub build -c jsc                     # JavaScriptCore backend
 dub build -c v8                      # V8 backend (via C++ shim)
-dub test -c unittest                 # Run BDD-style engine contract + security tests
+dub test -c unittest                 # Run all unit tests (engine + TS + security)
 dub build -b release                 # Release build (optimized)
 ./dun run script.js                  # Run a JavaScript file
 ./dun run script.ts                  # Run a TypeScript file (type stripping)
@@ -34,10 +32,10 @@ dub build -b release                 # Release build (optimized)
 | Compiler | Minimum Version | Frontend | LLVM/GCC |
 |----------|----------------|----------|----------|
 | LDC      | 1.42.0         | 2.112.1  | LLVM 21  |
-| DMD      | 2.112.1        | —        | —        |
+| DMD      | 2.112.1        | --       | --       |
 | GDC      | GCC 15         | 2.108    | GCC 15   |
 
-## Architecture (7 Layers)
+## Architecture (7 Layers + Cross-Cutting)
 
 ```
 Layer 7: CLI & REPL           source/dun/cli/
@@ -48,52 +46,52 @@ Layer 3: Event Loop            source/dun/loop/        (eventcore, timer wheel, 
 Layer 2: JS Engine Abstraction source/dun/engine/      (IJSEngine interface + backends)
 Layer 1: Platform Abstraction  source/dun/platform/    (memory, threading, OS I/O)
 Cross:   TypeScript            source/dun/ts/          (type stripping for .ts/.mts/.cts)
-Cross:   Security              source/dun/security/    (permissions, sandbox)
+Cross:   Security              source/dun/security/    (permissions, sandbox, 27 tests)
 ```
 
 ### Engine Abstraction (Layer 2)
 
 ```
 source/dun/engine/
-├── iface.d          # IJSEngine interface, JSHandle, JSResult, EngineConfig
-├── package.d        # Re-exports iface + factory
-├── test.d           # BDD-style engine contract tests (46 cases)
-├── fuzz.d           # Fuzz/stress tests (49 total with test.d)
-├── quickjs/         # QuickJS-NG backend
-│   ├── backend.d    # QuickJSEngine : IJSEngine
-│   ├── bindings.d   # extern(C) declarations for quickjs.h
-│   ├── runtime.d    # RAII wrapper for JSRuntime*
-│   ├── context.d    # RAII wrapper for JSContext*
-│   ├── value.d      # RAII wrapper for JSValue
-│   ├── function_bind.d
-│   ├── exceptions.d
-│   └── package.d
-├── jsc/             # JavaScriptCore backend (fully functional)
-│   ├── backend.d    # JSCEngine : IJSEngine
-│   ├── bindings.d   # extern(C) declarations for JSC C API (~240 lines)
-│   ├── cppbindings.d # experimental extern(C++, "JSC") bindings
-│   └── package.d
-└── v8/              # V8 backend (fully functional, via C shim)
-    ├── backend.d    # V8Engine : IJSEngine
-    ├── bindings.d   # extern(C) declarations for v8shim (~90 lines)
-    ├── cppbindings.d # extern(C++, "v8") static-method bindings
-    └── package.d
++-- iface.d          # IJSEngine interface, JSHandle, JSResult, EngineConfig
++-- package.d        # Re-exports iface + factory
++-- test.d           # BDD-style engine contract tests (~50 cases)
++-- fuzz.d           # Fuzz/stress tests (~50 cases)
++-- quickjs/         # QuickJS-NG backend
+|   +-- backend.d    # QuickJSEngine : IJSEngine
+|   +-- bindings.d   # extern(C) declarations for quickjs.h
+|   +-- runtime.d    # RAII wrapper for JSRuntime*
+|   +-- context.d    # RAII wrapper for JSContext*
+|   +-- value.d      # RAII wrapper for JSValue
+|   +-- function_bind.d
+|   +-- exceptions.d
+|   +-- package.d
++-- jsc/             # JavaScriptCore backend (fully functional)
+|   +-- backend.d    # JSCEngine : IJSEngine (uses JSCTypeChecks dispatch)
+|   +-- bindings.d   # extern(C) declarations for JSC C API (~240 lines)
+|   +-- cppbindings.d # D TMP bridge (JSCTypeTag, JSCTypeChecks, getType)
+|   +-- package.d     #   + experimental extern(C++, "JSC") bindings
++-- v8/              # V8 backend (fully functional, via C shim)
+    +-- backend.d    # V8Engine : IJSEngine (uses V8TypeChecks dispatch)
+    +-- bindings.d   # extern(C) declarations for v8shim (~90 lines)
+    +-- cppbindings.d # D TMP bridge (V8TypeTag, V8TypeChecks)
+    +-- package.d     #   + extern(C++, "v8") static-method bindings
 
-vendor/v8shim/           # V8 C++ shim (~540 lines)
-├── v8shim.h             # extern "C" header
-├── v8shim.cpp           # C++ implementation (FunctionTemplate trampoline, Context::Scope)
-└── v8shim_tmpl.hpp      # C++ TMP helpers (withContext<F>, V8TypeMap<Tag>)
+vendor/v8shim/           # V8 C++ shim (refactored with TMP)
++-- v8shim.h             # extern "C" header (~38 functions)
++-- v8shim.cpp           # C++ impl (withContext<F> eliminates boilerplate)
++-- v8shim_tmpl.hpp      # C++ TMP (withContext, withIsolate, V8TypeMap, isV8Type)
 
 source/dun/ts/           # TypeScript type stripping
-├── strip.d              # Scanner-based type eraser (~600 lines, 20 unit tests)
-└── package.d            # Re-exports strip
++-- strip.d              # Scanner-based type eraser (~600 lines, 20 unit tests)
++-- package.d            # Re-exports strip
 
 source/dun/security/
-├── permissions.d        # PermissionRegistry (default-deny model)
-└── test.d               # Security unit tests (25 tests)
++-- permissions.d        # PermissionRegistry (default-deny model)
++-- test.d               # Security unit tests (27 tests)
 ```
 
-Upper layers use `IJSEngine` — only code inside `engine/<backend>/` touches raw engine APIs.
+Upper layers use `IJSEngine` -- only code inside `engine/<backend>/` touches raw engine APIs.
 
 ### Runtime Globals (Layer 6)
 
@@ -101,12 +99,12 @@ Console is implemented per-backend in `source/dun/runtime/globals.d`:
 
 | Method | QuickJS | JSC | V8 | Output |
 |--------|---------|-----|-----|--------|
-| `console.log` | extern(C) → core.stdc.stdio | JSObjectMakeFunctionWithCallback → std.stdio | v8shim trampoline → std.stdio | stdout |
-| `console.info` | alias → log | alias → log | alias → log | stdout |
-| `console.debug` | alias → log | alias → log | alias → log | stdout |
-| `console.warn` | extern(C) → stderr | callback → std.stdio stderr | trampoline → std.stdio stderr | stderr |
-| `console.error` | extern(C) → stderr | callback → std.stdio stderr | trampoline → std.stdio stderr | stderr |
-| `console.assert` | extern(C) → stderr | callback → std.stdio stderr | trampoline → std.stdio stderr | stderr |
+| `console.log` | extern(C) -> core.stdc.stdio | JSObjectMakeFunctionWithCallback -> std.stdio | v8shim trampoline -> std.stdio | stdout |
+| `console.info` | alias -> log | alias -> log | alias -> log | stdout |
+| `console.debug` | alias -> log | alias -> log | alias -> log | stdout |
+| `console.warn` | extern(C) -> stderr | callback -> std.stdio stderr | trampoline -> std.stdio stderr | stderr |
+| `console.error` | extern(C) -> stderr | callback -> std.stdio stderr | trampoline -> std.stdio stderr | stderr |
+| `console.assert` | extern(C) -> stderr | callback -> std.stdio stderr | trampoline -> std.stdio stderr | stderr |
 
 ## Key Development Patterns
 
@@ -127,7 +125,7 @@ if (!result.isError)
 
 Each backend registers native functions using its own callback signature:
 
-**QuickJS** — `extern(C) JSValue(JSContext*, JSValueConst, int, JSValueConst*)`:
+**QuickJS** -- `extern(C) JSValue(JSContext*, JSValueConst, int, JSValueConst*)`:
 ```d
 extern(C) JSValue myFunc(JSContext* ctx, JSValueConst this_val,
                           int argc, JSValueConst* argv) nothrow {
@@ -136,7 +134,7 @@ extern(C) JSValue myFunc(JSContext* ctx, JSValueConst this_val,
 }
 ```
 
-**JSC** — `extern(C) JSValueRef(JSContextRef, JSObjectRef, JSObjectRef, size_t, const(JSValueRef)*, JSValueRef*)`:
+**JSC** -- `extern(C) JSValueRef(JSContextRef, JSObjectRef, JSObjectRef, size_t, const(JSValueRef)*, JSValueRef*)`:
 ```d
 extern(C) JSValueRef myFunc(JSContextRef ctx, JSObjectRef func,
     JSObjectRef thisObject, size_t argc, const(JSValueRef)* args,
@@ -145,7 +143,7 @@ extern(C) JSValueRef myFunc(JSContextRef ctx, JSObjectRef func,
 }
 ```
 
-**V8** — `extern(C) DunV8Value*(DunV8Context*, DunV8Value*, int, DunV8Value**, void*)`:
+**V8** -- `extern(C) DunV8Value*(DunV8Context*, DunV8Value*, int, DunV8Value**, void*)`:
 ```d
 extern(C) DunV8Value* myFunc(DunV8Context* ctx, DunV8Value* thisVal,
     int argc, DunV8Value** argv, void* data) nothrow {
@@ -155,8 +153,8 @@ extern(C) DunV8Value* myFunc(DunV8Context* ctx, DunV8Value* thisVal,
 
 ### 3. RAII Wrappers for Engine Resources
 
-- `QuickJSEngine` wraps `JSRuntime*` + `JSContext*` — freed in `shutdown()`
-- `JSVal` wraps `JSValue` — calls `JS_FreeValue` in destructor
+- `QuickJSEngine` wraps `JSRuntime*` + `JSContext*` -- freed in `shutdown()`
+- `JSVal` wraps `JSValue` -- calls `JS_FreeValue` in destructor
 - V8 values use `dun_v8_value_ref` / `dun_v8_value_unref` (ref-counted via C++ shim)
 - JSC values use `JSValueProtect` / `JSValueUnprotect` (prevent GC collection)
 - All RAII types are `@disable this(this)` (non-copyable) or implement postblit
@@ -191,7 +189,7 @@ if (!state.permissions.check(Permission.read, path))
 
 | Criteria | ImportC | dpp | dstep |
 |----------|---------|-----|-------|
-| **Use case** | Compile C sources directly | `#include` C/C++ in `.dpp` | Batch header→D binding |
+| **Use case** | Compile C sources directly | `#include` C/C++ in `.dpp` | Batch header->D binding |
 | **Macro support** | Partial (function-like) | Full (via C preprocessor) | `#define` only |
 | **C++ support** | No | Limited | No |
 | **Compile-time impact** | High (compiles C) | Medium (preprocess) | None (pre-generated) |
@@ -204,7 +202,7 @@ if (!state.permissions.check(Permission.read, path))
 ### C++ FFI with D
 
 ```d
-// Direct C++ interop via extern(C++) — only safe for static methods
+// Direct C++ interop via extern(C++) -- only safe for static methods
 extern(C++, "v8") {
     extern class V8 {
     static:
@@ -216,7 +214,7 @@ extern(C++, "v8") {
     }
 }
 
-// Instance methods generate vtable entries → linker errors without C++ objects
+// Instance methods generate vtable entries -> linker errors without C++ objects
 // Use C shim (vendor/v8shim/) for all value operations instead
 
 // dlang/stdcpp provides: string, string_view, memory (unique_ptr), allocator
@@ -227,73 +225,91 @@ import stdcpp.allocator;
 
 | Engine | API | FFI Approach | Lines |
 |--------|-----|-------------|-------|
-| QuickJS | C API (quickjs.h) | extern(C) — manual D bindings, audited via ImportC `-H` | ~400 |
-| JSC | C API (JSObjectRef) | extern(C) — straightforward, ~80 functions | ~240 |
-| JSC | C++ internals | extern(C++, "JSC") — experimental cppbindings.d | ~30 |
-| V8 | C++ only | extern(C) via C shim (vendor/v8shim/) | ~540 C++ + ~90 D |
-| V8 | C++ internals | extern(C++, "v8") — static methods only (V8 class) | ~50 |
-| V8 | C++ TMP bridge | D TMP (static foreach, mixin) ↔ C++ TMP (if constexpr, templates) | ~100 |
+| QuickJS | C API (quickjs.h) | extern(C) -- manual D bindings, audited via ImportC `-H` | ~400 |
+| JSC | C API (JSObjectRef) | extern(C) -- straightforward, ~80 functions | ~240 |
+| JSC | C++ internals | extern(C++, "JSC") -- experimental cppbindings.d | ~30 |
+| JSC | D TMP bridge | JSCTypeTag + JSCTypeChecks + getType() fast path | ~140 |
+| V8 | C++ only | extern(C) via C shim (vendor/v8shim/) | ~300 C++ + ~90 D |
+| V8 | C++ internals | extern(C++, "v8") -- static methods only (V8 class) | ~50 |
+| V8 | C++ TMP bridge | D TMP (V8TypeChecks) <-> C++ TMP (isV8Type, withContext) | ~120 |
 
-### C++ TMP ↔ D TMP Bridge Pattern
+### C++ TMP <-> D TMP Bridge Pattern
 
-The V8 shim demonstrates how C++ template metaprogramming and D's compile-time
-features can work together across the FFI boundary:
+The V8 and JSC backends use cross-language template metaprogramming where C++ templates
+and D compile-time features mirror each other across the FFI boundary.
 
-**C++ side** (`vendor/v8shim/v8shim_tmpl.hpp`):
-- `withContext<F>`: eliminates V8 scope guard boilerplate via RAII + forwarding
-- `V8TypeMap<Tag>`: compile-time tag → v8::Type dispatch
-- `isV8Type<Tag>`: `if constexpr` for type-check method selection
+**V8 C++ side** (`vendor/v8shim/v8shim_tmpl.hpp` -- wired into `v8shim.cpp`):
+- `withContext<F>`: RAII scope guard eliminating 4-line boilerplate in ~20 functions
+- `withIsolate<F>`: isolate-only variant for type checks
+- `V8TypeMap<Tag>`: compile-time tag -> v8::Type dispatch (9 specializations)
+- `isV8Type<Tag>`: `if constexpr` for type-check method selection (9 types)
+- `valueIsType<Tag>`: internal template combining withIsolate + isV8Type
 
-**D side** (`source/dun/engine/v8/cppbindings.d`):
-- `V8TypeTag` enum: mirrors C++ `V8Tag` for shared semantics
-- `V8TypeName` template: compile-time tag → function suffix map
-- `V8TypeChecks`: function pointer table generated from tags
-- `static foreach` over `__traits(allMembers)`: auto-generate declarations
+**V8 D side** (`source/dun/engine/v8/cppbindings.d` -- used by `backend.d`):
+- `V8TypeTag` enum: mirrors C++ `V8Tag` (Undefined..Function)
+- `V8TypeName` template: compile-time tag -> function suffix map
+- `V8TypeChecks`: function pointer table (9 entries), `check(tag, val)` dispatch
+- `backend.d` `checkType()`: lazy-initialized table, 7 `isXxx()` one-liners
 
-Adding a new type only requires adding an enum value on each side — the
-templates auto-generate the rest at compile time, both in C++ and D.
+**JSC D side** (`source/dun/engine/jsc/cppbindings.d` -- used by `backend.d`):
+- `JSCTypeTag` enum: values 0-6 match `kJSType*` constants, extended with Array/Function/Date
+- `JSCTypeName` template: compile-time tag -> display name
+- `JSCTypeChecks`: function pointer table + special Function handling
+  - `getType()`: single `JSValueGetType()` call for basic types (O(1) dispatch)
+  - `check(tag)`: function pointer table for all types including extended
+  - `typeofString()`: JS `typeof` semantics via single-dispatch
+- `backend.d` `checkType()`: lazy-initialized table, 7 `isXxx()` one-liners
+
+Adding a new type requires adding an enum value on each side -- templates
+auto-generate the rest at compile time, both in C++ and D.
 
 ### V8 C++ Shim Architecture
 
 ```
 D code (backend.d / globals.d)
-  │ extern(C) calls
-  ▼
+  | extern(C) calls
+  v
 vendor/v8shim/v8shim.cpp
-  │ FunctionTemplate + trampoline for native callbacks
-  │ Context::Scope on every operation (V8 10.x requirement)
-  │ DunV8Value* ref-counted wrappers around v8::Global<Value>
-  ▼
+  | withContext<F> scope guard (eliminates boilerplate)
+  | valueIsType<Tag> -> isV8Type<Tag> (compile-time type dispatch)
+  | FunctionTemplate + trampoline for native callbacks
+  | DunV8Value* ref-counted wrappers around v8::Global<Value>
+  v
 V8 C++ API (v8.h, from Node.js headers)
 ```
 
 Key shim patterns:
-- **FunctionTemplate trampoline**: D callback → `DunV8FunctionData*` in `v8::External` → `v8FunctionTrampoline` → D function pointer
-- **Context::Scope everywhere**: V8 10.x (Node 18) requires `v8::Context::Scope` for nearly all operations
-- **Headers vendored from Node.js**: `node-v22.15.0-headers.tar.gz` → `vendor/v8/include/`
+- **withContext<F>**: RAII scope guard (Isolate::Scope + HandleScope + Context::Scope) with perfect forwarding
+- **isV8Type<Tag>**: `if constexpr` dispatch to V8 `IsXxx()` methods (9 types)
+- **FunctionTemplate trampoline**: D callback -> `DunV8FunctionData*` in `v8::External` -> `v8FunctionTrampoline` -> D function pointer
+- **Headers vendored from Node.js**: `node-v22.15.0-headers.tar.gz` -> `vendor/v8/include/`
 
 ## Testing
 
-### Unit Tests (49 tests)
+### Unit Tests
 
 ```sh
-dub test -c unittest    # BDD-style engine contract + fuzz tests
+dub test -c unittest    # All unit tests
 ```
 
-- `source/dun/engine/test.d` — 46 engine contract tests (eval, types, properties, exceptions, promises)
-- `source/dun/engine/fuzz.d` — stress tests (rapid create/destroy, string stress, exception recovery)
-- `source/dun/ts/strip.d` — 20 TypeScript stripper tests (annotations, interfaces, as, declare, etc.)
-- `source/dun/security/test.d` — 25 security tests (default deny, scoped grants, deny overrides, parseFlag)
+| Suite | File | Tests | Coverage |
+|-------|------|-------|----------|
+| Engine contract | `source/dun/engine/test.d` | ~50 | eval, types, properties, exceptions, promises |
+| Fuzz/stress | `source/dun/engine/fuzz.d` | ~50 | rapid create/destroy, string stress, exception recovery |
+| TypeScript strip | `source/dun/ts/strip.d` | 20 | annotations, interfaces, as, declare, arrow types |
+| Security perms | `source/dun/security/test.d` | 27 | default deny, scoped grants, deny overrides, parseFlag |
+| V8 TMP bridge | `source/dun/engine/v8/cppbindings.d` | compile-time | V8TypeName coverage, tag->name mapping |
+| JSC TMP bridge | `source/dun/engine/jsc/cppbindings.d` | compile-time | JSCTypeName coverage, kJSType* alignment |
 
-### Integration Tests (13 tests × 3 backends)
+### Integration Tests (14 fixtures x 3 backends)
 
 ```sh
 # Run against a specific backend
 dub build -c quickjs && ./tests/integration/run.sh
 ```
 
-| Test | Description | Engines |
-|------|-------------|---------|
+| Test | Description | Backends |
+|------|-------------|----------|
 | `hello` | Basic console.log | All 3 |
 | `types` | typeof checks for all JS types | All 3 |
 | `console_methods` | log/info/debug, multiple args, types | All 3 |
@@ -306,8 +322,8 @@ dub build -c quickjs && ./tests/integration/run.sh
 | `json_parsing` | JSON parse/stringify, replacer, reviver | All 3 |
 | `classes` | Inheritance, static, private fields, computed props, valueOf | All 3 |
 | `regex` | Match, named groups, replace, split, matchAll | All 3 |
-| `timers` | setTimeout/setInterval (requires event loop) | Skipped |
 | `typescript` | Type annotations, interfaces, type aliases, as, arrow types | QuickJS |
+| `timers` | setTimeout/setInterval (requires event loop) | Skipped |
 
 Test pattern: fixtures in `tests/integration/fixtures/*.{js,ts}`, expected stdout in `tests/integration/expected/*.txt`.
 
@@ -324,6 +340,7 @@ Supported erasable TypeScript:
 - `as T` type assertions
 - `declare` blocks, `abstract` keyword
 - Optional parameters (`x?: T`)
+- Generic type parameters (`<T>`)
 
 Not supported (have runtime semantics):
 - `enum` (use `const obj = { ... } as const` instead)
@@ -339,17 +356,19 @@ Not supported (have runtime semantics):
 - **Path canonicalization**: Resolve symlinks before permission checks
 - **Memory limits**: Engine-level heap cap (default 256MB)
 - **Execution timeout**: Engine interrupt handler for infinite loop protection
+- **27 unit tests**: Default deny, global grant, --allow-all, scoped grants, deny-overrides-allow, parseFlag
 
 ## Code Style
 
 - Module naming: `dun.layer.module` (e.g., `dun.engine.quickjs.bindings`)
 - 4-space indentation
 - D naming conventions: `camelCase` for functions/variables, `PascalCase` for types
-- No `auto` for public API return types — always explicit
+- No `auto` for public API return types -- always explicit
 - Prefer `@safe` by default, mark `@trusted` at narrowest scope
 - Every `extern(C)` callback must be `nothrow`
+- Named constants for limits: `DEFAULT_MEMORY_LIMIT`, `DEFAULT_MAX_STACK`, `TEST_MEMORY_LIMIT`, `TEST_MAX_STACK`
 
-## FFI Bridge: D ↔ Engine Memory Rules
+## FFI Bridge: D <-> Engine Memory Rules
 
 1. **Engine owns JS values.** Every value returned by the engine is either owned (must be freed) or borrowed. RAII wrappers handle this.
 2. **D GC must not collect objects referenced by the engine.** Pin with `GC.addRoot` / `GC.removeRoot`.
@@ -363,7 +382,8 @@ Not supported (have runtime semantics):
 | 1 (MVP) | `dun run hello.js` | Engine abstraction + console + CLI | **Done** |
 | 1b | Multi-engine | JSC + V8 backends fully functional | **Done** |
 | 1c | TypeScript | `dun run file.ts` with type stripping | **Done** |
-| 1d | Security tests | PermissionRegistry unit tests (25 tests) | **Done** |
+| 1d | Security tests | PermissionRegistry unit tests (27 tests) | **Done** |
+| 1e | TMP bridge | C++ TMP <-> D TMP wired for V8 + JSC | **Done** |
 | 2 | Async works | Event loop + timers + Promises | In progress |
 | 3 | Real scripts | Module system + fs/path/net/crypto | Planned |
 | 4 | Secure by default | Permission enforcement wired to builtins | Planned |

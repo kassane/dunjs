@@ -63,19 +63,35 @@ executing the operation. JavaScript code cannot bypass these checks.
 
 ### Enforcement Rules
 
-1. **Default deny** — Without permission flags, all I/O throws `PermissionError`
-2. **Deny overrides allow** — `--deny-write=/etc` always wins over `--allow-write`
-3. **Immutable at runtime** — Permissions are set once from CLI args, cannot be changed by JS
-4. **Path canonicalization** — Symlinks resolved and paths normalized before checking
-5. **No ambient authority** — Child contexts inherit parent permissions, cannot escalate
+1. **Default deny** -- Without permission flags, all I/O throws `PermissionError`
+2. **Deny overrides allow** -- `--deny-write=/etc` always wins over `--allow-write`
+3. **Immutable at runtime** -- Permissions are set once from CLI args, cannot be changed by JS
+4. **Path canonicalization** -- Symlinks resolved and paths normalized before checking
+5. **No ambient authority** -- Child contexts inherit parent permissions, cannot escalate
+
+### Unit Tests (27 tests)
+
+The `PermissionRegistry` is tested in `source/dun/security/test.d`:
+- Default deny for all permission types
+- Global grant and revocation
+- `--allow-all` grants all permissions
+- Scoped allow lists (path/host granularity)
+- Deny overrides allow (scoped deny wins over global grant)
+- `parseFlag` for all CLI flag formats
+- Edge cases (empty scopes, overlapping paths)
 
 ## Resource Limits
 
 | Resource | Limit | Flag | Default |
 |----------|-------|------|---------|
-| JS heap memory | `JS_SetMemoryLimit` | `--max-memory` | 256 MB |
-| Stack depth | `JS_SetMaxStackSize` | `--max-stack` | 8 MB |
-| Execution time | `JS_SetInterruptHandler` | `--timeout` | None (no limit) |
+| JS heap memory | Engine-specific | `--max-memory` | 256 MB |
+| Stack depth | Engine-specific | `--max-stack` | 8 MB |
+| Execution time | Interrupt handler | `--timeout` | None (no limit) |
+
+Resource limits are enforced per-engine:
+- **QuickJS**: `JS_SetMemoryLimit`, `JS_SetMaxStackSize`, `JS_SetInterruptHandler`
+- **JSC**: System-managed (JSC manages its own heap)
+- **V8**: `ResourceConstraints` at isolate creation, `dun_v8_set_memory_limit`
 
 ## Threat Model
 
@@ -85,9 +101,9 @@ executing the operation. JavaScript code cannot bypass these checks.
 | **Network exfiltration** | `--allow-net` with host:port granularity |
 | **Env variable leakage** | `--allow-env` with variable name granularity |
 | **Arbitrary command execution** | `--allow-run` with command name allowlist |
-| **Infinite loops / DoS** | `JS_SetInterruptHandler` with configurable timeout |
-| **Memory exhaustion** | `JS_SetMemoryLimit` + D-side buffer bounds |
-| **Stack overflow** | `JS_SetMaxStackSize` |
+| **Infinite loops / DoS** | Engine interrupt handler with configurable timeout |
+| **Memory exhaustion** | Engine memory limits + D-side buffer bounds |
+| **Stack overflow** | Engine stack limits |
 | **Code injection via eval** | `eval()` processes string literals only; no network eval by default |
 | **Supply chain attacks** | Future: subresource integrity checks, lockfiles |
 | **Native code execution** | `--allow-ffi` required; disabled by default |
@@ -102,9 +118,15 @@ DunJS leverages D's memory safety system:
 - **`@nogc`**: Zero garbage collection in hot paths
 - **`nothrow`**: All `extern(C)` callbacks (C cannot handle D exceptions)
 
-The QuickJS engine itself is written in C with its own reference counting GC.
-The D ↔ C boundary is carefully managed via RAII wrappers (`JSVal`, `Runtime`, `Context`)
-that ensure deterministic cleanup and prevent use-after-free.
+### Per-Engine Memory Management
+
+| Engine | GC Strategy | D Bridge | Release |
+|--------|-------------|----------|---------|
+| QuickJS | Reference counting | RAII wrappers (`JSVal`, `Runtime`, `Context`) | `JS_FreeValue(ctx, val)` |
+| JSC | Tracing GC (WebKit) | `JSValueProtect` / `JSValueUnprotect` | Unprotect allows GC |
+| V8 | Generational GC | Ref-counted `DunV8Value*` via C++ shim | `dun_v8_value_unref` |
+
+The D <-> C/C++ boundary is carefully managed to ensure deterministic cleanup and prevent use-after-free.
 
 ## Reporting Vulnerabilities
 
@@ -120,5 +142,5 @@ within 48 hours and aim to release patches within 7 days for critical issues.
 
 | Version | Supported |
 |---------|-----------|
-| 0.x.x | Development — best effort |
+| 0.x.x | Development -- best effort |
 | 1.x.x | (future) Full security support |
