@@ -848,6 +848,10 @@ bool buildQuickJS(ref const Toolchain tc, ref const BuildOptions opts)
 
     if (tc.platform == Platform.windows)
     {
+        // LDC links with the static CRT (/MT). QuickJS must match to avoid
+        // unresolved __imp_* math symbols (acosh, asinh, fesetround, etc.)
+        cmakeArgs ~= "-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded";
+
         if (useNinja)
         {
             // Ninja is single-config, so CMAKE_BUILD_TYPE works correctly
