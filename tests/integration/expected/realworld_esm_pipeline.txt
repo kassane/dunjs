@@ -1,0 +1,9 @@
+headers: name, age, city
+rows: 4
+avg age: 29.5
+sorted: alice, bob, charlie, diana
+cities: austin, denver, portland, seattle
+digest length: 64
+digest type: string
+basename: true
+cleaned: true

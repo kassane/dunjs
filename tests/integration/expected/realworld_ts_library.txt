@@ -1,0 +1,10 @@
+pipe ok: true, value: 5
+pipe error: false
+evens: 2,4,6,8,10
+even count: 5
+format number: 3.14
+format string: HELLO
+config1: localhost:8080
+config2: 0.0.0.0:3000 [debug]
+async: data-42
+async: error:invalid id

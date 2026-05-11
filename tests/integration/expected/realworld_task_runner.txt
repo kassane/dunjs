@@ -1,0 +1,5 @@
+tasks: 4
+validate: ok -> 3
+transform: ok -> 1,2,3,4,5,6,9
+failing_task: error -> intentional failure
+compute: ok -> 6765

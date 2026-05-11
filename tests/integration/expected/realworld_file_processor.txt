@@ -1,0 +1,12 @@
+read bytes: true
+transformed 3 items
+output exists: true
+output is file: true
+output size > 0: true
+round-trip items: 3
+first item: BANANA
+source: sample.json
+sourceExt: .json
+checksum length: 64
+processedAt: ok
+cleaned up: true
