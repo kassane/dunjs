@@ -301,6 +301,7 @@ class JSCEngine : IJSEngine
 
     JSResult evalModule(const(char)[] source, string filename) @trusted
     {
+        assert(ctx !is null, "JSC context not initialized");
         import dun.modules.esm_shim : transpileESM;
         try
         {
@@ -330,6 +331,7 @@ class JSCEngine : IJSEngine
     void registerJSCFunction(string name, JSObjectCallAsFunctionCallback cb) @trusted
     {
         import std.string : toStringz;
+        assert(ctx !is null, "JSC context not initialized");
         auto jsName = JSStringCreateWithUTF8CString(name.toStringz);
         scope (exit) JSStringRelease(jsName);
         auto fn = JSObjectMakeFunctionWithCallback(ctx, jsName, cb);
@@ -341,6 +343,7 @@ class JSCEngine : IJSEngine
 
     private string jscStringToD(JSValueRef val) @trusted
     {
+        assert(ctx !is null, "JSC context not initialized");
         JSValueRef exc = null;
         auto jsStr = JSValueToStringCopy(ctx, val, &exc);
         if (jsStr is null)
@@ -352,6 +355,7 @@ class JSCEngine : IJSEngine
             return "";
         auto buf = new char[maxSize];
         auto written = JSStringGetUTF8CString(jsStr, buf.ptr, maxSize);
+        assert(written <= maxSize, "JSC UTF8 overrun");
         if (written <= 1)
             return "";
         return (cast(immutable(char)[]) buf[0 .. written - 1]).idup;
@@ -378,6 +382,7 @@ private extern (C) JSValueRef jscNativeTrampoline(JSContextRef ctx,
     import dun.engine.callbacks : get;
     import dun.engine.jsc.backend : JSCEngine;
 
+    assert(ctx !is null, "Null JSContextRef in jscNativeTrampoline");
     auto slotName = JSStringCreateWithUTF8CString("__cbSlot__");
     JSValueRef exc = null;
     auto slotVal = JSObjectGetProperty(ctx, func, slotName, &exc);

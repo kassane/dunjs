@@ -271,12 +271,14 @@ class V8Engine : IJSEngine
 
     bool executePendingJob() @trusted
     {
+        assert(isolate !is null, "V8 isolate not initialized");
         dun_v8_drain_microtasks(isolate);
         return false;
     }
 
     void drainJobs() @trusted
     {
+        assert(isolate !is null, "V8 isolate not initialized");
         dun_v8_drain_microtasks(isolate);
     }
 
@@ -314,12 +316,14 @@ class V8Engine : IJSEngine
 
     void setMemoryLimit(size_t bytes) @trusted
     {
+        assert(isolate !is null, "V8 isolate not initialized");
         if (bytes > 0)
             dun_v8_set_memory_limit(isolate, bytes);
     }
 
     void setMaxStackSize(size_t bytes) @trusted
     {
+        assert(isolate !is null, "V8 isolate not initialized");
         if (bytes > 0)
             dun_v8_set_stack_limit(isolate, bytes);
     }
@@ -332,6 +336,7 @@ class V8Engine : IJSEngine
     void registerV8Function(string name, DunV8NativeCallback cb, void* data = null) @trusted
     {
         import std.string : toStringz;
+        assert(cb !is null, "Null callback in registerV8Function");
         auto fn = dun_v8_new_function(ctx, cb, name.toStringz, data);
         auto global = dun_v8_global(ctx);
         dun_v8_set_property(ctx, global, name.toStringz, fn);
@@ -355,6 +360,7 @@ private extern (C) DunV8Value* v8NativeTrampoline(DunV8Context* ctx,
 {
     import dun.engine.callbacks : get;
 
+    assert(ctx !is null, "Null DunV8Context in v8NativeTrampoline");
     int slot = cast(int) cast(size_t) data;
     auto cb = get(slot);
     if (cb is null)
