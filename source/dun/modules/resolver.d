@@ -54,7 +54,8 @@ struct ModuleResolver
         if (specifier.startsWith("http://") || specifier.startsWith("https://"))
             return null;
 
-        // 5. node_modules walk (npm compat)
+        // 5. node_modules walk (npm compat, QuickJS only)
+        version (EngineQuickJS)
         {
             import dun.modules.require : findNodeModule;
             auto base = dirName(importerPath);

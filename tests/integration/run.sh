@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 DUN=${DUN:-./build/dun}
+BACKEND=${BACKEND:-quickjs}
 FIXTURES=tests/integration/fixtures
 EXPECTED=tests/integration/expected
 fails=0
@@ -11,9 +12,18 @@ for fixture in "$FIXTURES"/*.js "$FIXTURES"/*.ts "$FIXTURES"/*.mjs; do
   stdout_exp="$EXPECTED/${name}.txt"
   stderr_exp="$EXPECTED/${name}.stderr"
   flags_file="$FIXTURES/${name}.flags"
+  backends_file="$FIXTURES/${name}.backends"
 
   # Skip fixtures that have neither expected stdout nor expected stderr
   { [ -f "$stdout_exp" ] || [ -f "$stderr_exp" ]; } || continue
+
+  # Skip if this fixture is not supported by the current backend
+  if [ -f "$backends_file" ]; then
+    if ! grep -qw "$BACKEND" "$backends_file"; then
+      echo "SKIP $name"
+      continue
+    fi
+  fi
 
   # Read per-fixture flags (e.g. --allow-read)
   extra_flags=""
