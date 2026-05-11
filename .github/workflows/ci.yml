@@ -64,6 +64,17 @@ jobs:
       - name: Build vendor deps
         run: ldc2 -run build.d --backend=${{ matrix.engine }} --verbose
 
+      - name: Verify vendor build (Windows)
+        if: runner.os == 'Windows' && matrix.engine == 'quickjs'
+        shell: pwsh
+        run: |
+          Write-Host "=== Checking vendor/quickjs/build ==="
+          if (Test-Path vendor/quickjs/build) {
+            Get-ChildItem vendor/quickjs/build -Recurse -Filter "*.lib" | ForEach-Object { Write-Host $_.FullName }
+          } else {
+            Write-Host "vendor/quickjs/build does not exist!"
+          }
+
       - name: Build (debug)
         if: matrix.engine != 'v8'
         run: dub build -v -c ${{ matrix.engine }}

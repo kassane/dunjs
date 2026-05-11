@@ -827,6 +827,18 @@ bool buildQuickJS(ref const Toolchain tc, ref const BuildOptions opts)
 
     mkdirRecurse(bDir);
 
+    // Detect if Ninja is available (preferred on Windows for single-config builds)
+    bool useNinja = false;
+    if (tc.platform == Platform.windows)
+    {
+        auto ninjaCheck = executeShell("ninja --version 2>NUL");
+        useNinja = (ninjaCheck.status == 0);
+        if (useNinja)
+            logInfo(tag, "Using Ninja generator (single-config)");
+        else
+            logInfo(tag, "Using default CMake generator (multi-config, --config Release)");
+    }
+
     string[] cmakeArgs = [
         tc.cmake.path,
         "..",
@@ -836,7 +848,15 @@ bool buildQuickJS(ref const Toolchain tc, ref const BuildOptions opts)
 
     if (tc.platform == Platform.windows)
     {
-        cmakeArgs ~= "-DCMAKE_BUILD_TYPE=Release";
+        if (useNinja)
+        {
+            // Ninja is single-config, so CMAKE_BUILD_TYPE works correctly
+            cmakeArgs ~= "-G";
+            cmakeArgs ~= "Ninja";
+            cmakeArgs ~= "-DCMAKE_BUILD_TYPE=Release";
+        }
+        // For Visual Studio (multi-config), CMAKE_BUILD_TYPE is ignored;
+        // we pass --config Release on the cmake --build step instead
     }
     else
     {
@@ -873,6 +893,13 @@ bool buildQuickJS(ref const Toolchain tc, ref const BuildOptions opts)
         "-j", jobCount.to!string,
     ];
 
+    // For multi-config generators (Visual Studio), must pass --config Release
+    if (tc.platform == Platform.windows && !useNinja)
+    {
+        buildCmd ~= "--config";
+        buildCmd ~= "Release";
+    }
+
     if (runCmd(buildCmd, bDir, tag) != 0)
     {
         // Retry with single job for clearer error output
@@ -882,6 +909,12 @@ bool buildQuickJS(ref const Toolchain tc, ref const BuildOptions opts)
             "--target", "qjs",
             "-j", "1",
         ];
+
+        if (tc.platform == Platform.windows && !useNinja)
+        {
+            retryCmd ~= "--config";
+            retryCmd ~= "Release";
+        }
 
         if (runCmd(retryCmd, bDir, tag) != 0)
         {
