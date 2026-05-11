@@ -836,8 +836,7 @@ bool buildQuickJS(ref const Toolchain tc, ref const BuildOptions opts)
 
     if (tc.platform == Platform.windows)
     {
-        // Use NMake on Windows: single-config, available via MSVC dev env
-        cmakeArgs ~= ["-G", "NMake Makefiles", "-DCMAKE_BUILD_TYPE=Release"];
+        cmakeArgs ~= "-DCMAKE_BUILD_TYPE=Release";
     }
     else
     {
@@ -905,9 +904,7 @@ bool buildQuickJS(ref const Toolchain tc, ref const BuildOptions opts)
 
     if (!exists(libPath))
     {
-        logError(tag, QJS_LIB_NAME ~ " not found at expected path: " ~ libPath);
-
-        // Try to find it somewhere in the build tree
+        // Search the build tree and copy to expected location
         logVerbose(tag, "Searching build tree for " ~ QJS_LIB_NAME ~ "...");
         version (Windows)
             auto findResult = executeShell(
@@ -917,9 +914,15 @@ bool buildQuickJS(ref const Toolchain tc, ref const BuildOptions opts)
                 "find " ~ shellQuote(bDir) ~ " -name '" ~ QJS_LIB_NAME ~ "' 2>/dev/null");
         if (findResult.status == 0 && findResult.output.strip().length > 0)
         {
-            logError(tag, "Found at: " ~ findResult.output.strip());
-            logError(tag, "Build tree layout may have changed");
+            auto foundPath = findResult.output.strip().lineSplitter().front;
+            logInfo(tag, "Found at " ~ foundPath ~ ", copying to " ~ libPath);
+            copy(foundPath, libPath);
         }
+    }
+
+    if (!exists(libPath))
+    {
+        logError(tag, QJS_LIB_NAME ~ " not found anywhere in build tree: " ~ bDir);
         return false;
     }
 
