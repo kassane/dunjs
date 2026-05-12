@@ -1,0 +1,78 @@
+# DunJS Multi-Backend Distroless Container
+# All three backends in one image, switchable via DUN_BACKEND env.
+# Usage:
+#   docker build -f Dockerfile.multibackend -t dunjs:multi .
+#   docker run --rm dunjs:multi run script.js                      # quickjs (default)
+#   docker run --rm -e DUN_BACKEND=jsc dunjs:multi run script.js   # jsc
+#   docker run --rm -e DUN_BACKEND=v8 dunjs:multi run script.js    # v8
+
+# ─── Stage 1: Build all backends ──────────────────────────────
+FROM debian:trixie-slim AS build
+
+ARG LDC_VERSION=1.42.0
+
+RUN apt-get update -qq \
+    && apt-get install -qq --no-install-recommends \
+      ca-certificates \
+      curl \
+      xz-utils \
+      gcc \
+      g++ \
+      cmake \
+      make \
+      pkg-config \
+      git \
+      libxml2 \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN arch="$(dpkg --print-architecture)" \
+    && case "${arch}" in \
+      amd64) ldc_arch="linux-x86_64" ;; \
+      arm64) ldc_arch="linux-aarch64" ;; \
+      *) echo "error: unsupported architecture: $arch"; exit 1 ;; \
+    esac \
+    && curl -fsSL "https://github.com/ldc-developers/ldc/releases/download/v${LDC_VERSION}/ldc2-${LDC_VERSION}-${ldc_arch}.tar.xz" \
+      -o /tmp/ldc.tar.xz \
+      --retry 5 \
+    && tar -xf /tmp/ldc.tar.xz -C /opt/ \
+    && rm /tmp/ldc.tar.xz
+
+ENV PATH="/opt/ldc2-${LDC_VERSION}-linux-x86_64/bin:${PATH}"
+
+WORKDIR /src
+COPY . .
+
+RUN dub build -c quickjs -b release && strip build/dun && cp build/dun /tmp/dun-quickjs
+RUN dub build -c jsc -b release     && strip build/dun && cp build/dun /tmp/dun-jsc
+RUN dub build -c v8 -b release      && strip build/dun && cp build/dun /tmp/dun-v8
+
+# Collect all shared libs
+RUN mkdir -p /deps/lib \
+    && for bin in /tmp/dun-quickjs /tmp/dun-jsc /tmp/dun-v8; do \
+      ldd "$bin" 2>/dev/null | grep "=> /" | awk '{print $3}' | while read lib; do \
+        [ -f "$lib" ] && cp -anL "$lib" /deps/lib/ 2>/dev/null || true; \
+      done; \
+    done \
+    && for lib in vendor/jsc/lib/*.so* vendor/v8/lib/*.so* vendor/v8shim/*.so*; do \
+      [ -f "$lib" ] && cp -a "$lib" /deps/lib/ 2>/dev/null || true; \
+    done
+
+# ─── Stage 2: Distroless runtime ──────────────────────────────
+FROM gcr.io/distroless/cc-debian12
+
+LABEL org.opencontainers.image.title="DunJS Multi-Backend" \
+      org.opencontainers.image.description="Secure JS/TS runtime with QuickJS, JSC, and V8 backends"
+
+COPY --from=build /tmp/dun-quickjs /usr/local/bin/dun-quickjs
+COPY --from=build /tmp/dun-jsc     /usr/local/bin/dun-jsc
+COPY --from=build /tmp/dun-v8      /usr/local/bin/dun-v8
+COPY --from=build /deps/lib/       /usr/local/lib/
+COPY docker/dun-wrapper.sh         /usr/local/bin/dun
+
+ENV LD_LIBRARY_PATH="/usr/local/lib"
+ENV DUN_BACKEND="quickjs"
+
+WORKDIR /app
+
+ENTRYPOINT ["/usr/local/bin/dun"]
