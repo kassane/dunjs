@@ -4,6 +4,13 @@ import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
 import dun.runtime.globals : DunState;
 import dun.security.permissions : Permission;
 
+// POSIX functions not in all druntime builds (e.g. musl/Alpine)
+private extern(C) nothrow @nogc
+{
+    int truncate(const(char)* path, long length);
+    int fdatasync(int fd);
+}
+
 void registerFsModule(IJSEngine engine) @trusted
 {
     assert(engine !is null, "Null IJSEngine in registerFsModule");
@@ -728,7 +735,6 @@ JSHandle jsTruncateSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
         return throwPermError(engine, "write", path);
     try
     {
-        import core.sys.posix.unistd : truncate;
         import std.string : toStringz;
         if (truncate(path.toStringz, len) != 0)
         {
@@ -993,7 +999,6 @@ JSHandle jsFdatasyncSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     auto engine = state.engine;
     if (args.length < 1) return engine.throwTypeError("fdatasyncSync requires a file descriptor");
     auto fd = engine.extractInt(args[0]);
-    import core.sys.posix.unistd : fdatasync;
     if (fdatasync(fd) != 0)
     {
         import core.stdc.errno : errno;

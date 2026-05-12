@@ -16,10 +16,14 @@ RUN apk add --no-cache \
     libxml2-dev openssl-dev musl-dev linux-headers \
     libstdc++
 
-# Install LDC via ldcup (downloads native Alpine/musl build)
-RUN curl -sSf https://raw.githubusercontent.com/kassane/ldcup/main/scripts/install.sh | sh
-ENV PATH="/root/.dlang/ldc2-${LDC_VERSION}/bin:/root/.dlang:${PATH}"
-RUN ldcup install ldc2-${LDC_VERSION}
+# Install LDC (native Alpine/musl build)
+RUN curl -sLO --fail https://github.com/ldc-developers/ldc/releases/download/v${LDC_VERSION}/ldc2-${LDC_VERSION}-alpine-$(uname -m).tar.xz \
+    && tar -xJf ldc2-${LDC_VERSION}-alpine-$(uname -m).tar.xz --directory /opt \
+    && ln -s /opt/ldc2-${LDC_VERSION}-alpine-$(uname -m)/bin/ldc2 /usr/bin/ldc2 \
+    && ln -s /opt/ldc2-${LDC_VERSION}-alpine-$(uname -m)/bin/ldmd2 /usr/bin/ldmd2 \
+    && ln -s /opt/ldc2-${LDC_VERSION}-alpine-$(uname -m)/bin/dub /usr/bin/dub \
+    && ln -s /opt/ldc2-${LDC_VERSION}-alpine-$(uname -m)/bin/ldc-build-plugin /usr/bin/ldc-build-plugin \
+    && ln -s /opt/ldc2-${LDC_VERSION}-alpine-$(uname -m)/bin/ldc-build-runtime /usr/bin/ldc-build-runtime
 
 WORKDIR /src
 COPY . .
