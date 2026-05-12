@@ -398,6 +398,8 @@ All 51 integration tests pass under AddressSanitizer with zero memory errors.
 | `tests/benchmarks/stress.js` | 240 | Comprehensive pure-JS (strings, arrays, objects, classes, generators, promises) |
 | `tests/benchmarks/npm_stress.js` | 189 | Real npm packages (lodash, moment, validator, pako, diff, etc.) |
 | `tests/benchmarks/features.js` | 53 | Feature compatibility (ES2023+, modules, web APIs) |
+| `tests/benchmarks/feature_bench.js` | 25 | Cross-runtime perf (crypto, Buffer, URL, JSON, strings, arrays, Map/Set, Promise) |
+| `tests/benchmarks/sqlite_bench.js` | 5 | SQLite performance (bulk insert/read, aggregation, update) |
 
 Performance comparison (stress.js 240 tests, release builds):
 
@@ -474,6 +476,38 @@ Not supported (have runtime semantics):
 2. **D GC must not collect objects referenced by the engine.** Pin with `GC.addRoot` / `GC.removeRoot`.
 3. **Hot paths use `@nogc`.** `extern(C)` callbacks must be `nothrow`. Mark `@nogc` where possible.
 4. **Custom allocator.** Use engine-specific allocator hooks to track heap size and enforce `--max-memory`.
+5. **NativeCallback slot limit.** QuickJS uses `int16_t` magic values → max 32,767 callback slots. Cache function handles with `engine.dupValue()` instead of `engine.newFunction()` per object. TIGER_STYLE assertion in `callbacks.d` catches overflow.
+6. **CTFE lookup tables.** Use compile-time function evaluation for encoding tables (e.g., `bytesToHex` in `buffer.d`). Avoids `std.format` in hot paths.
+7. **std.array.Appender.** Use `Appender!(char[])` with `reserve()` for string building instead of `~=` (ESM shim, transpiler output).
+8. **Pre-allocated buffers.** Build WebSocket frames, HTTP responses, etc. with exact-size `new ubyte[totalLen]` instead of incremental `~=`.
+
+## D Runtime GC Tuning
+
+Default: `rt_options = ["gcopt=minPoolSize:16"]` in `app.d` — 16 MiB minimum pool reduces GC collections ~11x.
+
+```sh
+# Profile GC behavior
+dun "--DRT-gcopt=profile:1" run script.js
+
+# Tune pool sizes for server workloads
+dun "--DRT-gcopt=minPoolSize:32 maxPoolSize:512" run server.js
+
+# Precise GC (fewer false retentions, slightly slower)
+dun "--DRT-gcopt=gc:precise" run script.js
+
+# Parallel GC marking (default: uses all cores)
+dun "--DRT-gcopt=parallel:4" run script.js
+
+# Show all GC options
+dun "--DRT-gcopt=help"
+```
+
+Benchmark impact (25 benchmarks, feature_bench.js):
+| Config | GC Collections | GC Time | Throughput |
+|--------|---------------|---------|------------|
+| Default (1MB pool) | 260 | 27ms | 5.67M ops/sec |
+| minPoolSize:16 | 23 | 6ms | 5.92M ops/sec |
+| precise + 16MB | 20 | 7ms | ~5.9M ops/sec |
 
 ## Phased Roadmap
 
@@ -513,3 +547,7 @@ Not supported (have runtime semantics):
 | 10b | Test runner | `dun test` with Deno.test() API, file discovery, --filter, async tests | **Done** |
 | 10c | Bench runner | `dun bench` with Deno.bench() API, auto-calibrating iterations, ops/sec reporting | **Done** |
 | 10d | CLI tools | `dun init`, `dun fmt`, `dun clean` (project scaffold, formatter, cache cleanup) | **Done** |
+| 10e | Perf: callback slots | Fix NativeCallback slot exhaustion (cache function handles, TIGER_STYLE assert) | **Done** |
+| 10f | Perf: allocations | CTFE hex LUT (Buffer 59x faster), WS frame pre-alloc, ESM Appender | **Done** |
+| 10g | GC tuning | collectGarbage() API, gc() global, rt_options minPoolSize:16, --DRT-gcopt docs | **Done** |
+| 10h | Benchmarks | feature_bench.js (25 cross-runtime benchmarks), GC profiling integration | **Done** |
