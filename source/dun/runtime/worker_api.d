@@ -1,89 +1,81 @@
 module dun.runtime.worker_api;
 
-version (EngineQuickJS):
-
-import dun.engine.quickjs.bindings;
+import dun.engine.iface : IJSEngine, JSHandle;
 import dun.runtime.globals : DunState;
 
 version (linux)
     extern (C) long syscall(long nr, ...) nothrow @nogc;
 
-void installWorkerAPI(JSContext* ctx, DunState* state) @trusted
+void installWorkerAPI(IJSEngine engine, DunState* state) @trusted
 {
-    assert(ctx !is null, "Null JSContext in installWorkerAPI");
+    assert(engine !is null, "Null engine in installWorkerAPI");
     assert(state !is null, "Null DunState in installWorkerAPI");
-    auto global = JS_GetGlobalObject(ctx);
 
-    auto workerCtor = JS_NewCFunction2(ctx, &_workerCtor, "Worker", 1,
-        JS_CFUNC_constructor, 0);
-    JS_SetPropertyStr(ctx, global, "Worker", workerCtor);
+    auto global = engine.getGlobal();
 
-    auto sabCtor = JS_NewCFunction2(ctx, &_sabCtor, "SharedArrayBuffer", 1,
-        JS_CFUNC_constructor, 0);
-    JS_SetPropertyStr(ctx, global, "SharedArrayBuffer", sabCtor);
+    engine.setProperty(global, "__workerCreate",
+        engine.newFunction(&_workerCtor, "__workerCreate", 1));
+    engine.setProperty(global, "__sabCreate",
+        engine.newFunction(&_sabCtor, "__sabCreate", 1));
+    engine.setProperty(global, "__int32ArrayCreate",
+        engine.newFunction(&_int32ArrayCtor, "__int32ArrayCreate", 1));
 
-    auto atomics = JS_NewObject(ctx);
-    _addFn(ctx, atomics, "load",           &_atomicsLoad,  2);
-    _addFn(ctx, atomics, "store",          &_atomicsStore, 3);
-    _addFn(ctx, atomics, "add",            &_atomicsAdd,   3);
-    _addFn(ctx, atomics, "sub",            &_atomicsSub,   3);
-    _addFn(ctx, atomics, "and",            &_atomicsAnd,   3);
-    _addFn(ctx, atomics, "or",             &_atomicsOr,    3);
-    _addFn(ctx, atomics, "xor",            &_atomicsXor,   3);
-    _addFn(ctx, atomics, "compareExchange",&_atomicsCmpXch,4);
-    _addFn(ctx, atomics, "wait",           &_atomicsWait,  4);
-    _addFn(ctx, atomics, "notify",         &_atomicsNotify,3);
-    JS_SetPropertyStr(ctx, global, "Atomics", atomics);
+    engine.eval(
+        `globalThis.Worker = function Worker(p) { return __workerCreate(p); };`
+        ~ `globalThis.SharedArrayBuffer = function SharedArrayBuffer(n) { return __sabCreate(n); };`
+        ~ `globalThis.Int32Array = function Int32Array(a) { return __int32ArrayCreate(a); };`,
+        "<worker-init>");
 
-    JS_FreeValue(ctx, global);
+    auto atomics = engine.newObject();
+    engine.setProperty(atomics, "load",            engine.newFunction(&_atomicsLoad,  "load",  2));
+    engine.setProperty(atomics, "store",           engine.newFunction(&_atomicsStore, "store", 3));
+    engine.setProperty(atomics, "add",             engine.newFunction(&_atomicsAdd,   "add",   3));
+    engine.setProperty(atomics, "sub",             engine.newFunction(&_atomicsSub,   "sub",   3));
+    engine.setProperty(atomics, "and",             engine.newFunction(&_atomicsAnd,   "and",   3));
+    engine.setProperty(atomics, "or",              engine.newFunction(&_atomicsOr,    "or",    3));
+    engine.setProperty(atomics, "xor",             engine.newFunction(&_atomicsXor,   "xor",   3));
+    engine.setProperty(atomics, "compareExchange", engine.newFunction(&_atomicsCmpXch,"compareExchange", 4));
+    engine.setProperty(atomics, "wait",            engine.newFunction(&_atomicsWait,  "wait",  4));
+    engine.setProperty(atomics, "notify",          engine.newFunction(&_atomicsNotify,"notify", 3));
+    engine.setProperty(global, "Atomics", atomics);
+
+    engine.freeValue(global);
 }
 
 // --- Worker constructor ---
 
-private extern (C) JSValue _workerCtor(JSContext* ctx,
-    JSValueConst new_target, int argc, JSValueConst* argv) nothrow @system
+private JSHandle _workerCtor(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null JSContext in Worker constructor");
-    if (argc < 1)
-        return JS_ThrowTypeError(ctx, "Worker(path) requires a script path");
+    assert(ctx !is null, "Null ctx in Worker constructor");
+    auto state = cast(DunState*) ctx;
+    assert(state !is null && state.engine !is null, "Invalid DunState in Worker constructor");
+    auto engine = state.engine;
 
-    size_t pathLen;
-    const(char)* pathCstr = JS_ToCStringLen2(ctx, &pathLen, argv[0], false);
-    if (!pathCstr)
-        return JS_EXCEPTION();
-    string scriptPath;
-    try { scriptPath = pathCstr[0 .. pathLen].idup; }
-    catch (Throwable) { JS_FreeCString(ctx, pathCstr); return JS_EXCEPTION(); }
-    JS_FreeCString(ctx, pathCstr);
+    if (args.length < 1)
+        return engine.throwTypeError("Worker(path) requires a script path");
 
-    auto state = cast(DunState*) JS_GetContextOpaque(ctx);
-    try
-    {
-        import dun.security.permissions : Permission;
-        if (!state.permissions.check(Permission.read, scriptPath))
-            return JS_ThrowTypeError(ctx, "Worker: requires --allow-read");
-    }
-    catch (Exception) { return JS_ThrowTypeError(ctx, "Worker: permission check failed"); }
+    auto scriptPath = engine.extractString(args[0]);
 
-    auto workerObj = JS_NewObject(ctx);
-    auto postMsg = JS_NewCFunction(ctx, &_workerPostMessage, "postMessage", 1);
-    JS_SetPropertyStr(ctx, workerObj, "postMessage", postMsg);
+    import dun.security.permissions : Permission;
+    if (!state.permissions.check(Permission.read, scriptPath))
+        return engine.throwTypeError("Worker: requires --allow-read");
+
+    auto workerObj = engine.newObject();
+    engine.setProperty(workerObj, "postMessage",
+        engine.newFunction(&_workerPostMessage, "postMessage", 1));
 
     import dun.workers.worker : WorkerState, registerWorker, spawnWorker;
     WorkerState wst;
-    try { wst = new WorkerState(scriptPath, ctx); }
-    catch (Throwable) { JS_FreeValue(ctx, workerObj); return JS_EXCEPTION(); }
+    try { wst = new WorkerState(scriptPath, engine); }
+    catch (Throwable) { return engine.throwTypeError("Worker: failed to create state"); }
 
-    // Store pointer on the object so postMessage can find it
     import std.format : format;
     string ptrStr;
     try { ptrStr = format!"%x"(cast(size_t) cast(void*) wst); }
-    catch (Throwable) { JS_FreeValue(ctx, workerObj); return JS_EXCEPTION(); }
-    JS_SetPropertyStr(ctx, workerObj, "__wst__",
-        JS_NewStringLen(ctx, ptrStr.ptr, ptrStr.length));
+    catch (Throwable) { return engine.throwTypeError("Worker: internal error"); }
+    engine.setProperty(workerObj, "__wst__", engine.newString(ptrStr));
 
-    // Store duped worker object in wst for main-side message delivery
-    wst.jsWorkerVal = JS_DupValue(ctx, workerObj);
+    wst.jsWorkerVal = engine.dupValue(workerObj);
     wst.jsWorkerValSet = true;
 
     try
@@ -93,271 +85,323 @@ private extern (C) JSValue _workerCtor(JSContext* ctx,
     }
     catch (Throwable)
     {
-        JS_FreeValue(ctx, workerObj);
-        return JS_EXCEPTION();
+        return engine.throwTypeError("Worker: failed to spawn");
     }
 
     return workerObj;
 }
 
-private extern (C) JSValue _workerPostMessage(JSContext* ctx,
-    JSValueConst this_val, int argc, JSValueConst* argv) nothrow @system
+private JSHandle _workerPostMessage(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null JSContext in Worker.postMessage");
-    if (argc < 1)
-        return JS_UNDEFINED();
+    assert(ctx !is null, "Null ctx in Worker.postMessage");
+    auto state = cast(DunState*) ctx;
+    assert(state !is null && state.engine !is null, "Invalid DunState in Worker.postMessage");
+    auto engine = state.engine;
 
-    auto wstProp = JS_GetPropertyStr(ctx, this_val, "__wst__");
-    scope (exit) JS_FreeValue(ctx, wstProp);
+    if (args.length < 1)
+        return engine.newUndefined();
 
-    size_t len;
-    const(char)* cstr = JS_ToCStringLen2(ctx, &len, wstProp, false);
-    if (!cstr)
-        return JS_UNDEFINED();
+    auto wstProp = engine.getProperty(thisVal, "__wst__");
+    auto ptrHex = engine.extractString(wstProp);
+    engine.freeValue(wstProp);
+
+    if (ptrHex.length == 0)
+        return engine.newUndefined();
 
     import core.stdc.stdlib : strtoul;
-    size_t ptrVal = cast(size_t) strtoul(cstr, null, 16);
-    JS_FreeCString(ctx, cstr);
+    import std.string : toStringz;
+    size_t ptrVal = cast(size_t) strtoul(ptrHex.toStringz, null, 16);
 
-    import dun.workers.worker : WorkerState;
+    import dun.workers.worker : WorkerState, jsonStringify;
     auto wst = cast(WorkerState) cast(void*) ptrVal;
     if (!wst)
-        return JS_UNDEFINED();
+        return engine.newUndefined();
 
-    auto jsonStr = JS_JSONStringify(ctx, argv[0], JS_UNDEFINED(), JS_UNDEFINED());
-    if (JS_IsException(jsonStr))
-        return JS_UNDEFINED();
-    scope (exit) JS_FreeValue(ctx, jsonStr);
+    auto jsonStr = jsonStringify(engine, args[0]);
+    if (jsonStr is null)
+        return engine.newUndefined();
 
-    size_t jsonLen;
-    const(char)* jsonCstr = JS_ToCStringLen2(ctx, &jsonLen, jsonStr, false);
-    if (!jsonCstr)
-        return JS_UNDEFINED();
-    scope (exit) JS_FreeCString(ctx, jsonCstr);
-
-    try { wst.toWorker.send(jsonCstr[0 .. jsonLen].idup); }
+    try { wst.toWorker.send(jsonStr); }
     catch (Throwable) {}
 
-    return JS_UNDEFINED();
+    return engine.newUndefined();
 }
 
 // --- SharedArrayBuffer constructor ---
 
-private extern (C) void _sabFree(JSRuntime* rt, void* opaque, void* ptr) nothrow @nogc
+private JSHandle _sabCtor(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
-    import core.stdc.stdlib : free;
-    free(ptr);
+    assert(ctx !is null, "Null ctx in SharedArrayBuffer constructor");
+    auto state = cast(DunState*) ctx;
+    assert(state !is null && state.engine !is null, "Invalid DunState in SharedArrayBuffer");
+    auto engine = state.engine;
+
+    int size = 0;
+    if (args.length >= 1)
+        size = engine.extractInt(args[0]);
+    if (size < 0) size = 0;
+
+    import dun.workers.shared_memory : sabAlloc;
+    int sabId = sabAlloc(cast(size_t) size);
+    if (sabId < 0)
+        return engine.throwTypeError("SharedArrayBuffer: out of memory");
+
+    auto obj = engine.newObject();
+    engine.setProperty(obj, "byteLength", engine.newInt(size));
+    engine.setProperty(obj, "__sabId", engine.newInt(sabId));
+    engine.setProperty(obj, "__isSAB", engine.newBool(true));
+    return obj;
 }
 
-private extern (C) JSValue _sabCtor(JSContext* ctx,
-    JSValueConst new_target, int argc, JSValueConst* argv) nothrow @system
+// --- Int32Array constructor (SharedArrayBuffer-aware) ---
+
+private JSHandle _int32ArrayCtor(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null JSContext in SharedArrayBuffer constructor");
-    uint size = 0;
-    if (argc >= 1)
-        JS_ToUint32(ctx, &size, argv[0]);
+    assert(ctx !is null, "Null ctx in Int32Array constructor");
+    auto state = cast(DunState*) ctx;
+    assert(state !is null && state.engine !is null, "Invalid DunState in Int32Array");
+    auto engine = state.engine;
 
-    import core.stdc.stdlib : malloc;
-    import core.stdc.string : memset;
-    auto ptr = cast(ubyte*) malloc(size > 0 ? size : 1);
-    if (!ptr)
-        return JS_ThrowTypeError(ctx, "SharedArrayBuffer: out of memory");
-    memset(ptr, 0, size);
+    if (args.length < 1)
+    {
+        auto obj = engine.newObject();
+        engine.setProperty(obj, "length", engine.newInt(0));
+        engine.setProperty(obj, "BYTES_PER_ELEMENT", engine.newInt(4));
+        return obj;
+    }
 
-    return JS_NewArrayBuffer(ctx, ptr, size, &_sabFree, null, true);
+    auto isSAB = engine.getProperty(args[0], "__isSAB");
+    bool isSabObj = engine.isBool(isSAB) && engine.extractBool(isSAB);
+    engine.freeValue(isSAB);
+
+    if (isSabObj)
+    {
+        auto sabIdH = engine.getProperty(args[0], "__sabId");
+        int sabId = engine.extractInt(sabIdH);
+        engine.freeValue(sabIdH);
+
+        auto byteLenH = engine.getProperty(args[0], "byteLength");
+        int byteLen = engine.extractInt(byteLenH);
+        engine.freeValue(byteLenH);
+
+        int elemLen = byteLen / 4;
+
+        import dun.workers.shared_memory : sabRef;
+        sabRef(sabId);
+
+        auto obj = engine.newObject();
+        engine.setProperty(obj, "__sabId", engine.newInt(sabId));
+        engine.setProperty(obj, "__byteOffset", engine.newInt(0));
+        engine.setProperty(obj, "buffer", engine.dupValue(args[0]));
+        engine.setProperty(obj, "length", engine.newInt(elemLen));
+        engine.setProperty(obj, "byteLength", engine.newInt(byteLen));
+        engine.setProperty(obj, "byteOffset", engine.newInt(0));
+        engine.setProperty(obj, "BYTES_PER_ELEMENT", engine.newInt(4));
+        engine.setProperty(obj, "__isInt32Array", engine.newBool(true));
+        return obj;
+    }
+
+    if (engine.isNumber(args[0]))
+    {
+        int len = engine.extractInt(args[0]);
+        if (len < 0) len = 0;
+        auto obj = engine.newObject();
+        engine.setProperty(obj, "length", engine.newInt(len));
+        engine.setProperty(obj, "BYTES_PER_ELEMENT", engine.newInt(4));
+        return obj;
+    }
+
+    return engine.newObject();
 }
 
 // --- Atomics helpers ---
 
-private int* _taPtr(JSContext* ctx, JSValueConst ta, int idx) nothrow @system
+private int* _getAtomicPtr(IJSEngine engine, JSHandle ta, int idx) @trusted
 {
-    assert(ctx !is null, "Null JSContext in Atomics typed array access");
-    size_t byteOff, byteLen, bytesPerElem;
-    auto abuf = JS_GetTypedArrayBuffer(ctx, ta, &byteOff, &byteLen, &bytesPerElem);
-    scope (exit) JS_FreeValue(ctx, abuf);
+    assert(engine !is null, "Null engine in Atomics typed array access");
 
-    size_t abufSize;
-    ubyte* raw = JS_GetArrayBuffer(ctx, &abufSize, abuf);
-    if (!raw)
+    auto sabIdH = engine.getProperty(ta, "__sabId");
+    if (engine.isUndefined(sabIdH) || engine.isNull(sabIdH))
+    {
+        engine.freeValue(sabIdH);
+        return null;
+    }
+    int sabId = engine.extractInt(sabIdH);
+    engine.freeValue(sabIdH);
+
+    import dun.workers.shared_memory : sabGet;
+    void* ptr;
+    size_t len;
+    if (!sabGet(sabId, ptr, len))
         return null;
 
-    size_t byteIdx = byteOff + cast(size_t) idx * bytesPerElem;
-    if (byteIdx + bytesPerElem > abufSize)
+    auto offH = engine.getProperty(ta, "__byteOffset");
+    int byteOff = engine.isNumber(offH) ? engine.extractInt(offH) : 0;
+    engine.freeValue(offH);
+
+    size_t byteIdx = cast(size_t)(byteOff + idx * 4);
+    if (byteIdx + 4 > len)
         return null;
 
-    return cast(int*)(raw + byteIdx);
+    return cast(int*)(cast(ubyte*) ptr + byteIdx);
 }
 
-private int _toI32(JSContext* ctx, JSValueConst v) nothrow @system
+private JSHandle _atomicsLoad(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
-    int i;
-    JS_ToInt32(ctx, &i, v);
-    return i;
-}
-
-private extern (C) JSValue _atomicsLoad(JSContext* ctx,
-    JSValueConst this_val, int argc, JSValueConst* argv) nothrow @system
-{
-    assert(ctx !is null, "Null JSContext in Atomics.load");
-    if (argc < 2) return JS_UNDEFINED();
-    int idx;
-    JS_ToInt32(ctx, &idx, argv[1]);
-    auto ptr = _taPtr(ctx, argv[0], idx);
-    if (!ptr) return JS_UNDEFINED();
+    assert(ctx !is null, "Null ctx in Atomics.load");
+    auto state = cast(DunState*) ctx;
+    auto engine = state.engine;
+    if (args.length < 2) return engine.newUndefined();
+    int idx = engine.extractInt(args[1]);
+    auto ptr = _getAtomicPtr(engine, args[0], idx);
+    if (!ptr) return engine.newUndefined();
     import core.atomic : atomicLoad, MemoryOrder;
-    return JS_NewInt32(ctx, atomicLoad!(MemoryOrder.seq)(*cast(shared(int)*) ptr));
+    return engine.newInt(atomicLoad!(MemoryOrder.seq)(*cast(shared(int)*) ptr));
 }
 
-private extern (C) JSValue _atomicsStore(JSContext* ctx,
-    JSValueConst this_val, int argc, JSValueConst* argv) nothrow @system
+private JSHandle _atomicsStore(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null JSContext in Atomics.store");
-    if (argc < 3) return JS_UNDEFINED();
-    int idx; JS_ToInt32(ctx, &idx, argv[1]);
-    int val = _toI32(ctx, argv[2]);
-    auto ptr = _taPtr(ctx, argv[0], idx);
-    if (!ptr) return JS_UNDEFINED();
+    assert(ctx !is null, "Null ctx in Atomics.store");
+    auto state = cast(DunState*) ctx;
+    auto engine = state.engine;
+    if (args.length < 3) return engine.newUndefined();
+    int idx = engine.extractInt(args[1]);
+    int val = engine.extractInt(args[2]);
+    auto ptr = _getAtomicPtr(engine, args[0], idx);
+    if (!ptr) return engine.newUndefined();
     import core.atomic : atomicStore, MemoryOrder;
     atomicStore!(MemoryOrder.seq)(*cast(shared(int)*) ptr, val);
-    return JS_NewInt32(ctx, val);
+    return engine.newInt(val);
 }
 
-private extern (C) JSValue _atomicsAdd(JSContext* ctx,
-    JSValueConst this_val, int argc, JSValueConst* argv) nothrow @system
+private JSHandle _atomicsAdd(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null JSContext in Atomics.add");
-    if (argc < 3) return JS_UNDEFINED();
-    int idx; JS_ToInt32(ctx, &idx, argv[1]);
-    int val = _toI32(ctx, argv[2]);
-    auto ptr = _taPtr(ctx, argv[0], idx);
-    if (!ptr) return JS_UNDEFINED();
+    assert(ctx !is null, "Null ctx in Atomics.add");
+    auto state = cast(DunState*) ctx;
+    auto engine = state.engine;
+    if (args.length < 3) return engine.newUndefined();
+    int idx = engine.extractInt(args[1]);
+    int val = engine.extractInt(args[2]);
+    auto ptr = _getAtomicPtr(engine, args[0], idx);
+    if (!ptr) return engine.newUndefined();
     import core.atomic : atomicFetchAdd;
-    return JS_NewInt32(ctx, atomicFetchAdd(*cast(shared(int)*) ptr, val));
+    return engine.newInt(atomicFetchAdd(*cast(shared(int)*) ptr, val));
 }
 
-private extern (C) JSValue _atomicsSub(JSContext* ctx,
-    JSValueConst this_val, int argc, JSValueConst* argv) nothrow @system
+private JSHandle _atomicsSub(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null JSContext in Atomics.sub");
-    if (argc < 3) return JS_UNDEFINED();
-    int idx; JS_ToInt32(ctx, &idx, argv[1]);
-    int val = _toI32(ctx, argv[2]);
-    auto ptr = _taPtr(ctx, argv[0], idx);
-    if (!ptr) return JS_UNDEFINED();
+    assert(ctx !is null, "Null ctx in Atomics.sub");
+    auto state = cast(DunState*) ctx;
+    auto engine = state.engine;
+    if (args.length < 3) return engine.newUndefined();
+    int idx = engine.extractInt(args[1]);
+    int val = engine.extractInt(args[2]);
+    auto ptr = _getAtomicPtr(engine, args[0], idx);
+    if (!ptr) return engine.newUndefined();
     import core.atomic : atomicFetchAdd;
-    return JS_NewInt32(ctx, atomicFetchAdd(*cast(shared(int)*) ptr, -val));
+    return engine.newInt(atomicFetchAdd(*cast(shared(int)*) ptr, -val));
 }
 
-private int _casLoop(int* rawPtr, int function(int) nothrow @safe pure op) nothrow @trusted
+private JSHandle _atomicsAnd(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
-    import core.atomic : atomicLoad, cas, MemoryOrder;
-    auto sptr = cast(shared(int)*) rawPtr;
-    int old = atomicLoad!(MemoryOrder.seq)(*sptr);
-    while (!cas(sptr, old, op(old)))
-        old = atomicLoad!(MemoryOrder.seq)(*sptr);
-    return old;
-}
-
-private extern (C) JSValue _atomicsAnd(JSContext* ctx,
-    JSValueConst this_val, int argc, JSValueConst* argv) nothrow @system
-{
-    assert(ctx !is null, "Null JSContext in Atomics.and");
-    if (argc < 3) return JS_UNDEFINED();
-    int idx; JS_ToInt32(ctx, &idx, argv[1]);
-    int val = _toI32(ctx, argv[2]);
-    auto ptr = _taPtr(ctx, argv[0], idx);
-    if (!ptr) return JS_UNDEFINED();
+    assert(ctx !is null, "Null ctx in Atomics.and");
+    auto state = cast(DunState*) ctx;
+    auto engine = state.engine;
+    if (args.length < 3) return engine.newUndefined();
+    int idx = engine.extractInt(args[1]);
+    int val = engine.extractInt(args[2]);
+    auto ptr = _getAtomicPtr(engine, args[0], idx);
+    if (!ptr) return engine.newUndefined();
     import core.atomic : atomicLoad, cas, MemoryOrder;
     auto sptr = cast(shared(int)*) ptr;
     int old = atomicLoad!(MemoryOrder.seq)(*sptr);
     while (!cas(sptr, old, old & val))
         old = atomicLoad!(MemoryOrder.seq)(*sptr);
-    return JS_NewInt32(ctx, old);
+    return engine.newInt(old);
 }
 
-private extern (C) JSValue _atomicsOr(JSContext* ctx,
-    JSValueConst this_val, int argc, JSValueConst* argv) nothrow @system
+private JSHandle _atomicsOr(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null JSContext in Atomics.or");
-    if (argc < 3) return JS_UNDEFINED();
-    int idx; JS_ToInt32(ctx, &idx, argv[1]);
-    int val = _toI32(ctx, argv[2]);
-    auto ptr = _taPtr(ctx, argv[0], idx);
-    if (!ptr) return JS_UNDEFINED();
+    assert(ctx !is null, "Null ctx in Atomics.or");
+    auto state = cast(DunState*) ctx;
+    auto engine = state.engine;
+    if (args.length < 3) return engine.newUndefined();
+    int idx = engine.extractInt(args[1]);
+    int val = engine.extractInt(args[2]);
+    auto ptr = _getAtomicPtr(engine, args[0], idx);
+    if (!ptr) return engine.newUndefined();
     import core.atomic : atomicLoad, cas, MemoryOrder;
     auto sptr = cast(shared(int)*) ptr;
     int old = atomicLoad!(MemoryOrder.seq)(*sptr);
     while (!cas(sptr, old, old | val))
         old = atomicLoad!(MemoryOrder.seq)(*sptr);
-    return JS_NewInt32(ctx, old);
+    return engine.newInt(old);
 }
 
-private extern (C) JSValue _atomicsXor(JSContext* ctx,
-    JSValueConst this_val, int argc, JSValueConst* argv) nothrow @system
+private JSHandle _atomicsXor(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null JSContext in Atomics.xor");
-    if (argc < 3) return JS_UNDEFINED();
-    int idx; JS_ToInt32(ctx, &idx, argv[1]);
-    int val = _toI32(ctx, argv[2]);
-    auto ptr = _taPtr(ctx, argv[0], idx);
-    if (!ptr) return JS_UNDEFINED();
+    assert(ctx !is null, "Null ctx in Atomics.xor");
+    auto state = cast(DunState*) ctx;
+    auto engine = state.engine;
+    if (args.length < 3) return engine.newUndefined();
+    int idx = engine.extractInt(args[1]);
+    int val = engine.extractInt(args[2]);
+    auto ptr = _getAtomicPtr(engine, args[0], idx);
+    if (!ptr) return engine.newUndefined();
     import core.atomic : atomicLoad, cas, MemoryOrder;
     auto sptr = cast(shared(int)*) ptr;
     int old = atomicLoad!(MemoryOrder.seq)(*sptr);
     while (!cas(sptr, old, old ^ val))
         old = atomicLoad!(MemoryOrder.seq)(*sptr);
-    return JS_NewInt32(ctx, old);
+    return engine.newInt(old);
 }
 
-private extern (C) JSValue _atomicsCmpXch(JSContext* ctx,
-    JSValueConst this_val, int argc, JSValueConst* argv) nothrow @system
+private JSHandle _atomicsCmpXch(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null JSContext in Atomics.compareExchange");
-    if (argc < 4) return JS_UNDEFINED();
-    int idx; JS_ToInt32(ctx, &idx, argv[1]);
-    int expected = _toI32(ctx, argv[2]);
-    int replacement = _toI32(ctx, argv[3]);
-    auto ptr = _taPtr(ctx, argv[0], idx);
-    if (!ptr) return JS_UNDEFINED();
+    assert(ctx !is null, "Null ctx in Atomics.compareExchange");
+    auto state = cast(DunState*) ctx;
+    auto engine = state.engine;
+    if (args.length < 4) return engine.newUndefined();
+    int idx = engine.extractInt(args[1]);
+    int expected = engine.extractInt(args[2]);
+    int replacement = engine.extractInt(args[3]);
+    auto ptr = _getAtomicPtr(engine, args[0], idx);
+    if (!ptr) return engine.newUndefined();
     import core.atomic : atomicLoad, cas, MemoryOrder;
     auto sptr = cast(shared(int)*) ptr;
     int old = atomicLoad!(MemoryOrder.seq)(*sptr);
     cas(sptr, expected, replacement);
-    return JS_NewInt32(ctx, old);
+    return engine.newInt(old);
 }
 
-private extern (C) JSValue _atomicsWait(JSContext* ctx,
-    JSValueConst this_val, int argc, JSValueConst* argv) nothrow @system
+private JSHandle _atomicsWait(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null JSContext in Atomics.wait");
-    // Per spec: Atomics.wait is not allowed on the main thread
+    assert(ctx !is null, "Null ctx in Atomics.wait");
+    auto state = cast(DunState*) ctx;
+    auto engine = state.engine;
+
     import dun.workers.worker : gIsWorkerThread;
     if (!gIsWorkerThread)
-    {
-        auto s = "not-allowed";
-        return JS_NewStringLen(ctx, s.ptr, s.length);
-    }
+        return engine.newString("not-allowed");
 
-    if (argc < 3) return JS_UNDEFINED();
-    int idx; JS_ToInt32(ctx, &idx, argv[1]);
-    int expected = _toI32(ctx, argv[2]);
+    if (args.length < 3) return engine.newUndefined();
+    int idx = engine.extractInt(args[1]);
+    int expected = engine.extractInt(args[2]);
     int timeoutMs = -1;
-    if (argc >= 4) JS_ToInt32(ctx, &timeoutMs, argv[3]);
+    if (args.length >= 4)
+        timeoutMs = engine.extractInt(args[3]);
 
-    auto ptr = _taPtr(ctx, argv[0], idx);
-    if (!ptr) return JS_UNDEFINED();
+    auto ptr = _getAtomicPtr(engine, args[0], idx);
+    if (!ptr) return engine.newUndefined();
 
     import core.atomic : atomicLoad, MemoryOrder;
     if (atomicLoad!(MemoryOrder.seq)(*cast(shared(int)*) ptr) != expected)
-    {
-        auto s = "not-equal";
-        return JS_NewStringLen(ctx, s.ptr, s.length);
-    }
+        return engine.newString("not-equal");
 
     version (linux)
     {
         enum FUTEX_WAIT = 0;
-        enum SYS_futex  = 202; // x86_64
+        enum SYS_futex  = 202;
 
         if (timeoutMs < 0)
         {
@@ -374,13 +418,11 @@ private extern (C) JSValue _atomicsWait(JSContext* ctx,
     }
     else
     {
-        // Fallback: spin-sleep
         import core.thread : Thread;
         import core.time : dur;
         long elapsed;
         while (true)
         {
-            import core.atomic : atomicLoad;
             if (atomicLoad!(MemoryOrder.seq)(*cast(shared(int)*) ptr) != expected)
                 break;
             if (timeoutMs >= 0 && elapsed >= timeoutMs)
@@ -390,39 +432,30 @@ private extern (C) JSValue _atomicsWait(JSContext* ctx,
         }
     }
 
-    auto s = "ok";
-    return JS_NewStringLen(ctx, s.ptr, s.length);
+    return engine.newString("ok");
 }
 
-private extern (C) JSValue _atomicsNotify(JSContext* ctx,
-    JSValueConst this_val, int argc, JSValueConst* argv) nothrow @system
+private JSHandle _atomicsNotify(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null JSContext in Atomics.notify");
-    if (argc < 2) return JS_UNDEFINED();
-    int idx; JS_ToInt32(ctx, &idx, argv[1]);
-    int count = (argc >= 3) ? _toI32(ctx, argv[2]) : int.max;
+    assert(ctx !is null, "Null ctx in Atomics.notify");
+    auto state = cast(DunState*) ctx;
+    auto engine = state.engine;
+    if (args.length < 2) return engine.newUndefined();
+    int idx = engine.extractInt(args[1]);
+    int count = (args.length >= 3) ? engine.extractInt(args[2]) : int.max;
 
-    auto ptr = _taPtr(ctx, argv[0], idx);
-    if (!ptr) return JS_UNDEFINED();
+    auto ptr = _getAtomicPtr(engine, args[0], idx);
+    if (!ptr) return engine.newUndefined();
 
     version (linux)
     {
         enum FUTEX_WAKE = 1;
         enum SYS_futex  = 202;
         long woken = syscall(SYS_futex, ptr, FUTEX_WAKE, count, null, null, 0);
-        return JS_NewInt32(ctx, cast(int) woken);
+        return engine.newInt(cast(int) woken);
     }
     else
     {
-        return JS_NewInt32(ctx, 0);
+        return engine.newInt(0);
     }
-}
-
-// --- Utilities ---
-
-private void _addFn(JSContext* ctx, JSValue obj, const(char)* name,
-    JSCFunction fn, int length) nothrow @trusted
-{
-    assert(ctx !is null, "Null JSContext in _addFn");
-    JS_SetPropertyStr(ctx, obj, name, JS_NewCFunction(ctx, fn, name, length));
 }

@@ -92,13 +92,8 @@ void installGlobals(IJSEngine engine, DunState* state) @trusted
     auto global = engine.getGlobal();
     engine.setProperty(global, "gc", engine.newFunction(&jsGlobalGC, "gc", 0));
 
-    version (EngineQuickJS)
-    {
-        import dun.engine.quickjs.bindings : JSContext;
-        import dun.runtime.worker_api : installWorkerAPI;
-        auto ctx = cast(JSContext*) engine.rawContext();
-        installWorkerAPI(ctx, state);
-    }
+    import dun.runtime.worker_api : installWorkerAPI;
+    installWorkerAPI(engine, state);
 }
 
 private JSHandle jsGlobalGC(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted

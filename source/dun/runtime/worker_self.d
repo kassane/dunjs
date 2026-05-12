@@ -1,86 +1,92 @@
 module dun.runtime.worker_self;
 
-version (EngineQuickJS):
-
-import dun.engine.quickjs.bindings;
+import dun.engine.iface : IJSEngine, JSHandle;
 import dun.runtime.globals : DunState;
 import dun.workers.worker : WorkerState;
 
-void installWorkerSelf(JSContext* ctx, DunState* state, WorkerState wst) @trusted
+void installWorkerSelf(IJSEngine engine, DunState* state, WorkerState wst) @trusted
 {
+    assert(engine !is null, "Null engine in installWorkerSelf");
+    assert(state !is null, "Null state in installWorkerSelf");
+    assert(wst !is null, "Null WorkerState in installWorkerSelf");
+
     import std.format : format;
 
-    auto selfObj = JS_NewObject(ctx);
+    auto selfObj = engine.newObject();
 
-    // Store wst pointer as a hex string property so callbacks can retrieve it
     auto ptrStr = format!"%x"(cast(size_t) cast(void*) wst);
-    JS_SetPropertyStr(ctx, selfObj, "__wsp__",
-        JS_NewStringLen(ctx, ptrStr.ptr, ptrStr.length));
+    engine.setProperty(selfObj, "__wsp__", engine.newString(ptrStr));
+    engine.setProperty(selfObj, "postMessage",
+        engine.newFunction(&_selfPostMessage, "postMessage", 1));
+    engine.setProperty(selfObj, "close",
+        engine.newFunction(&_selfClose, "close", 0));
 
-    auto postMsg = JS_NewCFunction(ctx, &_selfPostMessage, "postMessage", 1);
-    JS_SetPropertyStr(ctx, selfObj, "postMessage", postMsg);
-
-    auto closeFn = JS_NewCFunction(ctx, &_selfClose, "close", 0);
-    JS_SetPropertyStr(ctx, selfObj, "close", closeFn);
-
-    auto global = JS_GetGlobalObject(ctx);
-    JS_SetPropertyStr(ctx, global, "self", selfObj);
-    JS_FreeValue(ctx, global);
+    auto global = engine.getGlobal();
+    engine.setProperty(global, "self", selfObj);
+    engine.freeValue(global);
 }
 
-private WorkerState _getWst(JSContext* ctx) nothrow @system
+private WorkerState _getWst(IJSEngine engine) nothrow @trusted
 {
-    auto global = JS_GetGlobalObject(ctx);
-    auto selfObj = JS_GetPropertyStr(ctx, global, "self");
-    JS_FreeValue(ctx, global);
-    auto wspVal = JS_GetPropertyStr(ctx, selfObj, "__wsp__");
-    JS_FreeValue(ctx, selfObj);
+    try
+    {
+        auto global = engine.getGlobal();
+        auto selfObj = engine.getProperty(global, "self");
+        engine.freeValue(global);
+        auto wspVal = engine.getProperty(selfObj, "__wsp__");
+        engine.freeValue(selfObj);
 
-    size_t len;
-    const(char)* cstr = JS_ToCStringLen2(ctx, &len, wspVal, false);
-    JS_FreeValue(ctx, wspVal);
-    if (!cstr)
-        return null;
+        auto hexStr = engine.extractString(wspVal);
+        engine.freeValue(wspVal);
 
-    import core.stdc.stdlib : strtoul;
-    size_t ptrVal = cast(size_t) strtoul(cstr, null, 16);
-    JS_FreeCString(ctx, cstr);
-    return cast(WorkerState) cast(void*) ptrVal;
+        if (hexStr.length == 0)
+            return null;
+
+        import core.stdc.stdlib : strtoul;
+        import std.string : toStringz;
+        size_t ptrVal = cast(size_t) strtoul(hexStr.toStringz, null, 16);
+        return cast(WorkerState) cast(void*) ptrVal;
+    }
+    catch (Throwable) { return null; }
 }
 
-private extern (C) JSValue _selfPostMessage(JSContext* ctx,
-    JSValueConst this_val, int argc, JSValueConst* argv) nothrow @system
+private JSHandle _selfPostMessage(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
-    if (argc < 1)
-        return JS_UNDEFINED();
+    assert(ctx !is null, "Null ctx in self.postMessage");
+    auto state = cast(DunState*) ctx;
+    assert(state !is null && state.engine !is null, "Invalid DunState in self.postMessage");
+    auto engine = state.engine;
 
-    auto wst = _getWst(ctx);
+    if (args.length < 1)
+        return engine.newUndefined();
+
+    auto wst = _getWst(engine);
     if (!wst)
-        return JS_UNDEFINED();
+        return engine.newUndefined();
 
-    auto jsonStr = JS_JSONStringify(ctx, argv[0], JS_UNDEFINED(), JS_UNDEFINED());
-    if (JS_IsException(jsonStr))
-        return JS_UNDEFINED();
-    scope (exit) JS_FreeValue(ctx, jsonStr);
+    import dun.workers.worker : jsonStringify;
+    auto jsonStr = jsonStringify(engine, args[0]);
+    if (jsonStr is null)
+        return engine.newUndefined();
 
-    size_t len;
-    const(char)* cstr = JS_ToCStringLen2(ctx, &len, jsonStr, false);
-    if (!cstr)
-        return JS_UNDEFINED();
-    scope (exit) JS_FreeCString(ctx, cstr);
-
-    try { wst.fromWorker.send(cstr[0 .. len].idup); }
+    try { wst.fromWorker.send(jsonStr); }
     catch (Throwable) {}
 
-    return JS_UNDEFINED();
+    return engine.newUndefined();
 }
 
-private extern (C) JSValue _selfClose(JSContext* ctx,
-    JSValueConst this_val, int argc, JSValueConst* argv) nothrow @system
+private JSHandle _selfClose(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
-    auto wst = _getWst(ctx);
+    assert(ctx !is null, "Null ctx in self.close");
+    auto state = cast(DunState*) ctx;
+    assert(state !is null && state.engine !is null, "Invalid DunState in self.close");
+
+    auto wst = _getWst(state.engine);
     if (wst)
+    {
         try { wst.toWorker.close(); wst.fromWorker.close(); }
         catch (Throwable) {}
-    return JS_UNDEFINED();
+    }
+
+    return state.engine.newUndefined();
 }

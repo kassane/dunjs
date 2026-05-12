@@ -1,16 +1,9 @@
 module dun.workers.worker;
 
-version (EngineQuickJS):
-
 import core.thread : Thread;
 import core.sync.mutex : Mutex;
 import dun.workers.channel : MessageChannel;
-import dun.engine.quickjs.bindings : JSContext, JSValue, JS_UNDEFINED,
-    JS_NewObject, JS_NewStringLen, JS_SetPropertyStr, JS_GetPropertyStr,
-    JS_IsFunction, JS_FreeValue, JS_Call, JS_DupValue,
-    JS_ToCStringLen2, JS_FreeCString, JS_JSONStringify,
-    JS_IsException, JS_IsNull, JS_GetGlobalObject;
-import dun.engine.iface : IJSEngine;
+import dun.engine.iface : IJSEngine, JSHandle, EngineConfig, createEngine;
 import dun.runtime.globals : DunState;
 import dun.security.permissions : PermissionRegistry, Permission;
 
@@ -22,21 +15,21 @@ final class WorkerState
     MessageChannel fromWorker;
     WorkerStatus status_;
     string scriptPath;
-    JSValue jsWorkerVal;   // JS Worker object on main ctx (duped ref)
+    JSHandle jsWorkerVal;
     bool jsWorkerValSet;
-    JSContext* mainCtx;
+    IJSEngine mainEngine;
 
-    this(string path, JSContext* ctx) @trusted
+    this(string path, IJSEngine engine) @trusted
     {
+        assert(engine !is null, "Null engine in WorkerState constructor");
         toWorker = new MessageChannel();
         fromWorker = new MessageChannel();
         status_ = WorkerStatus.pending;
         scriptPath = path;
-        mainCtx = ctx;
+        mainEngine = engine;
     }
 }
 
-// Thread-local: true inside worker threads (Atomics.wait → "not-allowed" on main)
 bool gIsWorkerThread = false;
 
 private __gshared WorkerState[] gWorkers;
@@ -55,7 +48,7 @@ void registerWorker(WorkerState wst) @trusted
 
 bool hasActiveWorkers() @trusted
 {
-    if (gIsWorkerThread)  // worker threads don't create sub-workers
+    if (gIsWorkerThread)
         return false;
     synchronized (gWorkersMutex)
     {
@@ -68,10 +61,10 @@ bool hasActiveWorkers() @trusted
     }
 }
 
-// Deliver any queued fromWorker messages to worker.onmessage (main event loop)
-void pollWorkerMessages(JSContext* ctx) @trusted
+void pollWorkerMessages(IJSEngine engine) @trusted
 {
-    if (gIsWorkerThread)  // only the main thread delivers messages
+    assert(engine !is null, "Null engine in pollWorkerMessages");
+    if (gIsWorkerThread)
         return;
     WorkerState[] snapshot;
     try { synchronized (gWorkersMutex) snapshot = gWorkers.dup; }
@@ -85,19 +78,19 @@ void pollWorkerMessages(JSContext* ctx) @trusted
         string msg;
         while (wst.fromWorker.tryRecv(msg))
         {
-            auto handler = JS_GetPropertyStr(ctx, wst.jsWorkerVal, "onmessage");
-            if (!JS_IsFunction(ctx, handler))
+            auto handler = engine.getProperty(wst.jsWorkerVal, "onmessage");
+            if (!engine.isFunction(handler))
             {
-                JS_FreeValue(ctx, handler);
+                engine.freeValue(handler);
                 continue;
             }
 
-            auto evObj = _makeMessageEvent(ctx, msg);
-            JSValue[1] argv = [evObj];
-            auto ret = JS_Call(ctx, handler, JS_UNDEFINED(), 1, argv.ptr);
-            JS_FreeValue(ctx, ret);
-            JS_FreeValue(ctx, evObj);
-            JS_FreeValue(ctx, handler);
+            auto evObj = makeMessageEvent(engine, msg);
+            JSHandle[1] argv = [evObj];
+            auto ret = engine.callFunction(handler, engine.newUndefined(), argv[]);
+            engine.freeValue(ret);
+            engine.freeValue(evObj);
+            engine.freeValue(handler);
         }
     }
 }
@@ -118,9 +111,6 @@ void spawnWorker(WorkerState wst) @trusted
 
 private void _runWorker(WorkerState wst) @trusted
 {
-    import dun.engine.iface : createEngine, EngineConfig;
-    import dun.modules.loader : ModuleLoader;
-    import dun.engine.quickjs.bindings : JSRuntime;
     import dun.runtime.worker_self : installWorkerSelf;
     import std.file : readText;
     import std.path : absolutePath, dirName;
@@ -139,11 +129,15 @@ private void _runWorker(WorkerState wst) @trusted
 
     _installGlobals(engine, &state);
 
-    auto ctx = cast(JSContext*) engine.rawContext();
-    installWorkerSelf(ctx, &state, wst);
+    installWorkerSelf(engine, &state, wst);
 
-    ModuleLoader loader;
-    loader.install(cast(JSRuntime*) engine.rawRuntime());
+    version (EngineQuickJS)
+    {
+        import dun.modules.loader : ModuleLoader;
+        import dun.engine.quickjs.bindings : JSRuntime;
+        ModuleLoader loader;
+        loader.install(cast(JSRuntime*) engine.rawRuntime());
+    }
 
     string source;
     try { source = readText(wst.scriptPath); }
@@ -166,59 +160,95 @@ private void _runWorker(WorkerState wst) @trusted
 
     while (state.eventLoop.hasWork() || !wst.toWorker.empty())
     {
-        _drainIncoming(ctx, &state, wst);
+        _drainIncoming(engine, &state, wst);
         state.eventLoop.tick();
-        _drainIncoming(ctx, &state, wst);
+        _drainIncoming(engine, &state, wst);
     }
 }
 
-private void _drainIncoming(JSContext* ctx, DunState* state, WorkerState wst) @trusted
+private void _drainIncoming(IJSEngine engine, DunState* state, WorkerState wst) @trusted
 {
+    assert(engine !is null, "Null engine in _drainIncoming");
     string msg;
     while (wst.toWorker.tryRecv(msg))
     {
-        auto global = JS_GetGlobalObject(ctx);
-        auto selfObj = JS_GetPropertyStr(ctx, global, "self");
-        JS_FreeValue(ctx, global);
+        auto global = engine.getGlobal();
+        auto selfObj = engine.getProperty(global, "self");
+        engine.freeValue(global);
 
-        auto handler = JS_GetPropertyStr(ctx, selfObj, "onmessage");
-        JS_FreeValue(ctx, selfObj);
+        auto handler = engine.getProperty(selfObj, "onmessage");
+        engine.freeValue(selfObj);
 
-        if (!JS_IsFunction(ctx, handler))
+        if (!engine.isFunction(handler))
         {
-            JS_FreeValue(ctx, handler);
+            engine.freeValue(handler);
             continue;
         }
 
-        auto evObj = _makeMessageEvent(ctx, msg);
-        JSValue[1] argv = [evObj];
-        auto ret = JS_Call(ctx, handler, JS_UNDEFINED(), 1, argv.ptr);
-        JS_FreeValue(ctx, ret);
-        JS_FreeValue(ctx, evObj);
-        JS_FreeValue(ctx, handler);
+        auto evObj = makeMessageEvent(engine, msg);
+        JSHandle[1] argv = [evObj];
+        auto ret = engine.callFunction(handler, engine.newUndefined(), argv[]);
+        engine.freeValue(ret);
+        engine.freeValue(evObj);
+        engine.freeValue(handler);
 
         state.eventLoop.drainMicrotasks();
     }
 }
 
-private JSValue _makeMessageEvent(JSContext* ctx, string jsonMsg) nothrow @trusted
+JSHandle makeMessageEvent(IJSEngine engine, string jsonMsg) @trusted
 {
-    auto jsonStr = JS_NewStringLen(ctx, jsonMsg.ptr, jsonMsg.length);
+    assert(engine !is null, "Null engine in makeMessageEvent");
+    try
+    {
+        auto global = engine.getGlobal();
+        auto json = engine.getProperty(global, "JSON");
+        auto parseFn = engine.getProperty(json, "parse");
+        engine.freeValue(json);
+        engine.freeValue(global);
 
-    auto global = JS_GetGlobalObject(ctx);
-    auto json = JS_GetPropertyStr(ctx, global, "JSON");
-    auto parseFn = JS_GetPropertyStr(ctx, json, "parse");
-    JS_FreeValue(ctx, json);
-    JS_FreeValue(ctx, global);
+        auto jsonStr = engine.newString(jsonMsg);
+        JSHandle[1] parseArgv = [jsonStr];
+        auto parsed = engine.callFunction(parseFn, engine.newUndefined(), parseArgv[]);
+        engine.freeValue(parseFn);
+        engine.freeValue(jsonStr);
 
-    JSValue[1] parseArgv = [jsonStr];
-    auto parsed = JS_Call(ctx, parseFn, JS_UNDEFINED(), 1, parseArgv.ptr);
-    JS_FreeValue(ctx, parseFn);
-    JS_FreeValue(ctx, jsonStr);
+        auto evObj = engine.newObject();
+        engine.setProperty(evObj, "data", parsed);
+        return evObj;
+    }
+    catch (Throwable)
+    {
+        return engine.newUndefined();
+    }
+}
 
-    auto evObj = JS_NewObject(ctx);
-    JS_SetPropertyStr(ctx, evObj, "data", parsed);
-    return evObj;
+string jsonStringify(IJSEngine engine, JSHandle val) @trusted
+{
+    assert(engine !is null, "Null engine in jsonStringify");
+    try
+    {
+        auto global = engine.getGlobal();
+        auto json = engine.getProperty(global, "JSON");
+        auto stringifyFn = engine.getProperty(json, "stringify");
+        engine.freeValue(json);
+        engine.freeValue(global);
+
+        JSHandle[1] argv = [val];
+        auto result = engine.callFunction(stringifyFn, engine.newUndefined(), argv[]);
+        engine.freeValue(stringifyFn);
+
+        if (engine.isException(result) || engine.isUndefined(result))
+        {
+            engine.freeValue(result);
+            return null;
+        }
+
+        auto str = engine.extractString(result);
+        engine.freeValue(result);
+        return str;
+    }
+    catch (Throwable) { return null; }
 }
 
 private bool _isTS(string path) @safe pure nothrow @nogc
@@ -229,7 +259,6 @@ private bool _isTS(string path) @safe pure nothrow @nogc
     return false;
 }
 
-// Forward to installGlobals via local import to avoid module-level cycle
 private void _installGlobals(IJSEngine engine, DunState* state) @trusted
 {
     import dun.runtime.globals : installGlobals;

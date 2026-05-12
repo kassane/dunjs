@@ -142,7 +142,7 @@ All runtime globals are **engine-agnostic** (use `IJSEngine` + `NativeCallback`)
 | `Deno.*` | `installDenoCompat(engine)` | Full Deno compat (30+ APIs: env, fs, permissions, errors) |
 
 All modules work identically across QuickJS, JSC, and V8 backends.
-Workers remain QuickJS-only (requires threading primitives).
+Workers work identically across QuickJS, JSC, and V8 backends.
 
 ### Module Resolution (package.json)
 
@@ -402,7 +402,7 @@ dub build -c v8  && BACKEND=v8  ./tests/integration/run.sh
 | TypeScript | `typescript`, `realworld_ts_library` | Type annotations, interfaces, as, arrow types |
 | Real-world | 7 end-to-end scenarios | Config loading, task runner, file processing, events, promise pool, nested require, ESM pipeline |
 
-Backend test scores: **QuickJS 57/57**, **JSC 56/56+1skip**, **V8 56/56+1skip** (workers QuickJS-only).
+Backend test scores: **QuickJS 57/57**, **JSC 57/57**, **V8 57/57** (all backends at full parity).
 
 Test pattern: fixtures in `tests/integration/fixtures/*.{js,mjs,ts}`, expected stdout in `tests/integration/expected/*.txt`.
 
@@ -473,7 +473,7 @@ npm stress (npm_stress.js 189 tests, 45+ real packages):
 
 | Feature | DunJS | Bun | Deno | Node.js |
 |---------|-------|-----|------|---------|
-| Workers | QuickJS-only | Yes (JSC) | Yes (V8) | Yes (V8) |
+| Workers | All backends | Yes (JSC) | Yes (V8) | Yes (V8) |
 | SharedArrayBuffer | Yes | Yes | Yes | Yes |
 | Atomics | Yes (futex on Linux) | Yes | Yes | Yes |
 | io_uring | Yes (IORING_OP_POLL_ADD) | Yes (internal) | No | No (libuv) |
@@ -611,7 +611,7 @@ Benchmark impact (25 benchmarks, feature_bench.js):
 | 5 | DX polish | REPL + colored errors + stack traces | **Done** |
 | 6a | Networking | net.d TCP + npm compat (node_modules) + I/O polling | **Done** |
 | 6b | HTTP server | http.d HTTP/1.1 createServer/listen/close, req/res, epoll | **Done** |
-| 6c | Workers | Web Workers + SharedArrayBuffer + Atomics (QuickJS-only) | **Done** |
+| 6c | Workers | Web Workers + SharedArrayBuffer + Atomics (all backends) | **Done** |
 | 6d | io_uring | Linux io_uring backend for IOPoller (IORING_OP_POLL_ADD) | **Done** |
 | 7a | Node APIs | Buffer, EventEmitter, URL/URLSearchParams, os module | **Done** |
 | 7b | Engine parity | net/http ported engine-agnostic (JSC/V8 fully usable) | **Done** |

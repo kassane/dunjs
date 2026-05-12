@@ -64,11 +64,9 @@ struct EventLoop
             if (asyncDrain() > 0)
                 drainNextTicksAndMicrotasks();
 
-            version (EngineQuickJS)
             {
                 import dun.workers.worker : pollWorkerMessages;
-                import dun.engine.quickjs.bindings : JSContext;
-                pollWorkerMessages(cast(JSContext*) engine.rawContext());
+                pollWorkerMessages(engine);
             }
 
             if (!engine.hasPendingJobs()
@@ -129,7 +127,8 @@ struct EventLoop
         }
         else
         {
-            return base;
+            import dun.workers.worker : hasActiveWorkers;
+            return base || hasActiveWorkers();
         }
     }
 
