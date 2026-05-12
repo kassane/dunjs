@@ -13,7 +13,8 @@ dun run server.ts --allow-net --allow-read
 - **TypeScript without a build step.** Run `.ts` files directly via type stripping.
 - **npm packages work.** `dun install express` fetches from the npm registry. `require()` resolves `node_modules/` the Node.js way.
 - **HTTPS out of the box.** `fetch()` supports TLS 1.2+ via OpenSSL.
-- **Deno compatibility.** `Deno.readTextFileSync`, `Deno.env`, `Deno.cwd`, and other Deno APIs are available.
+- **Deno compatibility.** 30+ Deno APIs: env, fs (stat, mkdir, remove, rename, copy, readDir), permissions.query, errors, hostname, inspect.
+- **Web standard globals.** `atob`, `btoa`, `TextEncoder`, `TextDecoder`, `structuredClone`.
 
 ## Install
 
@@ -70,7 +71,7 @@ const { EventEmitter } = require("events");
 | `dun:events` | EventEmitter (on, once, off, emit, listeners) |
 | `dun:url` | URL, URLSearchParams |
 
-Global: `fetch()`, `setTimeout`/`setInterval`, `console`, `process`, `Deno.*`
+Global: `fetch()`, `setTimeout`/`setInterval`, `console`, `process`, `Deno.*`, `atob`/`btoa`, `TextEncoder`/`TextDecoder`, `structuredClone`
 
 ## npm Support
 
@@ -101,11 +102,11 @@ Dependencies are resolved transitively. Packages are downloaded from `registry.n
 
 | Backend | Tests | Notes |
 |---------|-------|-------|
-| QuickJS-NG | 44/44 | Default. Interpreter, ES2023, smallest binary |
-| JavaScriptCore | 42/42 | JIT. Same engine as Safari/Bun |
-| V8 | 42/42 | JIT. Same engine as Chrome/Node.js. Via C++ shim |
+| QuickJS-NG | 46/46 | Default. Interpreter, ES2023, smallest binary (4.6MB) |
+| JavaScriptCore | 45/45 | JIT. Same engine as Safari/Bun |
+| V8 | 45/45 | JIT. Same engine as Chrome/Node.js. Via C++ shim |
 
-All 9 built-in modules, fetch, and Deno compat work on every backend.
+All 9 built-in modules, fetch, Deno compat, and web globals work on every backend.
 
 ## Architecture
 
@@ -137,7 +138,7 @@ dub test -c unittest                    # ~150 unit tests
 | Fuzz/stress | ~50 (rapid create/destroy, string stress, exception recovery) |
 | TypeScript strip | 20 (annotations, interfaces, as, declare, arrow types) |
 | Security | 27 (default deny, scoped grants, deny overrides, parseFlag) |
-| Integration | 44 fixtures (core JS, async, ES2023+, modules, builtins, TypeScript, real-world) |
+| Integration | 46 fixtures (core JS, async, ES2023+, modules, builtins, Deno compat, TypeScript, real-world) |
 
 ## Comparison
 
@@ -149,7 +150,9 @@ dub test -c unittest                    # ~150 unit tests
 | Permissions | None | Default-deny | None | Default-deny |
 | npm | Native | `npm:` specifier | Native | `dun install` |
 | TLS | OpenSSL | rustls | BoringSSL | OpenSSL |
-| Deno compat | No | -- | Partial | Partial |
+| Deno compat | No | -- | None | 30+ APIs |
+| Startup | ~30ms | ~30ms | ~8ms | **~3.5ms** |
+| Binary | ~90MB | ~120MB | ~100MB | **4.6MB** |
 
 ## License
 

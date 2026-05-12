@@ -46,7 +46,7 @@ dub build -c quickjs -b release   # QuickJS release (optimized + stripped)
 # Unit tests (engine contract ~50, fuzz ~50, TypeScript 20, security 27)
 dub test -c unittest
 
-# Integration tests (44 fixtures, requires built binary)
+# Integration tests (46 fixtures, requires built binary)
 dub build -c quickjs
 ./tests/integration/run.sh
 
@@ -55,14 +55,14 @@ dub build -c jsc && BACKEND=jsc ./tests/integration/run.sh
 dub build -c v8  && BACKEND=v8  ./tests/integration/run.sh
 ```
 
-Backend test scores: QuickJS 44/44, JSC 43/43+1skip, V8 43/43+1skip (workers QuickJS-only).
+Backend test scores: QuickJS 46/46, JSC 45/45+1skip, V8 45/45+1skip (workers QuickJS-only).
 
 ## CI Pipeline
 
 The GitHub Actions workflow (`.github/workflows/ci.yml`) runs:
 1. **Build matrix**: QuickJS (Linux/macOS/Windows), JSC (Linux/macOS), V8 (Linux compile-check)
 2. **Unit tests**: `dub test -c unittest` on Linux/macOS/Windows
-3. **Integration tests**: Run 44 fixtures against expected output on Linux/macOS/Windows
+3. **Integration tests**: Run 46 fixtures against expected output on Linux/macOS/Windows
 
 ## DUB Configurations
 

@@ -54,6 +54,9 @@ void installGlobals(IJSEngine engine, DunState* state) @trusted
     version (Posix)
         registerFetchGlobal(engine);
 
+    import dun.runtime.web_compat : installWebCompat;
+    installWebCompat(engine);
+
     import dun.runtime.deno_compat : installDenoCompat;
     installDenoCompat(engine);
 

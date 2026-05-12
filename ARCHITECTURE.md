@@ -6,9 +6,9 @@ DunJS is a 7-layer JavaScript/TypeScript runtime with a **pluggable engine archi
 (IJSEngine interface), a cross-platform I/O poller (epoll/kqueue/poll), and a Deno-inspired permission system.
 
 Three backends are fully functional: QuickJS-NG (default), JavaScriptCore, and V8.
-All 43 integration tests pass on QuickJS (42 on JSC/V8 + 1 QuickJS-only).
+All 46 integration tests pass on QuickJS (45 on JSC/V8 + 1 QuickJS-only).
 All built-in modules (fs, path, crypto, net, http, buffer, events, url, os, fetch) are engine-agnostic.
-HTTPS via OpenSSL, npm package install, and Deno API compatibility are included.
+HTTPS via OpenSSL, npm package install, 30+ Deno APIs, and web standard globals are included.
 
 Reference: [Bun's Zig->Rust port](https://github.com/oven-sh/bun/pull/30412) -- modular
 workspace with `bun_jsc` engine layer, `*_jsc` suffix pattern for engine-specific modules,
@@ -29,7 +29,8 @@ RAII wrappers, and pointer safety auditing.
 |  Layer 6: Runtime API (Globals)                               |
 |  +---------+ +------------+ +---------+ +------------+        |
 |  | console | | timers_api | | process | | deno_compat|        |
-|  | (all 3) | |            | |         | | (Deno.*)   |        |
+|  | (all 3) | |            | | (argv,  | | (30+ APIs) |        |
+|  |         | |            | | cwd,pid)| | web_compat |        |
 |  +---------+ +------------+ +---------+ +------------+        |
 +--------------------------------------------------------------+
 |  Layer 5: Module System                                       |

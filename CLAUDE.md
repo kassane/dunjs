@@ -114,7 +114,8 @@ All runtime globals are **engine-agnostic** (use `IJSEngine` + `NativeCallback`)
 | `net` | `registerNetModule(engine)` | `require('net')`, ESM `import from 'dun:net'` |
 | `http` | `registerHttpModule(engine)` | `require('http')`, ESM `import from 'dun:http'` |
 | `fetch` | `registerFetchGlobal(engine)` | Global `fetch()` (Posix, HTTPS via OpenSSL) |
-| `Deno.*` | `installDenoCompat(engine)` | Global `Deno` object (env, readTextFileSync, cwd, exit, build, version) |
+| Web globals | `installWebCompat(engine)` | `atob`, `btoa`, `structuredClone`, `TextEncoder`, `TextDecoder` |
+| `Deno.*` | `installDenoCompat(engine)` | Full Deno compat (30+ APIs: env, fs, permissions, errors) |
 
 All modules work identically across QuickJS, JSC, and V8 backends.
 Workers remain QuickJS-only (requires threading primitives).
@@ -328,7 +329,7 @@ dub test -c unittest    # All unit tests
 | V8 TMP bridge | `source/dun/engine/v8/cppbindings.d` | compile-time | V8TypeName coverage, tag->name mapping |
 | JSC TMP bridge | `source/dun/engine/jsc/cppbindings.d` | compile-time | JSCTypeName coverage, kJSType* alignment |
 
-### Integration Tests (44 fixtures)
+### Integration Tests (46 fixtures)
 
 ```sh
 # Run against a specific backend
@@ -346,11 +347,12 @@ dub build -c v8  && BACKEND=v8  ./tests/integration/run.sh
 | Modules | `module_esm`, `module_cjs`, `module_chain`, `json_pipeline`, `npm_compat` | ESM import/export, CJS require, chained deps, JSON import |
 | Builtins | `fs_ops`, `path_ops`, `crypto_ops`, `stat_file`, `env_access` | readFile, join/resolve, hash/randomBytes, stat, process.env |
 | New APIs | `buffer_api`, `event_emitter`, `url_api`, `os_api` | Buffer.from/alloc/concat, EventEmitter on/emit/once, URL/URLSearchParams, os.platform/cpus/totalmem |
-| Security | `perm_deny_read`, `perm_deny_write` | Permission denial enforcement |
+| Deno compat | `deno_compat` | 22 checks: env, fs, stat, copy, rename, remove, web globals |
+| Security | `perm_deny_read`, `perm_deny_write`, `realworld_security_boundary` | Permission denial enforcement |
 | TypeScript | `typescript`, `realworld_ts_library` | Type annotations, interfaces, as, arrow types |
 | Real-world | 7 end-to-end scenarios | Config loading, task runner, file processing, events, promise pool, nested require, ESM pipeline |
 
-Backend test scores: **QuickJS 44/44**, **JSC 43/43+1skip**, **V8 43/43+1skip** (workers QuickJS-only).
+Backend test scores: **QuickJS 46/46**, **JSC 45/45+1skip**, **V8 45/45+1skip** (workers QuickJS-only).
 
 Test pattern: fixtures in `tests/integration/fixtures/*.{js,mjs,ts}`, expected stdout in `tests/integration/expected/*.txt`.
 
@@ -426,3 +428,6 @@ Not supported (have runtime semantics):
 | 8a | TLS/HTTPS | OpenSSL bindings + TlsSocket + fetch() with HTTPS | **Done** |
 | 8b | npm install | `dun install <pkg>` with transitive deps from registry | **Done** |
 | 8c | Deno compat | Deno.env, readTextFileSync, writeTextFileSync, cwd, exit, build | **Done** |
+| 8d | Full Deno compat | 30+ Deno APIs (stat, mkdir, remove, rename, copy, readDir, permissions, errors) | **Done** |
+| 8e | Web globals | atob, btoa, TextEncoder, TextDecoder, structuredClone | **Done** |
+| 8f | Node process | process.argv, cwd(), exit(), platform, arch, version, pid | **Done** |

@@ -34,7 +34,9 @@ source/dun/
     jsc/             # JSC backend (extern(C) -> JSC C API + TMP bridge)
     v8/              # V8 backend (extern(C) -> v8shim C++ wrapper + TMP bridge)
   runtime/
-    globals.d        # Console, timers, queueMicrotask, process.nextTick
+    globals.d        # Console, timers, queueMicrotask, process (argv/cwd/exit/platform)
+    deno_compat.d    # 30+ Deno APIs (env, fs, stat, mkdir, remove, permissions, errors)
+    web_compat.d     # atob, btoa, TextEncoder, TextDecoder, structuredClone
     rejection_tracker.d  # Unhandled promise rejection tracking
   ts/strip.d         # TypeScript type stripping (20 tests)
   security/          # Permission model (27 tests)
