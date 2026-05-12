@@ -42,6 +42,17 @@ enum JSCTypeTag
 static assert(__traits(allMembers, JSCTypeTag).length == 10,
     "JSCTypeTag member count changed -- update JSCTypeChecks table and JSCTypeName template");
 
+// Verify basic types match kJSType* enum values from JSC C API
+static assert(JSCTypeTag.Undefined == 0 && JSCTypeTag.Null == 1
+    && JSCTypeTag.Boolean == 2 && JSCTypeTag.Number == 3
+    && JSCTypeTag.String == 4 && JSCTypeTag.Object == 5
+    && JSCTypeTag.Symbol == 6,
+    "JSCTypeTag basic type ordinals must match kJSType* constants");
+
+// FFI pointer size guarantee
+static assert((void*).sizeof == size_t.sizeof,
+    "pointer/size_t size mismatch for C FFI");
+
 /// Compile-time map: JSCTypeTag → display name.
 template JSCTypeName(JSCTypeTag tag)
 {

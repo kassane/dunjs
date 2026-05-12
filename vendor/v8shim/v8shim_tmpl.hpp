@@ -1,5 +1,5 @@
 /*
- * v8shim_tmpl.hpp — C++ template metaprogramming helpers for v8shim.
+ * v8shim_tmpl.hpp — C++20 template metaprogramming helpers for v8shim.
  *
  * Eliminates boilerplate in v8shim.cpp by abstracting V8's scope guard
  * pattern into templates. Every V8 operation requires identical setup:
@@ -7,36 +7,69 @@
  *   2. HandleScope
  *   3. Context::Get + Context::Scope
  *
- * This header provides:
- *   - withContext<F>: RAII scope guard + forwarding
- *   - V8TypeMap<Tag>: compile-time V8 type dispatch (int → Integer, etc.)
- *   - makeV8Value<Tag>: type-safe value creation via template specialization
- *
- * Usage in v8shim.cpp:
- *   return withContext(cw, [](auto isolate, auto context, auto* iw) {
- *       return wrapValue(iw, v8::Integer::New(isolate, 42));
- *   });
- *
- * This reduces the 15-line boilerplate per function to 3 lines.
- * The D side can mirror this with D's compile-time templates (static foreach,
- * mixin templates) to auto-generate extern(C) binding declarations.
+ * C++20 features used:
+ *   - concepts: constrain template parameters
+ *   - consteval: compile-time tag validation
+ *   - [[nodiscard]]: prevent ignoring return values
+ *   - std::span: safe view over argument arrays
+ *   - requires: inline constraints on lambdas
  */
 
 #ifndef DUN_V8SHIM_TMPL_HPP
 #define DUN_V8SHIM_TMPL_HPP
 
 #include <v8.h>
+#include <concepts>
+#include <span>
+#include <type_traits>
 #include "v8shim.h"
 
 namespace dun {
 
-// RAII scope guard: sets up Isolate::Scope + HandleScope + Context::Scope,
-// then invokes F with (isolate, context, isolate_wrapper).
+// --- Compile-time tag types for V8 value dispatch ---
+
+enum class V8Tag : int {
+    Undefined = 0, Null, Bool, Int, Number, String, Object, Array, Function
+};
+
+static constexpr int V8TagCount = 9;
+static_assert(static_cast<int>(V8Tag::Function) == V8TagCount - 1,
+    "V8Tag enum drift — update V8TagCount");
+
+consteval bool isValidTag(V8Tag tag) {
+    return static_cast<int>(tag) >= 0
+        && static_cast<int>(tag) < V8TagCount;
+}
+
+consteval const char* tagName(V8Tag tag) {
+    switch (tag) {
+        case V8Tag::Undefined: return "undefined";
+        case V8Tag::Null:      return "null";
+        case V8Tag::Bool:      return "boolean";
+        case V8Tag::Int:       return "int32";
+        case V8Tag::Number:    return "number";
+        case V8Tag::String:    return "string";
+        case V8Tag::Object:    return "object";
+        case V8Tag::Array:     return "array";
+        case V8Tag::Function:  return "function";
+    }
+    return "unknown";
+}
+
+// --- Concepts for template constraints ---
+
 template <typename F>
+concept ContextCallable = std::invocable<F, v8::Isolate*,
+    v8::Local<v8::Context>, DunV8Isolate*>;
+
+template <typename F>
+concept IsolateCallable = std::invocable<F, v8::Isolate*>;
+
+// --- RAII scope guards ---
+
+template <ContextCallable F>
 auto withContext(DunV8Context* cw, F&& fn)
-    -> decltype(fn(std::declval<v8::Isolate*>(),
-                   std::declval<v8::Local<v8::Context>>(),
-                   std::declval<DunV8Isolate*>()))
+    -> std::invoke_result_t<F, v8::Isolate*, v8::Local<v8::Context>, DunV8Isolate*>
 {
     auto* isolate = cw->isolate_wrapper->isolate;
     v8::Isolate::Scope isolate_scope(isolate);
@@ -46,71 +79,71 @@ auto withContext(DunV8Context* cw, F&& fn)
     return fn(isolate, context, cw->isolate_wrapper);
 }
 
-// Isolate-only variant (no context needed)
-template <typename F>
+template <IsolateCallable F>
 auto withIsolate(DunV8Isolate* iw, F&& fn)
-    -> decltype(fn(std::declval<v8::Isolate*>()))
+    -> std::invoke_result_t<F, v8::Isolate*>
 {
     v8::Isolate::Scope scope(iw->isolate);
     v8::HandleScope handle_scope(iw->isolate);
     return fn(iw->isolate);
 }
 
-// Compile-time tag types for V8 value dispatch
-enum class V8Tag { Undefined, Null, Bool, Int, Number, String, Object, Array, Function };
+// --- Type-level map: V8Tag → v8::Type ---
 
-// Type-level map: V8Tag → v8::Type
 template <V8Tag Tag> struct V8TypeMap;
-template <> struct V8TypeMap<V8Tag::Bool>    { using type = v8::Boolean; };
-template <> struct V8TypeMap<V8Tag::Int>     { using type = v8::Integer; };
-template <> struct V8TypeMap<V8Tag::Number>  { using type = v8::Number; };
-template <> struct V8TypeMap<V8Tag::String>  { using type = v8::String; };
-template <> struct V8TypeMap<V8Tag::Object>  { using type = v8::Object; };
-template <> struct V8TypeMap<V8Tag::Array>   { using type = v8::Array; };
+template <> struct V8TypeMap<V8Tag::Bool>     { using type = v8::Boolean; };
+template <> struct V8TypeMap<V8Tag::Int>      { using type = v8::Integer; };
+template <> struct V8TypeMap<V8Tag::Number>   { using type = v8::Number; };
+template <> struct V8TypeMap<V8Tag::String>   { using type = v8::String; };
+template <> struct V8TypeMap<V8Tag::Object>   { using type = v8::Object; };
+template <> struct V8TypeMap<V8Tag::Array>    { using type = v8::Array; };
 template <> struct V8TypeMap<V8Tag::Function> { using type = v8::Function; };
 
-// Type check dispatch: compile-time selection of IsXxx method
+// --- Type check dispatch: compile-time selection of IsXxx method ---
+
 template <V8Tag Tag>
-bool isV8Type(v8::Isolate* isolate, DunV8Value* vw) {
+    requires (isValidTag(Tag))
+[[nodiscard]] bool isV8Type(v8::Isolate* isolate, DunV8Value* vw) {
     auto val = vw->value.Get(isolate);
     if constexpr (Tag == V8Tag::Undefined) return val->IsUndefined();
-    else if constexpr (Tag == V8Tag::Null)      return val->IsNull();
-    else if constexpr (Tag == V8Tag::Bool)      return val->IsBoolean();
-    else if constexpr (Tag == V8Tag::Int)       return val->IsInt32();
-    else if constexpr (Tag == V8Tag::Number)    return val->IsNumber();
-    else if constexpr (Tag == V8Tag::String)    return val->IsString();
-    else if constexpr (Tag == V8Tag::Object)    return val->IsObject();
-    else if constexpr (Tag == V8Tag::Array)     return val->IsArray();
-    else if constexpr (Tag == V8Tag::Function)  return val->IsFunction();
-    else return false;
+    else if constexpr (Tag == V8Tag::Null)     return val->IsNull();
+    else if constexpr (Tag == V8Tag::Bool)     return val->IsBoolean();
+    else if constexpr (Tag == V8Tag::Int)      return val->IsInt32();
+    else if constexpr (Tag == V8Tag::Number)   return val->IsNumber();
+    else if constexpr (Tag == V8Tag::String)   return val->IsString();
+    else if constexpr (Tag == V8Tag::Object)   return val->IsObject();
+    else if constexpr (Tag == V8Tag::Array)    return val->IsArray();
+    else if constexpr (Tag == V8Tag::Function) return val->IsFunction();
+    else static_assert(!sizeof(val), "unhandled V8Tag");
 }
+
+// --- Compile-time validation ---
+
+static_assert(tagName(V8Tag::Undefined) != nullptr);
+static_assert(tagName(V8Tag::Function) != nullptr);
+
+// FFI ABI guarantees
+static_assert(sizeof(DunV8NativeCallback) == sizeof(void*),
+    "function pointer must be pointer-sized for FFI");
+static_assert(alignof(DunV8Isolate*) == alignof(void*),
+    "opaque pointer alignment mismatch");
+static_assert(alignof(DunV8Context*) == alignof(void*),
+    "opaque pointer alignment mismatch");
+static_assert(alignof(DunV8Value*) == alignof(void*),
+    "opaque pointer alignment mismatch");
 
 } // namespace dun
 
 /*
  * D-side TMP mirror (compile-time code generation):
  *
- * The D binding can use mixin templates and static foreach to generate
- * the extern(C) declarations from a type descriptor:
+ * The D binding uses compile-time templates to mirror the C++ side:
+ *   - V8TypeTag enum (9 members, matches V8Tag)
+ *   - V8TypeName template (matches tagName consteval)
+ *   - V8TypeChecks struct (function pointer table, matches isV8Type<Tag>)
+ *   - static assert on __traits(allMembers) count (matches V8TagCount)
  *
- *   // In D:
- *   enum V8Tag { Undefined, Null, Bool, Int, Number, String, Object, Array }
- *
- *   // Generate type-check functions
- *   static foreach (tag; [EnumMembers!V8Tag]) {
- *       mixin("extern(C) int dun_v8_value_is_" ~ toLower(tag.stringof)
- *             ~ "(DunV8Value* val) nothrow @nogc;");
- *   }
- *
- *   // Generate value creation functions via mixin template
- *   mixin template V8Creator(string name, RetType, ArgTypes...) {
- *       mixin("extern(C) DunV8Value* dun_v8_new_" ~ name
- *             ~ "(" ~ joinArgs!(ArgTypes) ~ ") nothrow @nogc;");
- *   }
- *
- * This keeps the C++ templates and D templates in sync — the C++ side
- * uses if constexpr dispatch, the D side uses static foreach generation.
- * Both are resolved at compile time with zero runtime overhead.
+ * Both sides are resolved at compile time with zero runtime overhead.
  */
 
 #endif /* DUN_V8SHIM_TMPL_HPP */

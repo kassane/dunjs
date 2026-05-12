@@ -1,10 +1,8 @@
 /*
- * v8shim.cpp — Thin C wrapper around V8's C++ API.
+ * v8shim.cpp — Thin C wrapper around V8's C++ API (C++20).
  *
- * Uses C++ TMP helpers from v8shim_tmpl.hpp to eliminate scope guard
- * boilerplate. Every V8 operation needs Isolate::Scope + HandleScope
- * (+ Context::Scope for context ops) — withContext<F> and withIsolate<F>
- * abstract this into a single call.
+ * Uses C++20 TMP helpers from v8shim_tmpl.hpp: concepts, consteval,
+ * std::span, [[nodiscard]], static_assert for compile-time FFI safety.
  *
  * Build:
  *   g++ -std=c++20 -fPIC -O2 -c v8shim.cpp -I/path/to/v8/include
@@ -17,6 +15,7 @@
 #include <libplatform/libplatform.h>
 #include <cassert>
 #include <cstring>
+#include <span>
 #include <string>
 #include <atomic>
 
@@ -50,7 +49,18 @@ struct DunV8Value {
     int ref_count;
 };
 
-static DunV8Value* wrapValue(DunV8Isolate* iw, v8::Local<v8::Value> val) {
+// Compile-time FFI safety: verify struct invariants
+static_assert(std::is_standard_layout_v<DunV8Isolate>,
+    "DunV8Isolate must be standard layout for C FFI");
+static_assert(sizeof(DunV8Isolate*) == sizeof(void*),
+    "opaque pointer size mismatch");
+static_assert(sizeof(DunV8Context*) == sizeof(void*),
+    "opaque pointer size mismatch");
+static_assert(sizeof(DunV8Value*) == sizeof(void*),
+    "opaque pointer size mismatch");
+static_assert(sizeof(int) == 4, "int must be 32-bit for D interop");
+
+[[nodiscard]] static DunV8Value* wrapValue(DunV8Isolate* iw, v8::Local<v8::Value> val) {
     auto* wrapped = new DunV8Value();
     wrapped->value.Reset(iw->isolate, val);
     wrapped->isolate_wrapper = iw;
@@ -90,20 +100,23 @@ static void v8FunctionTrampoline(const v8::FunctionCallbackInfo<v8::Value>& info
 
     auto external = v8::Local<v8::External>::Cast(info.Data());
     auto* fd = static_cast<DunV8FunctionData*>(external->Value());
+    assert(fd && "trampoline: null FunctionData");
+    assert(fd->callback && "trampoline: null callback");
 
-    int argc = info.Length();
-    std::vector<DunV8Value*> argv(argc);
+    const int argc = info.Length();
+    std::vector<DunV8Value*> argv(static_cast<size_t>(argc));
+    auto args = std::span{argv};
     for (int i = 0; i < argc; i++)
-        argv[i] = wrapValue(fd->context->isolate_wrapper, info[i]);
+        args[i] = wrapValue(fd->context->isolate_wrapper, info[i]);
 
     DunV8Value* thisVal = wrapValue(fd->context->isolate_wrapper, info.This());
 
     DunV8Value* result = fd->callback(fd->context, thisVal,
-        argc, argc > 0 ? argv.data() : nullptr, fd->user_data);
+        argc, argc > 0 ? args.data() : nullptr, fd->user_data);
 
     dun_v8_value_unref(thisVal);
-    for (int i = 0; i < argc; i++)
-        dun_v8_value_unref(argv[i]);
+    for (auto* v : args)
+        dun_v8_value_unref(v);
 
     if (result) {
         info.GetReturnValue().Set(result->value.Get(isolate));
@@ -389,7 +402,8 @@ DunV8Value* dun_v8_new_uint8array(DunV8Context* cw,
     return dun::withContext(cw, [&](auto isolate, auto context, auto* iw) {
         auto ab = v8::ArrayBuffer::New(isolate, len);
         if (data && len > 0) {
-            memcpy(ab->GetBackingStore()->Data(), data, len);
+            auto src = std::span{data, len};
+            memcpy(ab->GetBackingStore()->Data(), src.data(), src.size_bytes());
         }
         auto ta = v8::Uint8Array::New(ab, 0, len);
         return wrapValue(iw, ta.template As<v8::Value>());
@@ -470,9 +484,10 @@ DunV8Value* dun_v8_call(DunV8Context* cw, DunV8Value* func,
             this_obj->value.Get(isolate) :
             context->Global().template As<v8::Value>();
 
-        std::vector<v8::Local<v8::Value>> args(argc);
-        for (int i = 0; i < argc; i++)
-            args[i] = argv[i]->value.Get(isolate);
+        auto argv_span = std::span{argv, static_cast<size_t>(argc)};
+        std::vector<v8::Local<v8::Value>> args(static_cast<size_t>(argc));
+        for (size_t i = 0; i < argv_span.size(); i++)
+            args[i] = argv_span[i]->value.Get(isolate);
 
         auto result = fn->Call(context, recv, argc,
             argc > 0 ? args.data() : nullptr);

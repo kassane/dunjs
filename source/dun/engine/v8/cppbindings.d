@@ -33,8 +33,17 @@ enum V8TypeTag
     Function,
 }
 
+// Must match C++ V8TagCount (9) in v8shim_tmpl.hpp
 static assert(__traits(allMembers, V8TypeTag).length == 9,
     "V8TypeTag member count changed -- update V8TypeChecks table and V8TypeName template");
+
+// Must match C++ V8Tag enum ordinals
+static assert(V8TypeTag.Undefined == 0 && V8TypeTag.Function == 8,
+    "V8TypeTag ordinals drift -- must match C++ dun::V8Tag");
+
+// FFI pointer size guarantee (must match C++ static_assert in v8shim.h)
+static assert((void*).sizeof == size_t.sizeof,
+    "pointer/size_t size mismatch for C FFI");
 
 /// Compile-time map: V8TypeTag → C shim function name suffix.
 /// Mirrors C++ V8TypeMap<Tag> — both are compile-time dispatch tables.
