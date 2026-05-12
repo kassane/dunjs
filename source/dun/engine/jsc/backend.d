@@ -112,6 +112,43 @@ class JSCEngine : IJSEngine
         return toHandle(cast(void*) JSObjectMakeArray(ctx, 0, null, null));
     }
 
+    JSHandle newUint8Array(const(ubyte)[] data) @trusted
+    {
+        assert(ctx !is null, "JSC context not initialized");
+        import std.string : toStringz;
+        try
+        {
+            auto buf = new char[](22 + data.length * 4);
+            size_t pos = 0;
+            void put(const(char)[] s)
+            {
+                buf[pos .. pos + s.length] = s[];
+                pos += s.length;
+            }
+            put("new Uint8Array([");
+            foreach (i, b; data)
+            {
+                if (i > 0) { buf[pos++] = ','; }
+                if (b >= 100) { buf[pos++] = cast(char)('0' + b / 100); buf[pos++] = cast(char)('0' + (b / 10) % 10); buf[pos++] = cast(char)('0' + b % 10); }
+                else if (b >= 10) { buf[pos++] = cast(char)('0' + b / 10); buf[pos++] = cast(char)('0' + b % 10); }
+                else { buf[pos++] = cast(char)('0' + b); }
+            }
+            put("])");
+            buf[pos] = '\0';
+            auto jsStr = JSStringCreateWithUTF8CString(buf.ptr);
+            scope (exit) JSStringRelease(jsStr);
+            JSValueRef exc = null;
+            auto val = JSEvaluateScript(ctx, jsStr, null, null, 1, &exc);
+            if (exc !is null || val is null)
+                return toHandle(cast(void*) JSValueMakeUndefined(ctx));
+            return toHandle(cast(void*) val);
+        }
+        catch (Exception)
+        {
+            return toHandle(cast(void*) JSValueMakeUndefined(ctx));
+        }
+    }
+
     JSHandle newFunction(NativeCallback cb, string name, int argc) @trusted
     {
         import std.string : toStringz;
@@ -179,6 +216,41 @@ class JSCEngine : IJSEngine
         JSObjectSetProperty(ctx, cast(JSObjectRef) fromHandle(obj),
             jsName, cast(JSValueRef) fromHandle(val),
             kJSPropertyAttributeNone, &exc);
+    }
+
+    void setPropertyIndex(JSHandle obj, uint idx, JSHandle val) @trusted
+    {
+        assert(ctx !is null, "JSC context not initialized");
+        JSValueRef exc = null;
+        JSObjectSetPropertyAtIndex(ctx, cast(JSObjectRef) fromHandle(obj),
+            idx, cast(JSValueRef) fromHandle(val), &exc);
+    }
+
+    JSHandle getPropertyIndex(JSHandle obj, uint idx) @trusted
+    {
+        assert(ctx !is null, "JSC context not initialized");
+        JSValueRef exc = null;
+        auto val = JSObjectGetPropertyAtIndex(ctx,
+            cast(JSObjectRef) fromHandle(obj), idx, &exc);
+        return toHandle(cast(void*) val);
+    }
+
+    bool isArray(JSHandle val) @trusted
+    {
+        assert(ctx !is null, "JSC context not initialized");
+        return JSValueIsArray(ctx, cast(JSValueRef) fromHandle(val));
+    }
+
+    int getArrayLength(JSHandle val) @trusted
+    {
+        assert(ctx !is null, "JSC context not initialized");
+        import std.string : toStringz;
+        auto jsName = JSStringCreateWithUTF8CString("length".toStringz);
+        scope (exit) JSStringRelease(jsName);
+        JSValueRef exc = null;
+        auto lenVal = JSObjectGetProperty(ctx,
+            cast(JSObjectRef) fromHandle(val), jsName, &exc);
+        return cast(int) JSValueToNumber(ctx, lenVal, &exc);
     }
 
     JSHandle getGlobal() @trusted
@@ -426,6 +498,13 @@ private extern (C) JSValueRef jscNativeTrampoline(JSContextRef ctx,
     {
         return JSValueMakeUndefined(ctx);
     }
+}
+
+private extern (C) void jscTypedArrayDeallocator(void* bytes, void* deallocCtx) nothrow @nogc
+{
+    import core.stdc.stdlib : free;
+    if (bytes !is null)
+        free(bytes);
 }
 
 private JSValueRef _jscPendingThrow;

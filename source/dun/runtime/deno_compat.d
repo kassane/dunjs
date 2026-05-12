@@ -623,7 +623,7 @@ JSHandle denoReadDirSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
             engine.setProperty(entryObj, "isFile", engine.newBool(eIsFile));
             engine.setProperty(entryObj, "isDirectory", engine.newBool(eIsDir));
             engine.setProperty(entryObj, "isSymlink", engine.newBool(eIsSym));
-            engine.setProperty(arr, (idx++).to!string, entryObj);
+            engine.setPropertyIndex(arr, idx++, entryObj);
         }
         return arr;
     }

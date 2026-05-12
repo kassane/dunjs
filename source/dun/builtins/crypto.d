@@ -62,11 +62,10 @@ JSHandle jsCryptoRandomBytes(void* ctx, JSHandle thisVal, JSHandle[] args) @trus
     if (n < 0) return engine.throwTypeError("randomBytes length must be non-negative");
     try
     {
-        import std.conv : to;
         auto bytes = osRandomBytes(n);
         auto arr = engine.newArray();
         foreach (i; 0 .. cast(uint) n)
-            engine.setProperty(arr, i.to!string, engine.newInt(bytes[i]));
+            engine.setPropertyIndex(arr, i, engine.newInt(bytes[i]));
         return arr;
     }
     catch (Exception) { return engine.throwTypeError("Failed to generate random bytes"); }

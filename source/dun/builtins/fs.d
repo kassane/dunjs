@@ -176,11 +176,10 @@ JSHandle jsReaddirSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     {
         import std.file : dirEntries, SpanMode;
         import std.path : baseName;
-        import std.conv : to;
         auto arr = engine.newArray();
         uint idx = 0;
         foreach (entry; dirEntries(path, SpanMode.shallow))
-            engine.setProperty(arr, (idx++).to!string, engine.newString(baseName(entry.name)));
+            engine.setPropertyIndex(arr, idx++, engine.newString(baseName(entry.name)));
         return arr;
     }
     catch (Exception e) { return throwSystemError(engine, "scandir", path, e); }

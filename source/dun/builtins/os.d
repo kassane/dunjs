@@ -186,7 +186,7 @@ JSHandle jsOsCpus(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
             engine.setProperty(times, "idle", engine.newInt(0));
             engine.setProperty(times, "irq", engine.newInt(0));
             engine.setProperty(cpuObj, "times", times);
-            engine.setProperty(arr, i.to!string, cpuObj);
+            engine.setPropertyIndex(arr, cast(uint) i, cpuObj);
         }
     }
     catch (Exception) {}

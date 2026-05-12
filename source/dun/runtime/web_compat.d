@@ -32,7 +32,17 @@ void installWebCompat(IJSEngine engine) @trusted
         ~ "};"
         ~ "globalThis.TextDecoder = function TextDecoder() {"
         ~ " this.encoding = 'utf-8';"
-        ~ " this.decode = function(b) { return __dun_td_decode(b); };"
+        ~ " this.decode = function(b) {"
+        ~ "  if (typeof b === 'string') return b;"
+        ~ "  if (!b || !b.length) return '';"
+        ~ "  var r = '', i = 0, len = b.length;"
+        ~ "  while (i < len) {"
+        ~ "   var c = b[i++];"
+        ~ "   if (c < 128) { r += String.fromCharCode(c); }"
+        ~ "   else if (c < 224) { r += String.fromCharCode(((c & 31) << 6) | (b[i++] & 63)); }"
+        ~ "   else if (c < 240) { r += String.fromCharCode(((c & 15) << 12) | ((b[i++] & 63) << 6) | (b[i++] & 63)); }"
+        ~ "   else { var cp = ((c & 7) << 18) | ((b[i++] & 63) << 12) | ((b[i++] & 63) << 6) | (b[i++] & 63); cp -= 0x10000; r += String.fromCharCode(0xD800 + (cp >> 10), 0xDC00 + (cp & 0x3FF)); }"
+        ~ "  } return r; };"
         ~ "};", "<web-compat>");
     if (!teRes.isError)
         engine.freeValue(teRes.value);
@@ -154,15 +164,10 @@ JSHandle jsTextEncoderEncode(void* ctx, JSHandle thisVal, JSHandle[] args) @trus
     auto engine = state.engine;
 
     if (args.length < 1 || !engine.isString(args[0]))
-        return engine.newArray();
+        return engine.newUint8Array(null);
 
     string input = engine.extractString(args[0]);
-    auto arr = engine.newArray();
-    import std.conv : to;
-    uint idx = 0;
-    foreach (ubyte b; cast(ubyte[]) input)
-        engine.setProperty(arr, (idx++).to!string, engine.newInt(cast(int) b));
-    return arr;
+    return engine.newUint8Array(cast(const(ubyte)[]) input);
 }
 
 JSHandle jsTextDecoderConstructor(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
@@ -186,6 +191,28 @@ JSHandle jsTextDecoderDecode(void* ctx, JSHandle thisVal, JSHandle[] args) @trus
 
     if (engine.isString(args[0]))
         return args[0];
+
+    if (engine.isObject(args[0]))
+    {
+        int len = engine.getArrayLength(args[0]);
+        if (len <= 0)
+            return engine.newString("");
+        try
+        {
+            auto buf = new char[len];
+            foreach (i; 0 .. len)
+            {
+                auto elem = engine.getPropertyIndex(args[0], cast(uint) i);
+                buf[i] = cast(char) engine.extractInt(elem);
+                engine.freeValue(elem);
+            }
+            return engine.newString(buf[0 .. len]);
+        }
+        catch (Exception)
+        {
+            return engine.newString("");
+        }
+    }
 
     return engine.newString("");
 }

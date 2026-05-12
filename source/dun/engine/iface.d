@@ -85,6 +85,17 @@ interface IJSEngine
     JSHandle dupValue(JSHandle val);
     void freeValue(JSHandle val);
 
+    // --- Typed arrays ---
+    JSHandle newUint8Array(const(ubyte)[] data);
+
+    // --- Indexed property access (O(1) for arrays) ---
+    void setPropertyIndex(JSHandle obj, uint idx, JSHandle val);
+    JSHandle getPropertyIndex(JSHandle obj, uint idx);
+
+    // --- Array operations ---
+    bool isArray(JSHandle val);
+    int getArrayLength(JSHandle val);
+
     // --- Type checks ---
     bool isException(JSHandle val);
     bool isUndefined(JSHandle val);

@@ -195,8 +195,7 @@ JSHandle jsRequire(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     auto stack = engine.getProperty(global, "__dunCjsStack__");
     auto stackLenVal = engine.getProperty(stack, "length");
     int stackLen = engine.extractInt(stackLenVal);
-    import std.conv : to;
-    engine.setProperty(stack, stackLen.to!string, engine.newString(resolved));
+    engine.setPropertyIndex(stack, cast(uint) stackLen, engine.newString(resolved));
 
     string dirname_;
     try { dirname_ = dirName(resolved); } catch (Exception) { dirname_ = "."; }
@@ -254,8 +253,7 @@ string getCjsStackDir(IJSEngine engine, JSHandle global) nothrow @trusted
         int len = engine.extractInt(lenVal);
         if (len > 0)
         {
-            import std.conv : to;
-            auto topVal = engine.getProperty(stack, (len - 1).to!string);
+            auto topVal = engine.getPropertyIndex(stack, cast(uint)(len - 1));
             return dirName(engine.extractString(topVal));
         }
     }

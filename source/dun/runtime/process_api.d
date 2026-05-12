@@ -59,10 +59,9 @@ void installProcess(IJSEngine engine) @trusted
     auto argvArr = engine.newArray();
     if (state !is null && state.scriptArgs !is null)
     {
-        import std.conv : to;
         uint idx = 0;
         foreach (arg; state.scriptArgs)
-            engine.setProperty(argvArr, (idx++).to!string, engine.newString(arg));
+            engine.setPropertyIndex(argvArr, idx++, engine.newString(arg));
     }
     engine.setProperty(process, "argv", argvArr);
 

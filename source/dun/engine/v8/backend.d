@@ -102,6 +102,41 @@ class V8Engine : IJSEngine
         return toHandle(dun_v8_new_array(ctx, 0));
     }
 
+    JSHandle newUint8Array(const(ubyte)[] data) @trusted
+    {
+        assert(ctx !is null, "V8 context not initialized");
+        import std.format : format;
+        // Build Uint8Array via eval — V8's JIT makes this fast
+        char[] buf;
+        try
+        {
+            buf = new char[](22 + data.length * 4);
+        }
+        catch (Exception)
+        {
+            return toHandle(dun_v8_new_undefined(ctx));
+        }
+        size_t pos = 0;
+        void put(const(char)[] s)
+        {
+            buf[pos .. pos + s.length] = s[];
+            pos += s.length;
+        }
+        put("new Uint8Array([");
+        foreach (i, b; data)
+        {
+            if (i > 0) put(",");
+            // Fast int-to-string for 0-255
+            if (b >= 100) { buf[pos++] = cast(char)('0' + b / 100); buf[pos++] = cast(char)('0' + (b / 10) % 10); buf[pos++] = cast(char)('0' + b % 10); }
+            else if (b >= 10) { buf[pos++] = cast(char)('0' + b / 10); buf[pos++] = cast(char)('0' + b % 10); }
+            else { buf[pos++] = cast(char)('0' + b); }
+        }
+        put("])");
+        int isError;
+        auto val = dun_v8_eval(ctx, buf.ptr, pos, "<uint8array>", &isError);
+        return toHandle(val);
+    }
+
     JSHandle newFunction(NativeCallback cb, string name, int argc) @trusted
     {
         import std.string : toStringz;
@@ -158,6 +193,39 @@ class V8Engine : IJSEngine
         assert(ctx !is null, "V8 context not initialized");
         dun_v8_set_property(ctx, fromHandle(obj),
             (cast(string) name).toStringz, fromHandle(val));
+    }
+
+    void setPropertyIndex(JSHandle obj, uint idx, JSHandle val) @trusted
+    {
+        import std.conv : to;
+        import std.string : toStringz;
+        assert(ctx !is null, "V8 context not initialized");
+        dun_v8_set_property(ctx, fromHandle(obj),
+            idx.to!string.toStringz, fromHandle(val));
+    }
+
+    JSHandle getPropertyIndex(JSHandle obj, uint idx) @trusted
+    {
+        import std.conv : to;
+        import std.string : toStringz;
+        assert(ctx !is null, "V8 context not initialized");
+        return toHandle(dun_v8_get_property(ctx, fromHandle(obj),
+            idx.to!string.toStringz));
+    }
+
+    bool isArray(JSHandle val) @trusted
+    {
+        return dun_v8_value_is_array(fromHandle(val)) != 0;
+    }
+
+    int getArrayLength(JSHandle val) @trusted
+    {
+        assert(ctx !is null, "V8 context not initialized");
+        auto lenVal = dun_v8_get_property(ctx, fromHandle(val), "length");
+        if (lenVal is null) return 0;
+        auto result = dun_v8_value_to_int(ctx, lenVal);
+        dun_v8_value_unref(lenVal);
+        return result;
     }
 
     JSHandle getGlobal() @trusted

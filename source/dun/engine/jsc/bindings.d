@@ -241,3 +241,47 @@ void JSPropertyNameArrayRelease(JSPropertyNameArrayRef array);
 JSClassRef JSClassCreate(const(JSClassDefinition)* definition);
 JSClassRef JSClassRetain(JSClassRef jsClass);
 void JSClassRelease(JSClassRef jsClass);
+
+// --- Typed arrays (JSC 10.12+ / WebKitGTK 2.14+) ---
+enum JSTypedArrayType : uint
+{
+    kJSTypedArrayTypeInt8Array = 0,
+    kJSTypedArrayTypeInt16Array = 1,
+    kJSTypedArrayTypeInt32Array = 2,
+    kJSTypedArrayTypeUint8Array = 3,
+    kJSTypedArrayTypeUint8ClampedArray = 4,
+    kJSTypedArrayTypeUint16Array = 5,
+    kJSTypedArrayTypeUint32Array = 6,
+    kJSTypedArrayTypeFloat32Array = 7,
+    kJSTypedArrayTypeFloat64Array = 8,
+    kJSTypedArrayTypeArrayBuffer = 9,
+    kJSTypedArrayTypeNone = 10,
+}
+
+alias JSTypedArrayBytesDeallocator = extern (C) void function(
+    void* bytes, void* deallocatorContext) nothrow;
+
+JSObjectRef JSObjectMakeTypedArray(JSContextRef ctx,
+    JSTypedArrayType arrayType, size_t length, JSValueRef* exception);
+JSObjectRef JSObjectMakeTypedArrayWithBytesNoCopy(JSContextRef ctx,
+    JSTypedArrayType arrayType, void* bytes, size_t byteLength,
+    JSTypedArrayBytesDeallocator bytesDeallocator,
+    void* deallocatorContext, JSValueRef* exception);
+JSObjectRef JSObjectMakeArrayBufferWithBytesNoCopy(JSContextRef ctx,
+    void* bytes, size_t byteLength,
+    JSTypedArrayBytesDeallocator bytesDeallocator,
+    void* deallocatorContext, JSValueRef* exception);
+void* JSObjectGetTypedArrayBytesPtr(JSContextRef ctx,
+    JSObjectRef object, JSValueRef* exception);
+size_t JSObjectGetTypedArrayLength(JSContextRef ctx,
+    JSObjectRef object, JSValueRef* exception);
+size_t JSObjectGetTypedArrayByteLength(JSContextRef ctx,
+    JSObjectRef object, JSValueRef* exception);
+size_t JSObjectGetTypedArrayByteOffset(JSContextRef ctx,
+    JSObjectRef object, JSValueRef* exception);
+JSObjectRef JSObjectGetTypedArrayBuffer(JSContextRef ctx,
+    JSObjectRef object, JSValueRef* exception);
+void* JSObjectGetArrayBufferBytesPtr(JSContextRef ctx,
+    JSObjectRef object, JSValueRef* exception);
+size_t JSObjectGetArrayBufferByteLength(JSContextRef ctx,
+    JSObjectRef object, JSValueRef* exception);

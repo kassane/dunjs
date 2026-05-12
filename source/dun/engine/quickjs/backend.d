@@ -104,6 +104,17 @@ class QuickJSEngine : IJSEngine
         return toHandle(JS_NewArray(ctx));
     }
 
+    JSHandle newUint8Array(const(ubyte)[] data) @trusted
+    {
+        assert(ctx !is null, "Engine not initialized");
+        auto ab = JS_NewArrayBufferCopy(ctx, data.ptr, data.length);
+        if (JS_IsException(ab) != 0)
+            return toHandle(ab);
+        auto ta = JS_NewTypedArray(ctx, 1, &ab, JSTypedArrayEnum.uint8);
+        JS_FreeValue(ctx, ab);
+        return toHandle(ta);
+    }
+
     JSHandle newFunction(NativeCallback cb, string name, int argc) @trusted
     {
         assert(ctx !is null, "Engine not initialized");
@@ -167,6 +178,31 @@ class QuickJSEngine : IJSEngine
         import std.string : toStringz;
         JS_SetPropertyStr(ctx, fromHandle(obj),
             (cast(string) name).toStringz, fromHandle(val));
+    }
+
+    void setPropertyIndex(JSHandle obj, uint idx, JSHandle val) @trusted
+    {
+        assert(ctx !is null, "Engine not initialized");
+        JS_SetPropertyUint32(ctx, fromHandle(obj), idx, fromHandle(val));
+    }
+
+    JSHandle getPropertyIndex(JSHandle obj, uint idx) @trusted
+    {
+        assert(ctx !is null, "Engine not initialized");
+        return toHandle(JS_GetPropertyUint32(ctx, fromHandle(obj), idx));
+    }
+
+    bool isArray(JSHandle val) @trusted
+    {
+        return JS_IsArray(fromHandle(val));
+    }
+
+    int getArrayLength(JSHandle val) @trusted
+    {
+        assert(ctx !is null, "Engine not initialized");
+        long len;
+        JS_GetLength(ctx, fromHandle(val), &len);
+        return cast(int) len;
     }
 
     JSHandle getGlobal() @trusted

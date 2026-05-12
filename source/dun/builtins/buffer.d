@@ -166,14 +166,10 @@ JSHandle jsBufferFrom(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
             auto bytes = new ubyte[len];
             for (int i = 0; i < len; i++)
             {
-                try
-                {
-                    import std.conv : to;
-                    auto elem = engine.getProperty(args[0], i.to!string);
-                    if (engine.isNumber(elem))
-                        bytes[i] = cast(ubyte) engine.extractInt(elem);
-                }
-                catch (Exception) {}
+                auto elem = engine.getPropertyIndex(args[0], cast(uint) i);
+                if (engine.isNumber(elem))
+                    bytes[i] = cast(ubyte) engine.extractInt(elem);
+                engine.freeValue(elem);
             }
             return makeBufferObj(engine, bytes);
         }
@@ -242,17 +238,13 @@ JSHandle jsBufferConcat(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
     for (int i = 0; i < count; i++)
     {
-        try
+        auto elem = engine.getPropertyIndex(args[0], cast(uint) i);
+        if (engine.isObject(elem))
         {
-            import std.conv : to;
-            auto elem = engine.getProperty(args[0], i.to!string);
-            if (engine.isObject(elem))
-            {
-                auto bytes = extractBytes(engine, elem);
-                combined ~= bytes;
-            }
+            auto bytes = extractBytes(engine, elem);
+            combined ~= bytes;
         }
-        catch (Exception) {}
+        engine.freeValue(elem);
     }
     return makeBufferObj(engine, combined);
 }
@@ -336,14 +328,7 @@ JSHandle jsBufferToJSON(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     engine.setProperty(obj, "type", engine.newString("Buffer"));
     auto arr = engine.newArray();
     foreach (i, b; bytes)
-    {
-        try
-        {
-            import std.conv : to;
-            engine.setProperty(arr, i.to!string, engine.newInt(cast(int) b));
-        }
-        catch (Exception) {}
-    }
+        engine.setPropertyIndex(arr, cast(uint) i, engine.newInt(cast(int) b));
     engine.setProperty(obj, "data", arr);
     return obj;
 }
