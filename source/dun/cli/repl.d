@@ -61,10 +61,10 @@ int runReplImpl(T)(T config)
         {
             import std.string : strip;
             auto cmd = line.strip();
-            if (cmd == ".exit") break;
+            if (cmd == ".exit" || cmd == ".quit") break;
             if (cmd == ".help")
             {
-                writeln("  .exit    Exit the REPL");
+                writeln("  .exit    Exit the REPL (also .quit)");
                 writeln("  .help    Show this help");
                 writeln("  _        Last evaluated value");
                 continue;
