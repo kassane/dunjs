@@ -1,0 +1,13 @@
+.git
+build/
+.dub/
+.dun/
+node_modules/
+vendor/quickjs/
+vendor/v8/lib/
+vendor/v8/include/
+vendor/jsc/
+vendor/sqlite/
+vendor/v8shim/*.o
+vendor/v8shim/*.a
+vendor/v8shim/build/

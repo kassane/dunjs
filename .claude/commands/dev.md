@@ -49,9 +49,9 @@ source/dun/
   loop/
     eventloop.d      # Event loop (epoll/kqueue/poll + io_uring)
     async.d          # Async work queue (background threads + promises)
-  builtins/          # 24 modules: fs, path, net, http, http2, crypto, fetch, buffer,
-                     #   events, url, os, child_process, stream, zlib, dns, ws,
-                     #   sqlite, util, assert, querystring, string_decoder, tls
+  builtins/          # 25 modules: fs (30 functions), path, net, http, http2, crypto,
+                     #   fetch, buffer, events, url, os, child_process, stream, zlib,
+                     #   dns, ws, sqlite, util, assert, querystring, string_decoder, tls
   modules/           # ES modules, CJS require, npm resolver
   platform/          # OpenSSL bindings, memory, threading
 

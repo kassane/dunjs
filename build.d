@@ -1275,7 +1275,7 @@ bool checkV8Libs(ref const Toolchain tc, ref const BuildOptions opts)
 
     mkdirRecurse(libDir);
 
-    // Helper: symlink or copy a file
+    // Helper: symlink (relative) or copy a file
     bool stageFile(string src, string dst)
     {
         if (exists(dst)) remove(dst);
@@ -1283,7 +1283,9 @@ bool checkV8Libs(ref const Toolchain tc, ref const BuildOptions opts)
         {
             import core.sys.posix.unistd : symlink;
             import std.string : toStringz;
-            if (symlink(src.toStringz, dst.toStringz) != 0)
+            import std.path : relativePath, dirName;
+            auto relTarget = relativePath(src, dirName(dst));
+            if (symlink(relTarget.toStringz, dst.toStringz) != 0)
             {
                 std.file.copy(src, dst);
             }
@@ -1881,13 +1883,15 @@ bool downloadV8Prebuilt(ref const Toolchain tc, ref const BuildOptions opts)
         return false;
     }
 
-    // Create libv8.a symlink / copy
+    // Create libv8.a symlink / copy (relative so it works in Docker)
     if (exists(stagedV8)) remove(stagedV8);
     version (Posix)
     {
         import core.sys.posix.unistd : symlink;
         import std.string : toStringz;
-        symlink(monolithDst.toStringz, stagedV8.toStringz);
+        import std.path : relativePath, dirName;
+        auto relTarget = relativePath(monolithDst, dirName(stagedV8));
+        symlink(relTarget.toStringz, stagedV8.toStringz);
     }
     else
     {
