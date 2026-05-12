@@ -130,9 +130,9 @@ for 24 hours. `dun install` checks packages before download. See [SECURITY.md](S
 
 | Backend | Tests | Notes |
 |---------|-------|-------|
-| QuickJS-NG | 57/57 | Default. Interpreter, ES2023, smallest binary (4.6MB) |
-| JavaScriptCore | 57/57 | JIT. Same engine as Safari/Bun |
-| V8 | 57/57 | JIT. Same engine as Chrome/Node.js. Via C++ shim |
+| QuickJS-NG | 60/60 | Default. Interpreter, ES2023, smallest binary (4.6MB) |
+| JavaScriptCore | 60/60 | JIT. Same engine as Safari/Bun |
+| V8 | 60/60 | JIT. Same engine as Chrome/Node.js. Via C++ shim |
 
 All 24 built-in modules, Workers, SharedArrayBuffer, Atomics, fetch, Deno compat, and web globals work identically on every backend.
 
@@ -157,7 +157,7 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for the full design.
 
 ```sh
 dub test -c unittest                    # ~165 unit tests
-./tests/integration/run.sh              # 57 integration tests (all 3 backends)
+./tests/integration/run.sh              # 60 integration tests (all 3 backends)
 ```
 
 | Suite | Tests |
@@ -167,7 +167,7 @@ dub test -c unittest                    # ~165 unit tests
 | TypeScript strip | 20 (annotations, interfaces, as, declare, arrow types) |
 | Security | 38 (permissions 27 + CVE audit 8 + security tests 3) |
 | HTTP/2 | 15 (frame encoding, HPACK, static table, settings) |
-| Integration | 57 fixtures (core JS, async, ES2023+, modules, 24 builtins, Workers, Deno compat, TypeScript, real-world) |
+| Integration | 60 fixtures (core JS, async, ES2023+, modules, 24 builtins, Workers, Deno compat, TypeScript, fetch Response, import.meta, real-world) |
 
 ## Comparison
 

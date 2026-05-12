@@ -379,7 +379,7 @@ dub test -c unittest    # All unit tests
 | V8 TMP bridge | `source/dun/engine/v8/cppbindings.d` | compile-time | V8TypeName coverage, tag->name mapping |
 | JSC TMP bridge | `source/dun/engine/jsc/cppbindings.d` | compile-time | JSCTypeName coverage, kJSType* alignment |
 
-### Integration Tests (58 fixtures)
+### Integration Tests (60 fixtures)
 
 ```sh
 # Run against a specific backend
@@ -403,9 +403,11 @@ dub build -c v8  && BACKEND=v8  ./tests/integration/run.sh
 | Deno compat | `deno_compat` | 22 checks: env, fs, stat, copy, rename, remove, web globals |
 | Security | `perm_deny_read`, `perm_deny_write`, `realworld_security_boundary` | Permission denial enforcement |
 | TypeScript | `typescript`, `realworld_ts_library` | Type annotations, interfaces, as, arrow types |
+| Fetch/Response | `fetch_response` | 19 checks: Response constructor, status/statusText/ok/url, headers, text/json/clone, process.stdin |
+| import.meta | `import_meta` | 6 checks: url, filename, dirname, main (all 3 backends) |
 | Real-world | 7 end-to-end scenarios | Config loading, task runner, file processing, events, promise pool, nested require, ESM pipeline |
 
-Backend test scores: **QuickJS 58/58**, **JSC 58/58**, **V8 58/58** (all backends at full parity).
+Backend test scores: **QuickJS 60/60**, **JSC 60/60**, **V8 60/60** (all backends at full parity).
 
 Test pattern: fixtures in `tests/integration/fixtures/*.{js,mjs,ts}`, expected stdout in `tests/integration/expected/*.txt`.
 
@@ -648,3 +650,7 @@ Benchmark impact (25 benchmarks, feature_bench.js):
 | 11f | Module compat | require.resolve(), require.cache, import.meta.url (QuickJS ESM) | **Done** |
 | 11g | ES2024 | Promise.withResolvers(), setImmediate/clearImmediate | **Done** |
 | 11h | Safety | `-preview=dip1000` enabled (scope safety for slices) | **Done** |
+| 12a | fetch Response | fetch() returns proper Response objects (constructor, prototype, text/json/clone) | **Done** |
+| 12b | process.stdin | process.stdin with non-blocking read, fd, isTTY, setEncoding | **Done** |
+| 12c | import.meta all backends | import.meta.url/filename/dirname/main on QuickJS (native) + JSC/V8 (ESM shim polyfill) | **Done** |
+| 12d | D FFI bindgen tests | 27 tests: -HCf, -H, ImportC, @nogc alloc, clang AST, FFI linkage, --extern-std | **Done** |

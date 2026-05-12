@@ -6,11 +6,12 @@ DunJS is a 7-layer JavaScript/TypeScript runtime with a **pluggable engine archi
 (IJSEngine interface), a cross-platform I/O poller (epoll/kqueue/poll), and a Deno-inspired permission system.
 
 Three backends are fully functional: QuickJS-NG (default), JavaScriptCore, and V8.
-All 57 integration tests pass on all 3 backends (QuickJS 57/57, JSC 57/57, V8 57/57).
+All 60 integration tests pass on all 3 backends (QuickJS 60/60, JSC 60/60, V8 60/60).
 All 24 built-in modules (fs, path, crypto, net, http, http2, buffer, events, url, os, fetch,
 child_process, stream, zlib, dns, ws, sqlite, util, assert, querystring, string_decoder,
 timers/promises, tls) are engine-agnostic. Workers, SharedArrayBuffer, and Atomics work on all backends.
 HTTPS via OpenSSL, npm package install, 30+ Deno APIs, and web standard globals are included.
+fetch() returns proper Response objects. import.meta works on all backends. process.stdin available.
 
 Reference: [Bun's Zig->Rust port](https://github.com/oven-sh/bun/pull/30412) -- modular
 workspace with `bun_jsc` engine layer, `*_jsc` suffix pattern for engine-specific modules,
@@ -492,7 +493,7 @@ npm compat: **145/145** pass across all 6 runtimes.
 ```
 tests/
 +-- integration/
-|   +-- fixtures/       # 57 test scripts (JS, MJS, TS)
+|   +-- fixtures/       # 60 test scripts (JS, MJS, TS)
 |   |   +-- hello.js, types.js, console_methods.js    # Core JS
 |   |   +-- promises.js, promises_advanced.js          # Async
 |   |   +-- es2023.js, closures.js, iterators.js       # ES2023+
@@ -516,8 +517,11 @@ tests/
 |   |   +-- deno_compat.js                             # Deno compat
 |   |   +-- perm_deny_read.js, perm_deny_write.js      # Security
 |   |   +-- sample.test.js, sample.bench.js            # Test/bench runners
+|   |   +-- web_apis.js                                 # 91 Web API checks
+|   |   +-- fetch_response.js                          # fetch() Response object (19 checks)
+|   |   +-- import_meta.mjs                            # import.meta (all backends, 6 checks)
 |   |   +-- realworld_*.js/.mjs/.ts (7 scenarios)      # End-to-end
-|   +-- expected/       # 56 expected stdout files
+|   +-- expected/       # 60 expected stdout files
 |   +-- fixtures/lib/   # Shared modules for require tests
 +-- benchmarks/         # Cross-runtime benchmarks (13 files)
 |   +-- feature_bench.js      # 25 cross-runtime perf tests
@@ -543,4 +547,4 @@ source/dun/security/
 ```
 
 Test pattern inspired by Node.js standalone scripts: run fixture, compare stdout to expected file.
-All 57 integration tests pass on all 3 backends: **QuickJS 57/57, JSC 57/57, V8 57/57**.
+All 60 integration tests pass on all 3 backends: **QuickJS 60/60, JSC 60/60, V8 60/60**.

@@ -35,10 +35,12 @@ source/dun/
     v8/              # V8 backend (extern(C) -> v8shim C++ wrapper + TMP bridge)
   runtime/
     globals.d        # Console, timers, queueMicrotask, process (argv/cwd/exit/platform)
+    process_api.d    # process.stdin (non-blocking read), process.env, process globals
     worker_api.d     # Workers, SharedArrayBuffer, Atomics (all 3 backends)
     worker_self.d    # Worker self.postMessage/close
     deno_compat.d    # 30+ Deno APIs (env, fs, stat, mkdir, remove, permissions, errors)
     web_compat.d     # atob, btoa, TextEncoder, TextDecoder, structuredClone
+    web_apis.d       # Response, Headers, Blob, FormData, EventTarget, AbortController, etc.
     rejection_tracker.d  # Unhandled promise rejection tracking
   ts/strip.d         # TypeScript type stripping (20 tests)
   security/          # Permission model (38 tests)
