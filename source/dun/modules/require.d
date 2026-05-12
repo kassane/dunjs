@@ -53,6 +53,7 @@ JSHandle jsRequire(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     else if (specifier == "zlib") specifier = "dun:zlib";
     else if (specifier == "dns") specifier = "dun:dns";
     else if (specifier == "ws") specifier = "dun:ws";
+    else if (specifier == "sqlite") specifier = "dun:sqlite";
 
     auto global = engine.getGlobal();
 
@@ -74,6 +75,7 @@ JSHandle jsRequire(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
         else if (specifier == "dun:zlib") propName = "__dun_cjs_zlib__";
         else if (specifier == "dun:dns") propName = "__dun_cjs_dns__";
         else if (specifier == "dun:ws") propName = "__dun_cjs_ws__";
+        else if (specifier == "dun:sqlite") propName = "__dun_cjs_sqlite__";
 
         if (propName.length > 0)
         {

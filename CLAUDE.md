@@ -29,6 +29,12 @@ DFLAGS="--fsanitize=address" dub build -c quickjs  # Alternative ASan via DFLAGS
 ./dun eval "1+1"                     # Evaluate inline JS
 ./dun audit                          # Scan node_modules for CVEs
 ./dun install pkg --audit=block      # Block critical/high CVE packages
+./dun test                           # Run test files (*.test.{js,ts}, *_test.{js,ts})
+./dun test mytest.ts --filter=name   # Run specific test with filter
+./dun bench                          # Run benchmarks (*.bench.{js,ts})
+./dun init my-project                # Initialize a new project
+./dun fmt                            # Format JavaScript/TypeScript files
+./dun clean                          # Remove .dun/ cache and node_modules/
 ```
 
 ### Minimum Compiler Versions
@@ -45,7 +51,7 @@ DFLAGS="--fsanitize=address" dub build -c quickjs  # Alternative ASan via DFLAGS
 Layer 7: CLI & REPL           source/dun/cli/
 Layer 6: Runtime API           source/dun/runtime/     (console, timers, process, Deno.*)
 Layer 5: Module System         source/dun/modules/     (ES modules, resolver, loader, npm installer)
-Layer 4: Built-in Modules      source/dun/builtins/    (dun:fs, dun:path, dun:net, dun:http, dun:http2, dun:os, dun:buffer, dun:events, dun:url, dun:zlib, dun:dns, dun:ws, dun:child_process, dun:stream, fetch)
+Layer 4: Built-in Modules      source/dun/builtins/    (dun:fs, dun:path, dun:net, dun:http, dun:http2, dun:os, dun:buffer, dun:events, dun:url, dun:zlib, dun:dns, dun:ws, dun:child_process, dun:stream, dun:sqlite, fetch)
 Layer 3: Event Loop            source/dun/loop/        (epoll/kqueue/poll, timer wheel, microtasks)
 Layer 2: JS Engine Abstraction source/dun/engine/      (IJSEngine interface + backends)
 Layer 1: Platform Abstraction  source/dun/platform/    (memory, threading, OS I/O)
@@ -125,6 +131,7 @@ All runtime globals are **engine-agnostic** (use `IJSEngine` + `NativeCallback`)
 | `zlib` | `registerZlibModule(engine)` | `require('zlib')`, ESM `import from 'dun:zlib'` |
 | `dns` | `registerDnsModule(engine)` | `require('dns')`, ESM `import from 'dun:dns'` |
 | `ws` | `registerWsModule(engine)` | `require('ws')`, ESM `import from 'dun:ws'` |
+| `sqlite` | `registerSqliteModule(engine)` | `require('sqlite')`, ESM `import from 'dun:sqlite'` |
 | `fetch` | `registerFetchGlobal(engine)` | Global `fetch()` (Posix, HTTPS via OpenSSL) |
 | Web globals | `installWebCompat(engine)` | `atob`, `btoa`, `structuredClone`, `TextEncoder`, `TextDecoder`, native Uint8Array creation |
 | `Deno.*` | `installDenoCompat(engine)` | Full Deno compat (30+ APIs: env, fs, permissions, errors) |
@@ -272,6 +279,7 @@ import stdcpp.allocator;
 | V8 | C++ only | extern(C) via C shim (vendor/v8shim/) | ~300 C++ + ~90 D |
 | V8 | C++ internals | extern(C++, "v8") -- static methods only (V8 class) | ~50 |
 | V8 | C++ TMP bridge | D TMP (V8TypeChecks) <-> C++ TMP (isV8Type, withContext) | ~120 |
+| SQLite | C API (sqlite3.h) | ImportC -- real header processed by D compiler | ~10 D + header |
 
 ### C++ TMP <-> D TMP Bridge Pattern
 
@@ -339,11 +347,12 @@ dub test -c unittest    # All unit tests
 | TypeScript strip | `source/dun/ts/strip.d` | 20 | annotations, interfaces, as, declare, arrow types |
 | Security perms | `source/dun/security/test.d` | 27 | default deny, scoped grants, deny overrides, parseFlag |
 | CVE audit | `source/dun/security/cve_db.d` | 8 | semver, CVSS parsing, severity mapping, JSON escaping, cache round-trip |
+| SQLite | `source/dun/builtins/sqlite.d` | 4 | ImportC bindings, open/close, exec/query, bind parameters |
 | HTTP/2 | `source/dun/builtins/http2.d` | 15 | frame encoding, HPACK encode/decode, static table, settings |
 | V8 TMP bridge | `source/dun/engine/v8/cppbindings.d` | compile-time | V8TypeName coverage, tag->name mapping |
 | JSC TMP bridge | `source/dun/engine/jsc/cppbindings.d` | compile-time | JSCTypeName coverage, kJSType* alignment |
 
-### Integration Tests (51 fixtures)
+### Integration Tests (52 fixtures)
 
 ```sh
 # Run against a specific backend
@@ -362,6 +371,7 @@ dub build -c v8  && BACKEND=v8  ./tests/integration/run.sh
 | Builtins | `fs_ops`, `path_ops`, `crypto_ops`, `stat_file`, `env_access` | readFile, join/resolve, hash/randomBytes, stat, process.env |
 | Node APIs | `buffer_api`, `event_emitter`, `url_api`, `os_api`, `http2_api` | Buffer.from/alloc/concat, EventEmitter on/emit/once, URL/URLSearchParams, os.platform/cpus/totalmem, HTTP/2 API (20 checks) |
 | New Modules | `child_process_api`, `stream_api`, `zlib_api`, `dns_api`, `ws_api` | execSync/spawnSync, Readable/Writable/Transform/pipeline, deflate/gzip round-trip, DNS lookup/resolve, WebSocket API |
+| Database | `sqlite_api` | open, exec, run, get, all, close, NULL handling, types (20 checks) |
 | Deno compat | `deno_compat` | 22 checks: env, fs, stat, copy, rename, remove, web globals |
 | Security | `perm_deny_read`, `perm_deny_write`, `realworld_security_boundary` | Permission denial enforcement |
 | TypeScript | `typescript`, `realworld_ts_library` | Type annotations, interfaces, as, arrow types |
@@ -499,3 +509,7 @@ Not supported (have runtime semantics):
 | 9e | dns | lookup, lookupSync, resolve4, resolve6, reverse (POSIX getaddrinfo) | **Done** |
 | 9f | WebSocket | RFC 6455 framing, client connect, server create, send/close (ws module) | **Done** |
 | 9g | CVE audit | `dun audit` + `--audit=block/warn/off`, OSV API + local cache (24h TTL) | **Done** |
+| 10a | SQLite | `dun:sqlite` built-in module, ImportC bindings from sqlite3.h, open/exec/run/get/all/close | **Done** |
+| 10b | Test runner | `dun test` with Deno.test() API, file discovery, --filter, async tests | **Done** |
+| 10c | Bench runner | `dun bench` with Deno.bench() API, auto-calibrating iterations, ops/sec reporting | **Done** |
+| 10d | CLI tools | `dun init`, `dun fmt`, `dun clean` (project scaffold, formatter, cache cleanup) | **Done** |

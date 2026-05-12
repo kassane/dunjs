@@ -32,6 +32,7 @@ build/
 vendor/quickjs/
 vendor/jsc/
 vendor/v8/
+vendor/sqlite/
 vendor/v8shim/*.o
 vendor/v8shim/*.a
 vendor/v8shim/build/

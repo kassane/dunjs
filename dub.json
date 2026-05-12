@@ -180,13 +180,15 @@
 		"pthread",
 		"resolv",
 		"ssl",
-		"crypto"
+		"crypto",
+		"sqlite3"
 	],
 	"libs-osx": [
 		"m",
 		"pthread",
 		"ssl",
-		"crypto"
+		"crypto",
+		"sqlite3"
 	],
 	"lflags-osx": [
 		"-L/opt/homebrew/opt/openssl/lib",
@@ -228,6 +230,10 @@
 		}
 	},
 	"importPaths": [
-		"source"
+		"source",
+		"vendor/sqlite"
+	],
+	"cImportPaths": [
+		"vendor/sqlite"
 	]
 }

@@ -21,3 +21,4 @@ public import dun.builtins.fetch;
 public import dun.builtins.child_process;
 public import dun.builtins.stream;
 public import dun.builtins.ws;
+public import dun.builtins.sqlite;

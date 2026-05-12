@@ -44,6 +44,12 @@ dun run --allow-all app.js              # Unrestricted
 dun install lodash                      # Install npm package
 dun install lodash --audit=block        # Block vulnerable packages
 dun audit                               # Scan node_modules for CVEs
+dun test                                # Run test files (Deno.test API)
+dun test mytest.ts --filter=name        # Filter tests by name
+dun bench                               # Run benchmarks (Deno.bench API)
+dun init my-project                     # Scaffold a new project
+dun fmt                                 # Format JS/TS files
+dun clean                               # Remove cache and node_modules
 dun repl                                # Interactive REPL
 dun eval "1 + 1"                        # Evaluate expression
 ```
@@ -72,6 +78,7 @@ const { EventEmitter } = require("events");
 | `dun:buffer` | Buffer.from, Buffer.alloc, concat, slice, toString |
 | `dun:events` | EventEmitter (on, once, off, emit, listeners) |
 | `dun:url` | URL, URLSearchParams |
+| `dun:sqlite` | open, exec, run, get, all, close (in-memory + file DBs) |
 
 Global: `fetch()`, `setTimeout`/`setInterval`, `console`, `process`, `Deno.*`, `atob`/`btoa`, `TextEncoder`/`TextDecoder`, `structuredClone`
 

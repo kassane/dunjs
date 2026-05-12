@@ -41,6 +41,7 @@ void installGlobals(IJSEngine engine, DunState* state) @trusted
     import dun.builtins.child_process : registerChildProcessModule;
     import dun.builtins.stream : registerStreamModule;
     import dun.builtins.ws : registerWsModule;
+    import dun.builtins.sqlite : registerSqliteModule;
     import dun.modules.require : installRequire;
 
     installConsole(engine);
@@ -62,6 +63,7 @@ void installGlobals(IJSEngine engine, DunState* state) @trusted
     registerChildProcessModule(engine);
     registerStreamModule(engine);
     registerWsModule(engine);
+    registerSqliteModule(engine);
 
     version (Posix)
         registerFetchGlobal(engine);

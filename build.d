@@ -81,6 +81,15 @@ enum V8_NODE_VERSION   = "v22.15.0";   // kept for fallback header download
 enum V8_HEADERS_MARKER = "v8.h";
 enum V8_SYSTEM_INCLUDE = "/usr/include/v8";
 
+// SQLite configuration
+// Downloads the amalgamation source (sqlite3.c + sqlite3.h) for ImportC bindings.
+// Compiled to libsqlite3.a and used by all engine backends.
+enum SQLITE_VERSION     = "3490200";   // 3.49.2
+enum SQLITE_YEAR        = "2025";
+enum SQLITE_URL         = "https://www.sqlite.org/" ~ SQLITE_YEAR
+                        ~ "/sqlite-autoconf-" ~ SQLITE_VERSION ~ ".tar.gz";
+enum SQLITE_SRC_MARKER  = "sqlite3.h";
+
 // Download retry configuration
 enum DOWNLOAD_MAX_RETRIES = 3;
 enum DOWNLOAD_RETRY_DELAY_SECS = 2;
@@ -99,6 +108,8 @@ string v8Dir()       { return buildPath(vendorDir(), "v8"); }
 string v8IncludeDir(){ return buildPath(v8Dir(), "include"); }
 string v8Archive()          { return buildPath(vendorDir(), "node-headers.tar.gz"); }
 string v8PrebuiltArchive()  { return buildPath(vendorDir(), "v8-prebuilt" ~ v8PrebuiltExt()); }
+string sqliteDir()          { return buildPath(vendorDir(), "sqlite"); }
+string sqliteArchive()      { return buildPath(vendorDir(), "sqlite.tar.gz"); }
 
 string v8PrebuiltExt()
 {
@@ -779,6 +790,109 @@ bool downloadAndExtract(ref const Toolchain tc, string url, string archive,
     }
 
     logInfo(tag, "Source downloaded and extracted");
+    return true;
+}
+
+// ════════════════════════════════════════════════════════════════════
+// SQLite (cross-cutting dependency, used by all backends)
+// ════════════════════════════════════════════════════════════════════
+
+bool buildSqlite(ref const Toolchain tc, ref const BuildOptions opts)
+{
+    enum tag = "sqlite";
+    immutable headerPath = buildPath(sqliteDir(), "sqlite3.h");
+    version (Windows)
+        immutable libName = "sqlite3.lib";
+    else
+        immutable libName = "libsqlite3.a";
+    immutable libPath = buildPath(sqliteDir(), libName);
+
+    if (!opts.force && exists(headerPath) && exists(libPath))
+    {
+        logInfo(tag, libName ~ " already built -- skipping (use --force to rebuild)");
+        return true;
+    }
+
+    // If header already present (e.g. from system or previous download) but no lib, just compile
+    if (!exists(headerPath))
+    {
+        logInfo(tag, "Downloading SQLite amalgamation " ~ SQLITE_VERSION ~ "...");
+
+        if (!tc.hasDownloader())
+        {
+            // Fallback: try system header
+            if (exists("/usr/include/sqlite3.h"))
+            {
+                logInfo(tag, "Using system sqlite3.h as fallback");
+                mkdirRecurse(sqliteDir());
+                runShell("cp /usr/include/sqlite3.h " ~ shellQuote(headerPath), tag);
+                // Create ImportC bridge
+                auto bridgePath = buildPath(sqliteDir(), "sqlite3_api.c");
+                if (!exists(bridgePath))
+                {
+                    import std.file : write;
+                    write(bridgePath,
+                        "// ImportC bridge: processes sqlite3.h declarations for D import\n"
+                        ~ "#include \"sqlite3.h\"\n");
+                }
+                logInfo(tag, "sqlite3.h installed (system fallback, linking against -lsqlite3)");
+                return true;
+            }
+            logError(tag, "No download tool (curl/wget) found and no system sqlite3.h");
+            return false;
+        }
+
+        if (!downloadAndExtract(tc, SQLITE_URL, sqliteArchive(),
+                                 sqliteDir(), SQLITE_SRC_MARKER, tag))
+            return false;
+    }
+
+    // Create ImportC bridge if not present
+    auto bridgePath = buildPath(sqliteDir(), "sqlite3_api.c");
+    if (!exists(bridgePath))
+    {
+        import std.file : write;
+        write(bridgePath,
+            "// ImportC bridge: processes sqlite3.h declarations for D import\n"
+            ~ "#include \"sqlite3.h\"\n");
+    }
+
+    // Compile sqlite3.c if present (amalgamation download includes it)
+    auto sqliteC = buildPath(sqliteDir(), "sqlite3.c");
+    if (exists(sqliteC) && !exists(libPath))
+    {
+        logInfo(tag, "Compiling sqlite3.c -> " ~ libName ~ " ...");
+
+        if (!tc.cc.found)
+        {
+            logWarning(tag, "No C compiler found; will link against system -lsqlite3");
+            return true;
+        }
+
+        auto objFile = buildPath(sqliteDir(), "sqlite3.o");
+        int rc = runCmd([tc.cc.path, "-c", "-fPIC", "-O2", "-DSQLITE_THREADSAFE=0",
+                         "-DSQLITE_OMIT_LOAD_EXTENSION", sqliteC, "-o", objFile],
+                         sqliteDir(), tag);
+        if (rc != 0)
+        {
+            logError(tag, "Failed to compile sqlite3.c");
+            return false;
+        }
+
+        rc = runCmd(["ar", "rcs", libPath, objFile], sqliteDir(), tag);
+        if (rc != 0)
+        {
+            logError(tag, "Failed to create " ~ libName);
+            return false;
+        }
+
+        // Clean up .o file
+        if (exists(objFile))
+            std.file.remove(objFile);
+
+        logInfo(tag, libName ~ " built successfully");
+    }
+
     return true;
 }
 
@@ -1928,6 +2042,9 @@ int main(string[] args)
 
     if (g_verbosity == Verbosity.verbose)
         tc.report();
+
+    // Build SQLite (cross-cutting dependency, all backends need it)
+    buildSqlite(tc, opts);
 
     // Build requested backend(s)
     bool success = true;

@@ -14,11 +14,16 @@ enum Command
     eval_,
     install,
     audit,
+    test_,
+    bench,
+    init_,
+    fmt,
+    clean,
     version_,
     help,
 }
 
-static assert(__traits(allMembers, Command).length == 7,
+static assert(__traits(allMembers, Command).length == 12,
     "Command enum member count changed -- update parseArgs and main dispatch");
 
 /// Parsed CLI configuration.
@@ -37,6 +42,11 @@ struct CliConfig
 
     import dun.modules.npm : AuditMode;
     AuditMode auditMode = AuditMode.warn;
+
+    string[] testFiles;
+    string testFilter;
+    string initName;
+    string[] fmtFiles;
 }
 
 /// Parse command-line arguments into a CliConfig.
@@ -85,6 +95,66 @@ CliConfig parseArgs(string[] args) @safe
     {
         config.command = Command.audit;
         i++;
+    }
+    else if (args[i] == "test")
+    {
+        config.command = Command.test_;
+        i++;
+        while (i < args.length)
+        {
+            if (args[i].startsWith("--filter="))
+            {
+                config.testFilter = args[i]["--filter=".length .. $];
+            }
+            else if (!args[i].startsWith("-"))
+            {
+                config.testFiles ~= args[i];
+            }
+            else
+            {
+                config.permissions.parseFlag(args[i]);
+            }
+            i++;
+        }
+        return config;
+    }
+    else if (args[i] == "bench")
+    {
+        config.command = Command.bench;
+        i++;
+        while (i < args.length && !args[i].startsWith("-"))
+        {
+            config.testFiles ~= args[i];
+            i++;
+        }
+        return config;
+    }
+    else if (args[i] == "init")
+    {
+        config.command = Command.init_;
+        i++;
+        if (i < args.length && !args[i].startsWith("-"))
+        {
+            config.initName = args[i];
+            i++;
+        }
+        return config;
+    }
+    else if (args[i] == "fmt" || args[i] == "format")
+    {
+        config.command = Command.fmt;
+        i++;
+        while (i < args.length && !args[i].startsWith("-"))
+        {
+            config.fmtFiles ~= args[i];
+            i++;
+        }
+        return config;
+    }
+    else if (args[i] == "clean")
+    {
+        config.command = Command.clean;
+        return config;
     }
     else if (args[i] == "version" || args[i] == "--version" || args[i] == "-v")
     {

@@ -19,6 +19,16 @@ int main(string[] args)
             return runInstall(config);
         case Command.audit:
             return runAudit(config);
+        case Command.test_:
+            return runTestCmd(config);
+        case Command.bench:
+            return runBenchCmd(config);
+        case Command.init_:
+            return runInit(config);
+        case Command.fmt:
+            return runFmt(config);
+        case Command.clean:
+            return runClean(config);
         case Command.version_:
             printVersion();
             return 0;
@@ -239,12 +249,20 @@ void printUsage()
         "Usage: dun <command> [options] [script] [args...]\n\n"
         ~ "Commands:\n"
         ~ "  run <file>       Run a JavaScript/TypeScript file\n"
+        ~ "  test [files]     Run tests (*.test.{js,ts}, *_test.{js,ts})\n"
+        ~ "  bench [files]    Run benchmarks (*.bench.{js,ts})\n"
         ~ "  repl             Start interactive REPL\n"
         ~ "  eval <code>      Evaluate JavaScript code\n"
         ~ "  install <pkg>    Install npm package to node_modules/\n"
         ~ "  audit            Scan node_modules/ for known CVEs\n"
+        ~ "  init [name]      Initialize a new project\n"
+        ~ "  fmt [files]      Format JavaScript/TypeScript files\n"
+        ~ "  clean            Remove cache and build artifacts\n"
         ~ "  version          Print version\n"
         ~ "  help             Show this help\n\n"
+        ~ "Test options:\n"
+        ~ "  --filter=<name>        Run only tests matching name\n"
+        ~ "  --allow-all / -A       Grant all permissions for tests\n\n"
         ~ "Permission flags:\n"
         ~ "  --allow-read[=paths]   Allow file read access\n"
         ~ "  --allow-write[=paths]  Allow file write access\n"
@@ -260,6 +278,475 @@ void printUsage()
         ~ "  --max-memory=<bytes>   JS heap memory limit (default: 256MB)\n"
         ~ "  --max-stack=<bytes>    Max stack size (default: 8MB)\n"
     );
+}
+
+int runTestCmd(T)(T config)
+{
+    import std.stdio : writeln, writef;
+    import std.datetime : MonoTime, Duration;
+
+    string[] files = config.testFiles;
+    if (files.length == 0)
+        files = discoverFiles(["*.test.js", "*_test.js", "*.test.ts", "*_test.ts",
+                               "*.spec.js", "*_spec.js", "*.spec.ts", "*_spec.ts"]);
+
+    if (files.length == 0)
+    {
+        writeln("No test files found.");
+        writeln("  Patterns: *.test.{js,ts}, *_test.{js,ts}, *.spec.{js,ts}, *_spec.{js,ts}");
+        return 1;
+    }
+
+    writeln("running ", files.length, " test", files.length > 1 ? "s" : "", " ...");
+
+    int totalPass, totalFail;
+    auto startAll = MonoTime.currTime;
+
+    foreach (file; files)
+    {
+        auto startOne = MonoTime.currTime;
+        int rc = runSingleTest(config, file);
+        auto elapsed = MonoTime.currTime - startOne;
+        auto ms = elapsed.total!"msecs";
+
+        if (rc == 0)
+        {
+            writeln("ok   ", file, " (", ms, "ms)");
+            totalPass++;
+        }
+        else
+        {
+            writeln("FAIL ", file, " (", ms, "ms)");
+            totalFail++;
+        }
+    }
+
+    auto totalMs = (MonoTime.currTime - startAll).total!"msecs";
+    writeln();
+    if (totalFail == 0)
+        writeln("test result: ok. ", totalPass, " passed; ", totalFail, " failed (", totalMs, "ms)");
+    else
+        writeln("test result: FAILED. ", totalPass, " passed; ", totalFail, " failed (", totalMs, "ms)");
+
+    return totalFail > 0 ? 1 : 0;
+}
+
+int runSingleTest(T)(T config, string filePath) @trusted
+{
+    import dun.engine.iface : createEngine, EngineConfig, JSResult;
+    import dun.runtime.globals : DunState, installGlobals;
+
+    string source;
+    try
+    {
+        import std.file : readText;
+        source = readText(filePath);
+    }
+    catch (Exception e)
+    {
+        writeStderr("Error: Cannot read '" ~ filePath ~ "'\n");
+        return 1;
+    }
+
+    if (isTypeScript(filePath))
+    {
+        import dun.ts.strip : stripTypes;
+        source = stripTypes(source);
+    }
+
+    // Inject test harness preamble
+    string harness =
+        `var __dunTests=[];var __dunTestFail=0;`
+        ~ `Deno.test=function(a,b){`
+        ~ `if(typeof a==="string")__dunTests.push({name:a,fn:b});`
+        ~ `else __dunTests.push({name:a.name,fn:a.fn||b});};`
+        ~ `globalThis.test=Deno.test;`
+        ~ `globalThis.assertEquals=function(a,b){`
+        ~ `if(a!==b)throw new Error("Expected "+JSON.stringify(b)+", got "+JSON.stringify(a));};`
+        ~ `globalThis.assertThrows=function(fn){`
+        ~ `var threw=false;try{fn();}catch(e){threw=true;}if(!threw)throw new Error("Expected function to throw");};`
+        ~ `globalThis.assertNotEquals=function(a,b){`
+        ~ `if(a===b)throw new Error("Expected values to differ, got "+JSON.stringify(a));};`;
+
+    string postamble =
+        `setTimeout(async function(){`
+        ~ `var filter=typeof __dunTestFilter!=="undefined"?__dunTestFilter:"";`
+        ~ `for(var i=0;i<__dunTests.length;i++){`
+        ~ `var t=__dunTests[i];`
+        ~ `if(filter&&t.name.indexOf(filter)===-1)continue;`
+        ~ `try{var r=t.fn();if(r&&typeof r.then==="function")await r;`
+        ~ `console.log("  ok:",t.name);`
+        ~ `}catch(e){__dunTestFail++;console.log("  FAIL:",t.name);console.log("    Error:",e.message);}}`
+        ~ `if(__dunTestFail>0)process.exitCode=1;},0);`;
+
+    string filterDecl = "";
+    if (config.testFilter.length > 0)
+    {
+        import std.array : replace;
+        filterDecl = `var __dunTestFilter="` ~ config.testFilter.replace(`"`, `\"`) ~ `";`;
+    }
+
+    auto engine = createEngine();
+    engine.initialize(EngineConfig(config.memoryLimit, config.stackSize));
+
+    DunState state;
+    state.engine = engine;
+    state.permissions = &config.permissions;
+    state.eventLoop.initialize(engine);
+    installGlobals(engine, &state);
+
+    version (EngineQuickJS)
+    {
+        import dun.modules.loader : ModuleLoader;
+        import dun.engine.quickjs.bindings : JSRuntime;
+        ModuleLoader loader;
+        loader.install(cast(JSRuntime*) engine.rawRuntime());
+    }
+
+    // Run harness setup
+    auto initRes = engine.eval(harness ~ filterDecl, "<test-harness>");
+    if (!initRes.isError) engine.freeValue(initRes.value);
+
+    // Run test file
+    bool esm = isESM(filePath, source);
+    JSResult result;
+    if (esm)
+        result = engine.evalModule(source, filePath);
+    else
+        result = engine.eval(source, filePath);
+
+    if (result.isError)
+    {
+        import std.stdio : stderr;
+        stderr.writeln("  Error in ", filePath, ": ", result.errorMessage);
+        return 1;
+    }
+    else
+    {
+        engine.freeValue(result.value);
+    }
+
+    // Run postamble to execute collected tests
+    auto postRes = engine.eval(postamble, "<test-runner>");
+    if (!postRes.isError) engine.freeValue(postRes.value);
+
+    state.eventLoop.run();
+    return state.eventLoop.exitCode;
+}
+
+int runBenchCmd(T)(T config)
+{
+    import std.stdio : writeln;
+    import std.datetime : MonoTime;
+
+    string[] files = config.testFiles;
+    if (files.length == 0)
+        files = discoverFiles(["*.bench.js", "*_bench.js", "*.bench.ts", "*_bench.ts"]);
+
+    if (files.length == 0)
+    {
+        writeln("No benchmark files found.");
+        writeln("  Patterns: *.bench.{js,ts}, *_bench.{js,ts}");
+        return 1;
+    }
+
+    writeln("running ", files.length, " benchmark", files.length > 1 ? "s" : "", " ...\n");
+
+    foreach (file; files)
+    {
+        writeln("file: ", file);
+        runSingleBench(config, file);
+        writeln();
+    }
+    return 0;
+}
+
+int runSingleBench(T)(T config, string filePath) @trusted
+{
+    import dun.engine.iface : createEngine, EngineConfig, JSResult;
+    import dun.runtime.globals : DunState, installGlobals;
+
+    string source;
+    try
+    {
+        import std.file : readText;
+        source = readText(filePath);
+    }
+    catch (Exception e)
+    {
+        writeStderr("Error: Cannot read '" ~ filePath ~ "'\n");
+        return 1;
+    }
+
+    if (isTypeScript(filePath))
+    {
+        import dun.ts.strip : stripTypes;
+        source = stripTypes(source);
+    }
+
+    // Bench harness: Deno.bench(name, fn) runs fn multiple times and measures
+    string harness =
+        `var __dunBenches=[];`
+        ~ `Deno.bench=function(a,b){`
+        ~ `if(typeof a==="string")__dunBenches.push({name:a,fn:b});`
+        ~ `else __dunBenches.push({name:a.name,fn:a.fn||b});};`
+        ~ `globalThis.bench=Deno.bench;`;
+
+    string postamble =
+        `setTimeout(function(){`
+        ~ `for(var i=0;i<__dunBenches.length;i++){`
+        ~ `var b=__dunBenches[i];`
+        ~ `var iters=1,elapsed=0;`
+        ~ `while(elapsed<100){`
+        ~ `var start=Date.now();`
+        ~ `for(var j=0;j<iters;j++)b.fn();`
+        ~ `elapsed=Date.now()-start;`
+        ~ `if(elapsed<100)iters*=2;}`
+        ~ `var nsPerOp=((elapsed*1e6)/iters)|0;`
+        ~ `var opsPerSec=((iters/elapsed)*1000)|0;`
+        ~ `console.log("  "+b.name+": "+nsPerOp+"ns/op ("+opsPerSec+" ops/sec, "+iters+" iters)");}},0);`;
+
+    auto engine = createEngine();
+    engine.initialize(EngineConfig(config.memoryLimit, config.stackSize));
+
+    DunState state;
+    state.engine = engine;
+    state.permissions = &config.permissions;
+    state.eventLoop.initialize(engine);
+    installGlobals(engine, &state);
+
+    auto initRes = engine.eval(harness, "<bench-harness>");
+    if (!initRes.isError) engine.freeValue(initRes.value);
+
+    JSResult result;
+    if (isESM(filePath, source))
+        result = engine.evalModule(source, filePath);
+    else
+        result = engine.eval(source, filePath);
+
+    if (result.isError)
+    {
+        import std.stdio : stderr;
+        stderr.writeln("  Error: ", result.errorMessage);
+        return 1;
+    }
+    else
+        engine.freeValue(result.value);
+
+    auto postRes = engine.eval(postamble, "<bench-runner>");
+    if (!postRes.isError) engine.freeValue(postRes.value);
+
+    state.eventLoop.run();
+    return state.eventLoop.exitCode;
+}
+
+int runInit(T)(T config)
+{
+    import std.stdio : writeln;
+    import std.file : exists, mkdirRecurse, write;
+    import std.path : buildPath;
+
+    string name = config.initName.length > 0 ? config.initName : "my-project";
+    string dir = name == "." ? "." : name;
+
+    if (dir != "." && exists(dir))
+    {
+        writeStderr("Error: directory '" ~ dir ~ "' already exists\n");
+        return 1;
+    }
+
+    if (dir != ".")
+        mkdirRecurse(dir);
+
+    write(buildPath(dir, "main.ts"),
+        "function greet(name: string): string {\n"
+        ~ "  return \"Hello, \" + name + \"!\";\n"
+        ~ "}\n\n"
+        ~ "console.log(greet(\"world\"));\n");
+
+    write(buildPath(dir, "main_test.ts"),
+        "Deno.test(\"greet returns hello\", () => {\n"
+        ~ "  const result = \"Hello, world!\";\n"
+        ~ "  assertEquals(result, \"Hello, world!\");\n"
+        ~ "});\n\n"
+        ~ "Deno.test(\"math works\", () => {\n"
+        ~ "  assertEquals(1 + 1, 2);\n"
+        ~ "});\n");
+
+    write(buildPath(dir, "dun.json"),
+        "{\n"
+        ~ "  \"name\": \"" ~ name ~ "\",\n"
+        ~ "  \"version\": \"0.1.0\",\n"
+        ~ "  \"main\": \"main.ts\",\n"
+        ~ "  \"tasks\": {\n"
+        ~ "    \"start\": \"dun run main.ts\",\n"
+        ~ "    \"test\": \"dun test\"\n"
+        ~ "  }\n"
+        ~ "}\n");
+
+    writeln("Initialized project in ", dir == "." ? "./" : dir ~ "/");
+    writeln("  main.ts       — entry point");
+    writeln("  main_test.ts  — test file");
+    writeln("  dun.json      — project config");
+    writeln();
+    writeln("Run your project:");
+    if (dir != ".")
+        writeln("  cd ", dir);
+    writeln("  dun run main.ts");
+    writeln("  dun test");
+    return 0;
+}
+
+int runFmt(T)(T config)
+{
+    import std.stdio : writeln;
+
+    string[] files = config.fmtFiles;
+    if (files.length == 0)
+        files = discoverFiles(["*.js", "*.ts", "*.mjs", "*.mts"]);
+
+    if (files.length == 0)
+    {
+        writeln("No files to format.");
+        return 0;
+    }
+
+    int formatted = 0;
+    foreach (file; files)
+    {
+        try
+        {
+            import std.file : readText, write;
+            auto content = readText(file);
+            auto result = basicFormat(content);
+            if (result != content)
+            {
+                write(file, result);
+                writeln("formatted: ", file);
+                formatted++;
+            }
+        }
+        catch (Exception e)
+        {
+            writeStderr("Error formatting " ~ file ~ ": " ~ e.msg ~ "\n");
+        }
+    }
+    writeln(formatted, " file", formatted != 1 ? "s" : "", " formatted");
+    return 0;
+}
+
+int runClean(T)(T config)
+{
+    import std.stdio : writeln;
+    import std.file : exists, rmdirRecurse;
+
+    int cleaned = 0;
+
+    if (exists(".dun"))
+    {
+        rmdirRecurse(".dun");
+        writeln("Removed .dun/");
+        cleaned++;
+    }
+
+    if (exists("node_modules"))
+    {
+        rmdirRecurse("node_modules");
+        writeln("Removed node_modules/");
+        cleaned++;
+    }
+
+    if (cleaned == 0)
+        writeln("Nothing to clean.");
+    else
+        writeln("Clean complete.");
+
+    return 0;
+}
+
+string[] discoverFiles(string[] patterns) @trusted
+{
+    import std.file : dirEntries, SpanMode;
+    import std.algorithm : endsWith, canFind, sort, startsWith;
+    import std.path : baseName;
+
+    string[] found;
+    try
+    {
+        foreach (entry; dirEntries(".", SpanMode.depth))
+        {
+            if (!entry.isFile) continue;
+            auto name = baseName(entry.name);
+            if (name.startsWith(".")) continue;
+            // Skip node_modules and vendor
+            if (entry.name.canFind("node_modules") || entry.name.canFind("vendor")) continue;
+
+            foreach (pat; patterns)
+            {
+                if (matchGlob(name, pat))
+                {
+                    found ~= entry.name;
+                    break;
+                }
+            }
+        }
+    }
+    catch (Exception) {}
+    found.sort();
+    return found;
+}
+
+bool matchGlob(string name, string pattern) @safe pure nothrow
+{
+    // Simple glob: only supports * at the start
+    if (pattern.length >= 2 && pattern[0] == '*')
+    {
+        auto suffix = pattern[1 .. $];
+        if (name.length >= suffix.length && name[$ - suffix.length .. $] == suffix)
+            return true;
+    }
+    return name == pattern;
+}
+
+string basicFormat(string source) @safe pure
+{
+    // Normalize trailing whitespace and ensure final newline
+    import std.string : stripRight;
+    import std.array : appender;
+
+    auto result = appender!string;
+    bool lastWasEmpty = false;
+
+    foreach (line; source.lineSplitter())
+    {
+        auto stripped = stripRight(line);
+        if (stripped.length == 0)
+        {
+            if (!lastWasEmpty)
+            {
+                result.put("\n");
+                lastWasEmpty = true;
+            }
+            continue;
+        }
+        lastWasEmpty = false;
+        result.put(stripped);
+        result.put("\n");
+    }
+
+    auto s = result.data;
+    // Ensure exactly one trailing newline
+    while (s.length > 1 && s[$ - 1] == '\n' && s[$ - 2] == '\n')
+        s = s[0 .. $ - 1];
+    if (s.length > 0 && s[$ - 1] != '\n')
+        s ~= "\n";
+    return s;
+}
+
+private auto lineSplitter(string s) @safe pure nothrow
+{
+    import std.algorithm : splitter;
+    return s.splitter('\n');
 }
 
 bool isTypeScript(string path) @safe pure nothrow @nogc

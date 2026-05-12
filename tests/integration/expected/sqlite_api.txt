@@ -1,0 +1,21 @@
+SQLite version: ok
+Database opened: ok
+Table created
+Insert 1: changes=1
+Insert 2: changes=1
+Insert 3: changes=1
+Get: Alice 30
+Get missing: null
+All rows: 3
+ - Alice 30
+ - Bob 25
+ - Charlie 35
+Update changes: 1
+Updated age: 31
+Delete changes: 1
+Remaining: 2
+Null value: null
+Types: number number string
+Values: 42 3.14 hello
+Database closed
+PASS: 20 sqlite checks
