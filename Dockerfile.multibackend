@@ -43,6 +43,7 @@ ENV PATH="/opt/ldc2-${LDC_VERSION}-linux-x86_64/bin:${PATH}"
 
 WORKDIR /src
 COPY . .
+RUN mkdir -p vendor/sqlite vendor/v8/lib vendor/v8/include
 
 RUN dub build -c quickjs -b release && strip build/dun && cp build/dun /tmp/dun-quickjs
 RUN dub build -c jsc -b release     && strip build/dun && cp build/dun /tmp/dun-jsc

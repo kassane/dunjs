@@ -45,6 +45,7 @@ ENV PATH="/opt/ldc2-${LDC_VERSION}-linux-x86_64/bin:${PATH}"
 
 WORKDIR /src
 COPY . .
+RUN mkdir -p vendor/sqlite vendor/v8/lib vendor/v8/include
 
 # Build the selected backend
 RUN dub build -c ${BACKEND} -b release 2>&1 \
