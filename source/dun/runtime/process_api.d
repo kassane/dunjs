@@ -140,7 +140,7 @@ JSHandle jsProcessOn(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
         gUncaughtEngine = engine;
         gHasUncaughtHandler = true;
     }
-    return thisVal;
+    return engine.dupValue(thisVal);
 }
 
 JSHandle jsNextTick(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted

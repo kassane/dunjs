@@ -54,10 +54,12 @@ struct EventLoop
             import dun.builtins.net : pollNetIO;
             import dun.builtins.http : pollHttpIO;
             import dun.builtins.http2 : pollHttp2IO;
+            import dun.builtins.ws : pollWsIO;
             import dun.loop.async : asyncDrain, asyncHasWork;
             pollNetIO();
             pollHttpIO();
             pollHttp2IO();
+            pollWsIO();
 
             if (asyncDrain() > 0)
                 drainNextTicksAndMicrotasks();
@@ -103,6 +105,7 @@ struct EventLoop
         import dun.builtins.net : hasActiveNetIO;
         import dun.builtins.http : hasActiveHttpIO;
         import dun.builtins.http2 : hasActiveHttp2IO;
+        import dun.builtins.ws : hasActiveWsIO;
         import dun.loop.agnostic_pending : hasAgnosticPending;
         import dun.loop.async : asyncHasWork;
 
@@ -114,6 +117,7 @@ struct EventLoop
             || hasActiveNetIO()
             || hasActiveHttpIO()
             || hasActiveHttp2IO()
+            || hasActiveWsIO()
             || hasAgnosticPending()
             || asyncHasWork();
 

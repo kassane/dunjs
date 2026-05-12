@@ -1,0 +1,6 @@
+deflated type: true
+deflated smaller: true
+inflate match: true
+gzipped exists: true
+gunzip match: true
+zlib done

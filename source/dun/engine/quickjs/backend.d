@@ -107,12 +107,27 @@ class QuickJSEngine : IJSEngine
     JSHandle newUint8Array(const(ubyte)[] data) @trusted
     {
         assert(ctx !is null, "Engine not initialized");
-        auto ab = JS_NewArrayBufferCopy(ctx, data.ptr, data.length);
-        if (JS_IsException(ab) != 0)
-            return toHandle(ab);
-        auto ta = JS_NewTypedArray(ctx, 1, &ab, JSTypedArrayEnum.uint8);
-        JS_FreeValue(ctx, ab);
-        return toHandle(ta);
+        if (data.length == 0)
+        {
+            auto r = JS_Eval(ctx, "new Uint8Array(0)".ptr, 17, "<uint8>".ptr, 0);
+            return toHandle(r);
+        }
+        auto buf = new char[](22 + data.length * 4);
+        size_t pos = 0;
+        foreach (c; "new Uint8Array([")
+            buf[pos++] = c;
+        foreach (i, b; data)
+        {
+            if (i > 0) buf[pos++] = ',';
+            if (b >= 100) { buf[pos++] = cast(char)('0' + b / 100); buf[pos++] = cast(char)('0' + (b / 10) % 10); buf[pos++] = cast(char)('0' + b % 10); }
+            else if (b >= 10) { buf[pos++] = cast(char)('0' + b / 10); buf[pos++] = cast(char)('0' + b % 10); }
+            else buf[pos++] = cast(char)('0' + b);
+        }
+        buf[pos++] = ']';
+        buf[pos++] = ')';
+        buf[pos] = 0;
+        auto r = JS_Eval(ctx, buf.ptr, pos, "<uint8>".ptr, 0);
+        return toHandle(r);
     }
 
     JSHandle newFunction(NativeCallback cb, string name, int argc) @trusted

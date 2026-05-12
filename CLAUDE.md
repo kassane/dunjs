@@ -41,7 +41,7 @@ dub build -b release                 # Release build (optimized)
 Layer 7: CLI & REPL           source/dun/cli/
 Layer 6: Runtime API           source/dun/runtime/     (console, timers, process, Deno.*)
 Layer 5: Module System         source/dun/modules/     (ES modules, resolver, loader, npm installer)
-Layer 4: Built-in Modules      source/dun/builtins/    (dun:fs, dun:path, dun:net, dun:http, dun:http2, dun:os, dun:buffer, dun:events, dun:url, fetch)
+Layer 4: Built-in Modules      source/dun/builtins/    (dun:fs, dun:path, dun:net, dun:http, dun:http2, dun:os, dun:buffer, dun:events, dun:url, dun:zlib, dun:dns, dun:ws, dun:child_process, dun:stream, fetch)
 Layer 3: Event Loop            source/dun/loop/        (epoll/kqueue/poll, timer wheel, microtasks)
 Layer 2: JS Engine Abstraction source/dun/engine/      (IJSEngine interface + backends)
 Layer 1: Platform Abstraction  source/dun/platform/    (memory, threading, OS I/O)
@@ -115,6 +115,11 @@ All runtime globals are **engine-agnostic** (use `IJSEngine` + `NativeCallback`)
 | `net` | `registerNetModule(engine)` | `require('net')`, ESM `import from 'dun:net'` |
 | `http` | `registerHttpModule(engine)` | `require('http')`, ESM `import from 'dun:http'` |
 | `http2` | `registerHttp2Module(engine)` | `require('http2')`, ESM `import from 'dun:http2'` |
+| `child_process` | `registerChildProcessModule(engine)` | `require('child_process')`, ESM `import from 'dun:child_process'` |
+| `stream` | `registerStreamModule(engine)` | `require('stream')`, ESM `import from 'dun:stream'` |
+| `zlib` | `registerZlibModule(engine)` | `require('zlib')`, ESM `import from 'dun:zlib'` |
+| `dns` | `registerDnsModule(engine)` | `require('dns')`, ESM `import from 'dun:dns'` |
+| `ws` | `registerWsModule(engine)` | `require('ws')`, ESM `import from 'dun:ws'` |
 | `fetch` | `registerFetchGlobal(engine)` | Global `fetch()` (Posix, HTTPS via OpenSSL) |
 | Web globals | `installWebCompat(engine)` | `atob`, `btoa`, `structuredClone`, `TextEncoder`, `TextDecoder`, native Uint8Array creation |
 | `Deno.*` | `installDenoCompat(engine)` | Full Deno compat (30+ APIs: env, fs, permissions, errors) |
@@ -332,7 +337,7 @@ dub test -c unittest    # All unit tests
 | V8 TMP bridge | `source/dun/engine/v8/cppbindings.d` | compile-time | V8TypeName coverage, tag->name mapping |
 | JSC TMP bridge | `source/dun/engine/jsc/cppbindings.d` | compile-time | JSCTypeName coverage, kJSType* alignment |
 
-### Integration Tests (47 fixtures)
+### Integration Tests (51 fixtures)
 
 ```sh
 # Run against a specific backend
@@ -349,13 +354,14 @@ dub build -c v8  && BACKEND=v8  ./tests/integration/run.sh
 | Errors | `error_handling` | try/catch, Error subtypes, Error.cause, finally |
 | Modules | `module_esm`, `module_cjs`, `module_chain`, `json_pipeline`, `npm_compat` | ESM import/export, CJS require, chained deps, JSON import |
 | Builtins | `fs_ops`, `path_ops`, `crypto_ops`, `stat_file`, `env_access` | readFile, join/resolve, hash/randomBytes, stat, process.env |
-| New APIs | `buffer_api`, `event_emitter`, `url_api`, `os_api`, `http2_api` | Buffer.from/alloc/concat, EventEmitter on/emit/once, URL/URLSearchParams, os.platform/cpus/totalmem, HTTP/2 API (20 checks) |
+| Node APIs | `buffer_api`, `event_emitter`, `url_api`, `os_api`, `http2_api` | Buffer.from/alloc/concat, EventEmitter on/emit/once, URL/URLSearchParams, os.platform/cpus/totalmem, HTTP/2 API (20 checks) |
+| New Modules | `child_process_api`, `stream_api`, `zlib_api`, `dns_api`, `ws_api` | execSync/spawnSync, Readable/Writable/Transform/pipeline, deflate/gzip round-trip, DNS lookup/resolve, WebSocket API |
 | Deno compat | `deno_compat` | 22 checks: env, fs, stat, copy, rename, remove, web globals |
 | Security | `perm_deny_read`, `perm_deny_write`, `realworld_security_boundary` | Permission denial enforcement |
 | TypeScript | `typescript`, `realworld_ts_library` | Type annotations, interfaces, as, arrow types |
 | Real-world | 7 end-to-end scenarios | Config loading, task runner, file processing, events, promise pool, nested require, ESM pipeline |
 
-Backend test scores: **QuickJS 47/47**, **JSC 46/46+1skip**, **V8 46/46+1skip** (workers QuickJS-only).
+Backend test scores: **QuickJS 51/51**, **JSC 50/50+1skip**, **V8 49/50+1skip** (workers QuickJS-only, error_handling V8 known issue).
 
 Test pattern: fixtures in `tests/integration/fixtures/*.{js,mjs,ts}`, expected stdout in `tests/integration/expected/*.txt`.
 
@@ -399,6 +405,15 @@ Not supported (have runtime semantics):
 - Prefer `@safe` by default, mark `@trusted` at narrowest scope
 - Every `extern(C)` callback must be `nothrow`
 - Named constants for limits: `DEFAULT_MEMORY_LIMIT`, `DEFAULT_MAX_STACK`, `TEST_MEMORY_LIMIT`, `TEST_MAX_STACK`
+- **MUST always build and test ALL backends (quickjs, jsc, v8) before committing any changes**:
+  ```sh
+  dub build -c quickjs && dub build -c jsc && dub build -c v8
+  dub test -c unittest
+  bash tests/integration/run.sh                          # QuickJS
+  BACKEND=jsc bash tests/integration/run.sh              # JSC
+  BACKEND=v8  bash tests/integration/run.sh              # V8
+  ```
+- Never ship code that only compiles or passes on one backend
 
 ## FFI Bridge: D <-> Engine Memory Rules
 
@@ -435,3 +450,8 @@ Not supported (have runtime semantics):
 | 8e | Web globals | atob, btoa, TextEncoder, TextDecoder, structuredClone | **Done** |
 | 8f | Node process | process.argv, cwd(), exit(), platform, arch, version, pid | **Done** |
 | 9a | HTTP/2 | http2.d RFC 9113 binary framing, HPACK, stream multiplexing, ALPN/TLS | **Done** |
+| 9b | child_process | execSync, spawnSync, exec with permissions | **Done** |
+| 9c | stream | Readable, Writable, Duplex, Transform, PassThrough, pipeline | **Done** |
+| 9d | zlib | deflateSync, inflateSync, gzipSync, gunzipSync, raw deflate/inflate | **Done** |
+| 9e | dns | lookup, lookupSync, resolve4, resolve6, reverse (POSIX getaddrinfo) | **Done** |
+| 9f | WebSocket | RFC 6455 framing, client connect, server create, send/close (ws module) | **Done** |

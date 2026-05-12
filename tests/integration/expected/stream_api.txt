@@ -1,0 +1,6 @@
+readable: hello stream
+writable: ABC
+passthrough: passthrough
+transform: HELLO
+pipeline: function
+stream done

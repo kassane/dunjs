@@ -48,6 +48,11 @@ JSHandle jsRequire(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     else if (specifier == "buffer") specifier = "dun:buffer";
     else if (specifier == "events") specifier = "dun:events";
     else if (specifier == "url") specifier = "dun:url";
+    else if (specifier == "child_process") specifier = "dun:child_process";
+    else if (specifier == "stream") specifier = "dun:stream";
+    else if (specifier == "zlib") specifier = "dun:zlib";
+    else if (specifier == "dns") specifier = "dun:dns";
+    else if (specifier == "ws") specifier = "dun:ws";
 
     auto global = engine.getGlobal();
 
@@ -64,6 +69,11 @@ JSHandle jsRequire(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
         else if (specifier == "dun:buffer") propName = "__dun_cjs_buffer__";
         else if (specifier == "dun:events") propName = "__dun_cjs_events__";
         else if (specifier == "dun:url") propName = "__dun_cjs_url__";
+        else if (specifier == "dun:child_process") propName = "__dun_cjs_child_process__";
+        else if (specifier == "dun:stream") propName = "__dun_cjs_stream__";
+        else if (specifier == "dun:zlib") propName = "__dun_cjs_zlib__";
+        else if (specifier == "dun:dns") propName = "__dun_cjs_dns__";
+        else if (specifier == "dun:ws") propName = "__dun_cjs_ws__";
 
         if (propName.length > 0)
         {

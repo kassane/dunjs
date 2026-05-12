@@ -35,7 +35,12 @@ void installGlobals(IJSEngine engine, DunState* state) @trusted
     import dun.builtins.events : registerEventsModule;
     import dun.builtins.url : registerUrlModule;
     import dun.builtins.os : registerOsModule;
+    import dun.builtins.zlib : registerZlibModule;
+    import dun.builtins.dns : registerDnsModule;
     import dun.builtins.fetch : registerFetchGlobal;
+    import dun.builtins.child_process : registerChildProcessModule;
+    import dun.builtins.stream : registerStreamModule;
+    import dun.builtins.ws : registerWsModule;
     import dun.modules.require : installRequire;
 
     installConsole(engine);
@@ -52,6 +57,11 @@ void installGlobals(IJSEngine engine, DunState* state) @trusted
     registerEventsModule(engine);
     registerUrlModule(engine);
     registerOsModule(engine);
+    registerZlibModule(engine);
+    registerDnsModule(engine);
+    registerChildProcessModule(engine);
+    registerStreamModule(engine);
+    registerWsModule(engine);
 
     version (Posix)
         registerFetchGlobal(engine);
