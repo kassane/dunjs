@@ -41,9 +41,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: dlang-community/setup-dlang@v2
-        with:
-          compiler: ldc-${{ env.LDC_VERSION }}
+      - name: Install ldcup (POSIX)
+        if: runner.os != 'Windows'
+        run: curl -sSf https://raw.githubusercontent.com/kassane/ldcup/main/scripts/install.sh | sh
+
+      - name: Install ldcup (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: iwr -useb https://raw.githubusercontent.com/kassane/ldcup/main/scripts/install.ps1 | iex
+
+      - name: Install LDC
+        run: ldcup install ldc2-${{ env.LDC_VERSION }}
 
       - name: Install system deps (JSC · Linux)
         if: matrix.engine == 'jsc' && runner.os == 'Linux'
@@ -210,9 +218,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: dlang-community/setup-dlang@v2
-        with:
-          compiler: ldc-${{ env.LDC_VERSION }}
+      - name: Install ldcup (POSIX)
+        if: runner.os != 'Windows'
+        run: curl -sSf https://raw.githubusercontent.com/kassane/ldcup/main/scripts/install.sh | sh
+
+      - name: Install ldcup (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: iwr -useb https://raw.githubusercontent.com/kassane/ldcup/main/scripts/install.ps1 | iex
+
+      - name: Install LDC
+        run: ldcup install ldc2-${{ env.LDC_VERSION }}
 
       - name: Setup MSVC (Windows)
         if: runner.os == 'Windows'
