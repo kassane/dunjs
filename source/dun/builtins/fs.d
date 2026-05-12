@@ -68,6 +68,44 @@ bool checkPerm(DunState* state, Permission perm, string resource = "") nothrow @
     catch (Exception) { return false; }
 }
 
+JSHandle throwSystemError(IJSEngine engine, string syscall, string path, Exception e) @trusted
+{
+    string msg = "";
+    string code = "ERR_FS_ERROR";
+
+    try { msg = e.msg; } catch (Exception) {}
+
+    if (msg.length > 0)
+    {
+        import std.string : indexOf;
+        if (indexOf(msg, "No such file") >= 0 || indexOf(msg, "not found") >= 0
+            || indexOf(msg, "cannot find") >= 0)
+            code = "ENOENT";
+        else if (indexOf(msg, "Permission denied") >= 0 || indexOf(msg, "ccess") >= 0)
+            code = "EACCES";
+        else if (indexOf(msg, "already exists") >= 0 || indexOf(msg, "File exists") >= 0)
+            code = "EEXIST";
+        else if (indexOf(msg, "Not a directory") >= 0)
+            code = "ENOTDIR";
+        else if (indexOf(msg, "Is a directory") >= 0)
+            code = "EISDIR";
+        else if (indexOf(msg, "not empty") >= 0)
+            code = "ENOTEMPTY";
+        else if (indexOf(msg, "No space") >= 0)
+            code = "ENOSPC";
+    }
+
+    return engine.throwTypeError(code ~ ": " ~ msg ~ ", " ~ syscall ~ " '" ~ path ~ "'");
+}
+
+JSHandle throwPermError(IJSEngine engine, string perm, string path = "") @trusted
+{
+    string msg = "Requires --allow-" ~ perm ~ " permission";
+    if (path.length > 0)
+        msg ~= ", path '" ~ path ~ "'";
+    return engine.throwTypeError("[ERR_PERMISSION_DENIED] " ~ msg);
+}
+
 JSHandle jsReadFileSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsReadFileSync");
@@ -77,13 +115,13 @@ JSHandle jsReadFileSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     if (args.length < 1) return engine.throwTypeError("readFileSync requires a path argument");
     auto path = engine.extractString(args[0]);
     if (!checkPerm(state, Permission.read, path))
-        return engine.throwTypeError("Requires --allow-read permission");
+        return throwPermError(engine, "read", path);
     try
     {
         import std.file : readText;
         return engine.newString(readText(path));
     }
-    catch (Exception) { return engine.throwTypeError("Failed to read file"); }
+    catch (Exception e) { return throwSystemError(engine, "open", path, e); }
 }
 
 JSHandle jsWriteFileSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
@@ -96,14 +134,14 @@ JSHandle jsWriteFileSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     auto path = engine.extractString(args[0]);
     auto data = engine.extractString(args[1]);
     if (!checkPerm(state, Permission.write, path))
-        return engine.throwTypeError("Requires --allow-write permission");
+        return throwPermError(engine, "write", path);
     try
     {
         import std.file : write;
         write(path, data);
         return engine.newUndefined();
     }
-    catch (Exception) { return engine.throwTypeError("Failed to write file"); }
+    catch (Exception e) { return throwSystemError(engine, "open", path, e); }
 }
 
 JSHandle jsExistsSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
@@ -115,7 +153,7 @@ JSHandle jsExistsSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     if (args.length < 1) return engine.throwTypeError("existsSync requires a path argument");
     auto path = engine.extractString(args[0]);
     if (!checkPerm(state, Permission.read, path))
-        return engine.throwTypeError("Requires --allow-read permission");
+        return throwPermError(engine, "read", path);
     try
     {
         import std.file : exists;
@@ -133,7 +171,7 @@ JSHandle jsReaddirSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     if (args.length < 1) return engine.throwTypeError("readdirSync requires a path argument");
     auto path = engine.extractString(args[0]);
     if (!checkPerm(state, Permission.read, path))
-        return engine.throwTypeError("Requires --allow-read permission");
+        return throwPermError(engine, "read", path);
     try
     {
         import std.file : dirEntries, SpanMode;
@@ -145,7 +183,7 @@ JSHandle jsReaddirSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
             engine.setProperty(arr, (idx++).to!string, engine.newString(baseName(entry.name)));
         return arr;
     }
-    catch (Exception) { return engine.throwTypeError("Failed to read directory"); }
+    catch (Exception e) { return throwSystemError(engine, "scandir", path, e); }
 }
 
 JSHandle jsStatSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
@@ -157,12 +195,12 @@ JSHandle jsStatSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     if (args.length < 1) return engine.throwTypeError("statSync requires a path argument");
     auto path = engine.extractString(args[0]);
     if (!checkPerm(state, Permission.read, path))
-        return engine.throwTypeError("Requires --allow-read permission");
+        return throwPermError(engine, "read", path);
     try
     {
         import std.file : exists, isFile, isDir, getSize, timeLastModified;
         if (!exists(path))
-            return engine.throwTypeError("No such file or directory");
+            return engine.throwTypeError("ENOENT: no such file or directory, stat '" ~ path ~ "'");
 
         bool pathIsFile, pathIsDir;
         ulong fileSize;
@@ -180,7 +218,7 @@ JSHandle jsStatSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
         engine.setProperty(obj, "isDirectory", engine.newFunction(&jsStatIsDirectory, "isDirectory", 0));
         return obj;
     }
-    catch (Exception) { return engine.throwTypeError("Failed to stat path"); }
+    catch (Exception e) { return throwSystemError(engine, "stat", path, e); }
 }
 
 JSHandle jsStatIsFile(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
@@ -218,14 +256,14 @@ JSHandle jsMkdirSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
         recursive = engine.extractBool(rv);
     }
     if (!checkPerm(state, Permission.write, path))
-        return engine.throwTypeError("Requires --allow-write permission");
+        return throwPermError(engine, "write", path);
     try
     {
         import std.file : mkdir, mkdirRecurse;
         if (recursive) mkdirRecurse(path); else mkdir(path);
         return engine.newUndefined();
     }
-    catch (Exception) { return engine.throwTypeError("Failed to create directory"); }
+    catch (Exception e) { return throwSystemError(engine, "mkdir", path, e); }
 }
 
 JSHandle jsUnlinkSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
@@ -237,14 +275,14 @@ JSHandle jsUnlinkSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     if (args.length < 1) return engine.throwTypeError("unlinkSync requires a path argument");
     auto path = engine.extractString(args[0]);
     if (!checkPerm(state, Permission.write, path))
-        return engine.throwTypeError("Requires --allow-write permission");
+        return throwPermError(engine, "write", path);
     try
     {
         import std.file : remove;
         remove(path);
         return engine.newUndefined();
     }
-    catch (Exception) { return engine.throwTypeError("Failed to remove file"); }
+    catch (Exception e) { return throwSystemError(engine, "unlink", path, e); }
 }
 
 JSHandle jsReadFileAsync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
@@ -259,7 +297,7 @@ JSHandle jsReadFileAsync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     if (args.length < 1) return engine.throwTypeError("readFile requires a path argument");
     auto path = engine.extractString(args[0]);
     if (!checkPerm(state, Permission.read, path))
-        return engine.throwTypeError("Requires --allow-read permission");
+        return throwPermError(engine, "read", path);
 
     auto ph = engine.newPromise();
     engine.dupValue(ph.resolve);
@@ -286,7 +324,7 @@ JSHandle jsWriteFileAsync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     auto path = engine.extractString(args[0]);
     auto data = engine.extractString(args[1]);
     if (!checkPerm(state, Permission.write, path))
-        return engine.throwTypeError("Requires --allow-write permission");
+        return throwPermError(engine, "write", path);
 
     auto ph = engine.newPromise();
     engine.dupValue(ph.resolve);

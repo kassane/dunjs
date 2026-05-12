@@ -354,7 +354,7 @@ dub build -c v8  && BACKEND=v8  ./tests/integration/run.sh
 | TypeScript | `typescript`, `realworld_ts_library` | Type annotations, interfaces, as, arrow types |
 | Real-world | 7 end-to-end scenarios | Config loading, task runner, file processing, events, promise pool, nested require, ESM pipeline |
 
-Backend test scores: **QuickJS 46/46**, **JSC 45/45+1skip**, **V8 45/45+1skip** (workers QuickJS-only).
+Backend test scores: **QuickJS 47/47**, **JSC 46/46+1skip**, **V8 46/46+1skip** (workers QuickJS-only).
 
 Test pattern: fixtures in `tests/integration/fixtures/*.{js,mjs,ts}`, expected stdout in `tests/integration/expected/*.txt`.
 
@@ -433,3 +433,4 @@ Not supported (have runtime semantics):
 | 8d | Full Deno compat | 30+ Deno APIs (stat, mkdir, remove, rename, copy, readDir, permissions, errors) | **Done** |
 | 8e | Web globals | atob, btoa, TextEncoder, TextDecoder, structuredClone | **Done** |
 | 8f | Node process | process.argv, cwd(), exit(), platform, arch, version, pid | **Done** |
+| 9a | HTTP/2 | http2.d RFC 9113 binary framing, HPACK, stream multiplexing, ALPN/TLS | **Done** |

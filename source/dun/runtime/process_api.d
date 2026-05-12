@@ -4,6 +4,30 @@ import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
 import dun.runtime.globals : DunState;
 import dun.security.permissions : Permission;
 
+private __gshared JSHandle gUncaughtHandler;
+private __gshared IJSEngine gUncaughtEngine;
+private __gshared bool gHasUncaughtHandler;
+
+bool hasUncaughtExceptionHandler() @trusted nothrow @nogc
+{
+    return gHasUncaughtHandler;
+}
+
+bool invokeUncaughtExceptionHandler(IJSEngine engine, string errorMsg) @trusted nothrow
+{
+    if (!gHasUncaughtHandler || engine is null) return false;
+    try
+    {
+        auto errObj = engine.newString(errorMsg);
+        JSHandle[1] args = [errObj];
+        auto global = engine.getGlobal();
+        engine.callFunction(gUncaughtHandler, global, args[]);
+        engine.freeValue(errObj);
+        return true;
+    }
+    catch (Throwable) { return false; }
+}
+
 void installProcess(IJSEngine engine) @trusted
 {
     assert(engine !is null, "Null engine");
@@ -13,6 +37,8 @@ void installProcess(IJSEngine engine) @trusted
 
     engine.setProperty(process, "nextTick",
         engine.newFunction(&jsNextTick, "nextTick", 1));
+    engine.setProperty(process, "on",
+        engine.newFunction(&jsProcessOn, "on", 2));
 
     auto envObj = engine.newObject();
     bool envAllowed = state !is null && state.permissions !is null &&
@@ -96,6 +122,26 @@ JSHandle jsExit(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     import core.stdc.stdlib : exit;
     exit(code);
     assert(0);
+}
+
+JSHandle jsProcessOn(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+{
+    assert(ctx !is null, "Null ctx in process.on");
+    auto state = cast(DunState*) ctx;
+    auto engine = state.engine;
+    if (args.length < 2 || !engine.isString(args[0]) || !engine.isFunction(args[1]))
+        return engine.throwTypeError("process.on requires event name and callback");
+
+    auto event = engine.extractString(args[0]);
+    if (event == "uncaughtException")
+    {
+        if (gHasUncaughtHandler)
+            engine.freeValue(gUncaughtHandler);
+        gUncaughtHandler = engine.dupValue(args[1]);
+        gUncaughtEngine = engine;
+        gHasUncaughtHandler = true;
+    }
+    return thisVal;
 }
 
 JSHandle jsNextTick(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted

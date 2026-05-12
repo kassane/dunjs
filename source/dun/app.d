@@ -108,9 +108,18 @@ int runScript(T)(T config)
 
     if (result.isError)
     {
-        import dun.cli.errors : isColorEnabled, formatUncaughtError;
-        writeStderr(formatUncaughtError(result.errorMessage, isColorEnabled()));
-        return 1;
+        import dun.runtime.process_api : hasUncaughtExceptionHandler,
+            invokeUncaughtExceptionHandler;
+        if (hasUncaughtExceptionHandler())
+        {
+            invokeUncaughtExceptionHandler(engine, result.errorMessage);
+        }
+        else
+        {
+            import dun.cli.errors : isColorEnabled, formatUncaughtError;
+            writeStderr(formatUncaughtError(result.errorMessage, isColorEnabled()));
+            return 1;
+        }
     }
     else
     {

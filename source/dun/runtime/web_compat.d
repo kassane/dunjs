@@ -15,13 +15,27 @@ void installWebCompat(IJSEngine engine) @trusted
     engine.setProperty(global, "structuredClone",
         engine.newFunction(&jsStructuredClone, "structuredClone", 1));
 
-    // TextEncoder
-    engine.setProperty(global, "TextEncoder",
-        engine.newFunction(&jsTextEncoderConstructor, "TextEncoder", 0));
+    // TextEncoder / TextDecoder — register as constructable via eval
+    engine.setProperty(global, "__dun_te_init",
+        engine.newFunction(&jsTextEncoderConstructor, "__dun_te_init", 0));
+    engine.setProperty(global, "__dun_td_init",
+        engine.newFunction(&jsTextDecoderConstructor, "__dun_td_init", 0));
+    engine.setProperty(global, "__dun_te_encode",
+        engine.newFunction(&jsTextEncoderEncode, "__dun_te_encode", 1));
+    engine.setProperty(global, "__dun_td_decode",
+        engine.newFunction(&jsTextDecoderDecode, "__dun_td_decode", 1));
 
-    // TextDecoder
-    engine.setProperty(global, "TextDecoder",
-        engine.newFunction(&jsTextDecoderConstructor, "TextDecoder", 0));
+    auto teRes = engine.eval(
+        "globalThis.TextEncoder = function TextEncoder() {"
+        ~ " this.encoding = 'utf-8';"
+        ~ " this.encode = function(s) { return __dun_te_encode(s); };"
+        ~ "};"
+        ~ "globalThis.TextDecoder = function TextDecoder() {"
+        ~ " this.encoding = 'utf-8';"
+        ~ " this.decode = function(b) { return __dun_td_decode(b); };"
+        ~ "};", "<web-compat>");
+    if (!teRes.isError)
+        engine.freeValue(teRes.value);
 
     engine.freeValue(global);
 }

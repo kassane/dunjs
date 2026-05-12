@@ -1,1 +1,1 @@
-Requires --allow-write permission
+[ERR_PERMISSION_DENIED] Requires --allow-write permission, path '/tmp/dun_perm_test.txt'

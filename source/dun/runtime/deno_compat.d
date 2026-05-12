@@ -202,7 +202,7 @@ JSHandle denoEnvGet(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
         return engine.newUndefined();
 
     if (!checkPerm(state, Permission.env))
-        return engine.throwTypeError("Requires --allow-env");
+        return engine.throwTypeError("[ERR_PERMISSION_DENIED] Requires --allow-env permission");
 
     string key = engine.extractString(args[0]);
     try
@@ -224,7 +224,7 @@ JSHandle denoEnvSet(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
         return engine.throwTypeError("env.set requires (key, value)");
 
     if (!checkPerm(state, Permission.env))
-        return engine.throwTypeError("Requires --allow-env");
+        return engine.throwTypeError("[ERR_PERMISSION_DENIED] Requires --allow-env permission");
 
     try
     {
@@ -244,7 +244,7 @@ JSHandle denoEnvDelete(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
         return engine.throwTypeError("env.delete requires a key");
 
     if (!checkPerm(state, Permission.env))
-        return engine.throwTypeError("Requires --allow-env");
+        return engine.throwTypeError("[ERR_PERMISSION_DENIED] Requires --allow-env permission");
 
     try
     {
@@ -264,7 +264,7 @@ JSHandle denoEnvHas(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
         return engine.newBool(false);
 
     if (!checkPerm(state, Permission.env))
-        return engine.throwTypeError("Requires --allow-env");
+        return engine.throwTypeError("[ERR_PERMISSION_DENIED] Requires --allow-env permission");
 
     try
     {
@@ -280,7 +280,7 @@ JSHandle denoEnvToObject(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     auto engine = state.engine;
 
     if (!checkPerm(state, Permission.env))
-        return engine.throwTypeError("Requires --allow-env");
+        return engine.throwTypeError("[ERR_PERMISSION_DENIED] Requires --allow-env permission");
 
     auto obj = engine.newObject();
     try
@@ -305,7 +305,7 @@ JSHandle denoReadTextFileSync(void* ctx, JSHandle thisVal, JSHandle[] args) @tru
 
     string path = engine.extractString(args[0]);
     if (!checkPerm(state, Permission.read, path))
-        return engine.throwTypeError("Requires --allow-read");
+        return engine.throwTypeError("[ERR_PERMISSION_DENIED] Requires --allow-read permission");
 
     try
     {
@@ -330,7 +330,7 @@ JSHandle denoReadTextFile(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
     string path = engine.extractString(args[0]);
     if (!checkPerm(state, Permission.read, path))
-        return engine.throwTypeError("Requires --allow-read");
+        return engine.throwTypeError("[ERR_PERMISSION_DENIED] Requires --allow-read permission");
 
     auto ph = engine.newPromise();
     engine.dupValue(ph.resolve);
@@ -358,7 +358,7 @@ JSHandle denoWriteTextFileSync(void* ctx, JSHandle thisVal, JSHandle[] args) @tr
     string data = engine.extractString(args[1]);
 
     if (!checkPerm(state, Permission.write, path))
-        return engine.throwTypeError("Requires --allow-write");
+        return engine.throwTypeError("[ERR_PERMISSION_DENIED] Requires --allow-write permission");
 
     try
     {
@@ -386,7 +386,7 @@ JSHandle denoWriteTextFile(void* ctx, JSHandle thisVal, JSHandle[] args) @truste
     string data = engine.extractString(args[1]);
 
     if (!checkPerm(state, Permission.write, path))
-        return engine.throwTypeError("Requires --allow-write");
+        return engine.throwTypeError("[ERR_PERMISSION_DENIED] Requires --allow-write permission");
 
     auto ph = engine.newPromise();
     engine.dupValue(ph.resolve);
@@ -413,7 +413,7 @@ JSHandle denoStatSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
     string path = engine.extractString(args[0]);
     if (!checkPerm(state, Permission.read, path))
-        return engine.throwTypeError("Requires --allow-read");
+        return engine.throwTypeError("[ERR_PERMISSION_DENIED] Requires --allow-read permission");
 
     try
     {
@@ -479,7 +479,7 @@ JSHandle denoMkdirSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     }
 
     if (!checkPerm(state, Permission.write, path))
-        return engine.throwTypeError("Requires --allow-write");
+        return engine.throwTypeError("[ERR_PERMISSION_DENIED] Requires --allow-write permission");
 
     try
     {
@@ -513,7 +513,7 @@ JSHandle denoRemoveSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     }
 
     if (!checkPerm(state, Permission.write, path))
-        return engine.throwTypeError("Requires --allow-write");
+        return engine.throwTypeError("[ERR_PERMISSION_DENIED] Requires --allow-write permission");
 
     try
     {
@@ -544,9 +544,9 @@ JSHandle denoRenameSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     string newpath = engine.extractString(args[1]);
 
     if (!checkPerm(state, Permission.read, oldpath))
-        return engine.throwTypeError("Requires --allow-read");
+        return engine.throwTypeError("[ERR_PERMISSION_DENIED] Requires --allow-read permission");
     if (!checkPerm(state, Permission.write, newpath))
-        return engine.throwTypeError("Requires --allow-write");
+        return engine.throwTypeError("[ERR_PERMISSION_DENIED] Requires --allow-write permission");
 
     try
     {
@@ -574,9 +574,9 @@ JSHandle denoCopyFileSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     string dest = engine.extractString(args[1]);
 
     if (!checkPerm(state, Permission.read, src))
-        return engine.throwTypeError("Requires --allow-read");
+        return engine.throwTypeError("[ERR_PERMISSION_DENIED] Requires --allow-read permission");
     if (!checkPerm(state, Permission.write, dest))
-        return engine.throwTypeError("Requires --allow-write");
+        return engine.throwTypeError("[ERR_PERMISSION_DENIED] Requires --allow-write permission");
 
     try
     {
@@ -602,7 +602,7 @@ JSHandle denoReadDirSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
     string path = engine.extractString(args[0]);
     if (!checkPerm(state, Permission.read, path))
-        return engine.throwTypeError("Requires --allow-read");
+        return engine.throwTypeError("[ERR_PERMISSION_DENIED] Requires --allow-read permission");
 
     try
     {
@@ -645,7 +645,7 @@ JSHandle denoRealPathSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
     string path = engine.extractString(args[0]);
     if (!checkPerm(state, Permission.read, path))
-        return engine.throwTypeError("Requires --allow-read");
+        return engine.throwTypeError("[ERR_PERMISSION_DENIED] Requires --allow-read permission");
 
     try
     {
@@ -671,7 +671,7 @@ JSHandle denoTruncateSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
     string path = engine.extractString(args[0]);
     if (!checkPerm(state, Permission.write, path))
-        return engine.throwTypeError("Requires --allow-write");
+        return engine.throwTypeError("[ERR_PERMISSION_DENIED] Requires --allow-write permission");
 
     try
     {
@@ -710,7 +710,7 @@ JSHandle denoChdir(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
     string path = engine.extractString(args[0]);
     if (!checkPerm(state, Permission.read, path))
-        return engine.throwTypeError("Requires --allow-read");
+        return engine.throwTypeError("[ERR_PERMISSION_DENIED] Requires --allow-read permission");
 
     try
     {

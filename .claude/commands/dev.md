@@ -10,7 +10,7 @@ dub build -c jsc                       # JavaScriptCore
 dub build -c v8                        # V8
 
 # Test
-dub test -c unittest                   # all unit tests (~150 tests)
+dub test -c unittest                   # all unit tests (~165 tests)
 ./build/dun run tests/integration/fixtures/hello.js  # smoke test
 
 # Run
@@ -44,7 +44,7 @@ source/dun/
   loop/
     eventloop.d      # Event loop (epoll/kqueue/poll + io_uring)
     async.d          # Async work queue (background threads + promises)
-  builtins/          # fs, path, net, http, crypto, fetch, buffer, events, url, os
+  builtins/          # fs, path, net, http, http2, crypto, fetch, buffer, events, url, os
   modules/           # ES modules, CJS require, npm resolver
   platform/          # OpenSSL bindings, memory, threading
 

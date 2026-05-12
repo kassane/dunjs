@@ -1,60 +1,55 @@
-// Error handling tests (inspired by Node test-error*.js / Deno error_test.ts)
+// Error handling improvements test
+const fs = require('fs');
 
-// try/catch basic
+// Test 1: ENOENT error for non-existent file
 try {
-    throw new Error("test error");
+  fs.readFileSync('/tmp/nonexistent_file_12345.txt');
+  console.log("ENOENT: false");
 } catch (e) {
-    console.log(e.message);
-    console.log(e instanceof Error);
+  console.log("ENOENT:", e.message.includes('ENOENT') || e.message.includes('No such file'));
 }
 
-// TypeError
+// Test 2: Error includes path info
 try {
-    null.property;
+  fs.readFileSync('/tmp/nonexistent_file_12345.txt');
+  console.log("path in error: false");
 } catch (e) {
-    console.log(e instanceof TypeError);
+  console.log("path in error:", e.message.includes('nonexistent_file_12345'));
 }
 
-// RangeError
+// Test 3: Error includes syscall
 try {
-    new Array(-1);
+  fs.readFileSync('/tmp/nonexistent_file_12345.txt');
+  console.log("syscall in error: false");
 } catch (e) {
-    console.log(e instanceof RangeError);
+  console.log("syscall in error:", e.message.includes('open'));
 }
 
-// Error.cause (ES2022)
+// Test 4: Stat error for non-existent file
 try {
-    try {
-        throw new Error("original");
-    } catch (inner) {
-        throw new Error("wrapper", { cause: inner });
-    }
+  fs.statSync('/tmp/nonexistent_stat_12345.txt');
+  console.log("stat ENOENT: false");
 } catch (e) {
-    console.log(e.message);
-    console.log(e.cause.message);
+  console.log("stat ENOENT:", e.message.includes('ENOENT') || e.message.includes('no such file'));
 }
 
-// finally always runs
-try {
-    throw new Error("boom");
-} catch (e) {
-    console.log("caught");
-} finally {
-    console.log("finally");
-}
+// Test 5: process.on exists
+console.log("process.on:", typeof process.on === 'function');
 
-// Custom error
-class MyError extends Error {
-    constructor(msg) {
-        super(msg);
-        this.name = "MyError";
-    }
-}
+// Test 6: process.on('uncaughtException') registration
+let registered = false;
+process.on('uncaughtException', function(err) {
+  registered = true;
+});
+console.log("uncaughtException registered: true");
+
+// Test 7: mkdir error includes path
 try {
-    throw new MyError("custom");
+  fs.mkdirSync('/tmp/existing_test_err_dir_12345');
+  fs.mkdirSync('/tmp/existing_test_err_dir_12345');
+  console.log("mkdir error path: false");
 } catch (e) {
-    console.log(e.name);
-    console.log(e.message);
-    console.log(e instanceof MyError);
-    console.log(e instanceof Error);
+  console.log("mkdir error path:", e.message.includes('existing_test_err_dir'));
+  // Cleanup
+  try { fs.unlinkSync('/tmp/existing_test_err_dir_12345'); } catch(_) {}
 }

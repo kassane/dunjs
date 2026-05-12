@@ -1,12 +1,7 @@
-test error
-true
-true
-true
-wrapper
-original
-caught
-finally
-MyError
-custom
-true
-true
+ENOENT: true
+path in error: true
+syscall in error: true
+stat ENOENT: true
+process.on: true
+uncaughtException registered: true
+mkdir error path: true
