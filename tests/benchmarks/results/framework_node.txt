@@ -1,0 +1,59 @@
+
+=== HTTP Routing ===
+  path matching (100 routes): 1200ns/op (833,333 ops/sec)
+  parameter extraction: 60ns/op (16,666,667 ops/sec)
+  query string parsing (URLSearchParams): 360ns/op (2,777,778 ops/sec)
+  radix trie lookup (20 routes): 580ns/op (1,724,138 ops/sec)
+  URL constructor + pathname: 330ns/op (3,030,303 ops/sec)
+
+=== Middleware Pipeline ===
+  sync middleware chain (10 layers): 60ns/op (16,666,667 ops/sec)
+  async middleware chain (10 layers): 380ns/op (2,631,579 ops/sec)
+  error handling middleware: 6000ns/op (166,667 ops/sec)
+  context object building: 160ns/op (6,250,000 ops/sec)
+
+=== JSON API ===
+  JSON.parse ~200B (small): 260ns/op (3,846,154 ops/sec)
+  JSON.parse ~10KB (medium): 46375ns/op (21,563 ops/sec)
+  JSON.parse ~100KB (large): 563000ns/op (1,776 ops/sec)
+  JSON.stringify nested objects: 20813ns/op (48,048 ops/sec)
+  request body validation: 30ns/op (33,333,333 ops/sec)
+  JSON.stringify with replacer: 52500ns/op (19,048 ops/sec)
+
+=== Template Engine ===
+  string interpolation (template literal sim): 110ns/op (9,090,909 ops/sec)
+  HTML escaping: 1100ns/op (909,091 ops/sec)
+  compiled template render: 120ns/op (8,333,333 ops/sec)
+  conditional template rendering: 30ns/op (33,333,333 ops/sec)
+
+=== Query Building ===
+  SQL SELECT builder: 230ns/op (4,347,826 ops/sec)
+  SQL INSERT builder (10 rows): 1670ns/op (598,802 ops/sec)
+  Object-to-WHERE clause: 280ns/op (3,571,429 ops/sec)
+  result set transformation (100 rows): 5875ns/op (170,213 ops/sec)
+
+=== Validation ===
+  schema validation (5 fields): 310ns/op (3,225,806 ops/sec)
+  schema validation (invalid): 410ns/op (2,439,024 ops/sec)
+  nested object validation (3 levels): 370ns/op (2,702,703 ops/sec)
+  array validation (20 items): 270ns/op (3,703,704 ops/sec)
+  error accumulation (aggregate): 100ns/op (10,000,000 ops/sec)
+
+=== Concurrency Patterns ===
+  Promise.all (50 tasks): 11781ns/op (84,881 ops/sec)
+  Promise.allSettled (50 tasks, 10 fail): 90000ns/op (11,111 ops/sec)
+  rate limiter (token bucket): 13563ns/op (73,733 ops/sec)
+  connection pool acquire/release: 73625ns/op (13,582 ops/sec)
+  promise chain (5 stages): 720ns/op (1,388,889 ops/sec)
+
+=== Buffer/Encoding ===
+  btoa/atob round-trip: 140ns/op (7,142,857 ops/sec)
+  TextEncoder.encode: 450ns/op (2,222,222 ops/sec)
+  TextDecoder.decode: 680ns/op (1,470,588 ops/sec)
+  TextEncoder/Decoder round-trip (1KB): 7875ns/op (126,984 ops/sec)
+  hex encode/decode round-trip: 4547ns/op (219,931 ops/sec)
+  Uint8Array from string (manual): 100ns/op (10,000,000 ops/sec)
+
+=== Summary ===
+39 benchmarks completed
+Total throughput: 193,198,005 ops/sec

@@ -1,0 +1,49 @@
+
+=== Crypto ===
+  crypto.randomUUID: 52ns/op (19,328,590 ops/sec)
+  crypto.createHash SHA-256: 751ns/op (1,330,680 ops/sec)
+
+=== Buffer ===
+  Buffer.from string: 71ns/op (14,027,773 ops/sec)
+  Buffer.alloc 1024: 919ns/op (1,087,734 ops/sec)
+  Buffer.concat: 225ns/op (4,443,119 ops/sec)
+
+=== URL ===
+  new URL(): 412ns/op (2,427,259 ops/sec)
+  URLSearchParams: 190ns/op (5,269,226 ops/sec)
+
+=== JSON ===
+  JSON.parse (100 objects): 22827ns/op (43,807 ops/sec)
+  JSON.stringify (100 objects): 10345ns/op (96,661 ops/sec)
+
+=== String ===
+  string split/join: 244ns/op (4,096,000 ops/sec)
+  string replace (regex): 181ns/op (5,518,821 ops/sec)
+  template literal: 125ns/op (8,004,397 ops/sec)
+
+=== Array ===
+  Array.from + map: 4227ns/op (236,592 ops/sec)
+  array.filter + reduce: 4318ns/op (231,576 ops/sec)
+  array.sort 100 elements: 20691ns/op (48,330 ops/sec)
+
+=== Object ===
+  Object.keys/values/entries: 87ns/op (11,459,847 ops/sec)
+  Object.assign merge: 82ns/op (12,264,047 ops/sec)
+  structuredClone: 1671ns/op (598,502 ops/sec)
+
+=== Encoding ===
+  TextEncoder encode: 774ns/op (1,291,350 ops/sec)
+  TextDecoder decode: 980ns/op (1,020,016 ops/sec)
+  btoa/atob round-trip: 147ns/op (6,786,900 ops/sec)
+
+=== Map/Set ===
+  Map set/get 100: 9888ns/op (101,136 ops/sec)
+  Set add/has 100: 2464ns/op (405,796 ops/sec)
+
+=== Promise ===
+  Promise.resolve: 13ns/op (76,260,073 ops/sec)
+  Promise.all (5): 1537ns/op (650,481 ops/sec)
+
+=== Summary ===
+25 benchmarks completed
+Total throughput: 177,028,713 ops/sec
