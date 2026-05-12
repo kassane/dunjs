@@ -149,6 +149,84 @@
 			"preBuildCommands-posix": [
 				"$DC -run $PACKAGE_DIR/build.d --backend=quickjs"
 			]
+		},
+		{
+			"name": "unittest-jsc",
+			"targetName": "dun-test-jsc",
+			"targetType": "library",
+			"versions": [
+				"DunTest",
+				"EngineJSC"
+			],
+			"excludedSourceFiles": [
+				"source/dun/engine/quickjs/backend.d",
+				"source/dun/engine/quickjs/context.d",
+				"source/dun/engine/quickjs/runtime.d",
+				"source/dun/engine/quickjs/value.d",
+				"source/dun/engine/quickjs/exceptions.d",
+				"source/dun/engine/quickjs/function_bind.d",
+				"source/dun/engine/v8/backend.d",
+				"source/dun/engine/v8/cppbindings.d"
+			],
+			"libs-linux": [
+				"JavaScriptCore",
+				"WTF",
+				"bmalloc",
+				"icui18n",
+				"icuuc",
+				"icudata",
+				"icutu",
+				"stdc++",
+				"atomic"
+			],
+			"lflags-linux": [
+				"-L$PACKAGE_DIR/vendor/jsc/lib"
+			],
+			"lflags-osx": [
+				"-framework",
+				"JavaScriptCore"
+			],
+			"preBuildCommands-posix": [
+				"$DC -run $PACKAGE_DIR/build.d --backend=jsc"
+			]
+		},
+		{
+			"name": "unittest-v8",
+			"targetName": "dun-test-v8",
+			"targetType": "library",
+			"versions": [
+				"DunTest",
+				"EngineV8"
+			],
+			"excludedSourceFiles": [
+				"source/dun/engine/quickjs/backend.d",
+				"source/dun/engine/quickjs/context.d",
+				"source/dun/engine/quickjs/runtime.d",
+				"source/dun/engine/quickjs/value.d",
+				"source/dun/engine/quickjs/exceptions.d",
+				"source/dun/engine/quickjs/function_bind.d",
+				"source/dun/engine/jsc/backend.d",
+				"source/dun/engine/jsc/cppbindings.d"
+			],
+			"lflags-linux": [
+				"-L$PACKAGE_DIR/vendor/v8shim",
+				"-L$PACKAGE_DIR/vendor/v8/lib",
+				"-lv8shim",
+				"-lv8",
+				"-lv8_libplatform",
+				"-lstdc++"
+			],
+			"lflags-osx": [
+				"-L$PACKAGE_DIR/vendor/v8shim",
+				"-L$PACKAGE_DIR/vendor/v8/lib",
+				"-lv8shim",
+				"-lv8",
+				"-lv8_libplatform",
+				"-lc++"
+			],
+			"preBuildCommands-posix": [
+				"$DC -run $PACKAGE_DIR/build.d --backend=v8"
+			]
 		}
 	],
 	"targetName": "dun",
