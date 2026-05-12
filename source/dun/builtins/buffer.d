@@ -66,6 +66,8 @@ __gshared JSHandle _bufWriteInt32LE, _bufWriteInt32BE;
 __gshared JSHandle _bufWriteFloatLE, _bufWriteFloatBE;
 __gshared JSHandle _bufWriteDoubleLE, _bufWriteDoubleBE;
 __gshared JSHandle _bufCompare, _bufIncludes, _bufSubarray, _bufIsEncoding;
+__gshared JSHandle _bufProto; // Shared prototype object with all methods
+__gshared JSHandle _objectCreate; // Cached Object.create function
 __gshared bool _bufFnsCached = false;
 
 void ensureBufferFnsCached(IJSEngine engine) @trusted
@@ -110,13 +112,66 @@ void ensureBufferFnsCached(IJSEngine engine) @trusted
     _bufIncludes = engine.newFunction(&jsBufferIncludes, "includes", 1);
     _bufSubarray = engine.newFunction(&jsBufferSubarray, "subarray", 2);
     _bufIsEncoding = engine.newFunction(&jsBufferIsEncoding, "isEncoding", 1);
+
+    // Build shared prototype with all methods (set once, inherited by all buffers)
+    _bufProto = engine.newObject();
+    engine.setProperty(_bufProto, "toString", engine.dupValue(_bufToString));
+    engine.setProperty(_bufProto, "toJSON", engine.dupValue(_bufToJSON));
+    engine.setProperty(_bufProto, "slice", engine.dupValue(_bufSlice));
+    engine.setProperty(_bufProto, "copy", engine.dupValue(_bufCopy));
+    engine.setProperty(_bufProto, "equals", engine.dupValue(_bufEquals));
+    engine.setProperty(_bufProto, "indexOf", engine.dupValue(_bufIndexOf));
+    engine.setProperty(_bufProto, "fill", engine.dupValue(_bufFill));
+    engine.setProperty(_bufProto, "write", engine.dupValue(_bufWrite));
+    engine.setProperty(_bufProto, "readUInt8", engine.dupValue(_bufReadUInt8));
+    engine.setProperty(_bufProto, "writeUInt8", engine.dupValue(_bufWriteUInt8));
+    engine.setProperty(_bufProto, "readUInt16LE", engine.dupValue(_bufReadUInt16LE));
+    engine.setProperty(_bufProto, "readUInt16BE", engine.dupValue(_bufReadUInt16BE));
+    engine.setProperty(_bufProto, "readUInt32LE", engine.dupValue(_bufReadUInt32LE));
+    engine.setProperty(_bufProto, "readUInt32BE", engine.dupValue(_bufReadUInt32BE));
+    engine.setProperty(_bufProto, "readInt8", engine.dupValue(_bufReadInt8));
+    engine.setProperty(_bufProto, "readInt16LE", engine.dupValue(_bufReadInt16LE));
+    engine.setProperty(_bufProto, "readInt16BE", engine.dupValue(_bufReadInt16BE));
+    engine.setProperty(_bufProto, "readInt32LE", engine.dupValue(_bufReadInt32LE));
+    engine.setProperty(_bufProto, "readInt32BE", engine.dupValue(_bufReadInt32BE));
+    engine.setProperty(_bufProto, "readFloatLE", engine.dupValue(_bufReadFloatLE));
+    engine.setProperty(_bufProto, "readFloatBE", engine.dupValue(_bufReadFloatBE));
+    engine.setProperty(_bufProto, "readDoubleLE", engine.dupValue(_bufReadDoubleLE));
+    engine.setProperty(_bufProto, "readDoubleBE", engine.dupValue(_bufReadDoubleBE));
+    engine.setProperty(_bufProto, "writeUInt16LE", engine.dupValue(_bufWriteUInt16LE));
+    engine.setProperty(_bufProto, "writeUInt16BE", engine.dupValue(_bufWriteUInt16BE));
+    engine.setProperty(_bufProto, "writeUInt32LE", engine.dupValue(_bufWriteUInt32LE));
+    engine.setProperty(_bufProto, "writeUInt32BE", engine.dupValue(_bufWriteUInt32BE));
+    engine.setProperty(_bufProto, "writeInt16LE", engine.dupValue(_bufWriteInt16LE));
+    engine.setProperty(_bufProto, "writeInt16BE", engine.dupValue(_bufWriteInt16BE));
+    engine.setProperty(_bufProto, "writeInt32LE", engine.dupValue(_bufWriteInt32LE));
+    engine.setProperty(_bufProto, "writeInt32BE", engine.dupValue(_bufWriteInt32BE));
+    engine.setProperty(_bufProto, "writeFloatLE", engine.dupValue(_bufWriteFloatLE));
+    engine.setProperty(_bufProto, "writeFloatBE", engine.dupValue(_bufWriteFloatBE));
+    engine.setProperty(_bufProto, "writeDoubleLE", engine.dupValue(_bufWriteDoubleLE));
+    engine.setProperty(_bufProto, "writeDoubleBE", engine.dupValue(_bufWriteDoubleBE));
+    engine.setProperty(_bufProto, "compare", engine.dupValue(_bufCompare));
+    engine.setProperty(_bufProto, "includes", engine.dupValue(_bufIncludes));
+    engine.setProperty(_bufProto, "subarray", engine.dupValue(_bufSubarray));
+
+    // Cache Object.create for fast prototype-based buffer creation
+    auto global = engine.getGlobal();
+    auto objectCtor = engine.getProperty(global, "Object");
+    _objectCreate = engine.getProperty(objectCtor, "create");
+
+    // Store proto globally so JS can access it
+    engine.setProperty(global, "__dunBufProto__", engine.dupValue(_bufProto));
+
     _bufFnsCached = true;
 }
 
 JSHandle makeBufferObj(IJSEngine engine, const(ubyte)[] data) @trusted
 {
     ensureBufferFnsCached(engine);
-    auto obj = engine.newObject();
+    // Object.create(_bufProto) — inherits all 35 methods from prototype
+    JSHandle[] createArgs = [_bufProto];
+    auto obj = engine.callFunction(_objectCreate, engine.newNull(), createArgs);
+
     engine.setProperty(obj, "__isBuffer", engine.newBool(true));
     engine.setProperty(obj, "length", engine.newInt(cast(int) data.length));
 
@@ -128,45 +183,6 @@ JSHandle makeBufferObj(IJSEngine engine, const(ubyte)[] data) @trusted
     {
         engine.setProperty(obj, "__data", engine.newString(""));
     }
-
-    engine.setProperty(obj, "toString", engine.dupValue(_bufToString));
-    engine.setProperty(obj, "toJSON", engine.dupValue(_bufToJSON));
-    engine.setProperty(obj, "slice", engine.dupValue(_bufSlice));
-    engine.setProperty(obj, "copy", engine.dupValue(_bufCopy));
-    engine.setProperty(obj, "equals", engine.dupValue(_bufEquals));
-    engine.setProperty(obj, "indexOf", engine.dupValue(_bufIndexOf));
-    engine.setProperty(obj, "fill", engine.dupValue(_bufFill));
-    engine.setProperty(obj, "write", engine.dupValue(_bufWrite));
-    engine.setProperty(obj, "readUInt8", engine.dupValue(_bufReadUInt8));
-    engine.setProperty(obj, "writeUInt8", engine.dupValue(_bufWriteUInt8));
-    engine.setProperty(obj, "readUInt16LE", engine.dupValue(_bufReadUInt16LE));
-    engine.setProperty(obj, "readUInt16BE", engine.dupValue(_bufReadUInt16BE));
-    engine.setProperty(obj, "readUInt32LE", engine.dupValue(_bufReadUInt32LE));
-    engine.setProperty(obj, "readUInt32BE", engine.dupValue(_bufReadUInt32BE));
-    engine.setProperty(obj, "readInt8", engine.dupValue(_bufReadInt8));
-    engine.setProperty(obj, "readInt16LE", engine.dupValue(_bufReadInt16LE));
-    engine.setProperty(obj, "readInt16BE", engine.dupValue(_bufReadInt16BE));
-    engine.setProperty(obj, "readInt32LE", engine.dupValue(_bufReadInt32LE));
-    engine.setProperty(obj, "readInt32BE", engine.dupValue(_bufReadInt32BE));
-    engine.setProperty(obj, "readFloatLE", engine.dupValue(_bufReadFloatLE));
-    engine.setProperty(obj, "readFloatBE", engine.dupValue(_bufReadFloatBE));
-    engine.setProperty(obj, "readDoubleLE", engine.dupValue(_bufReadDoubleLE));
-    engine.setProperty(obj, "readDoubleBE", engine.dupValue(_bufReadDoubleBE));
-    engine.setProperty(obj, "writeUInt16LE", engine.dupValue(_bufWriteUInt16LE));
-    engine.setProperty(obj, "writeUInt16BE", engine.dupValue(_bufWriteUInt16BE));
-    engine.setProperty(obj, "writeUInt32LE", engine.dupValue(_bufWriteUInt32LE));
-    engine.setProperty(obj, "writeUInt32BE", engine.dupValue(_bufWriteUInt32BE));
-    engine.setProperty(obj, "writeInt16LE", engine.dupValue(_bufWriteInt16LE));
-    engine.setProperty(obj, "writeInt16BE", engine.dupValue(_bufWriteInt16BE));
-    engine.setProperty(obj, "writeInt32LE", engine.dupValue(_bufWriteInt32LE));
-    engine.setProperty(obj, "writeInt32BE", engine.dupValue(_bufWriteInt32BE));
-    engine.setProperty(obj, "writeFloatLE", engine.dupValue(_bufWriteFloatLE));
-    engine.setProperty(obj, "writeFloatBE", engine.dupValue(_bufWriteFloatBE));
-    engine.setProperty(obj, "writeDoubleLE", engine.dupValue(_bufWriteDoubleLE));
-    engine.setProperty(obj, "writeDoubleBE", engine.dupValue(_bufWriteDoubleBE));
-    engine.setProperty(obj, "compare", engine.dupValue(_bufCompare));
-    engine.setProperty(obj, "includes", engine.dupValue(_bufIncludes));
-    engine.setProperty(obj, "subarray", engine.dupValue(_bufSubarray));
     return obj;
 }
 
