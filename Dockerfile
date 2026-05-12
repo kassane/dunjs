@@ -30,6 +30,9 @@ WORKDIR /src
 COPY . .
 RUN mkdir -p vendor/sqlite vendor/v8/lib vendor/v8/include
 
+# Download and compile vendor deps (SQLite with musl LFS64 compat, QuickJS, JSC, V8)
+RUN ldc2 -run build.d --backend=${BACKEND}
+
 # Build the selected backend
 RUN dub build -c ${BACKEND} -b release 2>&1 \
     && strip build/dun \

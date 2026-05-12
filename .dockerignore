@@ -7,6 +7,10 @@ vendor/quickjs/
 vendor/v8/lib/
 vendor/v8/include/
 vendor/jsc/
+vendor/sqlite/build/
+vendor/sqlite/*.o
+vendor/sqlite/*.a
+vendor/sqlite/*.lib
 vendor/v8shim/*.o
 vendor/v8shim/*.a
 vendor/v8shim/build/

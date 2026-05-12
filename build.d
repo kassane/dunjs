@@ -84,11 +84,8 @@ enum V8_SYSTEM_INCLUDE = "/usr/include/v8";
 // SQLite configuration
 // Downloads the amalgamation source (sqlite3.c + sqlite3.h) for ImportC bindings.
 // Compiled to libsqlite3.a and used by all engine backends.
-enum SQLITE_VERSION     = "3490200";   // 3.49.2
-enum SQLITE_YEAR        = "2025";
-enum SQLITE_URL         = "https://www.sqlite.org/" ~ SQLITE_YEAR
-                        ~ "/sqlite-autoconf-" ~ SQLITE_VERSION ~ ".tar.gz";
-enum SQLITE_SRC_MARKER  = "sqlite3.h";
+enum SQLITE_VERSION     = "3530100";   // 3.53.1
+enum SQLITE_YEAR        = "2026";
 
 // Download retry configuration
 enum DOWNLOAD_MAX_RETRIES = 3;
@@ -109,7 +106,6 @@ string v8IncludeDir(){ return buildPath(v8Dir(), "include"); }
 string v8Archive()          { return buildPath(vendorDir(), "node-headers.tar.gz"); }
 string v8PrebuiltArchive()  { return buildPath(vendorDir(), "v8-prebuilt" ~ v8PrebuiltExt()); }
 string sqliteDir()          { return buildPath(vendorDir(), "sqlite"); }
-string sqliteArchive()      { return buildPath(vendorDir(), "sqlite.tar.gz"); }
 
 string v8PrebuiltExt()
 {
@@ -806,6 +802,8 @@ bool buildSqlite(ref const Toolchain tc, ref const BuildOptions opts)
     else
         immutable libName = "libsqlite3.a";
     immutable libPath = buildPath(sqliteDir(), libName);
+    immutable cmakeLists = buildPath(sqliteDir(), "CMakeLists.txt");
+    immutable sqliteBuildDir = buildPath(sqliteDir(), "build");
 
     if (!opts.force && exists(headerPath) && exists(libPath))
     {
@@ -813,38 +811,38 @@ bool buildSqlite(ref const Toolchain tc, ref const BuildOptions opts)
         return true;
     }
 
-    // If header already present (e.g. from system or previous download) but no lib, just compile
-    if (!exists(headerPath))
+    assert(exists(cmakeLists), "vendor/sqlite/CMakeLists.txt missing");
+    if (!tc.cmake.found)
     {
-        logInfo(tag, "Downloading SQLite amalgamation " ~ SQLITE_VERSION ~ "...");
+        logError(tag, "CMake required. Install cmake (e.g., apk add cmake / apt install cmake).");
+        return false;
+    }
 
-        if (!tc.hasDownloader())
-        {
-            // Fallback: try system header
-            if (exists("/usr/include/sqlite3.h"))
-            {
-                logInfo(tag, "Using system sqlite3.h as fallback");
-                mkdirRecurse(sqliteDir());
-                runShell("cp /usr/include/sqlite3.h " ~ shellQuote(headerPath), tag);
-                // Create ImportC bridge
-                auto bridgePath = buildPath(sqliteDir(), "sqlite3_api.c");
-                if (!exists(bridgePath))
-                {
-                    import std.file : write;
-                    write(bridgePath,
-                        "// ImportC bridge: processes sqlite3.h declarations for D import\n"
-                        ~ "#include \"sqlite3.h\"\n");
-                }
-                logInfo(tag, "sqlite3.h installed (system fallback, linking against -lsqlite3)");
-                return true;
-            }
-            logError(tag, "No download tool (curl/wget) found and no system sqlite3.h");
-            return false;
-        }
+    logInfo(tag, "Building SQLite via CMake FetchContent...");
+    mkdirRecurse(sqliteBuildDir);
 
-        if (!downloadAndExtract(tc, SQLITE_URL, sqliteArchive(),
-                                 sqliteDir(), SQLITE_SRC_MARKER, tag))
-            return false;
+    int rc = runCmd([tc.cmake.path, "..", "-DCMAKE_BUILD_TYPE=Release"],
+                     sqliteBuildDir, tag);
+    if (rc != 0)
+    {
+        logError(tag, "CMake configure failed");
+        return false;
+    }
+
+    rc = runCmd([tc.cmake.path, "--build", ".", "--config", "Release",
+                 "-j" ~ detectCpuCount().to!string], sqliteBuildDir, tag);
+    if (rc != 0)
+    {
+        logError(tag, "CMake build failed");
+        return false;
+    }
+
+    // Copy libsqlite3.a from build dir to vendor/sqlite/
+    auto builtLib = buildPath(sqliteBuildDir, libName);
+    if (exists(builtLib))
+    {
+        import std.file : copy;
+        copy(builtLib, libPath);
     }
 
     // Create ImportC bridge if not present
@@ -857,71 +855,7 @@ bool buildSqlite(ref const Toolchain tc, ref const BuildOptions opts)
             ~ "#include \"sqlite3.h\"\n");
     }
 
-    // Compile sqlite3.c if present (amalgamation download includes it)
-    auto sqliteC = buildPath(sqliteDir(), "sqlite3.c");
-    if (exists(sqliteC) && !exists(libPath))
-    {
-        logInfo(tag, "Compiling sqlite3.c -> " ~ libName ~ " ...");
-
-        if (!tc.cc.found)
-        {
-            logWarning(tag, "No C compiler found; will link against system -lsqlite3");
-            return true;
-        }
-
-        auto objFile = buildPath(sqliteDir(), "sqlite3.o");
-        int rc = runCmd([tc.cc.path, "-c", "-fPIC", "-O2", "-DSQLITE_THREADSAFE=0",
-                         "-DSQLITE_OMIT_LOAD_EXTENSION", sqliteC, "-o", objFile],
-                         sqliteDir(), tag);
-        if (rc != 0)
-        {
-            logError(tag, "Failed to compile sqlite3.c");
-            return false;
-        }
-
-        rc = runCmd(["ar", "rcs", libPath, objFile], sqliteDir(), tag);
-        if (rc != 0)
-        {
-            logError(tag, "Failed to create " ~ libName);
-            return false;
-        }
-
-        if (exists(objFile))
-            std.file.remove(objFile);
-
-        // musl 1.2.4+ removed LFS64 symbols (open64, stat64, etc.) that
-        // SQLite references via _LARGEFILE64_SOURCE.  Provide thin stubs.
-        version (CRuntime_Musl)
-        {{
-            auto compatSrc = buildPath(sqliteDir(), "musl_lfs_compat.c");
-            auto compatObj = buildPath(sqliteDir(), "musl_lfs_compat.o");
-            import std.file : write;
-            write(compatSrc,
-                "#include <fcntl.h>\n#include <unistd.h>\n"
-                ~ "#include <sys/stat.h>\n#include <sys/mman.h>\n#include <stdarg.h>\n"
-                ~ "int open64(const char *p,int f,...){va_list a;va_start(a,f);int m=va_arg(a,int);va_end(a);return open(p,f,m);}\n"
-                ~ "int stat64(const char *p,struct stat *b){return stat(p,b);}\n"
-                ~ "int fstat64(int f,struct stat *b){return fstat(f,b);}\n"
-                ~ "int lstat64(const char *p,struct stat *b){return lstat(p,b);}\n"
-                ~ "int ftruncate64(int f,off_t l){return ftruncate(f,l);}\n"
-                ~ "int fcntl64(int f,int c,...){va_list a;va_start(a,c);long v=va_arg(a,long);va_end(a);return fcntl(f,c,v);}\n"
-                ~ "ssize_t pread64(int f,void *b,size_t c,off_t o){return pread(f,b,c,o);}\n"
-                ~ "ssize_t pwrite64(int f,const void *b,size_t c,off_t o){return pwrite(f,b,c,o);}\n"
-                ~ "void *mmap64(void *a,size_t l,int p,int f,int d,off_t o){return mmap(a,l,p,f,d,o);}\n");
-            rc = runCmd([tc.cc.path, "-c", "-fPIC", "-O2", compatSrc, "-o", compatObj],
-                        sqliteDir(), tag);
-            if (rc == 0)
-            {
-                runCmd(["ar", "rcs", libPath, compatObj], sqliteDir(), tag);
-                logInfo(tag, "Added musl LFS64 compat stubs");
-            }
-            if (exists(compatObj)) std.file.remove(compatObj);
-            if (exists(compatSrc)) std.file.remove(compatSrc);
-        }}
-
-        logInfo(tag, libName ~ " built successfully");
-    }
-
+    logInfo(tag, libName ~ " built via CMake FetchContent");
     return true;
 }
 
