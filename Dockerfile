@@ -25,7 +25,6 @@ RUN apt-get update -qq \
       git \
       libxml2 \
       libssl-dev \
-      libsqlite3-dev \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
@@ -52,19 +51,11 @@ RUN dub build -c ${BACKEND} -b release 2>&1 \
     && strip build/dun \
     && ls -la build/dun
 
-# Collect shared library dependencies
+# Collect shared library dependencies (V8/QuickJS are statically linked)
 RUN mkdir -p /deps/lib \
     && case "${BACKEND}" in \
-      quickjs) \
-        cp vendor/quickjs/build/libqjs.so /deps/lib/ 2>/dev/null \
-        || cp vendor/quickjs/build/libqjs.a /deps/lib/ 2>/dev/null \
-        || true ;; \
       jsc) \
         for lib in vendor/jsc/lib/*.so*; do \
-          [ -f "$lib" ] && cp -a "$lib" /deps/lib/; \
-        done ;; \
-      v8) \
-        for lib in vendor/v8/lib/*.so* vendor/v8shim/*.so*; do \
           [ -f "$lib" ] && cp -a "$lib" /deps/lib/; \
         done ;; \
     esac \
