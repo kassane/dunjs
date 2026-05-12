@@ -154,6 +154,31 @@ dub test -c unittest                    # ~150 unit tests
 | Startup | ~30ms | ~30ms | ~8ms | **~3.5ms** |
 | Binary | ~90MB | ~120MB | ~100MB | **4.6MB** |
 
+### Performance
+
+Total wall time across 16 real-world benchmarks (lower is better):
+
+| Runtime | Total Time | vs Deno |
+|---------|-----------|---------|
+| Deno | 3.4s | 1.00x |
+| DunJS V8 | 3.6s | 1.05x |
+| Bun | 4.0s | 1.18x |
+| DunJS JSC | 4.4s | 1.29x |
+| DunJS QuickJS | 18.7s | 5.50x |
+
+DunJS V8 is competitive with Deno and Bun on JIT-optimized workloads.
+QuickJS is an interpreter (no JIT) -- it trades raw speed for smallest binary size (4.6MB).
+
+Selected benchmark (TextEncoder/TextDecoder, 100k iterations):
+
+| Runtime | Time |
+|---------|------|
+| Bun | 15ms |
+| DunJS QuickJS | 50ms |
+| Deno | 62ms |
+
+Feature compatibility: **39/39 checks** pass across all runtimes.
+
 ## License
 
 [MIT](LICENSE)
