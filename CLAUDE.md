@@ -132,12 +132,25 @@ All runtime globals are **engine-agnostic** (use `IJSEngine` + `NativeCallback`)
 | `dns` | `registerDnsModule(engine)` | `require('dns')`, ESM `import from 'dun:dns'` |
 | `ws` | `registerWsModule(engine)` | `require('ws')`, ESM `import from 'dun:ws'` |
 | `sqlite` | `registerSqliteModule(engine)` | `require('sqlite')`, ESM `import from 'dun:sqlite'` |
+| `util` | `registerUtilModule(engine)` | `require('util')`, ESM `import from 'dun:util'` |
+| `assert` | `registerAssertModule(engine)` | `require('assert')`, ESM `import from 'dun:assert'` |
+| `querystring` | `registerQuerystringModule(engine)` | `require('querystring')`, ESM `import from 'dun:querystring'` |
+| `string_decoder` | `registerStringDecoderModule(engine)` | `require('string_decoder')`, ESM `import from 'dun:string_decoder'` |
+| `timers/promises` | `registerTimersPromisesModule(engine)` | `require('timers/promises')`, ESM `import from 'dun:timers/promises'` |
 | `fetch` | `registerFetchGlobal(engine)` | Global `fetch()` (Posix, HTTPS via OpenSSL) |
 | Web globals | `installWebCompat(engine)` | `atob`, `btoa`, `structuredClone`, `TextEncoder`, `TextDecoder`, native Uint8Array creation |
 | `Deno.*` | `installDenoCompat(engine)` | Full Deno compat (30+ APIs: env, fs, permissions, errors) |
 
 All modules work identically across QuickJS, JSC, and V8 backends.
 Workers remain QuickJS-only (requires threading primitives).
+
+### Module Resolution (package.json)
+
+DunJS supports Node.js-compatible module resolution:
+- **`exports` field**: Conditional exports (dun > import > require > node > types > default), subpath exports, wildcard patterns
+- **`imports` field**: Package-internal `#` imports with condition matching
+- **`main`/`module` fields**: Fallback when `exports` is not present
+- Resolution order: `exports` → `main` → `module` → `index.js`
 
 ## Key Development Patterns
 
@@ -399,6 +412,8 @@ All 51 integration tests pass under AddressSanitizer with zero memory errors.
 | `tests/benchmarks/npm_stress.js` | 189 | Real npm packages (lodash, moment, validator, pako, diff, etc.) |
 | `tests/benchmarks/features.js` | 53 | Feature compatibility (ES2023+, modules, web APIs) |
 | `tests/benchmarks/feature_bench.js` | 25 | Cross-runtime perf (crypto, Buffer, URL, JSON, strings, arrays, Map/Set, Promise) |
+| `tests/benchmarks/framework_bench.js` | 39 | Framework patterns (routing, middleware, JSON API, templates, SQL, validation, concurrency) |
+| `tests/benchmarks/npm_compat_test.js` | 145 | Simulated npm packages (lodash, express, moment, uuid, chalk, dotenv, minimist, semver, etc.) |
 | `tests/benchmarks/sqlite_bench.js` | 5 | SQLite performance (bulk insert/read, aggregation, update) |
 
 Performance comparison (stress.js 240 tests, release builds):
