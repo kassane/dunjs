@@ -507,7 +507,7 @@ docker run --rm -e DUN_BACKEND=jsc dunjs:multi run script.js # jsc
 docker run --rm -e DUN_BACKEND=v8 dunjs:multi run script.js  # v8
 ```
 
-Base image: `gcr.io/distroless/cc-debian12` (hardened, no shell, minimal attack surface).
+Base image: `debian:bookworm-slim` (glibc, compatible with JSC/V8 prebuilt libs).
 
 ### TypeScript Support
 

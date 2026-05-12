@@ -48,36 +48,4 @@ target_compile_options(sqlite3 PRIVATE
     $<$<C_COMPILER_ID:MSVC>:/O2 /W0>
 )
 
-# musl 1.2.4+ removed LFS64 symbols (open64, stat64, ...) that SQLite
-# references via _LARGEFILE64_SOURCE.  Detect musl and provide thin stubs.
-if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
-    foreach(_musl_path "/lib/ld-musl-x86_64.so.1" "/lib/ld-musl-aarch64.so.1"
-                       "/lib/libc.musl-x86_64.so.1" "/lib/libc.musl-aarch64.so.1")
-        if(EXISTS "${_musl_path}")
-            set(IS_MUSL TRUE)
-            break()
-        endif()
-    endforeach()
-
-    if(IS_MUSL)
-        message(STATUS "musl libc detected — adding LFS64 compat stubs")
-        file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/musl_lfs_compat.c"
-"#include <fcntl.h>\n\
-#include <unistd.h>\n\
-#include <sys/stat.h>\n\
-#include <sys/mman.h>\n\
-#include <stdarg.h>\n\
-int open64(const char *p,int f,...){va_list a;va_start(a,f);int m=va_arg(a,int);va_end(a);return open(p,f,m);}\n\
-int stat64(const char *p,struct stat *b){return stat(p,b);}\n\
-int fstat64(int f,struct stat *b){return fstat(f,b);}\n\
-int lstat64(const char *p,struct stat *b){return lstat(p,b);}\n\
-int ftruncate64(int f,off_t l){return ftruncate(f,l);}\n\
-int fcntl64(int f,int c,...){va_list a;va_start(a,c);long v=va_arg(a,long);va_end(a);return fcntl(f,c,v);}\n\
-ssize_t pread64(int f,void *b,size_t c,off_t o){return pread(f,b,c,o);}\n\
-ssize_t pwrite64(int f,const void *b,size_t c,off_t o){return pwrite(f,b,c,o);}\n\
-void *mmap64(void *a,size_t l,int p,int f,int d,off_t o){return mmap(a,l,p,f,d,o);}\n")
-        target_sources(sqlite3 PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/musl_lfs_compat.c")
-    endif()
-endif()
-
 install(TARGETS sqlite3 ARCHIVE DESTINATION lib)
