@@ -54,7 +54,7 @@ Layer 5: Module System         source/dun/modules/     (ES modules, resolver, lo
 Layer 4: Built-in Modules      source/dun/builtins/    (dun:fs, dun:path, dun:net, dun:http, dun:http2, dun:os, dun:buffer, dun:events, dun:url, dun:zlib, dun:dns, dun:ws, dun:child_process, dun:stream, dun:sqlite, fetch)
 Layer 3: Event Loop            source/dun/loop/        (epoll/kqueue/poll, timer wheel, microtasks)
 Layer 2: JS Engine Abstraction source/dun/engine/      (IJSEngine interface + backends)
-Layer 1: Platform Abstraction  source/dun/platform/    (memory, threading, OS I/O)
+Layer 1: Platform Abstraction  source/dun/platform/    (memory, threading, OS I/O, arena allocator)
 Cross:   TypeScript            source/dun/ts/          (type stripping for .ts/.mts/.cts)
 Cross:   Security              source/dun/security/    (permissions, CVE audit, sandbox, 38 tests)
 ```
@@ -99,6 +99,7 @@ source/dun/ts/           # TypeScript type stripping
 +-- package.d            # Re-exports strip
 
 source/dun/platform/
++-- arena.d              # Arena/bump allocator (std.experimental.allocator Region, BorrowedRegion, InSituRegion, Mallocator)
 +-- openssl.d            # extern(C) OpenSSL bindings (libssl, libcrypto, ALPN, SSL_accept, cert/key loading)
 
 source/dun/security/
@@ -247,6 +248,8 @@ Applied across all 7 layers (~290 assertions in 25 files).
 - **UUID fast format**: CTFE hex LUT instead of `std.format` for UUID formatting
 - **CTFE hex LUT**: `bytesToHex` uses compile-time 512-byte lookup table, no `std.format`
 - **Pre-allocated buffers**: WebSocket frames, ESM shim use `Appender` with `reserve()`
+- **ESM shim O(n) strings**: `escapeJsString`, `splitLines`, `parseImportLine` use `Appender` instead of `~=`/`~` concatenation
+- **Arena allocator**: `dun.platform.arena` re-exports `std.experimental.allocator` (`Region!Mallocator`, `BorrowedRegion`, `InSituRegion`) for `@nogc pure` bump allocation
 - **GC tuning**: `rt_options = ["gcopt=minPoolSize:16"]` reduces GC collections ~11x
 
 ### 8. Event Loop Phases (per tick)

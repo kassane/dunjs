@@ -6,3 +6,4 @@ version (EngineQuickJS)
     public import dun.platform.memory;
 }
 public import dun.platform.paths;
+public import dun.platform.arena;

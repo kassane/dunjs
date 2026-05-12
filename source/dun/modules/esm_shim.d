@@ -245,17 +245,18 @@ private string replaceImportMeta(string s) @safe pure
     return (() @trusted => cast(string) out_[])();
 }
 
-private string escapeJsString(string s) @safe pure nothrow
+private string escapeJsString(string s) @safe pure
 {
-    // Simple escape for single-quoted JS strings
-    string result;
+    import std.array : Appender;
+    Appender!(char[]) buf;
+    buf.reserve(s.length + s.length / 8);
     foreach (c; s)
     {
-        if (c == '\'') result ~= "\\'";
-        else if (c == '\\') result ~= "\\\\";
-        else result ~= c;
+        if (c == '\'') { buf ~= '\\'; buf ~= '\''; }
+        else if (c == '\\') { buf ~= '\\'; buf ~= '\\'; }
+        else buf ~= c;
     }
-    return result;
+    return (() @trusted => cast(string) buf[])();
 }
 
 private string toAbsPath(string path) @safe pure nothrow
@@ -285,6 +286,8 @@ private string dirOfPath(string path) @safe pure nothrow
 
 private string parseImportLine(string line) @safe pure
 {
+    import std.array : Appender;
+
     if (line.length < 7) return "";
     auto rest = line[7 .. $];
 
@@ -297,51 +300,48 @@ private string parseImportLine(string line) @safe pure
     auto bindingPart = stripRight(rest[0 .. fromIdx]);
     auto globalProp = builtinGlobalProp(specifier);
 
-    if (globalProp.length > 0)
-    {
-        if (bindingPart.length > 0 && bindingPart[0] == '{')
-        {
-            auto names = extractBraceNames(bindingPart);
-            return "const " ~ bindingPart ~ " = globalThis." ~ globalProp ~ ";";
-        }
-        if (bindingPart.length > 0 && bindingPart[0] == '*')
-        {
-            auto asIdx = findAs(bindingPart);
-            if (asIdx >= 0)
-            {
-                auto name = stripLeft(bindingPart[asIdx + 2 .. $]);
-                return "const " ~ name ~ " = globalThis." ~ globalProp ~ ";";
-            }
-        }
-        if (bindingPart.length > 0)
-        {
-            auto ident = extractIdent(bindingPart);
-            if (ident.length > 0)
-                return "const " ~ ident ~ " = globalThis." ~ globalProp ~ ";";
-        }
-        return "";
-    }
+    Appender!(char[]) buf;
+    buf.reserve(80);
 
-    // File-based import: use require()
+    string name;
     if (bindingPart.length > 0 && bindingPart[0] == '{')
-        return "const " ~ bindingPart ~ " = require('" ~ specifier ~ "');";
-    if (bindingPart.length > 0 && bindingPart[0] == '*')
+        name = bindingPart;
+    else if (bindingPart.length > 0 && bindingPart[0] == '*')
     {
         auto asIdx = findAs(bindingPart);
         if (asIdx >= 0)
-        {
-            auto name = stripLeft(bindingPart[asIdx + 2 .. $]);
-            return "const " ~ name ~ " = require('" ~ specifier ~ "');";
-        }
+            name = stripLeft(bindingPart[asIdx + 2 .. $]);
     }
-    if (bindingPart.length > 0)
+    else if (bindingPart.length > 0)
+        name = extractIdent(bindingPart);
+
+    if (globalProp.length > 0)
     {
-        auto ident = extractIdent(bindingPart);
-        if (ident.length > 0)
-            return "const " ~ ident ~ " = require('" ~ specifier ~ "');";
+        if (name.length == 0)
+            return "";
+        buf ~= "const ";
+        buf ~= name;
+        buf ~= " = globalThis.";
+        buf ~= globalProp;
+        buf ~= ";";
+        return (() @trusted => cast(string) buf[])();
     }
-    // Side-effect import
-    return "require('" ~ specifier ~ "');";
+
+    if (name.length > 0)
+    {
+        buf ~= "const ";
+        buf ~= name;
+        buf ~= " = require('";
+        buf ~= specifier;
+        buf ~= "');";
+    }
+    else
+    {
+        buf ~= "require('";
+        buf ~= specifier;
+        buf ~= "');";
+    }
+    return (() @trusted => cast(string) buf[])();
 }
 
 private string builtinGlobalProp(string specifier) @safe pure nothrow
@@ -425,7 +425,10 @@ private string extractIdent(string s) @safe pure nothrow
 
 private string[] splitLines(string s) @safe pure
 {
-    string[] result;
+    import std.array : Appender;
+    Appender!(string[]) result;
+    if (s.length > 0)
+        result.reserve(s.length / 40 + 1);
     size_t start = 0;
     foreach (i, c; s)
     {
@@ -437,7 +440,7 @@ private string[] splitLines(string s) @safe pure
     }
     if (start < s.length)
         result ~= s[start .. $];
-    return result;
+    return result[];
 }
 
 private string stripLeft(string s) @safe pure nothrow
