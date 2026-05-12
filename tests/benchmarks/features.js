@@ -46,4 +46,46 @@ test("process.cwd", () => typeof process !== "undefined" && typeof process.cwd =
 test("process.exit", () => typeof process !== "undefined" && typeof process.exit === "function");
 test("process.on", () => typeof process !== "undefined" && typeof process.on === "function");
 
+// New modules (DunJS-specific, may not exist in other runtimes)
+try {
+  const zlib = require('zlib');
+  test("zlib.deflateSync", () => typeof zlib.deflateSync === "function");
+  test("zlib.gzipSync", () => typeof zlib.gzipSync === "function");
+  test("zlib roundtrip", () => {
+    const input = "Hello, zlib!";
+    const deflated = zlib.deflateSync(input);
+    const inflated = zlib.inflateSync(deflated);
+    let str = '';
+    for (let i = 0; i < inflated.length; i++) str += String.fromCharCode(inflated[i]);
+    return str === input;
+  });
+} catch(e) { /* zlib not available */ }
+
+try {
+  const stream = require('stream');
+  test("stream.Readable", () => typeof stream.Readable === "function");
+  test("stream.Writable", () => typeof stream.Writable === "function");
+  test("stream.Transform", () => typeof stream.Transform === "function");
+  test("stream.pipeline", () => typeof stream.pipeline === "function");
+} catch(e) { /* stream not available */ }
+
+try {
+  const dns = require('dns');
+  test("dns.lookup", () => typeof dns.lookup === "function");
+  test("dns.lookupSync", () => typeof dns.lookupSync === "function");
+  test("dns.resolve4", () => typeof dns.resolve4 === "function");
+} catch(e) { /* dns not available */ }
+
+try {
+  const cp = require('child_process');
+  test("child_process.execSync", () => typeof cp.execSync === "function");
+  test("child_process.spawnSync", () => typeof cp.spawnSync === "function");
+} catch(e) { /* child_process not available */ }
+
+try {
+  const ws = require('ws');
+  test("ws.WebSocket", () => typeof ws.WebSocket === "function");
+  test("ws.WebSocketServer", () => typeof ws.WebSocketServer === "function");
+} catch(e) { /* ws not available */ }
+
 console.log("\nTotal: " + pass + "/" + (pass+fail) + " passed");
