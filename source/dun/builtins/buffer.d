@@ -337,15 +337,7 @@ JSHandle jsBufferToString(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
     if (encoding == "hex")
     {
-        try
-        {
-            import std.format : format;
-            string hex;
-            foreach (b; slice)
-                hex ~= format("%02x", b);
-            return engine.newString(hex);
-        }
-        catch (Exception) { return engine.newString(""); }
+        return engine.newString(bytesToHex(slice));
     }
     else if (encoding == "base64")
     {
@@ -466,15 +458,7 @@ JSHandle jsBufferFill(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     }
 
     bytes[] = fillVal;
-    try
-    {
-        import std.format : format;
-        string hex;
-        foreach (b; bytes)
-            hex ~= format("%02x", b);
-        engine.setProperty(thisVal, "__data", engine.newString(hex));
-    }
-    catch (Exception) {}
+    engine.setProperty(thisVal, "__data", engine.newString(bytesToHex(bytes)));
     return thisVal;
 }
 
@@ -500,15 +484,7 @@ JSHandle jsBufferWrite(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
         written++;
     }
 
-    try
-    {
-        import std.format : format;
-        string hex;
-        foreach (b; bytes)
-            hex ~= format("%02x", b);
-        engine.setProperty(thisVal, "__data", engine.newString(hex));
-    }
-    catch (Exception) {}
+    engine.setProperty(thisVal, "__data", engine.newString(bytesToHex(bytes)));
     return engine.newInt(written);
 }
 
@@ -543,14 +519,6 @@ JSHandle jsBufferWriteUInt8(void* ctx, JSHandle thisVal, JSHandle[] args) @trust
         return engine.throwRangeError("Offset out of range");
 
     bytes[offset] = cast(ubyte) value;
-    try
-    {
-        import std.format : format;
-        string hex;
-        foreach (b; bytes)
-            hex ~= format("%02x", b);
-        engine.setProperty(thisVal, "__data", engine.newString(hex));
-    }
-    catch (Exception) {}
+    engine.setProperty(thisVal, "__data", engine.newString(bytesToHex(bytes)));
     return engine.newInt(offset + 1);
 }

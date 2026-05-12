@@ -150,26 +150,35 @@ struct WsFrame
 
 ubyte[] buildWsFrame(WsOpcode opcode, const(ubyte)[] payload, bool mask) @trusted
 {
-    ubyte[] frame;
-    frame ~= cast(ubyte)(0x80 | (opcode & 0x0F));
+    // Pre-calculate frame size: 1 (opcode) + 1-9 (length) + 0|4 (mask key) + payload
+    size_t headerLen = 2;
+    if (payload.length >= 126 && payload.length <= 0xFFFF) headerLen = 4;
+    else if (payload.length > 0xFFFF) headerLen = 10;
+    size_t maskLen = mask ? 4 : 0;
+    size_t totalLen = headerLen + maskLen + payload.length;
+
+    auto frame = new ubyte[totalLen];
+    size_t pos = 0;
+
+    frame[pos++] = cast(ubyte)(0x80 | (opcode & 0x0F));
 
     ubyte maskBit = mask ? 0x80 : 0;
     if (payload.length < 126)
     {
-        frame ~= cast(ubyte)(maskBit | cast(ubyte) payload.length);
+        frame[pos++] = cast(ubyte)(maskBit | cast(ubyte) payload.length);
     }
     else if (payload.length <= 0xFFFF)
     {
-        frame ~= cast(ubyte)(maskBit | 126);
-        frame ~= cast(ubyte)(payload.length >> 8);
-        frame ~= cast(ubyte)(payload.length & 0xFF);
+        frame[pos++] = cast(ubyte)(maskBit | 126);
+        frame[pos++] = cast(ubyte)(payload.length >> 8);
+        frame[pos++] = cast(ubyte)(payload.length & 0xFF);
     }
     else
     {
-        frame ~= cast(ubyte)(maskBit | 127);
+        frame[pos++] = cast(ubyte)(maskBit | 127);
         ulong len = payload.length;
         foreach_reverse (i; 0 .. 8)
-            frame ~= cast(ubyte)((len >> (i * 8)) & 0xFF);
+            frame[pos++] = cast(ubyte)((len >> (i * 8)) & 0xFF);
     }
 
     if (mask)
@@ -177,13 +186,14 @@ ubyte[] buildWsFrame(WsOpcode opcode, const(ubyte)[] payload, bool mask) @truste
         import std.random : uniform;
         ubyte[4] key;
         foreach (ref k; key) k = cast(ubyte) uniform(0, 256);
-        frame ~= key[];
+        frame[pos .. pos + 4] = key[];
+        pos += 4;
         foreach (i, b; payload)
-            frame ~= cast(ubyte)(b ^ key[i & 3]);
+            frame[pos + i] = cast(ubyte)(b ^ key[i & 3]);
     }
     else
     {
-        frame ~= payload;
+        frame[pos .. pos + payload.length] = payload[];
     }
     return frame;
 }

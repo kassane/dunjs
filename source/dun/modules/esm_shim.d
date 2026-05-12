@@ -2,7 +2,10 @@ module dun.modules.esm_shim;
 
 string transpileESM(string source, string filename) @safe pure
 {
-    string result;
+    import std.array : Appender;
+
+    Appender!(char[]) result;
+    result.reserve(source.length);
     string[] preamble;
     string[] exportNames;
     bool hasDefaultExport;
@@ -13,7 +16,8 @@ string transpileESM(string source, string filename) @safe pure
         auto trimmed = stripLeft(line);
         if (trimmed.length == 0 || trimmed[0] == '/' || trimmed[0] == '*')
         {
-            result ~= line ~ "\n";
+            result ~= line;
+            result ~= '\n';
             continue;
         }
 
@@ -30,7 +34,9 @@ string transpileESM(string source, string filename) @safe pure
         if (startsWith(trimmed, "export default "))
         {
             hasDefaultExport = true;
-            result ~= "var __esm_default__ = " ~ trimmed[15 .. $] ~ "\n";
+            result ~= "var __esm_default__ = ";
+            result ~= trimmed[15 .. $];
+            result ~= '\n';
             continue;
         }
 
@@ -42,7 +48,8 @@ string transpileESM(string source, string filename) @safe pure
                 auto name = extractIdent(rest[9 .. $]);
                 if (name.length > 0)
                     exportNames ~= name;
-                result ~= rest ~ "\n";
+                result ~= rest;
+                result ~= '\n';
                 continue;
             }
             if (startsWith(rest, "const ") || startsWith(rest, "let ") || startsWith(rest, "var "))
@@ -52,7 +59,8 @@ string transpileESM(string source, string filename) @safe pure
                 auto name = extractIdent(rest[declStart .. $]);
                 if (name.length > 0)
                     exportNames ~= name;
-                result ~= rest ~ "\n";
+                result ~= rest;
+                result ~= '\n';
                 continue;
             }
             if (startsWith(rest, "class "))
@@ -60,22 +68,29 @@ string transpileESM(string source, string filename) @safe pure
                 auto name = extractIdent(rest[6 .. $]);
                 if (name.length > 0)
                     exportNames ~= name;
-                result ~= rest ~ "\n";
+                result ~= rest;
+                result ~= '\n';
                 continue;
             }
-            result ~= rest ~ "\n";
+            result ~= rest;
+            result ~= '\n';
             continue;
         }
 
-        result ~= line ~ "\n";
+        result ~= line;
+        result ~= '\n';
     }
 
-    string output;
+    Appender!(char[]) output;
+    output.reserve(source.length);
     foreach (p; preamble)
-        output ~= p ~ "\n";
-    output ~= result;
+    {
+        output ~= p;
+        output ~= '\n';
+    }
+    output ~= result[];
 
-    return output;
+    return (() @trusted => cast(string) output[])();
 }
 
 private string parseImportLine(string line) @safe pure
