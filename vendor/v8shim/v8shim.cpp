@@ -327,9 +327,44 @@ void dun_v8_set_property(DunV8Context* cw, DunV8Value* obj,
     });
 }
 
+DunV8Value* dun_v8_get_property_index(DunV8Context* cw, DunV8Value* obj, unsigned int idx) {
+    return dun::withContext(cw, [&](auto isolate, auto context, auto* iw) {
+        auto o = obj->value.Get(isolate).template As<v8::Object>();
+        auto val = o->Get(context, idx);
+        if (val.IsEmpty())
+            return wrapValue(iw, v8::Undefined(isolate));
+        return wrapValue(iw, val.ToLocalChecked());
+    });
+}
+
+void dun_v8_set_property_index(DunV8Context* cw, DunV8Value* obj,
+    unsigned int idx, DunV8Value* val)
+{
+    dun::withContext(cw, [&](auto isolate, auto context, auto*) {
+        auto o = obj->value.Get(isolate).template As<v8::Object>();
+        o->Set(context, idx, val->value.Get(isolate)).FromMaybe(false);
+        return 0;
+    });
+}
+
 DunV8Value* dun_v8_global(DunV8Context* cw) {
     return dun::withContext(cw, [](auto, auto context, auto* iw) {
         return wrapValue(iw, context->Global());
+    });
+}
+
+// --- Typed arrays ---
+
+DunV8Value* dun_v8_new_uint8array(DunV8Context* cw,
+    const unsigned char* data, size_t len)
+{
+    return dun::withContext(cw, [&](auto isolate, auto context, auto* iw) {
+        auto ab = v8::ArrayBuffer::New(isolate, len);
+        if (data && len > 0) {
+            memcpy(ab->GetBackingStore()->Data(), data, len);
+        }
+        auto ta = v8::Uint8Array::New(ab, 0, len);
+        return wrapValue(iw, ta.template As<v8::Value>());
     });
 }
 

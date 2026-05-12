@@ -105,36 +105,7 @@ class V8Engine : IJSEngine
     JSHandle newUint8Array(const(ubyte)[] data) @trusted
     {
         assert(ctx !is null, "V8 context not initialized");
-        import std.format : format;
-        // Build Uint8Array via eval — V8's JIT makes this fast
-        char[] buf;
-        try
-        {
-            buf = new char[](22 + data.length * 4);
-        }
-        catch (Exception)
-        {
-            return toHandle(dun_v8_new_undefined(ctx));
-        }
-        size_t pos = 0;
-        void put(const(char)[] s)
-        {
-            buf[pos .. pos + s.length] = s[];
-            pos += s.length;
-        }
-        put("new Uint8Array([");
-        foreach (i, b; data)
-        {
-            if (i > 0) put(",");
-            // Fast int-to-string for 0-255
-            if (b >= 100) { buf[pos++] = cast(char)('0' + b / 100); buf[pos++] = cast(char)('0' + (b / 10) % 10); buf[pos++] = cast(char)('0' + b % 10); }
-            else if (b >= 10) { buf[pos++] = cast(char)('0' + b / 10); buf[pos++] = cast(char)('0' + b % 10); }
-            else { buf[pos++] = cast(char)('0' + b); }
-        }
-        put("])");
-        int isError;
-        auto val = dun_v8_eval(ctx, buf.ptr, pos, "<uint8array>", &isError);
-        return toHandle(val);
+        return toHandle(dun_v8_new_uint8array(ctx, data.ptr, data.length));
     }
 
     JSHandle newFunction(NativeCallback cb, string name, int argc) @trusted
@@ -197,20 +168,14 @@ class V8Engine : IJSEngine
 
     void setPropertyIndex(JSHandle obj, uint idx, JSHandle val) @trusted
     {
-        import std.conv : to;
-        import std.string : toStringz;
         assert(ctx !is null, "V8 context not initialized");
-        dun_v8_set_property(ctx, fromHandle(obj),
-            idx.to!string.toStringz, fromHandle(val));
+        dun_v8_set_property_index(ctx, fromHandle(obj), idx, fromHandle(val));
     }
 
     JSHandle getPropertyIndex(JSHandle obj, uint idx) @trusted
     {
-        import std.conv : to;
-        import std.string : toStringz;
         assert(ctx !is null, "V8 context not initialized");
-        return toHandle(dun_v8_get_property(ctx, fromHandle(obj),
-            idx.to!string.toStringz));
+        return toHandle(dun_v8_get_property_index(ctx, fromHandle(obj), idx));
     }
 
     bool isArray(JSHandle val) @trusted
@@ -444,14 +409,24 @@ private extern (C) DunV8Value* v8NativeTrampoline(DunV8Context* ctx,
 
     JSHandle thisH;
     thisH.opaque[0] = cast(void*) thisVal;
+    JSHandle[16] stackArgs = void;
     JSHandle[] args;
     try
     {
         if (argc > 0)
         {
-            args = new JSHandle[argc];
-            foreach (i; 0 .. argc)
-                args[i].opaque[0] = cast(void*) argv[i];
+            if (argc <= 16)
+            {
+                foreach (i; 0 .. argc)
+                    stackArgs[i].opaque[0] = cast(void*) argv[i];
+                args = stackArgs[0 .. argc];
+            }
+            else
+            {
+                args = new JSHandle[argc];
+                foreach (i; 0 .. argc)
+                    args[i].opaque[0] = cast(void*) argv[i];
+            }
         }
     }
     catch (Exception)

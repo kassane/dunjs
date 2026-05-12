@@ -115,38 +115,21 @@ class JSCEngine : IJSEngine
     JSHandle newUint8Array(const(ubyte)[] data) @trusted
     {
         assert(ctx !is null, "JSC context not initialized");
-        import std.string : toStringz;
-        try
-        {
-            auto buf = new char[](22 + data.length * 4);
-            size_t pos = 0;
-            void put(const(char)[] s)
-            {
-                buf[pos .. pos + s.length] = s[];
-                pos += s.length;
-            }
-            put("new Uint8Array([");
-            foreach (i, b; data)
-            {
-                if (i > 0) { buf[pos++] = ','; }
-                if (b >= 100) { buf[pos++] = cast(char)('0' + b / 100); buf[pos++] = cast(char)('0' + (b / 10) % 10); buf[pos++] = cast(char)('0' + b % 10); }
-                else if (b >= 10) { buf[pos++] = cast(char)('0' + b / 10); buf[pos++] = cast(char)('0' + b % 10); }
-                else { buf[pos++] = cast(char)('0' + b); }
-            }
-            put("])");
-            buf[pos] = '\0';
-            auto jsStr = JSStringCreateWithUTF8CString(buf.ptr);
-            scope (exit) JSStringRelease(jsStr);
-            JSValueRef exc = null;
-            auto val = JSEvaluateScript(ctx, jsStr, null, null, 1, &exc);
-            if (exc !is null || val is null)
-                return toHandle(cast(void*) JSValueMakeUndefined(ctx));
-            return toHandle(cast(void*) val);
-        }
-        catch (Exception)
-        {
+        JSValueRef exc = null;
+        auto ta = JSObjectMakeTypedArray(ctx,
+            JSTypedArrayType.kJSTypedArrayTypeUint8Array, data.length, &exc);
+        if (exc !is null || ta is null)
             return toHandle(cast(void*) JSValueMakeUndefined(ctx));
+        if (data.length > 0)
+        {
+            auto ptr = cast(ubyte*) JSObjectGetTypedArrayBytesPtr(ctx, ta, &exc);
+            if (ptr !is null)
+            {
+                import core.stdc.string : memcpy;
+                memcpy(ptr, data.ptr, data.length);
+            }
         }
+        return toHandle(cast(void*) cast(JSValueRef) ta);
     }
 
     JSHandle newFunction(NativeCallback cb, string name, int argc) @trusted
@@ -475,14 +458,24 @@ private extern (C) JSValueRef jscNativeTrampoline(JSContextRef ctx,
 
     JSHandle thisH;
     thisH.opaque[0] = cast(void*) thisObject;
+    JSHandle[16] stackArgs = void;
     JSHandle[] args;
     try
     {
         if (argumentCount > 0)
         {
-            args = new JSHandle[argumentCount];
-            foreach (i; 0 .. argumentCount)
-                args[i].opaque[0] = cast(void*) arguments[i];
+            if (argumentCount <= 16)
+            {
+                foreach (i; 0 .. argumentCount)
+                    stackArgs[i].opaque[0] = cast(void*) arguments[i];
+                args = stackArgs[0 .. argumentCount];
+            }
+            else
+            {
+                args = new JSHandle[argumentCount];
+                foreach (i; 0 .. argumentCount)
+                    args[i].opaque[0] = cast(void*) arguments[i];
+            }
         }
     }
     catch (Exception)

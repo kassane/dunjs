@@ -63,7 +63,15 @@ DunV8Value* dun_v8_get_property(DunV8Context* ctx, DunV8Value* obj,
     const(char)* name);
 void dun_v8_set_property(DunV8Context* ctx, DunV8Value* obj,
     const(char)* name, DunV8Value* val);
+DunV8Value* dun_v8_get_property_index(DunV8Context* ctx, DunV8Value* obj,
+    uint idx);
+void dun_v8_set_property_index(DunV8Context* ctx, DunV8Value* obj,
+    uint idx, DunV8Value* val);
 DunV8Value* dun_v8_global(DunV8Context* ctx);
+
+// --- Typed arrays ---
+DunV8Value* dun_v8_new_uint8array(DunV8Context* ctx,
+    const(ubyte)* data, size_t len);
 
 // --- Reference management ---
 void dun_v8_value_ref(DunV8Value* val);

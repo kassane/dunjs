@@ -107,27 +107,12 @@ class QuickJSEngine : IJSEngine
     JSHandle newUint8Array(const(ubyte)[] data) @trusted
     {
         assert(ctx !is null, "Engine not initialized");
-        if (data.length == 0)
-        {
-            auto r = JS_Eval(ctx, "new Uint8Array(0)".ptr, 17, "<uint8>".ptr, 0);
-            return toHandle(r);
-        }
-        auto buf = new char[](22 + data.length * 4);
-        size_t pos = 0;
-        foreach (c; "new Uint8Array([")
-            buf[pos++] = c;
-        foreach (i, b; data)
-        {
-            if (i > 0) buf[pos++] = ',';
-            if (b >= 100) { buf[pos++] = cast(char)('0' + b / 100); buf[pos++] = cast(char)('0' + (b / 10) % 10); buf[pos++] = cast(char)('0' + b % 10); }
-            else if (b >= 10) { buf[pos++] = cast(char)('0' + b / 10); buf[pos++] = cast(char)('0' + b % 10); }
-            else buf[pos++] = cast(char)('0' + b);
-        }
-        buf[pos++] = ']';
-        buf[pos++] = ')';
-        buf[pos] = 0;
-        auto r = JS_Eval(ctx, buf.ptr, pos, "<uint8>".ptr, 0);
-        return toHandle(r);
+        auto ab = JS_NewArrayBufferCopy(ctx, data.ptr, data.length);
+        if (JS_IsException(ab) != 0)
+            return toHandle(ab);
+        auto ta = JS_NewTypedArray(ctx, 1, &ab, JSTypedArrayEnum.uint8);
+        JS_FreeValue(ctx, ab);
+        return toHandle(ta);
     }
 
     JSHandle newFunction(NativeCallback cb, string name, int argc) @trusted
@@ -429,14 +414,24 @@ private extern (C) JSValue qjsNativeTrampoline(JSContext* ctx,
     auto opaque = JS_GetContextOpaque(ctx);
     JSHandle thisH;
     *cast(JSValue*)&thisH = cast(JSValue) this_val;
+    JSHandle[16] stackArgs = void;
     JSHandle[] args;
     try
     {
         if (argc > 0)
         {
-            args = new JSHandle[argc];
-            foreach (i; 0 .. argc)
-                *cast(JSValue*)&args[i] = cast(JSValue) argv[i];
+            if (argc <= 16)
+            {
+                foreach (i; 0 .. argc)
+                    *cast(JSValue*)&stackArgs[i] = cast(JSValue) argv[i];
+                args = stackArgs[0 .. argc];
+            }
+            else
+            {
+                args = new JSHandle[argc];
+                foreach (i; 0 .. argc)
+                    *cast(JSValue*)&args[i] = cast(JSValue) argv[i];
+            }
         }
     }
     catch (Exception)
