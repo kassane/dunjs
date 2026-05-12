@@ -96,6 +96,37 @@ ulong ERR_peek_last_error();
 void ERR_clear_error();
 const(char)* ERR_reason_error_string(ulong e);
 
+// --- SSL server ---
+
+int SSL_accept(SSL* ssl);
+
+// Certificate loading (server-side TLS)
+int SSL_CTX_use_certificate_file(SSL_CTX* ctx, const(char)* file, int type);
+int SSL_CTX_use_PrivateKey_file(SSL_CTX* ctx, const(char)* file, int type);
+int SSL_CTX_check_private_key(const(SSL_CTX)* ctx);
+
+enum SSL_FILETYPE_PEM = 1;
+enum SSL_FILETYPE_ASN1 = 2;
+
+// --- ALPN (Application Layer Protocol Negotiation) ---
+
+int SSL_CTX_set_alpn_protos(SSL_CTX* ctx, const(ubyte)* protos, uint protos_len);
+int SSL_set_alpn_protos(SSL* ssl, const(ubyte)* protos, uint protos_len);
+void SSL_get0_alpn_selected(const(SSL)* ssl, const(ubyte)** data, uint* len);
+
+alias SSL_CTX_alpn_select_cb_func = extern(C) int function(
+    SSL* ssl, const(ubyte)** out_, ubyte* outlen,
+    const(ubyte)* in_, uint inlen, void* arg) nothrow;
+void SSL_CTX_set_alpn_select_cb(SSL_CTX* ctx, SSL_CTX_alpn_select_cb_func cb, void* arg);
+
+int SSL_select_next_proto(
+    ubyte** out_, ubyte* outlen,
+    const(ubyte)* server, uint server_len,
+    const(ubyte)* client, uint client_len);
+
+enum OPENSSL_NPN_NEGOTIATED = 1;
+enum OPENSSL_NPN_NO_OVERLAP = 2;
+
 // --- BIO (for hostname verification) ---
 
 int SSL_set1_host(SSL* ssl, const(char)* hostname);

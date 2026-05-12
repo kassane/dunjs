@@ -43,6 +43,7 @@ JSHandle jsRequire(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     else if (specifier == "crypto") specifier = "dun:crypto";
     else if (specifier == "net") specifier = "dun:net";
     else if (specifier == "http") specifier = "dun:http";
+    else if (specifier == "http2") specifier = "dun:http2";
     else if (specifier == "os") specifier = "dun:os";
     else if (specifier == "buffer") specifier = "dun:buffer";
     else if (specifier == "events") specifier = "dun:events";
@@ -58,6 +59,7 @@ JSHandle jsRequire(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
         else if (specifier == "dun:crypto") propName = "__dun_cjs_crypto__";
         else if (specifier == "dun:net") propName = "__dun_cjs_net__";
         else if (specifier == "dun:http") propName = "__dun_cjs_http__";
+        else if (specifier == "dun:http2") propName = "__dun_cjs_http2__";
         else if (specifier == "dun:os") propName = "__dun_cjs_os__";
         else if (specifier == "dun:buffer") propName = "__dun_cjs_buffer__";
         else if (specifier == "dun:events") propName = "__dun_cjs_events__";

@@ -30,6 +30,7 @@ void installGlobals(IJSEngine engine, DunState* state) @trusted
     import dun.builtins.crypto : registerCryptoModule;
     import dun.builtins.net : registerNetModule;
     import dun.builtins.http : registerHttpModule;
+    import dun.builtins.http2 : registerHttp2Module;
     import dun.builtins.buffer : registerBufferModule;
     import dun.builtins.events : registerEventsModule;
     import dun.builtins.url : registerUrlModule;
@@ -46,6 +47,7 @@ void installGlobals(IJSEngine engine, DunState* state) @trusted
     registerCryptoModule(engine);
     registerNetModule(engine);
     registerHttpModule(engine);
+    registerHttp2Module(engine);
     registerBufferModule(engine);
     registerEventsModule(engine);
     registerUrlModule(engine);

@@ -10,6 +10,7 @@ public import dun.builtins.path;
 public import dun.builtins.crypto;
 public import dun.builtins.net;
 public import dun.builtins.http;
+public import dun.builtins.http2;
 public import dun.builtins.buffer;
 public import dun.builtins.events;
 public import dun.builtins.url;
