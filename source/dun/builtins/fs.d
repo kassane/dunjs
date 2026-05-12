@@ -848,6 +848,40 @@ JSHandle jsReadSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     auto engine = state.engine;
     if (args.length < 2) return engine.throwTypeError("readSync requires fd and length");
     auto fd = engine.extractInt(args[0]);
+
+    // Node.js signature: readSync(fd, buffer, offset, length, position) -> bytesRead
+    // DunJS simple:      readSync(fd, length) -> string
+    bool isBufferForm = args.length >= 4 && engine.isObject(args[1]);
+
+    if (isBufferForm) {
+        auto offset = engine.extractInt(args[2]);
+        auto length = engine.extractInt(args[3]);
+        if (length <= 0 || length > 64 * 1024 * 1024)
+            return engine.throwRangeError("readSync length out of range");
+
+        int pos = -1;
+        if (args.length >= 5 && !engine.isNull(args[4]))
+            pos = engine.extractInt(args[4]);
+
+        try {
+            import core.sys.posix.unistd : read, lseek;
+            import core.sys.posix.sys.types : off_t;
+            if (pos >= 0)
+                lseek(fd, cast(off_t) pos, 0); // SEEK_SET
+            auto buf = new ubyte[length];
+            auto bytesRead = read(fd, buf.ptr, length);
+            if (bytesRead < 0) {
+                import core.stdc.errno : errno;
+                import core.stdc.string : strerror;
+                import std.string : fromStringz;
+                return engine.throwTypeError("EIO: " ~ fromStringz(strerror(errno)).idup ~ ", read");
+            }
+            return engine.newFloat(cast(double) bytesRead);
+        } catch (Exception e) {
+            return engine.throwTypeError("EIO: read error");
+        }
+    }
+
     auto length = engine.extractInt(args[1]);
     if (length <= 0 || length > 64 * 1024 * 1024)
         return engine.throwRangeError("readSync length out of range");
