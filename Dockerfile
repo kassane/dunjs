@@ -1,4 +1,4 @@
-# DunJS Distroless Container — hardened, multi-backend
+# DunJS Alpine Container — hardened, multi-backend
 # Usage:
 #   docker build --build-arg BACKEND=quickjs -t dunjs:quickjs .
 #   docker build --build-arg BACKEND=jsc -t dunjs:jsc .
@@ -7,40 +7,20 @@
 #   docker run --rm dunjs:quickjs eval "1+1"
 
 # ─── Stage 1: Build ───────────────────────────────────────────
-FROM debian:bookworm-slim AS build
+FROM alpine:3.20 AS build
 
 ARG BACKEND=quickjs
 ARG LDC_VERSION=1.42.0
 
-RUN apt-get update -qq \
-    && apt-get install -qq --no-install-recommends \
-      ca-certificates \
-      curl \
-      xz-utils \
-      gcc \
-      g++ \
-      cmake \
-      make \
-      pkg-config \
-      git \
-      libxml2 \
-      libssl-dev \
-    && apt-get clean \
-    && rm -rf /var/lib/apt/lists/*
+RUN apk add --no-cache \
+    ca-certificates curl xz gcc g++ cmake make pkgconf git bash \
+    libxml2-dev openssl-dev musl-dev linux-headers \
+    gcompat libstdc++
 
-# Install LDC (symlink to /usr/local/bin for arch-independent PATH)
-RUN arch="$(dpkg --print-architecture)" \
-    && case "${arch}" in \
-      amd64) ldc_arch="linux-x86_64" ;; \
-      arm64) ldc_arch="linux-aarch64" ;; \
-      *) echo "error: unsupported architecture: $arch"; exit 1 ;; \
-    esac \
-    && curl -fsSL "https://github.com/ldc-developers/ldc/releases/download/v${LDC_VERSION}/ldc2-${LDC_VERSION}-${ldc_arch}.tar.xz" \
-      -o /tmp/ldc.tar.xz \
-      --retry 5 \
-    && tar -xf /tmp/ldc.tar.xz -C /opt/ \
-    && rm /tmp/ldc.tar.xz \
-    && for f in /opt/ldc2-${LDC_VERSION}-${ldc_arch}/bin/*; do ln -sf "$f" /usr/local/bin/; done
+# Install LDC via ldcup (same as CI)
+RUN curl -sSf https://raw.githubusercontent.com/kassane/ldcup/main/scripts/install.sh | sh
+ENV PATH="/root/.ldcup/bin:${PATH}"
+RUN ldcup install ldc2-${LDC_VERSION}
 
 WORKDIR /src
 COPY . .
@@ -59,20 +39,22 @@ RUN mkdir -p /deps/lib \
           [ -f "$lib" ] && cp -a "$lib" /deps/lib/; \
         done ;; \
     esac \
-    && ldd build/dun | grep "=> /" | awk '{print $3}' | while read lib; do \
+    && ldd build/dun 2>/dev/null | grep "=> /" | awk '{print $3}' | while read lib; do \
       [ -f "$lib" ] && cp -aL "$lib" /deps/lib/ 2>/dev/null || true; \
     done \
-    && ls -la /deps/lib/
+    && ls -la /deps/lib/ 2>/dev/null || true
 
-# ─── Stage 2: Distroless runtime ──────────────────────────────
-FROM gcr.io/distroless/cc-debian12
+# ─── Stage 2: Alpine runtime ─────────────────────────────────
+FROM alpine:3.20
 
 ARG BACKEND=quickjs
 
 LABEL org.opencontainers.image.title="DunJS" \
       org.opencontainers.image.description="Secure JavaScript/TypeScript runtime (${BACKEND} backend)" \
       org.opencontainers.image.url="https://github.com/kassane/dunjs" \
-      org.opencontainers.image.source="https://github.com/kassone/dunjs"
+      org.opencontainers.image.source="https://github.com/kassane/dunjs"
+
+RUN apk add --no-cache gcompat libstdc++ libgcc
 
 COPY --from=build /src/build/dun /usr/local/bin/dun
 COPY --from=build /deps/lib/ /usr/local/lib/
