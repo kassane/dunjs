@@ -886,9 +886,38 @@ bool buildSqlite(ref const Toolchain tc, ref const BuildOptions opts)
             return false;
         }
 
-        // Clean up .o file
         if (exists(objFile))
             std.file.remove(objFile);
+
+        // musl 1.2.4+ removed LFS64 symbols (open64, stat64, etc.) that
+        // SQLite references via _LARGEFILE64_SOURCE.  Provide thin stubs.
+        version (CRuntime_Musl)
+        {{
+            auto compatSrc = buildPath(sqliteDir(), "musl_lfs_compat.c");
+            auto compatObj = buildPath(sqliteDir(), "musl_lfs_compat.o");
+            import std.file : write;
+            write(compatSrc,
+                "#include <fcntl.h>\n#include <unistd.h>\n"
+                ~ "#include <sys/stat.h>\n#include <sys/mman.h>\n#include <stdarg.h>\n"
+                ~ "int open64(const char *p,int f,...){va_list a;va_start(a,f);int m=va_arg(a,int);va_end(a);return open(p,f,m);}\n"
+                ~ "int stat64(const char *p,struct stat *b){return stat(p,b);}\n"
+                ~ "int fstat64(int f,struct stat *b){return fstat(f,b);}\n"
+                ~ "int lstat64(const char *p,struct stat *b){return lstat(p,b);}\n"
+                ~ "int ftruncate64(int f,off_t l){return ftruncate(f,l);}\n"
+                ~ "int fcntl64(int f,int c,...){va_list a;va_start(a,c);long v=va_arg(a,long);va_end(a);return fcntl(f,c,v);}\n"
+                ~ "ssize_t pread64(int f,void *b,size_t c,off_t o){return pread(f,b,c,o);}\n"
+                ~ "ssize_t pwrite64(int f,const void *b,size_t c,off_t o){return pwrite(f,b,c,o);}\n"
+                ~ "void *mmap64(void *a,size_t l,int p,int f,int d,off_t o){return mmap(a,l,p,f,d,o);}\n");
+            rc = runCmd([tc.cc.path, "-c", "-fPIC", "-O2", compatSrc, "-o", compatObj],
+                        sqliteDir(), tag);
+            if (rc == 0)
+            {
+                runCmd(["ar", "rcs", libPath, compatObj], sqliteDir(), tag);
+                logInfo(tag, "Added musl LFS64 compat stubs");
+            }
+            if (exists(compatObj)) std.file.remove(compatObj);
+            if (exists(compatSrc)) std.file.remove(compatSrc);
+        }}
 
         logInfo(tag, libName ~ " built successfully");
     }
