@@ -4,11 +4,24 @@ version (Posix):
 
 import std.stdio : writeln, writefln;
 
-bool installPackage(string spec) @trusted
+enum AuditMode
+{
+    warn,
+    block,
+    off,
+    live,
+}
+
+static assert(__traits(allMembers, AuditMode).length == 4,
+    "AuditMode enum member count changed -- update parseAuditFlag");
+
+bool installPackage(string spec, AuditMode auditMode = AuditMode.warn) @trusted
 {
     import std.string : indexOf;
     import std.file : exists, mkdirRecurse, write;
     import std.path : buildNormalizedPath;
+
+    assert(spec.length > 0, "Package spec must not be empty");
 
     string name, versionRange;
     auto atIdx = spec.indexOf('@');
@@ -37,6 +50,44 @@ bool installPackage(string spec) @trusted
     {
         writeln("error: no matching version for ", versionRange);
         return false;
+    }
+
+    // Pre-download CVE audit
+    if (auditMode != AuditMode.off)
+    {
+        import dun.security.cve_db : checkPackage, worstSeverity, Severity,
+            severityString, severityColor;
+
+        bool useApi = (auditMode == AuditMode.live);
+        auto vulns = checkPackage(name, version_, useApi);
+        if (vulns.length > 0)
+        {
+            auto worst = worstSeverity(vulns);
+            foreach (ref r; vulns)
+            {
+                foreach (ref v; r.vulnerabilities)
+                {
+                    writefln("\033[1;33mWARN\033[0m %s%s\033[0m %s@%s: %s (%s)%s",
+                        severityColor(v.severity),
+                        severityString(v.severity),
+                        name, version_,
+                        v.description,
+                        v.cveId,
+                        v.fixedVersion.length > 0
+                            ? " [fixed in " ~ v.fixedVersion ~ "]"
+                            : " [no fix available]");
+                }
+            }
+
+            if (auditMode == AuditMode.block &&
+                (worst == Severity.critical || worst == Severity.high))
+            {
+                writefln("\033[1;31mBLOCKED\033[0m %s@%s has %s severity vulnerability. "
+                    ~ "Use --audit=warn to install anyway.", name, version_,
+                    severityString(worst));
+                return false;
+            }
+        }
     }
 
     string tarballUrl = getTarballUrl(meta, version_);
@@ -81,7 +132,7 @@ bool installPackage(string spec) @trusted
                     auto depDir = buildNormalizedPath(".", "node_modules", depName);
                     if (!exists(depDir))
                     {
-                        installPackage(depName ~ "@" ~ depRange.str);
+                        installPackage(depName ~ "@" ~ depRange.str, auditMode);
                     }
                 }
             }

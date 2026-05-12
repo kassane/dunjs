@@ -80,6 +80,74 @@ The `PermissionRegistry` is tested in `source/dun/security/test.d`:
 - `parseFlag` for all CLI flag formats
 - Edge cases (empty scopes, overlapping paths)
 
+## npm Package Auditing (CVE)
+
+DunJS includes a vendored CVE database for npm packages. Vulnerability checks run
+automatically during `dun install` and can be invoked manually via `dun audit`.
+
+### Audit Modes
+
+| Mode | Flag | Behavior |
+|------|------|----------|
+| **warn** (default) | `--audit=warn` | Print CVE warnings, continue install |
+| **block** | `--audit=block` | Refuse to install packages with critical/high CVEs |
+| **live** | `--audit=live` | Query OSV API for latest vulnerability data |
+| **off** | `--audit=off` | Skip vulnerability checking |
+
+### Usage
+
+```sh
+# Scan existing node_modules for known CVEs
+dun audit
+
+# Scan with live OSV API data (requires network)
+dun audit --audit=live
+
+# Install with blocking mode (refuses vulnerable packages)
+dun install jsonpath --audit=block
+
+# Install with live API checking
+dun install lodash --audit=live
+
+# Install with warnings (default)
+dun install lodash
+
+# Disable audit during install
+dun install cross-spawn --audit=off
+```
+
+### Data Sources
+
+**Static database** (always available, no network required):
+The CVE database is vendored at compile time in `source/dun/security/cve_db.d`.
+It covers 22+ entries across critical npm packages.
+
+**OSV API** (live mode, requires `--audit=live`):
+Queries [Google's OSV database](https://osv.dev) via `POST https://api.osv.dev/v1/query`
+for real-time vulnerability data. Results are merged with the static database and
+deduplicated by CVE ID. Falls back silently to static-only if the API is unreachable.
+
+The CVE database covers critical npm packages including:
+
+| Severity | Example CVEs |
+|----------|-------------|
+| **Critical** | CVE-2023-26920 (jsonpath), CVE-2020-8203 (lodash), CVE-2020-36632 (flat) |
+| **High** | CVE-2024-21538 (cross-spawn), CVE-2022-46175 (json5), CVE-2022-24785 (moment) |
+| **Medium** | CVE-2022-25883 (semver), CVE-2020-15366 (ajv), CVE-2021-29060 (color-string) |
+| **Low** | CVE-2017-16137 (debug), CVE-2024-47764 (cookie) |
+
+Packages with no available fix (e.g., `jsonpath`) are always flagged regardless of version.
+
+### Implementation
+
+- **Pre-download check**: After version resolution, before download — blocks early in `--audit=block` mode
+- **Post-install scan**: `dun audit` walks `node_modules/`, reads each `package.json`, checks version against CVE database
+- **Live API**: `queryOsvApi()` posts to `https://api.osv.dev/v1/query` with package name, version, and ecosystem
+- **Deduplication**: OSV API results are merged with static DB, deduplicated by CVE ID
+- **Semver comparison**: Custom pure D implementation (`compareSemver`) with pre-release handling
+- **CVSS parsing**: Extracts severity from OSV `database_specific.severity` or CVSS score vectors
+- **14 unit tests**: Semver parsing, version vulnerability checks, database integrity, CVSS parsing, JSON escaping
+
 ## Resource Limits
 
 | Resource | Limit | Flag | Default |
@@ -105,7 +173,7 @@ Resource limits are enforced per-engine:
 | **Memory exhaustion** | Engine memory limits + D-side buffer bounds |
 | **Stack overflow** | Engine stack limits |
 | **Code injection via eval** | `eval()` processes string literals only; no network eval by default |
-| **Supply chain attacks** | Future: subresource integrity checks, lockfiles |
+| **Supply chain attacks** | CVE audit on install (`--audit=block`), `dun audit` scan |
 | **Native code execution** | `--allow-ffi` required; disabled by default |
 
 ## Memory Safety

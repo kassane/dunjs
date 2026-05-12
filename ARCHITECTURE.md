@@ -50,7 +50,8 @@ RAII wrappers, and pointer safety auditing.
 |  +----------------+ +------------------+ +----------------+   |
 |  | Security       | | TypeScript       | | TMP Bridge     |   |
 |  | permissions.d  | | strip.d          | | cppbindings.d  |   |
-|  | test.d (27)    | | (type stripping) | | (V8 + JSC)     |   |
+|  | cve_db.d (22+) | | (type stripping) | | (V8 + JSC)     |   |
+|  | test.d (27)    | |                  | |                |   |
 |  +----------------+ +------------------+ +----------------+   |
 +--------------------------------------------------------------+
 |  Layer 3: Event Loop & Async Runtime                          |
@@ -527,6 +528,7 @@ source/dun/ts/
 
 source/dun/security/
 +-- test.d              # 27 permission registry tests (inline)
++-- cve_db.d            # 11 CVE audit tests (semver, vulnerability checks)
 ```
 
 Test pattern inspired by Node.js standalone scripts: run fixture, compare stdout to expected file.

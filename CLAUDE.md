@@ -27,6 +27,8 @@ DFLAGS="--fsanitize=address" dub build -c quickjs  # Alternative ASan via DFLAGS
 ./dun run script.ts                  # Run a TypeScript file (type stripping)
 ./dun repl                           # Interactive REPL
 ./dun eval "1+1"                     # Evaluate inline JS
+./dun audit                          # Scan node_modules for CVEs
+./dun install pkg --audit=block      # Block critical/high CVE packages
 ```
 
 ### Minimum Compiler Versions
@@ -48,7 +50,7 @@ Layer 3: Event Loop            source/dun/loop/        (epoll/kqueue/poll, timer
 Layer 2: JS Engine Abstraction source/dun/engine/      (IJSEngine interface + backends)
 Layer 1: Platform Abstraction  source/dun/platform/    (memory, threading, OS I/O)
 Cross:   TypeScript            source/dun/ts/          (type stripping for .ts/.mts/.cts)
-Cross:   Security              source/dun/security/    (permissions, sandbox, 27 tests)
+Cross:   Security              source/dun/security/    (permissions, CVE audit, sandbox, 38 tests)
 ```
 
 ### Engine Abstraction (Layer 2)
@@ -95,6 +97,7 @@ source/dun/platform/
 
 source/dun/security/
 +-- permissions.d        # PermissionRegistry (default-deny model)
++-- cve_db.d             # CVE database + OSV API + semver comparison + audit scanner (22+ entries, 14 tests)
 +-- test.d               # Security unit tests (27 tests)
 ```
 
@@ -335,6 +338,7 @@ dub test -c unittest    # All unit tests
 | Fuzz/stress | `source/dun/engine/fuzz.d` | ~50 | rapid create/destroy, string stress, exception recovery |
 | TypeScript strip | `source/dun/ts/strip.d` | 20 | annotations, interfaces, as, declare, arrow types |
 | Security perms | `source/dun/security/test.d` | 27 | default deny, scoped grants, deny overrides, parseFlag |
+| CVE audit | `source/dun/security/cve_db.d` | 14 | semver, vulnerability checks, DB integrity, CVSS parsing, OSV API |
 | HTTP/2 | `source/dun/builtins/http2.d` | 15 | frame encoding, HPACK encode/decode, static table, settings |
 | V8 TMP bridge | `source/dun/engine/v8/cppbindings.d` | compile-time | V8TypeName coverage, tag->name mapping |
 | JSC TMP bridge | `source/dun/engine/jsc/cppbindings.d` | compile-time | JSCTypeName coverage, kJSType* alignment |
@@ -431,7 +435,8 @@ Not supported (have runtime semantics):
 - **Path canonicalization**: Resolve symlinks before permission checks
 - **Memory limits**: Engine-level heap cap (default 256MB)
 - **Execution timeout**: Engine interrupt handler for infinite loop protection
-- **27 unit tests**: Default deny, global grant, --allow-all, scoped grants, deny-overrides-allow, parseFlag
+- **38 unit tests**: Default deny, global grant, --allow-all, scoped grants, deny-overrides-allow, parseFlag, CVE semver, vulnerability checks
+- **CVE audit**: Static DB (22+ entries) + live OSV API, `dun audit` scans node_modules, `--audit=block` blocks critical/high, `--audit=live` queries osv.dev
 
 ## Code Style
 
@@ -493,3 +498,4 @@ Not supported (have runtime semantics):
 | 9d | zlib | deflateSync, inflateSync, gzipSync, gunzipSync, raw deflate/inflate | **Done** |
 | 9e | dns | lookup, lookupSync, resolve4, resolve6, reverse (POSIX getaddrinfo) | **Done** |
 | 9f | WebSocket | RFC 6455 framing, client connect, server create, send/close (ws module) | **Done** |
+| 9g | CVE audit | `dun audit` + `--audit=block/warn/live/off`, static DB + OSV API (22+ entries) | **Done** |

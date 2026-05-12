@@ -13,9 +13,13 @@ enum Command
     repl,
     eval_,
     install,
+    audit,
     version_,
     help,
 }
+
+static assert(__traits(allMembers, Command).length == 7,
+    "Command enum member count changed -- update parseArgs and main dispatch");
 
 /// Parsed CLI configuration.
 struct CliConfig
@@ -30,6 +34,9 @@ struct CliConfig
     size_t memoryLimit = DEFAULT_MEMORY_LIMIT;
     size_t stackSize = DEFAULT_MAX_STACK;
     bool verbose;
+
+    import dun.modules.npm : AuditMode;
+    AuditMode auditMode = AuditMode.warn;
 }
 
 /// Parse command-line arguments into a CliConfig.
@@ -73,6 +80,11 @@ CliConfig parseArgs(string[] args) @safe
             config.installPackages ~= args[i];
             i++;
         }
+    }
+    else if (args[i] == "audit")
+    {
+        config.command = Command.audit;
+        i++;
     }
     else if (args[i] == "version" || args[i] == "--version" || args[i] == "-v")
     {
@@ -155,6 +167,22 @@ CliConfig parseArgs(string[] args) @safe
         if (arg == "--verbose" || arg == "-V")
         {
             config.verbose = true;
+            i++;
+            continue;
+        }
+
+        if (arg.startsWith("--audit="))
+        {
+            import dun.modules.npm : AuditMode;
+            auto mode = arg["--audit=".length .. $];
+            if (mode == "block")
+                config.auditMode = AuditMode.block;
+            else if (mode == "off")
+                config.auditMode = AuditMode.off;
+            else if (mode == "live")
+                config.auditMode = AuditMode.live;
+            else
+                config.auditMode = AuditMode.warn;
             i++;
             continue;
         }

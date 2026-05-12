@@ -42,6 +42,8 @@ dun run --allow-read=./data app.js      # Scoped file access
 dun run --allow-net=api.example.com app.js  # Scoped network access
 dun run --allow-all app.js              # Unrestricted
 dun install lodash                      # Install npm package
+dun install jsonpath --audit=block      # Block vulnerable packages
+dun audit                               # Scan node_modules for CVEs
 dun repl                                # Interactive REPL
 dun eval "1 + 1"                        # Evaluate expression
 ```
@@ -85,6 +87,17 @@ console.log(isOdd(3)); // true
 ```
 
 Dependencies are resolved transitively. Packages are downloaded from `registry.npmjs.org` over HTTPS and extracted into `node_modules/`.
+
+### Security Auditing
+
+```sh
+dun audit                           # Scan node_modules for known CVEs
+dun install lodash --audit=block    # Block critical/high severity
+dun install lodash --audit=off      # Skip CVE checks
+```
+
+DunJS ships with a vendored CVE database (22+ entries) covering critical npm vulnerabilities.
+`dun install` checks packages against the database before download. See [SECURITY.md](SECURITY.md) for details.
 
 ## Permissions
 

@@ -17,6 +17,8 @@ int main(string[] args)
             return evalInline(config);
         case Command.install:
             return runInstall(config);
+        case Command.audit:
+            return runAudit(config);
         case Command.version_:
             printVersion();
             return 0;
@@ -195,7 +197,7 @@ int runInstall(T)(T config)
         bool allOk = true;
         foreach (pkg; config.installPackages)
         {
-            if (!installPackage(pkg))
+            if (!installPackage(pkg, config.auditMode))
                 allOk = false;
         }
         return allOk ? 0 : 1;
@@ -203,6 +205,34 @@ int runInstall(T)(T config)
     else
     {
         writeStderr("dun install is not yet supported on this platform\n");
+        return 1;
+    }
+}
+
+int runAudit(T)(T config)
+{
+    version (Posix)
+    {
+        import std.stdio : writeln, writefln;
+        import dun.security.cve_db : auditNodeModules, printAuditReport,
+            worstSeverity, Severity;
+        import dun.modules.npm : AuditMode;
+
+        bool useApi = (config.auditMode == AuditMode.live);
+        if (useApi)
+            writeln("Auditing node_modules via OSV API (live)...\n");
+        else
+            writeln("Auditing node_modules for known vulnerabilities...\n");
+
+        auto results = auditNodeModules(useApi);
+        printAuditReport(results);
+
+        auto worst = worstSeverity(results);
+        return (worst == Severity.critical || worst == Severity.high) ? 1 : 0;
+    }
+    else
+    {
+        writeStderr("dun audit is not yet supported on this platform\n");
         return 1;
     }
 }
@@ -217,6 +247,7 @@ void printUsage()
         ~ "  repl             Start interactive REPL\n"
         ~ "  eval <code>      Evaluate JavaScript code\n"
         ~ "  install <pkg>    Install npm package to node_modules/\n"
+        ~ "  audit            Scan node_modules/ for known CVEs\n"
         ~ "  version          Print version\n"
         ~ "  help             Show this help\n\n"
         ~ "Permission flags:\n"
@@ -226,6 +257,11 @@ void printUsage()
         ~ "  --allow-env[=vars]     Allow env variable access\n"
         ~ "  --allow-run[=cmds]     Allow child process execution\n"
         ~ "  --allow-all / -A       Allow all permissions\n\n"
+        ~ "Security options:\n"
+        ~ "  --audit=warn           Warn about vulnerable packages (default)\n"
+        ~ "  --audit=block          Block install of critical/high severity\n"
+        ~ "  --audit=live           Query OSV API for live vulnerability data\n"
+        ~ "  --audit=off            Disable CVE checking during install\n\n"
         ~ "Runtime options:\n"
         ~ "  --max-memory=<bytes>   JS heap memory limit (default: 256MB)\n"
         ~ "  --max-stack=<bytes>    Max stack size (default: 8MB)\n"
