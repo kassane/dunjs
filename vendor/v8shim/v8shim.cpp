@@ -179,10 +179,13 @@ DunV8Value* dun_v8_eval(DunV8Context* cw, const char* source,
             v8::NewStringType::kNormal, static_cast<int>(source_len))
             .ToLocalChecked();
 
-        v8::ScriptOrigin origin(
-            isolate,
-            v8::String::NewFromUtf8(isolate, filename ? filename : "<eval>")
-                .ToLocalChecked());
+        auto origin_name = v8::String::NewFromUtf8(
+            isolate, filename ? filename : "<eval>").ToLocalChecked();
+#if V8_MAJOR_VERSION >= 10 && V8_MAJOR_VERSION <= 12
+        v8::ScriptOrigin origin(isolate, origin_name);
+#else
+        v8::ScriptOrigin origin(origin_name);
+#endif
 
         auto script = v8::Script::Compile(context, src, &origin);
         if (script.IsEmpty()) {
