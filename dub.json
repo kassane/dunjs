@@ -218,6 +218,13 @@
 				"-O",
 				"-g"
 			]
+		},
+		"asan": {
+			"dflags": [
+				"-g",
+				"--fsanitize=address",
+				"--link-defaultlib-shared"
+			]
 		}
 	},
 	"importPaths": [

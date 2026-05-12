@@ -21,6 +21,8 @@ dub build -c jsc                     # JavaScriptCore backend
 dub build -c v8                      # V8 backend (via C++ shim)
 dub test -c unittest                 # Run all unit tests (engine + TS + security)
 dub build -b release                 # Release build (optimized)
+dub build -c quickjs -b asan         # AddressSanitizer build (memory safety audit)
+DFLAGS="--fsanitize=address" dub build -c quickjs  # Alternative ASan via DFLAGS
 ./dun run script.js                  # Run a JavaScript file
 ./dun run script.ts                  # Run a TypeScript file (type stripping)
 ./dun repl                           # Interactive REPL
@@ -365,6 +367,41 @@ Backend test scores: **QuickJS 51/51**, **JSC 50/50+1skip**, **V8 49/50+1skip** 
 
 Test pattern: fixtures in `tests/integration/fixtures/*.{js,mjs,ts}`, expected stdout in `tests/integration/expected/*.txt`.
 
+### Sanitizer Testing
+
+```sh
+dub build -c quickjs -b asan                          # ASan build via DUB
+ASAN_OPTIONS=detect_leaks=0 bash tests/integration/run.sh  # Run with ASan
+```
+
+All 51 integration tests pass under AddressSanitizer with zero memory errors.
+
+### Stress Benchmarks
+
+| File | Tests | Description |
+|------|-------|-------------|
+| `tests/benchmarks/realworld.js` | 16 | Core JS performance (JSON, regex, arrays, maps, text encoding) |
+| `tests/benchmarks/stress.js` | 240 | Comprehensive pure-JS (strings, arrays, objects, classes, generators, promises) |
+| `tests/benchmarks/npm_stress.js` | 189 | Real npm packages (lodash, moment, validator, pako, diff, etc.) |
+| `tests/benchmarks/features.js` | 53 | Feature compatibility (ES2023+, modules, web APIs) |
+
+Performance comparison (stress.js 240 tests, release builds):
+
+| Runtime | Wall Time | Notes |
+|---------|-----------|-------|
+| DunJS JSC | 90s | All 240 pass |
+| Bun | 89s | All 240 pass |
+| Deno | 172s | All 240 pass |
+| DunJS V8 | 219s | All 240 pass |
+
+npm stress (npm_stress.js 189 tests, 45+ real packages):
+
+| Runtime | Wall Time | Pass Rate |
+|---------|-----------|-----------|
+| DunJS V8 | 29.5s | 182/189 |
+| Bun | 30s | 184/189 |
+| DunJS JSC | 46s | 182/189 |
+
 ### TypeScript Support
 
 DunJS supports running `.ts`, `.mts`, and `.cts` files directly via type stripping
@@ -405,6 +442,7 @@ Not supported (have runtime semantics):
 - Prefer `@safe` by default, mark `@trusted` at narrowest scope
 - Every `extern(C)` callback must be `nothrow`
 - Named constants for limits: `DEFAULT_MEMORY_LIMIT`, `DEFAULT_MAX_STACK`, `TEST_MEMORY_LIMIT`, `TEST_MAX_STACK`
+- **MUST add `assert`/`static assert` in all new features** -- TIGER_STYLE: assert preconditions at every `@trusted` boundary, every `extern(C)` callback, every FFI entry point
 - **MUST always build and test ALL backends (quickjs, jsc, v8) before committing any changes**:
   ```sh
   dub build -c quickjs && dub build -c jsc && dub build -c v8
