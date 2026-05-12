@@ -107,12 +107,19 @@ class QuickJSEngine : IJSEngine
     JSHandle newUint8Array(const(ubyte)[] data) @trusted
     {
         assert(ctx !is null, "Engine not initialized");
+        // Create Uint8Array via ArrayBuffer + typed array constructor
+        // QuickJS JS_NewTypedArray takes ArrayBuffer as first arg
         auto ab = JS_NewArrayBufferCopy(ctx, data.ptr, data.length);
         if (JS_IsException(ab) != 0)
             return toHandle(ab);
-        auto ta = JS_NewTypedArray(ctx, 1, &ab, JSTypedArrayEnum.uint8);
+        // Get Uint8Array constructor and call new Uint8Array(arrayBuffer)
+        auto global = JS_GetGlobalObject(ctx);
+        auto ctor = JS_GetPropertyStr(ctx, global, "Uint8Array");
+        auto result = JS_CallConstructor(ctx, ctor, 1, &ab);
+        JS_FreeValue(ctx, ctor);
+        JS_FreeValue(ctx, global);
         JS_FreeValue(ctx, ab);
-        return toHandle(ta);
+        return toHandle(result);
     }
 
     JSHandle newFunction(NativeCallback cb, string name, int argc) @trusted

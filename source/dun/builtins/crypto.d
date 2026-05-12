@@ -111,11 +111,9 @@ JSHandle jsCryptoRandomBytes(void* ctx, JSHandle thisVal, JSHandle[] args) @trus
     if (n < 0) return engine.throwTypeError("randomBytes length must be non-negative");
     try
     {
-        auto bytes = osRandomBytes(n);
-        auto arr = engine.newArray();
-        foreach (i; 0 .. cast(uint) n)
-            engine.setPropertyIndex(arr, i, engine.newInt(bytes[i]));
-        return arr;
+        auto bytes = new ubyte[n];
+        fillRandomBytes(bytes);
+        return engine.newUint8Array(bytes);
     }
     catch (Exception) { return engine.throwTypeError("Failed to generate random bytes"); }
 }
@@ -128,18 +126,55 @@ JSHandle jsCryptoRandomUUID(void* ctx, JSHandle thisVal, JSHandle[] args) @trust
     auto engine = state.engine;
     try
     {
-        auto bytes = osRandomBytes(16);
+        ubyte[16] bytes = void;
+        fillRandomBytes(bytes[]);
         bytes[6] = cast(ubyte)((bytes[6] & 0x0f) | 0x40);
         bytes[8] = cast(ubyte)((bytes[8] & 0x3f) | 0x80);
-        import std.format : format;
-        auto uuid = format(
-            "%02x%02x%02x%02x-%02x%02x-%02x%02x-%02x%02x-%02x%02x%02x%02x%02x%02x",
-            bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5],
-            bytes[6], bytes[7], bytes[8], bytes[9],
-            bytes[10], bytes[11], bytes[12], bytes[13], bytes[14], bytes[15]);
-        return engine.newString(uuid);
+        // Fast UUID formatting with CTFE hex LUT (no std.format)
+        char[36] uuid = void;
+        void hex2(ref size_t p, ubyte b) { uuid[p++] = hexLUT[b >> 4]; uuid[p++] = hexLUT[b & 0xf]; }
+        size_t p = 0;
+        foreach (i; 0 .. 4) hex2(p, bytes[i]);
+        uuid[p++] = '-';
+        foreach (i; 4 .. 6) hex2(p, bytes[i]);
+        uuid[p++] = '-';
+        foreach (i; 6 .. 8) hex2(p, bytes[i]);
+        uuid[p++] = '-';
+        foreach (i; 8 .. 10) hex2(p, bytes[i]);
+        uuid[p++] = '-';
+        foreach (i; 10 .. 16) hex2(p, bytes[i]);
+        return engine.newString(cast(string) uuid[]);
     }
     catch (Exception) { return engine.throwTypeError("Failed to generate UUID"); }
+}
+
+private immutable char[16] hexLUT = "0123456789abcdef";
+
+// Cached /dev/urandom file descriptor for fast random byte generation
+private __gshared int _urandomFd = -1;
+
+private void fillRandomBytes(ubyte[] buf) @trusted
+{
+    version (Posix)
+    {
+        import core.sys.posix.unistd : read;
+        import core.sys.posix.fcntl : open, O_RDONLY;
+        if (_urandomFd < 0)
+            _urandomFd = open("/dev/urandom", O_RDONLY);
+        assert(_urandomFd >= 0, "Failed to open /dev/urandom");
+        size_t total = 0;
+        while (total < buf.length)
+        {
+            auto n = read(_urandomFd, buf.ptr + total, buf.length - total);
+            if (n <= 0) break;
+            total += n;
+        }
+    }
+    else
+    {
+        auto bytes = osRandomBytes(cast(int) buf.length);
+        buf[0 .. bytes.length] = bytes[];
+    }
 }
 
 // Cached function handles — registered once to avoid callback slot exhaustion
