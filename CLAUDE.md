@@ -54,6 +54,7 @@ Cross:   Security              source/dun/security/    (permissions, sandbox, 27
 ```
 source/dun/engine/
 +-- iface.d          # IJSEngine interface, JSHandle, JSResult, EngineConfig
+                     #   newUint8Array, setPropertyIndex, getPropertyIndex, isArray, getArrayLength
 +-- callbacks.d      # Global NativeCallback registry (register/get by slot ID)
 +-- package.d        # Re-exports iface + factory
 +-- test.d           # BDD-style engine contract tests (~50 cases)
@@ -69,7 +70,7 @@ source/dun/engine/
 |   +-- package.d
 +-- jsc/             # JavaScriptCore backend (fully functional)
 |   +-- backend.d    # JSCEngine : IJSEngine (uses JSCTypeChecks dispatch)
-|   +-- bindings.d   # extern(C) declarations for JSC C API (~240 lines)
+|   +-- bindings.d   # extern(C) declarations for JSC C API (~290 lines)
 |   +-- cppbindings.d # D TMP bridge (JSCTypeTag, JSCTypeChecks, getType)
 |   +-- package.d     #   + experimental extern(C++, "JSC") bindings
 +-- v8/              # V8 backend (fully functional, via C shim)
@@ -115,7 +116,7 @@ All runtime globals are **engine-agnostic** (use `IJSEngine` + `NativeCallback`)
 | `http` | `registerHttpModule(engine)` | `require('http')`, ESM `import from 'dun:http'` |
 | `http2` | `registerHttp2Module(engine)` | `require('http2')`, ESM `import from 'dun:http2'` |
 | `fetch` | `registerFetchGlobal(engine)` | Global `fetch()` (Posix, HTTPS via OpenSSL) |
-| Web globals | `installWebCompat(engine)` | `atob`, `btoa`, `structuredClone`, `TextEncoder`, `TextDecoder` |
+| Web globals | `installWebCompat(engine)` | `atob`, `btoa`, `structuredClone`, `TextEncoder`, `TextDecoder`, native Uint8Array creation |
 | `Deno.*` | `installDenoCompat(engine)` | Full Deno compat (30+ APIs: env, fs, permissions, errors) |
 
 All modules work identically across QuickJS, JSC, and V8 backends.
@@ -255,7 +256,7 @@ import stdcpp.allocator;
 | Engine | API | FFI Approach | Lines |
 |--------|-----|-------------|-------|
 | QuickJS | C API (quickjs.h) | extern(C) -- manual D bindings, audited via ImportC `-H` | ~400 |
-| JSC | C API (JSObjectRef) | extern(C) -- straightforward, ~80 functions | ~240 |
+| JSC | C API (JSObjectRef) | extern(C) -- straightforward, ~90 functions | ~290 |
 | JSC | C++ internals | extern(C++, "JSC") -- experimental cppbindings.d | ~30 |
 | JSC | D TMP bridge | JSCTypeTag + JSCTypeChecks + getType() fast path | ~140 |
 | V8 | C++ only | extern(C) via C shim (vendor/v8shim/) | ~300 C++ + ~90 D |
