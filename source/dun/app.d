@@ -85,6 +85,8 @@ int runScript(T)(T config)
     DunState state;
     state.engine = engine;
     state.permissions = &config.permissions;
+    state.scriptArgs = ["dun", config.scriptPath] ~ config.scriptArgs;
+    state.verbose = config.verbose;
     state.eventLoop.initialize(engine);
     installGlobals(engine, &state);
 
@@ -170,6 +172,8 @@ int evalInline(T)(T config)
     DunState state;
     state.engine = engine;
     state.permissions = &config.permissions;
+    state.scriptArgs = ["dun", "<eval>"];
+    state.verbose = config.verbose;
     state.eventLoop.initialize(engine);
     installGlobals(engine, &state);
     auto result = engine.eval(config.evalSource, "<eval>");
@@ -402,6 +406,7 @@ int runSingleTest(T)(T config, string filePath) @trusted
     DunState state;
     state.engine = engine;
     state.permissions = &config.permissions;
+    state.scriptArgs = ["dun", filePath];
     state.eventLoop.initialize(engine);
     installGlobals(engine, &state);
 
@@ -441,6 +446,19 @@ int runSingleTest(T)(T config, string filePath) @trusted
     if (!postRes.isError) engine.freeValue(postRes.value);
 
     state.eventLoop.run();
+
+    // Read back process.exitCode set by test postamble (JS property -> D exit code)
+    if (state.eventLoop.exitCode == 0)
+    {
+        auto ecRes = engine.eval("process.exitCode||0", "<exit-code>");
+        if (!ecRes.isError)
+        {
+            if (engine.isNumber(ecRes.value))
+                state.eventLoop.exitCode = engine.extractInt(ecRes.value);
+            engine.freeValue(ecRes.value);
+        }
+    }
+
     return state.eventLoop.exitCode;
 }
 
@@ -512,8 +530,8 @@ int runSingleBench(T)(T config, string filePath) @trusted
         ~ `for(var j=0;j<iters;j++)b.fn();`
         ~ `elapsed=Date.now()-start;`
         ~ `if(elapsed<100)iters*=2;}`
-        ~ `var nsPerOp=((elapsed*1e6)/iters)|0;`
-        ~ `var opsPerSec=((iters/elapsed)*1000)|0;`
+        ~ `var nsPerOp=Math.round((elapsed*1e6)/iters);`
+        ~ `var opsPerSec=Math.round((iters/elapsed)*1000);`
         ~ `console.log("  "+b.name+": "+nsPerOp+"ns/op ("+opsPerSec+" ops/sec, "+iters+" iters)");}},0);`;
 
     auto engine = createEngine();
@@ -522,6 +540,7 @@ int runSingleBench(T)(T config, string filePath) @trusted
     DunState state;
     state.engine = engine;
     state.permissions = &config.permissions;
+    state.scriptArgs = ["dun", filePath];
     state.eventLoop.initialize(engine);
     installGlobals(engine, &state);
 

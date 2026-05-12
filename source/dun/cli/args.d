@@ -62,6 +62,34 @@ CliConfig parseArgs(string[] args) @safe
 
     size_t i = 1; // Skip program name
 
+    // Pre-scan: handle global flags that can appear before command keyword
+    while (i < args.length && args[i].startsWith("-"))
+    {
+        if (args[i] == "--verbose" || args[i] == "-V")
+        {
+            config.verbose = true;
+            i++;
+        }
+        else if (args[i] == "--version" || args[i] == "-v")
+        {
+            config.command = Command.version_;
+            return config;
+        }
+        else if (args[i] == "--help" || args[i] == "-h")
+        {
+            config.command = Command.help;
+            return config;
+        }
+        else
+            break; // Other flags handled after command detection
+    }
+
+    if (i >= args.length)
+    {
+        config.command = Command.repl;
+        return config;
+    }
+
     // Parse command
     if (args[i] == "run")
     {
@@ -153,19 +181,19 @@ CliConfig parseArgs(string[] args) @safe
         config.command = Command.clean;
         return config;
     }
-    else if (args[i] == "version" || args[i] == "--version" || args[i] == "-v")
+    else if (args[i] == "version")
     {
         config.command = Command.version_;
         return config;
     }
-    else if (args[i] == "help" || args[i] == "--help" || args[i] == "-h")
+    else if (args[i] == "help")
     {
         config.command = Command.help;
         return config;
     }
     else if (args[i].startsWith("-"))
     {
-        // Flags before command — default to run
+        // Unrecognized leading flag — default to run, let remaining loop process it
         config.command = Command.run;
     }
     else
