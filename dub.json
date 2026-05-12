@@ -163,7 +163,16 @@
 	],
 	"libs-windows": [
 		"legacy_stdio_definitions",
-		"ucrt"
+		"ucrt",
+		"ssl",
+		"crypto",
+		"sqlite3",
+		"ws2_32",
+		"advapi32",
+		"crypt32"
+	],
+	"lflags-windows": [
+		"/LIBPATH:$PACKAGE_DIR\\vendor\\sqlite"
 	],
 	"license": "MIT",
 	"targetPath": "build",
@@ -190,13 +199,18 @@
 		"crypto",
 		"sqlite3"
 	],
+	"lflags-linux": [
+		"-L$PACKAGE_DIR/vendor/sqlite"
+	],
 	"lflags-osx": [
+		"-L$PACKAGE_DIR/vendor/sqlite",
 		"-L/opt/homebrew/opt/openssl/lib",
 		"-L/usr/local/opt/openssl/lib"
 	],
 	"toolchainRequirements": {
 		"frontend": ">=2.112.0"
 	},
+	"version": "0.1.0",
 	"description": "A secure JavaScript runtime written in D",
 	"dependencies": {},
 	"targetType": "executable",

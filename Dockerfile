@@ -24,6 +24,8 @@ RUN apt-get update -qq \
       pkg-config \
       git \
       libxml2 \
+      libssl-dev \
+      libsqlite3-dev \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 

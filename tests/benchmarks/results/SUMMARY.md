@@ -1,31 +1,42 @@
 === Cross-Runtime Benchmark Results ===
-Date: 2026-05-12
+Date: 2026-05-12 (post workers-all-backends)
 
 ### Runtimes
 - Node.js v22.22.2
 - Bun 1.3.11
 - Deno 2.7.14
-- DunJS QuickJS, JSC, V8 (debug builds)
+- DunJS QuickJS, JSC, V8 (release builds)
 
 ### Feature Benchmarks (25 tests, ops/sec)
-| Runtime | Total Throughput |
-|---------|-----------------|
-| Bun | 458M |
-| DunJS JSC (release) | 426M |
-| DunJS JSC (debug) | 412M |
-| Node.js | 177M |
-| Deno | 172M |
-| DunJS V8 | 141M |
-| DunJS QuickJS | 7.4M |
-
-### npm Compat Test (145 assertions)
-All 6 runtimes: 145/145 pass
+| Runtime | Total Throughput | Relative |
+|---------|-----------------|----------|
+| DunJS JSC | 536M | 1.00x (fastest) |
+| Bun | 477M | 0.89x |
+| Node.js | 175M | 0.33x |
+| Deno | 172M | 0.32x |
+| DunJS V8 | 141M | 0.26x |
+| DunJS QuickJS | 11M | 0.02x |
 
 ### Framework Benchmarks (39 tests, ops/sec)
-| Runtime | Total Throughput |
-|---------|-----------------|
-| DunJS JSC | 332M |
-| Bun | 323M |
-| Node.js | 193M |
-| DunJS V8 | 192M |
-| Deno | 180M |
+| Runtime | Total Throughput | Relative |
+|---------|-----------------|----------|
+| DunJS JSC | 319M | 1.00x (fastest) |
+| Bun | 279M | 0.87x |
+| Node.js | 196M | 0.62x |
+| DunJS V8 | 190M | 0.60x |
+| Deno | 187M | 0.59x |
+
+### Stress Tests (240 comprehensive JS tests)
+| Runtime | Wall Time |
+|---------|-----------|
+| Bun | 78s |
+| Node.js | 147s |
+| Deno | 160s |
+| DunJS V8 | 169s |
+
+### npm Compat Test (145 simulated packages)
+All 6 runtimes: 145/145 pass
+
+### Workers (all backends)
+All 3 DunJS backends pass worker tests (postMessage/onmessage,
+SharedArrayBuffer, Atomics). Previously QuickJS-only.
