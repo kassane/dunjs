@@ -396,6 +396,12 @@ class V8Engine : IJSEngine
             dun_v8_set_stack_limit(isolate, bytes);
     }
 
+    void collectGarbage() @trusted
+    {
+        assert(isolate !is null, "V8 isolate not initialized");
+        dun_v8_collect_garbage(isolate);
+    }
+
     void* rawRuntime() @trusted { return cast(void*) isolate; }
     void* rawContext() @trusted { return cast(void*) ctx; }
 

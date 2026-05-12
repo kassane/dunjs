@@ -103,6 +103,9 @@ void* dun_v8_get_context_data(DunV8Context* ctx);
 void dun_v8_set_memory_limit(DunV8Isolate* isolate, size_t bytes);
 void dun_v8_set_stack_limit(DunV8Isolate* isolate, size_t bytes);
 
+/* Garbage collection */
+void dun_v8_collect_garbage(DunV8Isolate* isolate);
+
 /* Version */
 const char* dun_v8_version(void);
 

@@ -61,6 +61,26 @@ version (linux)
 
 private:
 
+// Cached function handles for HTTP server/req/res objects
+__gshared JSHandle _httpSrvListen, _httpSrvClose, _httpSrvOn;
+__gshared JSHandle _httpReqOn;
+__gshared JSHandle _httpResSetHeader, _httpResWriteHead, _httpResWrite, _httpResEnd;
+__gshared bool _httpFnsCached = false;
+
+void ensureHttpFnsCached(IJSEngine engine) @trusted
+{
+    if (_httpFnsCached) return;
+    _httpSrvListen = engine.newFunction(&jsHttpServerListen, "listen", 1);
+    _httpSrvClose = engine.newFunction(&jsHttpServerClose, "close", 0);
+    _httpSrvOn = engine.newFunction(&jsHttpServerOn, "on", 2);
+    _httpReqOn = engine.newFunction(&jsReqOn, "on", 2);
+    _httpResSetHeader = engine.newFunction(&jsResSetHeader, "setHeader", 2);
+    _httpResWriteHead = engine.newFunction(&jsResWriteHead, "writeHead", 1);
+    _httpResWrite = engine.newFunction(&jsResWrite, "write", 1);
+    _httpResEnd = engine.newFunction(&jsResEnd, "end", 0);
+    _httpFnsCached = true;
+}
+
 struct HttpServerState
 {
     IJSEngine engine;
@@ -132,11 +152,12 @@ JSHandle jsHttpCreateServer(void* ctx, JSHandle thisVal, JSHandle[] args) @trust
 JSHandle makeHttpServerObj(IJSEngine engine, int id) @trusted
 {
     assert(engine !is null, "Null IJSEngine in makeHttpServerObj");
+    ensureHttpFnsCached(engine);
     auto obj = engine.newObject();
     engine.setProperty(obj, "__hid", engine.newInt(id));
-    engine.setProperty(obj, "listen", engine.newFunction(&jsHttpServerListen, "listen", 1));
-    engine.setProperty(obj, "close", engine.newFunction(&jsHttpServerClose, "close", 0));
-    engine.setProperty(obj, "on", engine.newFunction(&jsHttpServerOn, "on", 2));
+    engine.setProperty(obj, "listen", engine.dupValue(_httpSrvListen));
+    engine.setProperty(obj, "close", engine.dupValue(_httpSrvClose));
+    engine.setProperty(obj, "on", engine.dupValue(_httpSrvOn));
     return obj;
 }
 
@@ -309,7 +330,8 @@ JSHandle makeReqObj(IJSEngine engine, int connId) @trusted
     }
     catch (Exception) {}
     engine.setProperty(obj, "headers", hdrs);
-    engine.setProperty(obj, "on", engine.newFunction(&jsReqOn, "on", 2));
+    ensureHttpFnsCached(engine);
+    engine.setProperty(obj, "on", engine.dupValue(_httpReqOn));
     return obj;
 }
 
@@ -360,10 +382,11 @@ JSHandle makeResObj(IJSEngine engine, int connId) @trusted
     auto obj = engine.newObject();
     engine.setProperty(obj, "__cid", engine.newInt(connId));
     engine.setProperty(obj, "statusCode", engine.newInt(200));
-    engine.setProperty(obj, "setHeader", engine.newFunction(&jsResSetHeader, "setHeader", 2));
-    engine.setProperty(obj, "writeHead", engine.newFunction(&jsResWriteHead, "writeHead", 1));
-    engine.setProperty(obj, "write", engine.newFunction(&jsResWrite, "write", 1));
-    engine.setProperty(obj, "end", engine.newFunction(&jsResEnd, "end", 0));
+    ensureHttpFnsCached(engine);
+    engine.setProperty(obj, "setHeader", engine.dupValue(_httpResSetHeader));
+    engine.setProperty(obj, "writeHead", engine.dupValue(_httpResWriteHead));
+    engine.setProperty(obj, "write", engine.dupValue(_httpResWrite));
+    engine.setProperty(obj, "end", engine.dupValue(_httpResEnd));
     return obj;
 }
 

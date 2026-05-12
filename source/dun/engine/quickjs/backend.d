@@ -381,6 +381,12 @@ class QuickJSEngine : IJSEngine
             JS_SetMaxStackSize(rt, bytes);
     }
 
+    void collectGarbage() @trusted
+    {
+        assert(rt !is null, "Engine not initialized");
+        JS_RunGC(rt);
+    }
+
     void* rawRuntime() @trusted { return cast(void*) rt; }
     void* rawContext() @trusted { return cast(void*) ctx; }
 

@@ -1,6 +1,6 @@
 module dun.runtime.globals;
 
-import dun.engine.iface : IJSEngine;
+import dun.engine.iface : IJSEngine, JSHandle;
 import dun.loop.eventloop : EventLoop;
 import dun.security.permissions : PermissionRegistry;
 
@@ -79,6 +79,9 @@ void installGlobals(IJSEngine engine, DunState* state) @trusted
     import dun.runtime.rejection_tracker : installRejectionTracker;
     installRejectionTracker(engine, state);
 
+    auto global = engine.getGlobal();
+    engine.setProperty(global, "gc", engine.newFunction(&jsGlobalGC, "gc", 0));
+
     version (EngineQuickJS)
     {
         import dun.engine.quickjs.bindings : JSContext;
@@ -86,4 +89,13 @@ void installGlobals(IJSEngine engine, DunState* state) @trusted
         auto ctx = cast(JSContext*) engine.rawContext();
         installWorkerAPI(ctx, state);
     }
+}
+
+private JSHandle jsGlobalGC(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+{
+    assert(ctx !is null, "Null ctx in jsGlobalGC");
+    auto state = cast(DunState*) ctx;
+    assert(state !is null && state.engine !is null, "Invalid DunState in jsGlobalGC");
+    state.engine.collectGarbage();
+    return state.engine.newUndefined();
 }

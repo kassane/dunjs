@@ -501,6 +501,14 @@ void dun_v8_set_stack_limit(DunV8Isolate* iw, size_t bytes) {
     (void)iw; (void)bytes;
 }
 
+// --- Garbage collection ---
+
+void dun_v8_collect_garbage(DunV8Isolate* iw) {
+    if (!iw) return;
+    auto* iso = reinterpret_cast<v8::Isolate*>(iw);
+    iso->LowMemoryNotification();
+}
+
 // --- Version ---
 
 const char* dun_v8_version() {

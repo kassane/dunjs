@@ -46,37 +46,81 @@ version (EngineQuickJS)
 
 private:
 
+// Cached Buffer method handles — registered once to avoid callback slot exhaustion
+__gshared JSHandle _bufToString, _bufToJSON, _bufSlice, _bufCopy;
+__gshared JSHandle _bufEquals, _bufIndexOf, _bufFill, _bufWrite;
+__gshared JSHandle _bufReadUInt8, _bufWriteUInt8;
+__gshared bool _bufFnsCached = false;
+
+void ensureBufferFnsCached(IJSEngine engine) @trusted
+{
+    if (_bufFnsCached) return;
+    _bufToString = engine.newFunction(&jsBufferToString, "toString", 1);
+    _bufToJSON = engine.newFunction(&jsBufferToJSON, "toJSON", 0);
+    _bufSlice = engine.newFunction(&jsBufferSlice, "slice", 2);
+    _bufCopy = engine.newFunction(&jsBufferCopy, "copy", 1);
+    _bufEquals = engine.newFunction(&jsBufferEquals, "equals", 1);
+    _bufIndexOf = engine.newFunction(&jsBufferIndexOf, "indexOf", 1);
+    _bufFill = engine.newFunction(&jsBufferFill, "fill", 1);
+    _bufWrite = engine.newFunction(&jsBufferWrite, "write", 1);
+    _bufReadUInt8 = engine.newFunction(&jsBufferReadUInt8, "readUInt8", 1);
+    _bufWriteUInt8 = engine.newFunction(&jsBufferWriteUInt8, "writeUInt8", 2);
+    _bufFnsCached = true;
+}
+
 JSHandle makeBufferObj(IJSEngine engine, const(ubyte)[] data) @trusted
 {
+    ensureBufferFnsCached(engine);
     auto obj = engine.newObject();
     engine.setProperty(obj, "__isBuffer", engine.newBool(true));
     engine.setProperty(obj, "length", engine.newInt(cast(int) data.length));
 
-    // Store bytes as hex string internally for serialization
     try
     {
-        import std.format : format;
-        string hex;
-        foreach (b; data)
-            hex ~= format("%02x", b);
-        engine.setProperty(obj, "__data", engine.newString(hex));
+        engine.setProperty(obj, "__data", engine.newString(bytesToHex(data)));
     }
     catch (Exception)
     {
         engine.setProperty(obj, "__data", engine.newString(""));
     }
 
-    engine.setProperty(obj, "toString", engine.newFunction(&jsBufferToString, "toString", 1));
-    engine.setProperty(obj, "toJSON", engine.newFunction(&jsBufferToJSON, "toJSON", 0));
-    engine.setProperty(obj, "slice", engine.newFunction(&jsBufferSlice, "slice", 2));
-    engine.setProperty(obj, "copy", engine.newFunction(&jsBufferCopy, "copy", 1));
-    engine.setProperty(obj, "equals", engine.newFunction(&jsBufferEquals, "equals", 1));
-    engine.setProperty(obj, "indexOf", engine.newFunction(&jsBufferIndexOf, "indexOf", 1));
-    engine.setProperty(obj, "fill", engine.newFunction(&jsBufferFill, "fill", 1));
-    engine.setProperty(obj, "write", engine.newFunction(&jsBufferWrite, "write", 1));
-    engine.setProperty(obj, "readUInt8", engine.newFunction(&jsBufferReadUInt8, "readUInt8", 1));
-    engine.setProperty(obj, "writeUInt8", engine.newFunction(&jsBufferWriteUInt8, "writeUInt8", 2));
+    engine.setProperty(obj, "toString", engine.dupValue(_bufToString));
+    engine.setProperty(obj, "toJSON", engine.dupValue(_bufToJSON));
+    engine.setProperty(obj, "slice", engine.dupValue(_bufSlice));
+    engine.setProperty(obj, "copy", engine.dupValue(_bufCopy));
+    engine.setProperty(obj, "equals", engine.dupValue(_bufEquals));
+    engine.setProperty(obj, "indexOf", engine.dupValue(_bufIndexOf));
+    engine.setProperty(obj, "fill", engine.dupValue(_bufFill));
+    engine.setProperty(obj, "write", engine.dupValue(_bufWrite));
+    engine.setProperty(obj, "readUInt8", engine.dupValue(_bufReadUInt8));
+    engine.setProperty(obj, "writeUInt8", engine.dupValue(_bufWriteUInt8));
     return obj;
+}
+
+private immutable char[512] hexLUT = () {
+    char[512] t;
+    foreach (i; 0 .. 256)
+    {
+        t[i * 2]     = "0123456789abcdef"[i >> 4];
+        t[i * 2 + 1] = "0123456789abcdef"[i & 0xF];
+    }
+    return t;
+}();
+
+string bytesToHex(const(ubyte)[] data) @trusted nothrow
+{
+    if (data.length == 0) return "";
+    try
+    {
+        auto buf = new char[data.length * 2];
+        foreach (i, b; data)
+        {
+            buf[i * 2]     = hexLUT[b * 2];
+            buf[i * 2 + 1] = hexLUT[b * 2 + 1];
+        }
+        return cast(string) buf;
+    }
+    catch (Exception) { return ""; }
 }
 
 ubyte[] hexToBytes(string hex) @trusted

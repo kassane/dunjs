@@ -62,6 +62,23 @@ version (linux)
 
 private:
 
+// Cached function handles for WS server/client objects
+__gshared JSHandle _wsSrvOn, _wsSrvClose, _wsSrvListen;
+__gshared JSHandle _wsClientOn, _wsClientSend, _wsClientClose;
+__gshared bool _wsFnsCached = false;
+
+void ensureWsFnsCached(IJSEngine engine) @trusted
+{
+    if (_wsFnsCached) return;
+    _wsSrvOn = engine.newFunction(&jsWsServerOn, "on", 2);
+    _wsSrvClose = engine.newFunction(&jsWsServerClose, "close", 0);
+    _wsSrvListen = engine.newFunction(&jsWsServerListen, "listen", 1);
+    _wsClientOn = engine.newFunction(&jsWsClientOn, "on", 2);
+    _wsClientSend = engine.newFunction(&jsWsClientSend, "send", 1);
+    _wsClientClose = engine.newFunction(&jsWsClientClose, "close", 0);
+    _wsFnsCached = true;
+}
+
 enum MAX_BUF = 16 * 1024;
 enum WS_MAGIC = "258EAFA5-E914-47DA-95CA-5CF5AB53E0B5";
 
@@ -278,10 +295,11 @@ JSHandle makeWsServerObj(IJSEngine engine, int id) @trusted
 {
     assert(engine !is null, "Null IJSEngine in makeWsServerObj");
     auto obj = engine.newObject();
+    ensureWsFnsCached(engine);
     engine.setProperty(obj, "__wsid", engine.newInt(id));
-    engine.setProperty(obj, "on", engine.newFunction(&jsWsServerOn, "on", 2));
-    engine.setProperty(obj, "close", engine.newFunction(&jsWsServerClose, "close", 0));
-    engine.setProperty(obj, "listen", engine.newFunction(&jsWsServerListen, "listen", 1));
+    engine.setProperty(obj, "on", engine.dupValue(_wsSrvOn));
+    engine.setProperty(obj, "close", engine.dupValue(_wsSrvClose));
+    engine.setProperty(obj, "listen", engine.dupValue(_wsSrvListen));
     return obj;
 }
 
@@ -533,11 +551,12 @@ JSHandle jsWsConnect(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 JSHandle makeWsClientObj(IJSEngine engine, int cid) @trusted
 {
     assert(engine !is null, "Null IJSEngine in makeWsClientObj");
+    ensureWsFnsCached(engine);
     auto obj = engine.newObject();
     engine.setProperty(obj, "__wcid", engine.newInt(cid));
-    engine.setProperty(obj, "on", engine.newFunction(&jsWsClientOn, "on", 2));
-    engine.setProperty(obj, "send", engine.newFunction(&jsWsClientSend, "send", 1));
-    engine.setProperty(obj, "close", engine.newFunction(&jsWsClientClose, "close", 0));
+    engine.setProperty(obj, "on", engine.dupValue(_wsClientOn));
+    engine.setProperty(obj, "send", engine.dupValue(_wsClientSend));
+    engine.setProperty(obj, "close", engine.dupValue(_wsClientClose));
     engine.setProperty(obj, "readyState", engine.newInt(0));
     return obj;
 }
@@ -664,11 +683,12 @@ JSHandle jsWsClientClose(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 JSHandle makeWsServerConnObj(IJSEngine engine, int cid) @trusted
 {
     assert(engine !is null, "Null IJSEngine in makeWsServerConnObj");
+    ensureWsFnsCached(engine);
     auto obj = engine.newObject();
     engine.setProperty(obj, "__wcid", engine.newInt(cid));
-    engine.setProperty(obj, "on", engine.newFunction(&jsWsClientOn, "on", 2));
-    engine.setProperty(obj, "send", engine.newFunction(&jsWsClientSend, "send", 1));
-    engine.setProperty(obj, "close", engine.newFunction(&jsWsClientClose, "close", 0));
+    engine.setProperty(obj, "on", engine.dupValue(_wsClientOn));
+    engine.setProperty(obj, "send", engine.dupValue(_wsClientSend));
+    engine.setProperty(obj, "close", engine.dupValue(_wsClientClose));
     return obj;
 }
 

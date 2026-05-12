@@ -65,6 +65,11 @@ version (linux)
 
 private:
 
+// Cached function handles for server/socket objects
+__gshared JSHandle _srvListen, _srvClose, _srvOn;
+__gshared JSHandle _sockOn, _sockWrite, _sockEnd, _sockDestroy;
+__gshared bool _netFnsCached = false;
+
 struct SocketState
 {
     IJSEngine engine;
@@ -242,26 +247,41 @@ JSHandle jsCreateConnection(void* ctx, JSHandle thisVal, JSHandle[] args) @trust
     }
 }
 
+void ensureNetFnsCached(IJSEngine engine) @trusted
+{
+    if (_netFnsCached) return;
+    _srvListen = engine.newFunction(&jsServerListen, "listen", 1);
+    _srvClose = engine.newFunction(&jsServerClose, "close", 0);
+    _srvOn = engine.newFunction(&jsServerOn, "on", 2);
+    _sockOn = engine.newFunction(&jsSocketOn, "on", 2);
+    _sockWrite = engine.newFunction(&jsSocketWrite, "write", 1);
+    _sockEnd = engine.newFunction(&jsSocketEnd, "end", 0);
+    _sockDestroy = engine.newFunction(&jsSocketEnd, "destroy", 0);
+    _netFnsCached = true;
+}
+
 JSHandle makeServerObject(IJSEngine engine, int id) @trusted
 {
     assert(engine !is null, "Null IJSEngine in makeServerObject");
+    ensureNetFnsCached(engine);
     auto obj = engine.newObject();
     engine.setProperty(obj, "__id", engine.newInt(id));
-    engine.setProperty(obj, "listen", engine.newFunction(&jsServerListen, "listen", 1));
-    engine.setProperty(obj, "close", engine.newFunction(&jsServerClose, "close", 0));
-    engine.setProperty(obj, "on", engine.newFunction(&jsServerOn, "on", 2));
+    engine.setProperty(obj, "listen", engine.dupValue(_srvListen));
+    engine.setProperty(obj, "close", engine.dupValue(_srvClose));
+    engine.setProperty(obj, "on", engine.dupValue(_srvOn));
     return obj;
 }
 
 JSHandle makeSocketObject(IJSEngine engine, int id) @trusted
 {
     assert(engine !is null, "Null IJSEngine in makeSocketObject");
+    ensureNetFnsCached(engine);
     auto obj = engine.newObject();
     engine.setProperty(obj, "__id", engine.newInt(id));
-    engine.setProperty(obj, "on", engine.newFunction(&jsSocketOn, "on", 2));
-    engine.setProperty(obj, "write", engine.newFunction(&jsSocketWrite, "write", 1));
-    engine.setProperty(obj, "end", engine.newFunction(&jsSocketEnd, "end", 0));
-    engine.setProperty(obj, "destroy", engine.newFunction(&jsSocketEnd, "destroy", 0));
+    engine.setProperty(obj, "on", engine.dupValue(_sockOn));
+    engine.setProperty(obj, "write", engine.dupValue(_sockWrite));
+    engine.setProperty(obj, "end", engine.dupValue(_sockEnd));
+    engine.setProperty(obj, "destroy", engine.dupValue(_sockDestroy));
     return obj;
 }
 

@@ -395,6 +395,12 @@ class JSCEngine : IJSEngine
     void setMemoryLimit(size_t bytes) {}
     void setMaxStackSize(size_t bytes) {}
 
+    void collectGarbage() @trusted
+    {
+        assert(ctx !is null, "Engine not initialized");
+        JSGarbageCollect(ctx);
+    }
+
     void* rawRuntime() { return null; }
     void* rawContext() @trusted { return cast(void*) ctx; }
 

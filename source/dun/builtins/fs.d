@@ -61,6 +61,10 @@ version (EngineQuickJS)
 
 private:
 
+// Cached stat method handles — registered once to avoid callback slot exhaustion
+__gshared JSHandle _cachedIsFileFn, _cachedIsDirFn;
+__gshared bool _statFnsCached = false;
+
 bool checkPerm(DunState* state, Permission perm, string resource = "") nothrow @trusted
 {
     if (state is null || state.permissions is null) return false;
@@ -213,8 +217,14 @@ JSHandle jsStatSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
         engine.setProperty(obj, "_type", engine.newInt(pathIsFile ? 1 : pathIsDir ? 2 : 0));
         engine.setProperty(obj, "size", engine.newFloat(cast(double) fileSize));
         engine.setProperty(obj, "mtimeMs", engine.newFloat(cast(double) mtimeMs));
-        engine.setProperty(obj, "isFile", engine.newFunction(&jsStatIsFile, "isFile", 0));
-        engine.setProperty(obj, "isDirectory", engine.newFunction(&jsStatIsDirectory, "isDirectory", 0));
+        if (!_statFnsCached)
+        {
+            _cachedIsFileFn = engine.newFunction(&jsStatIsFile, "isFile", 0);
+            _cachedIsDirFn = engine.newFunction(&jsStatIsDirectory, "isDirectory", 0);
+            _statFnsCached = true;
+        }
+        engine.setProperty(obj, "isFile", engine.dupValue(_cachedIsFileFn));
+        engine.setProperty(obj, "isDirectory", engine.dupValue(_cachedIsDirFn));
         return obj;
     }
     catch (Exception e) { return throwSystemError(engine, "stat", path, e); }

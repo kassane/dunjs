@@ -135,6 +135,9 @@ interface IJSEngine
     void setMemoryLimit(size_t bytes);
     void setMaxStackSize(size_t bytes);
 
+    // --- Garbage collection ---
+    void collectGarbage();
+
     // --- Raw engine access (for backend-specific code) ---
     void* rawRuntime();
     void* rawContext();

@@ -59,6 +59,14 @@ private:
 sqlite3*[int] activeDBs;
 int nextDbId = 1;
 
+// Cached function handles — registered once to avoid callback slot exhaustion
+__gshared JSHandle _cachedExecFn;
+__gshared JSHandle _cachedRunFn;
+__gshared JSHandle _cachedGetFn;
+__gshared JSHandle _cachedAllFn;
+__gshared JSHandle _cachedCloseFn;
+__gshared bool _sqliteFnsCached = false;
+
 sqlite3* getDbHandle(IJSEngine engine, JSHandle thisVal) @trusted
 {
     assert(engine !is null, "Null engine in getDbHandle");
@@ -98,13 +106,23 @@ JSHandle jsSqliteOpen(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     int id = nextDbId++;
     activeDBs[id] = db;
 
+    if (!_sqliteFnsCached)
+    {
+        _cachedExecFn = engine.newFunction(&jsSqliteExec, "exec", 1);
+        _cachedRunFn = engine.newFunction(&jsSqliteRun, "run", 10);
+        _cachedGetFn = engine.newFunction(&jsSqliteGet, "get", 10);
+        _cachedAllFn = engine.newFunction(&jsSqliteAll, "all", 10);
+        _cachedCloseFn = engine.newFunction(&jsSqliteClose, "close", 0);
+        _sqliteFnsCached = true;
+    }
+
     auto dbObj = engine.newObject();
     engine.setProperty(dbObj, "__dbId__", engine.newInt(id));
-    engine.setProperty(dbObj, "exec", engine.newFunction(&jsSqliteExec, "exec", 1));
-    engine.setProperty(dbObj, "run", engine.newFunction(&jsSqliteRun, "run", 10));
-    engine.setProperty(dbObj, "get", engine.newFunction(&jsSqliteGet, "get", 10));
-    engine.setProperty(dbObj, "all", engine.newFunction(&jsSqliteAll, "all", 10));
-    engine.setProperty(dbObj, "close", engine.newFunction(&jsSqliteClose, "close", 0));
+    engine.setProperty(dbObj, "exec", engine.dupValue(_cachedExecFn));
+    engine.setProperty(dbObj, "run", engine.dupValue(_cachedRunFn));
+    engine.setProperty(dbObj, "get", engine.dupValue(_cachedGetFn));
+    engine.setProperty(dbObj, "all", engine.dupValue(_cachedAllFn));
+    engine.setProperty(dbObj, "close", engine.dupValue(_cachedCloseFn));
     engine.setProperty(dbObj, "filename", engine.newString(path));
 
     return dbObj;

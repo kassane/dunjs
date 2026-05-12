@@ -93,6 +93,11 @@ JSHandle jsCryptoRandomUUID(void* ctx, JSHandle thisVal, JSHandle[] args) @trust
     catch (Exception) { return engine.throwTypeError("Failed to generate UUID"); }
 }
 
+// Cached function handles — registered once to avoid callback slot exhaustion
+private __gshared JSHandle _cachedUpdateFn;
+private __gshared JSHandle _cachedDigestFn;
+private __gshared bool _hashFnsCached = false;
+
 JSHandle jsCryptoCreateHash(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsCryptoCreateHash");
@@ -104,11 +109,18 @@ JSHandle jsCryptoCreateHash(void* ctx, JSHandle thisVal, JSHandle[] args) @trust
     if (algo != "md5" && algo != "sha1" && algo != "sha256" && algo != "sha512")
         return engine.throwTypeError("Unsupported hash algorithm");
 
+    if (!_hashFnsCached)
+    {
+        _cachedUpdateFn = engine.newFunction(&jsHashUpdate, "update", 1);
+        _cachedDigestFn = engine.newFunction(&jsHashDigest, "digest", 1);
+        _hashFnsCached = true;
+    }
+
     auto obj = engine.newObject();
     engine.setProperty(obj, "_algo", engine.newString(algo));
     engine.setProperty(obj, "_data", engine.newString(""));
-    engine.setProperty(obj, "update", engine.newFunction(&jsHashUpdate, "update", 1));
-    engine.setProperty(obj, "digest", engine.newFunction(&jsHashDigest, "digest", 1));
+    engine.setProperty(obj, "update", engine.dupValue(_cachedUpdateFn));
+    engine.setProperty(obj, "digest", engine.dupValue(_cachedDigestFn));
     return obj;
 }
 
