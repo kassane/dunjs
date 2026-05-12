@@ -62,7 +62,7 @@ LABEL org.opencontainers.image.title="DunJS" \
       org.opencontainers.image.source="https://github.com/kassane/dunjs"
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    libstdc++6 libgcc-s1 \
+    libstdc++6 libgcc-s1 libssl3 \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=build /src/build/dun /usr/local/bin/dun

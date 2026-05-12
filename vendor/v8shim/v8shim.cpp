@@ -180,6 +180,7 @@ DunV8Value* dun_v8_eval(DunV8Context* cw, const char* source,
             .ToLocalChecked();
 
         v8::ScriptOrigin origin(
+            isolate,
             v8::String::NewFromUtf8(isolate, filename ? filename : "<eval>")
                 .ToLocalChecked());
 

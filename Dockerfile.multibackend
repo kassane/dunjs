@@ -57,7 +57,7 @@ LABEL org.opencontainers.image.title="DunJS Multi-Backend" \
       org.opencontainers.image.description="Secure JS/TS runtime with QuickJS, JSC, and V8 backends"
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    libstdc++6 libgcc-s1 \
+    libstdc++6 libgcc-s1 libssl3 \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=build /tmp/dun-quickjs /usr/local/bin/dun-quickjs

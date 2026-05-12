@@ -97,8 +97,7 @@ template <V8Tag Tag>
     else if constexpr (Tag == V8Tag::String)   return val->IsString();
     else if constexpr (Tag == V8Tag::Object)   return val->IsObject();
     else if constexpr (Tag == V8Tag::Array)    return val->IsArray();
-    else if constexpr (Tag == V8Tag::Function) return val->IsFunction();
-    else static_assert(!sizeof(val), "unhandled V8Tag");
+    else { static_assert(Tag == V8Tag::Function); return val->IsFunction(); }
 }
 
 
