@@ -235,7 +235,19 @@ Applied across all 7 layers (~290 assertions in 25 files).
 - `static assert` for enum drift: `__traits(allMembers, EngineBackend).length == 3`
 - Bounds checks: refcount overflow, buffer write limits, type tag ranges
 
-### 7. Event Loop Phases (per tick)
+### 7. Performance Optimizations
+
+- **Trampoline stack allocation**: All 3 backends use `JSHandle[16]` stack buffer in native callback trampolines instead of GC `new JSHandle[argc]`
+- **Native typed arrays**: QuickJS uses `JS_CallConstructor(Uint8Array, ArrayBuffer)`, JSC uses `JSObjectMakeTypedArray` + `memcpy`, V8 uses `ArrayBuffer::New` + `memcpy` — no eval
+- **Buffer prototype**: Shared prototype object with 35 methods, `Object.create(proto)` per instance (3 property sets vs 38)
+- **V8 indexed properties**: Native `dun_v8_get/set_property_index` via `Object::Get(context, idx)` — no int-to-string conversion
+- **Crypto cached fd**: `/dev/urandom` opened once, reused for all `randomBytes`/`randomUUID` calls
+- **UUID fast format**: CTFE hex LUT instead of `std.format` for UUID formatting
+- **CTFE hex LUT**: `bytesToHex` uses compile-time 512-byte lookup table, no `std.format`
+- **Pre-allocated buffers**: WebSocket frames, ESM shim use `Appender` with `reserve()`
+- **GC tuning**: `rt_options = ["gcopt=minPoolSize:16"]` reduces GC collections ~11x
+
+### 8. Event Loop Phases (per tick)
 
 1. Drain microtask queue (Promise jobs + queueMicrotask)
 2. Process expired timers (setTimeout/setInterval)
@@ -390,7 +402,7 @@ dub build -c v8  && BACKEND=v8  ./tests/integration/run.sh
 | TypeScript | `typescript`, `realworld_ts_library` | Type annotations, interfaces, as, arrow types |
 | Real-world | 7 end-to-end scenarios | Config loading, task runner, file processing, events, promise pool, nested require, ESM pipeline |
 
-Backend test scores: **QuickJS 51/51**, **JSC 50/50+1skip**, **V8 49/50+1skip** (workers QuickJS-only, error_handling V8 known issue).
+Backend test scores: **QuickJS 57/57**, **JSC 56/56+1skip**, **V8 56/56+1skip** (workers QuickJS-only).
 
 Test pattern: fixtures in `tests/integration/fixtures/*.{js,mjs,ts}`, expected stdout in `tests/integration/expected/*.txt`.
 
@@ -416,6 +428,30 @@ All 51 integration tests pass under AddressSanitizer with zero memory errors.
 | `tests/benchmarks/npm_compat_test.js` | 145 | Simulated npm packages (lodash, express, moment, uuid, chalk, dotenv, minimist, semver, etc.) |
 | `tests/benchmarks/sqlite_bench.js` | 5 | SQLite performance (bulk insert/read, aggregation, update) |
 
+Cross-runtime comparison (feature_bench.js, 25 tests, ops/sec):
+
+| Runtime | Total Throughput | vs Bun |
+|---------|-----------------|--------|
+| Bun 1.3.11 | 458M | 1.00x |
+| DunJS JSC (release) | 426M | **0.93x** |
+| DunJS JSC (debug) | 412M | 0.90x |
+| Node.js v22 | 177M | 0.39x |
+| Deno 2.7 | 172M | 0.38x |
+| DunJS V8 | 141M | 0.31x |
+| DunJS QuickJS | 7.4M | 0.02x |
+
+Framework benchmarks (framework_bench.js, 39 tests, ops/sec):
+
+| Runtime | Total Throughput |
+|---------|-----------------|
+| **DunJS JSC** | **332M** |
+| Bun | 323M |
+| Node.js | 193M |
+| DunJS V8 | 192M |
+| Deno | 180M |
+
+npm compat test (npm_compat_test.js, 145 assertions): **All 6 runtimes: 145/145 pass**
+
 Performance comparison (stress.js 240 tests, release builds):
 
 | Runtime | Wall Time | Notes |
@@ -432,6 +468,41 @@ npm stress (npm_stress.js 189 tests, 45+ real packages):
 | DunJS V8 | 29.5s | 182/189 |
 | Bun | 30s | 184/189 |
 | DunJS JSC | 46s | 182/189 |
+
+### Concurrency & SIMD Comparison
+
+| Feature | DunJS | Bun | Deno | Node.js |
+|---------|-------|-----|------|---------|
+| Workers | QuickJS-only | Yes (JSC) | Yes (V8) | Yes (V8) |
+| SharedArrayBuffer | Yes | Yes | Yes | Yes |
+| Atomics | Yes (futex on Linux) | Yes | Yes | Yes |
+| io_uring | Yes (IORING_OP_POLL_ADD) | Yes (internal) | No | No (libuv) |
+| Async thread pool | Yes (D threads) | Yes (Zig) | Yes (Tokio) | Yes (libuv) |
+| core.simd / WASM SIMD | `core.simd` available | WASM SIMD | V8 SIMD | V8 SIMD |
+| Epoll/kqueue | Yes | Yes | Yes | Via libuv |
+| HTTP/2 multiplexing | Yes | Yes | Yes | Yes |
+| WebSocket | Yes (RFC 6455) | Yes | Yes | Via ws pkg |
+
+D's `core.simd` maps to SSE2/AVX (x86) and NEON (ARM) at compile time, similar to
+Zig's `@Vector`. V8/JSC use their own internal SIMD for JIT-compiled code.
+DunJS can use `core.simd` for hot paths in D code (buffer ops, hex encoding, HTTP parsing).
+
+### Docker Support
+
+```sh
+# Single-backend (smallest image)
+docker build --build-arg BACKEND=quickjs -t dunjs:quickjs .
+docker build --build-arg BACKEND=jsc -t dunjs:jsc .
+docker build --build-arg BACKEND=v8 -t dunjs:v8 .
+
+# Multi-backend (all 3, switchable via DUN_BACKEND env)
+docker build -f Dockerfile.multibackend -t dunjs:multi .
+docker run --rm dunjs:multi run script.js                    # quickjs default
+docker run --rm -e DUN_BACKEND=jsc dunjs:multi run script.js # jsc
+docker run --rm -e DUN_BACKEND=v8 dunjs:multi run script.js  # v8
+```
+
+Base image: `gcr.io/distroless/cc-debian12` (hardened, no shell, minimal attack surface).
 
 ### TypeScript Support
 
