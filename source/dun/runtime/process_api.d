@@ -136,6 +136,15 @@ void installProcess(IJSEngine engine) @trusted
     engine.setProperty(stderrObj, "isTTY", engine.newBool(isattyFd(2)));
     engine.setProperty(process, "stderr", stderrObj);
 
+    // process.stdin
+    auto stdinObj = engine.newObject();
+    engine.setProperty(stdinObj, "read", engine.newFunction(&jsStdinRead, "read", 0));
+    engine.setProperty(stdinObj, "readable", engine.newBool(true));
+    engine.setProperty(stdinObj, "isTTY", engine.newBool(isattyFd(0)));
+    engine.setProperty(stdinObj, "setEncoding", engine.newFunction(&jsStdinSetEncoding, "setEncoding", 1));
+    engine.setProperty(stdinObj, "fd", engine.newInt(0));
+    engine.setProperty(process, "stdin", stdinObj);
+
     // process.hrtime() and process.hrtime.bigint()
     auto hrtimeFn = engine.newFunction(&jsHrtime, "hrtime", 0);
     engine.setProperty(hrtimeFn, "bigint", engine.newFunction(&jsHrtimeBigint, "bigint", 0));
@@ -406,4 +415,37 @@ JSHandle jsChdir(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     {
         return engine.throwTypeError("ENOENT: no such file or directory, chdir '" ~ dir ~ "'");
     }
+}
+
+JSHandle jsStdinRead(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+{
+    assert(ctx !is null, "Null ctx in process.stdin.read");
+    auto state = cast(DunState*) ctx;
+    auto engine = state.engine;
+    version (Posix)
+    {
+        import core.sys.posix.unistd : posixRead = read;
+        import core.sys.posix.fcntl : fcntl, F_GETFL, F_SETFL, O_NONBLOCK;
+
+        int fd = 0;
+        auto origFlags = fcntl(fd, F_GETFL);
+        fcntl(fd, F_SETFL, origFlags | O_NONBLOCK);
+        scope (exit) fcntl(fd, F_SETFL, origFlags);
+
+        ubyte[65536] buf = void;
+        auto n = posixRead(fd, buf.ptr, buf.length);
+        if (n <= 0)
+            return engine.newNull();
+
+        return engine.newString((() @trusted => cast(string) buf[0 .. n])());
+    }
+    else
+        return engine.newNull();
+}
+
+JSHandle jsStdinSetEncoding(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+{
+    assert(ctx !is null, "Null ctx in process.stdin.setEncoding");
+    auto state = cast(DunState*) ctx;
+    return state.engine.dupValue(thisVal);
 }

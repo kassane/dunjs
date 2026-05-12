@@ -535,31 +535,59 @@ int tcpConnect(string host, ushort port) @trusted
 
 JSHandle makeResponse(IJSEngine engine, FetchResult r) @trusted
 {
-    auto obj = engine.newObject();
+    import std.conv : to;
+    import std.array : Appender;
 
+    Appender!(char[]) js;
+    js.reserve(512 + r.body_.length);
+
+    // Build Response using the global Response constructor from web_apis.d
+    js ~= "(function(){var h=new Headers();";
+    foreach (k, v; r.headers)
+    {
+        js ~= "h.append(";
+        js ~= jsonQuote(k);
+        js ~= ",";
+        js ~= jsonQuote(v);
+        js ~= ");";
+    }
+    js ~= "var r=new Response(";
+    js ~= jsonQuote(r.body_);
+    js ~= ",{status:";
+    js ~= r.status.to!string;
+    js ~= ",statusText:";
+    js ~= jsonQuote(r.statusText);
+    js ~= ",headers:h});";
+    js ~= "Object.defineProperty(r,'url',{value:";
+    js ~= jsonQuote(r.url);
+    js ~= ",writable:false,enumerable:true});";
+    js ~= "return r;})()";
+
+    auto result = engine.eval((() @trusted => cast(string) js[])(), "<fetch-response>");
+    if (result.isError)
+    {
+        // Fallback to plain object if Response constructor unavailable
+        return makeResponseFallback(engine, r);
+    }
+    return result.value;
+}
+
+JSHandle makeResponseFallback(IJSEngine engine, FetchResult r) @trusted
+{
+    auto obj = engine.newObject();
     engine.setProperty(obj, "status", engine.newInt(r.status));
     engine.setProperty(obj, "ok", engine.newBool(r.ok));
     engine.setProperty(obj, "statusText", engine.newString(r.statusText));
     engine.setProperty(obj, "url", engine.newString(r.url));
-    engine.setProperty(obj, "body", engine.newString(r.body_));
-
-    // text() method — returns the body as-is
+    engine.setProperty(obj, "__body", engine.newString(r.body_));
     engine.setProperty(obj, "text",
         engine.newFunction(&responseText, "text", 0));
-
-    // json() method — parses body as JSON
     engine.setProperty(obj, "json",
         engine.newFunction(&responseJson, "json", 0));
-
-    // headers object
     auto hdrs = engine.newObject();
     foreach (k, v; r.headers)
         engine.setProperty(hdrs, k, engine.newString(v));
     engine.setProperty(obj, "headers", hdrs);
-
-    // Store body as __body for text()/json() methods
-    engine.setProperty(obj, "__body", engine.newString(r.body_));
-
     return obj;
 }
 

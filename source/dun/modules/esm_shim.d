@@ -9,6 +9,7 @@ string transpileESM(string source, string filename) @safe pure
     string[] preamble;
     string[] exportNames;
     bool hasDefaultExport;
+    bool usesImportMeta;
 
     auto lines = splitLines(source);
     foreach (line; lines)
@@ -81,16 +82,205 @@ string transpileESM(string source, string filename) @safe pure
         result ~= '\n';
     }
 
+    // Replace import.meta references with __import_meta__
+    auto body_ = (() @trusted => cast(string) result[])();
+    if (containsImportMeta(body_))
+    {
+        usesImportMeta = true;
+        body_ = replaceImportMeta(body_);
+    }
+
     Appender!(char[]) output;
-    output.reserve(source.length);
+    output.reserve(source.length + 256);
+
+    // Inject import.meta polyfill if used
+    if (usesImportMeta)
+    {
+        output ~= "var __import_meta__={";
+        if (filename.length > 0)
+        {
+            auto absPath = toAbsPath(filename);
+            output ~= "url:'file://";
+            output ~= escapeJsString(absPath);
+            output ~= "',filename:'";
+            output ~= escapeJsString(absPath);
+            output ~= "',dirname:'";
+            output ~= escapeJsString(dirOfPath(absPath));
+            output ~= "',";
+        }
+        output ~= "main:false};\n";
+    }
+
     foreach (p; preamble)
     {
         output ~= p;
         output ~= '\n';
     }
-    output ~= result[];
+    output ~= body_;
 
     return (() @trusted => cast(string) output[])();
+}
+
+private bool containsImportMeta(string s) @safe pure nothrow
+{
+    if (s.length < 11) return false;
+    foreach (i; 0 .. s.length - 10)
+    {
+        if (s[i .. i + 11] == "import.meta")
+            return true;
+    }
+    return false;
+}
+
+private string replaceImportMeta(string s) @safe pure
+{
+    import std.array : Appender;
+    Appender!(char[]) out_;
+    out_.reserve(s.length);
+    size_t i = 0;
+    while (i < s.length)
+    {
+        // Skip string literals
+        if (s[i] == '\'' || s[i] == '"' || s[i] == '`')
+        {
+            char q = s[i];
+            out_ ~= s[i];
+            i++;
+            while (i < s.length)
+            {
+                if (s[i] == '\\' && i + 1 < s.length)
+                {
+                    out_ ~= s[i];
+                    out_ ~= s[i + 1];
+                    i += 2;
+                }
+                else if (s[i] == q)
+                {
+                    out_ ~= s[i];
+                    i++;
+                    break;
+                }
+                else if (q == '`' && s[i] == '$' && i + 1 < s.length && s[i + 1] == '{')
+                {
+                    // Template literal expression — copy ${ and recurse into brace-balanced expression
+                    out_ ~= s[i];
+                    out_ ~= s[i + 1];
+                    i += 2;
+                    int depth = 1;
+                    while (i < s.length && depth > 0)
+                    {
+                        if (s[i] == '{') depth++;
+                        else if (s[i] == '}') { depth--; if (depth == 0) break; }
+
+                        if (i + 11 <= s.length && s[i .. i + 11] == "import.meta")
+                        {
+                            out_ ~= "__import_meta__";
+                            i += 11;
+                        }
+                        else
+                        {
+                            out_ ~= s[i];
+                            i++;
+                        }
+                    }
+                    if (i < s.length && s[i] == '}')
+                    {
+                        out_ ~= s[i];
+                        i++;
+                    }
+                }
+                else
+                {
+                    out_ ~= s[i];
+                    i++;
+                }
+            }
+            continue;
+        }
+
+        // Skip line comments
+        if (i + 1 < s.length && s[i] == '/' && s[i + 1] == '/')
+        {
+            while (i < s.length && s[i] != '\n')
+            {
+                out_ ~= s[i];
+                i++;
+            }
+            continue;
+        }
+
+        // Skip block comments
+        if (i + 1 < s.length && s[i] == '/' && s[i + 1] == '*')
+        {
+            out_ ~= s[i];
+            out_ ~= s[i + 1];
+            i += 2;
+            while (i + 1 < s.length)
+            {
+                if (s[i] == '*' && s[i + 1] == '/')
+                {
+                    out_ ~= s[i];
+                    out_ ~= s[i + 1];
+                    i += 2;
+                    break;
+                }
+                out_ ~= s[i];
+                i++;
+            }
+            continue;
+        }
+
+        // Replace import.meta in code context
+        if (i + 11 <= s.length && s[i .. i + 11] == "import.meta")
+        {
+            out_ ~= "__import_meta__";
+            i += 11;
+        }
+        else
+        {
+            out_ ~= s[i];
+            i++;
+        }
+    }
+    return (() @trusted => cast(string) out_[])();
+}
+
+private string escapeJsString(string s) @safe pure nothrow
+{
+    // Simple escape for single-quoted JS strings
+    string result;
+    foreach (c; s)
+    {
+        if (c == '\'') result ~= "\\'";
+        else if (c == '\\') result ~= "\\\\";
+        else result ~= c;
+    }
+    return result;
+}
+
+private string toAbsPath(string path) @safe pure nothrow
+{
+    if (path.length > 0 && path[0] == '/')
+        return path;
+    return path;
+}
+
+private string dirOfPath(string path) @safe pure nothrow
+{
+    // Find last '/' and return everything before it
+    size_t lastSlash = 0;
+    bool found = false;
+    foreach (i, c; path)
+    {
+        if (c == '/')
+        {
+            lastSlash = i;
+            found = true;
+        }
+    }
+    if (found)
+        return path[0 .. lastSlash];
+    return ".";
 }
 
 private string parseImportLine(string line) @safe pure

@@ -344,6 +344,31 @@ class QuickJSEngine : IJSEngine
             result.errorMessage = getException();
             return result;
         }
+
+        // Set import.meta properties on the entry point module
+        try
+        {
+            import std.path : absolutePath, dirName;
+            auto mod = cast(JSModuleDef*) compiled.ptr;
+            auto meta = JS_GetImportMeta(ctx, mod);
+            if (JS_IsException(meta) == 0)
+            {
+                auto absPath = absolutePath(filename);
+                auto urlStr = "file://" ~ absPath;
+                JS_SetPropertyStr(ctx, meta, "url",
+                    JS_NewStringLen(ctx, urlStr.ptr, urlStr.length));
+                JS_SetPropertyStr(ctx, meta, "filename",
+                    JS_NewStringLen(ctx, absPath.ptr, absPath.length));
+                auto dirStr = dirName(absPath);
+                JS_SetPropertyStr(ctx, meta, "dirname",
+                    JS_NewStringLen(ctx, dirStr.ptr, dirStr.length));
+                JS_SetPropertyStr(ctx, meta, "main",
+                    JS_NewBool(ctx, true));
+                JS_FreeValue(ctx, meta);
+            }
+        }
+        catch (Throwable) {}
+
         auto val = JS_EvalFunction(ctx, compiled);
         result.value = toHandle(val);
         result.isError = JS_IsException(val) != 0;
