@@ -14,11 +14,11 @@ ARG LDC_VERSION=1.42.0
 RUN apk add --no-cache \
     ca-certificates curl xz gcc g++ cmake make pkgconf git bash \
     libxml2-dev openssl-dev musl-dev linux-headers \
-    gcompat libstdc++
+    libstdc++
 
-# Install LDC via ldcup (same as CI)
+# Install LDC via ldcup (downloads native Alpine/musl build)
 RUN curl -sSf https://raw.githubusercontent.com/kassane/ldcup/main/scripts/install.sh | sh
-ENV PATH="/root/.ldcup/bin:${PATH}"
+ENV PATH="/root/.dlang/ldc2-${LDC_VERSION}/bin:/root/.dlang:${PATH}"
 RUN ldcup install ldc2-${LDC_VERSION}
 
 WORKDIR /src
@@ -49,7 +49,7 @@ FROM alpine:3.20
 LABEL org.opencontainers.image.title="DunJS Multi-Backend" \
       org.opencontainers.image.description="Secure JS/TS runtime with QuickJS, JSC, and V8 backends"
 
-RUN apk add --no-cache gcompat libstdc++ libgcc
+RUN apk add --no-cache libstdc++ libgcc
 
 COPY --from=build /tmp/dun-quickjs /usr/local/bin/dun-quickjs
 COPY --from=build /tmp/dun-jsc     /usr/local/bin/dun-jsc
