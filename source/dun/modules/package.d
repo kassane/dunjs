@@ -1,7 +1,4 @@
-/// Layer 5: Module system.
-///
-/// ES module support, import specifier resolution, module loading
-/// and caching, and built-in module registry.
+/// Module system (ESM, resolution, loading, builtins).
 module dun.modules;
 
 public import dun.modules.resolver;

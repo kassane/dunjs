@@ -1,13 +1,4 @@
-/*
- * v8shim.cpp — Thin C wrapper around V8's C++ API (C++20).
- *
- * Uses C++20 TMP helpers from v8shim_tmpl.hpp: concepts, consteval,
- * std::span, [[nodiscard]], static_assert for compile-time FFI safety.
- *
- * Build:
- *   g++ -std=c++20 -fPIC -O2 -c v8shim.cpp -I/path/to/v8/include
- *   ar rcs libv8shim.a v8shim.o
- */
+// v8shim.cpp — extern "C" V8 wrapper (C++20).
 
 #include "v8shim.h"
 

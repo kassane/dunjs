@@ -1,6 +1,4 @@
-/// Layer 7: CLI and REPL.
-///
-/// Command-line argument parsing, interactive REPL, and output formatting.
+/// CLI and REPL.
 module dun.cli;
 
 public import dun.cli.args;

@@ -1,7 +1,4 @@
 /// RAII wrapper for JSContext.
-///
-/// Provides safe eval, property access, and global function registration.
-/// Automatically frees the context on destruction.
 module dun.engine.quickjs.context;
 
 import dun.engine.quickjs.bindings;

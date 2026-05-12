@@ -1,10 +1,6 @@
 module dun.engine.v8.bindings;
 
-// V8 has no C API — these are bindings to a thin C shim (vendor/v8shim/)
-// that wraps V8's C++ API with extern "C" functions.
-//
-// The shim uses opaque pointers for all V8 types, providing a stable
-// C ABI that D can call via extern(C).
+// extern(C) bindings to vendor/v8shim/ (V8 C++ API wrapped as C).
 
 struct DunV8Isolate;
 struct DunV8Context;

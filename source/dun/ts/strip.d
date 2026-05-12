@@ -1,21 +1,7 @@
 module dun.ts.strip;
 
-/// Strip TypeScript type annotations from source, producing valid JavaScript.
-/// Replaces type-only syntax with whitespace to preserve source positions.
-///
-/// Supports (erasable TypeScript, same subset as Node.js --experimental-strip-types):
-///   - Type annotations (: T) on variables, parameters, return types
-///   - interface / type alias declarations
-///   - import type / export type statements
-///   - 'as' type assertions
-///   - declare blocks
-///   - abstract keyword before class
-///   - Generic type parameters on function/class
-///
-/// Not supported (have runtime semantics):
-///   - enum (use plain objects instead)
-///   - namespace
-///   - parameter properties (constructor(public x: number))
+/// Strip TypeScript type annotations, replacing them with whitespace
+/// to preserve source positions. Erasable subset only (no enum/namespace).
 string stripTypes(const(char)[] source) @trusted
 {
     if (source.length == 0)

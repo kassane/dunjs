@@ -1,7 +1,4 @@
-/// Command-line argument parsing.
-///
-/// Parses CLI arguments into a CliConfig struct including
-/// command, script path, permission flags, and runtime options.
+/// CLI argument parsing into CliConfig.
 module dun.cli.args;
 
 import dun.security.permissions : PermissionRegistry;

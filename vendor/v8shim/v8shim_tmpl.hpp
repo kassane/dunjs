@@ -1,19 +1,4 @@
-/*
- * v8shim_tmpl.hpp — C++20 template metaprogramming helpers for v8shim.
- *
- * Eliminates boilerplate in v8shim.cpp by abstracting V8's scope guard
- * pattern into templates. Every V8 operation requires identical setup:
- *   1. Isolate::Scope
- *   2. HandleScope
- *   3. Context::Get + Context::Scope
- *
- * C++20 features used:
- *   - concepts: constrain template parameters
- *   - consteval: compile-time tag validation
- *   - [[nodiscard]]: prevent ignoring return values
- *   - std::span: safe view over argument arrays
- *   - requires: inline constraints on lambdas
- */
+// v8shim_tmpl.hpp — C++20 TMP helpers (scope guards, type dispatch).
 
 #ifndef DUN_V8SHIM_TMPL_HPP
 #define DUN_V8SHIM_TMPL_HPP
@@ -26,7 +11,6 @@
 
 namespace dun {
 
-// --- Compile-time tag types for V8 value dispatch ---
 
 enum class V8Tag : int {
     Undefined = 0, Null, Bool, Int, Number, String, Object, Array, Function
@@ -56,7 +40,6 @@ consteval const char* tagName(V8Tag tag) {
     return "unknown";
 }
 
-// --- Concepts for template constraints ---
 
 template <typename F>
 concept ContextCallable = std::invocable<F, v8::Isolate*,
@@ -65,7 +48,6 @@ concept ContextCallable = std::invocable<F, v8::Isolate*,
 template <typename F>
 concept IsolateCallable = std::invocable<F, v8::Isolate*>;
 
-// --- RAII scope guards ---
 
 template <ContextCallable F>
 auto withContext(DunV8Context* cw, F&& fn)
@@ -88,7 +70,6 @@ auto withIsolate(DunV8Isolate* iw, F&& fn)
     return fn(iw->isolate);
 }
 
-// --- Type-level map: V8Tag → v8::Type ---
 
 template <V8Tag Tag> struct V8TypeMap;
 template <> struct V8TypeMap<V8Tag::Bool>     { using type = v8::Boolean; };
@@ -99,7 +80,6 @@ template <> struct V8TypeMap<V8Tag::Object>   { using type = v8::Object; };
 template <> struct V8TypeMap<V8Tag::Array>    { using type = v8::Array; };
 template <> struct V8TypeMap<V8Tag::Function> { using type = v8::Function; };
 
-// --- Type check dispatch: compile-time selection of IsXxx method ---
 
 template <V8Tag Tag>
     requires (isValidTag(Tag))
@@ -117,12 +97,10 @@ template <V8Tag Tag>
     else static_assert(!sizeof(val), "unhandled V8Tag");
 }
 
-// --- Compile-time validation ---
 
 static_assert(tagName(V8Tag::Undefined) != nullptr);
 static_assert(tagName(V8Tag::Function) != nullptr);
 
-// FFI ABI guarantees
 static_assert(sizeof(DunV8NativeCallback) == sizeof(void*),
     "function pointer must be pointer-sized for FFI");
 static_assert(alignof(DunV8Isolate*) == alignof(void*),
@@ -134,16 +112,5 @@ static_assert(alignof(DunV8Value*) == alignof(void*),
 
 } // namespace dun
 
-/*
- * D-side TMP mirror (compile-time code generation):
- *
- * The D binding uses compile-time templates to mirror the C++ side:
- *   - V8TypeTag enum (9 members, matches V8Tag)
- *   - V8TypeName template (matches tagName consteval)
- *   - V8TypeChecks struct (function pointer table, matches isV8Type<Tag>)
- *   - static assert on __traits(allMembers) count (matches V8TagCount)
- *
- * Both sides are resolved at compile time with zero runtime overhead.
- */
 
 #endif /* DUN_V8SHIM_TMPL_HPP */

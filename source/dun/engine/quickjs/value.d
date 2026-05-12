@@ -1,7 +1,4 @@
-/// RAII wrapper for JSValue.
-///
-/// Automatically calls JS_FreeValue on scope exit.
-/// Copy constructor calls JS_DupValue to maintain reference count.
+/// RAII wrapper for JSValue (ref-counted via JS_DupValue/JS_FreeValue).
 module dun.engine.quickjs.value;
 
 import dun.engine.quickjs.bindings;

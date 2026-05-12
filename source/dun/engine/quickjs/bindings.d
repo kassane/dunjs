@@ -1,8 +1,4 @@
-/// Raw extern(C) declarations for the QuickJS-NG C API.
-///
-/// This module is a manual translation of quickjs.h into D.
-/// All functions are extern(C) nothrow @nogc.
-/// Inline functions from quickjs.h are reimplemented in D.
+/// extern(C) bindings for quickjs.h (manual translation).
 ///
 /// See: https://quickjs-ng.github.io/quickjs/developer-guide/intro/
 module dun.engine.quickjs.bindings;

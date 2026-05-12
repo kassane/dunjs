@@ -1,7 +1,4 @@
-/// Platform-specific path handling utilities.
-///
-/// Provides path canonicalization (for security: resolving symlinks
-/// before permission checks to prevent traversal attacks).
+/// Path canonicalization (resolves symlinks before permission checks).
 module dun.platform.paths;
 
 /// Canonicalize a file path by resolving symlinks and normalizing.

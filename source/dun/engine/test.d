@@ -61,8 +61,7 @@ template hasShouldFail(alias func)
     enum hasShouldFail = hasUDA!(func, ShouldFail);
 }
 
-/// Run every @Test-annotated function found in module `M`, passing `engine`
-/// to each one.  Groups are printed when they change.
+/// Run all @Test functions in module M.
 void runModuleTests(alias M)(IJSEngine engine)
 {
     import std.stdio : writeln;
@@ -137,8 +136,7 @@ void runModuleTests(alias M)(IJSEngine engine)
     writeln("  -- ", passed, " passed, ", failed, " failed");
 }
 
-/// Mixin template that generates per-backend unittest blocks.
-/// `Modules` is a tuple of modules whose @Test functions will be discovered.
+/// Generates per-backend unittest blocks from a tuple of test modules.
 mixin template EngineTestRunner(string label, Modules...)
 {
     version (EngineQuickJS)

@@ -1,7 +1,4 @@
-/// Permission registry and enforcement.
-///
-/// Implements a Deno-style default-deny permission model.
-/// Permissions are populated from CLI flags and are immutable at runtime.
+/// Default-deny permission registry, populated from CLI flags.
 module dun.security.permissions;
 
 /// Permission categories.

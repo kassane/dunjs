@@ -1,6 +1,4 @@
-/// Helpers for bridging D functions to JavaScript.
-///
-/// Provides utilities for argument conversion between D and JS types.
+/// D-to-JS function bridging and argument conversion.
 module dun.engine.quickjs.function_bind;
 
 import dun.engine.quickjs.bindings;

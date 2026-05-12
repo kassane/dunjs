@@ -1,30 +1,6 @@
 module dun.engine.jsc.cppbindings;
 
-// D TMP bridge for JavaScriptCore + experimental C++ bindings.
-//
-// Two sections:
-//   1. D TMP bridge types (always available — pure D, used by backend.d)
-//   2. C++ extern bindings (version-gated — only when EngineJSC selected)
-
-// ---------------------------------------------------------------------------
-// D TMP bridge (always available)
-//
-// JSC has a stable C API with JSValueGetType() returning a JSType enum,
-// making it a natural fit for compile-time dispatch. Unlike V8 (which
-// needs a C++ shim with isV8Type<Tag> + if constexpr), JSC's type system
-// is directly accessible via a single C call.
-//
-// Pattern comparison:
-//   V8:  isV8Type<Tag> dispatches via if constexpr → separate IsXxx() calls
-//   JSC: JSValueGetType() returns tag directly → single call for basic types
-//
-// For composite types (Array, Function, Date) that JSType doesn't cover,
-// we fall back to individual check functions (JSValueIsArray, etc.).
-// ---------------------------------------------------------------------------
-
-/// JSC type tag — mirrors kJSType* constants from JavaScriptCore C API.
-/// Basic types (Undefined..Symbol) map 1:1 to JSType enum values.
-/// Extended types (Array, Function, Date) require separate API calls.
+/// JSC type tag — values 0-6 match kJSType* constants.
 enum JSCTypeTag
 {
     Undefined = 0,
@@ -53,7 +29,7 @@ static assert(JSCTypeTag.Undefined == 0 && JSCTypeTag.Null == 1
 static assert((void*).sizeof == size_t.sizeof,
     "pointer/size_t size mismatch for C FFI");
 
-/// Compile-time map: JSCTypeTag → display name.
+/// JSCTypeTag → display name.
 template JSCTypeName(JSCTypeTag tag)
 {
     static if (tag == JSCTypeTag.Undefined) enum JSCTypeName = "undefined";
@@ -68,18 +44,11 @@ template JSCTypeName(JSCTypeTag tag)
     else static if (tag == JSCTypeTag.Date) enum JSCTypeName = "date";
 }
 
-// JSCTypeChecks and its bindings-dependent methods are JSC-backend-only.
-// They must be compiled as a module-level entity (not with a local struct import)
-// so that the D compiler emits method bodies into the object file.
 version (EngineJSC)
 {
     import dun.engine.jsc.bindings;
 
     /// Type-check dispatch table for JSC values.
-    ///
-    /// Two dispatch strategies:
-    ///   1. getType() — single JSValueGetType() call for basic types (O(1))
-    ///   2. check(tag) — function pointer table for all types including extended
     struct JSCTypeChecks
     {
         alias CheckFn = extern (C) bool function(JSContextRef, JSValueRef) nothrow @nogc;
@@ -100,8 +69,7 @@ version (EngineJSC)
             return tc;
         }
 
-        /// Check if a value matches the given type tag.
-        /// Function is handled specially (requires JSObjectIsFunction).
+        /// Function tag needs JSObjectIsFunction (not in JSValueGetType).
         bool check(JSCTypeTag tag, JSContextRef ctx, JSValueRef val) @trusted nothrow @nogc
         {
             assert(ctx !is null, "Null JSContextRef in JSCTypeChecks.check");
@@ -117,15 +85,13 @@ version (EngineJSC)
             return table[tag](ctx, val);
         }
 
-        /// Fast path: JSValueGetType() for the 7 basic types (single C call).
-        /// Returns a JSCTypeTag in the Undefined..Symbol range.
-        /// Does NOT detect Array/Function/Date — use check() for those.
+        /// Single JSValueGetType() call — basic types only (not Array/Function/Date).
         static JSCTypeTag getType(JSContextRef ctx, JSValueRef val) @trusted nothrow @nogc
         {
             return cast(JSCTypeTag) JSValueGetType(ctx, val);
         }
 
-        /// JS typeof semantics using single-dispatch getType().
+        /// JS typeof semantics.
         static string typeofString(JSContextRef ctx, JSValueRef val) @trusted nothrow
         {
             final switch (getType(ctx, val))
@@ -175,14 +141,7 @@ unittest
     }}
 }
 
-// ---------------------------------------------------------------------------
-// C++ extern bindings (only when JSC engine selected)
-//
-// Experimental: Direct D → JSC/WebKit C++ bindings using extern(C++, ns).
-// The C++ API is NOT stable across WebKit releases — use the C API
-// (bindings.d) for production code.
-// ---------------------------------------------------------------------------
-
+// Experimental C++ bindings — JSC C++ API is unstable across WebKit releases.
 version (EngineJSC)
 {
     extern (C++, "JSC")

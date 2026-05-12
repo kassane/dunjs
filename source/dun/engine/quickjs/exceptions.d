@@ -1,7 +1,4 @@
-/// JavaScript exception handling utilities.
-///
-/// Provides helpers for creating, inspecting, and formatting JS exceptions
-/// from D code.
+/// JS exception handling helpers.
 module dun.engine.quickjs.exceptions;
 
 import dun.engine.quickjs.bindings;

@@ -1,11 +1,4 @@
-/// Import specifier resolution.
-///
-/// Resolution order:
-/// 1. Built-in modules: "dun:fs", "dun:path", "dun:net", etc.
-/// 2. Absolute paths: "/foo/bar.js"
-/// 3. Relative paths: "./foo.js", "../bar.js"
-/// 4. URL imports: "https://..." (future)
-/// 5. node_modules lookup (future)
+/// Import specifier resolution (builtins, paths, node_modules).
 module dun.modules.resolver;
 
 /// Resolves import specifiers to absolute paths or built-in names.

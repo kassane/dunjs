@@ -1,7 +1,4 @@
-/// Layer 1: Platform abstraction.
-///
-/// OS-specific operations: memory allocation bridges, threading,
-/// I/O primitives, and path handling.
+/// Platform abstraction (memory, threading, OS I/O).
 module dun.platform;
 
 version (EngineQuickJS)

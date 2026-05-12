@@ -1,25 +1,6 @@
 module dun.engine.v8.cppbindings;
 
-// D → V8 C++ bindings and D TMP bridge pattern.
-//
-// Two sections:
-//   1. D TMP bridge types (always available — pure D, used by backend.d)
-//   2. C++ extern bindings (version-gated — only when EngineV8 selected)
-
-// ---------------------------------------------------------------------------
-// D TMP bridge (always available)
-//
-// Mirrors C++ TMP in vendor/v8shim/v8shim_tmpl.hpp:
-//   C++: V8Tag enum, V8TypeMap<Tag>, isV8Type<Tag>, withContext<F>
-//   D:   V8TypeTag enum, V8TypeName template, V8TypeChecks struct
-//
-// Both resolve at compile time → zero runtime overhead.
-// Adding a new V8 type requires:
-//   1. C++: add enum value + template specialization + if constexpr case
-//   2. D:   add enum value + V8TypeName entry → wrappers auto-generated
-// ---------------------------------------------------------------------------
-
-/// V8 value type tag — mirrors dun::V8Tag in v8shim_tmpl.hpp
+/// V8 value type tag — ordinals must match dun::V8Tag in v8shim_tmpl.hpp.
 enum V8TypeTag
 {
     Undefined,
@@ -45,8 +26,7 @@ static assert(V8TypeTag.Undefined == 0 && V8TypeTag.Function == 8,
 static assert((void*).sizeof == size_t.sizeof,
     "pointer/size_t size mismatch for C FFI");
 
-/// Compile-time map: V8TypeTag → C shim function name suffix.
-/// Mirrors C++ V8TypeMap<Tag> — both are compile-time dispatch tables.
+/// V8TypeTag → C shim function name suffix.
 template V8TypeName(V8TypeTag tag)
 {
     static if (tag == V8TypeTag.Undefined) enum V8TypeName = "undefined";
@@ -60,9 +40,7 @@ template V8TypeName(V8TypeTag tag)
     else static if (tag == V8TypeTag.Function) enum V8TypeName = "function";
 }
 
-/// Type-check function pointer table, generated via static foreach.
-/// Each entry points to the corresponding dun_v8_value_is_xxx function.
-/// This mirrors C++ isV8Type<Tag> — both are compile-time dispatch.
+/// Type-check dispatch table (dun_v8_value_is_xxx function pointers).
 struct V8TypeChecks
 {
     import dun.engine.v8.bindings;
@@ -104,14 +82,7 @@ unittest
     }}
 }
 
-// ---------------------------------------------------------------------------
-// C++ extern bindings (only when V8 engine selected)
-//
-// Only static-method classes are bound here — instance methods on extern
-// C++ classes generate vtable entries that require linking against V8's
-// C++ objects, which defeats the purpose of the C shim.
-// ---------------------------------------------------------------------------
-
+// Static-method-only C++ bindings (instance methods need V8 linkage).
 version (EngineV8)
 {
     extern (C++, "v8")

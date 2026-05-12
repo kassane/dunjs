@@ -1,14 +1,4 @@
-/*
- * v8shim — Thin C wrapper around V8's C++ API for D FFI.
- *
- * V8 has no stable C API. This shim exposes the minimal surface
- * needed by DunJS via extern "C" functions with opaque pointer types.
- *
- * Build: g++ -std=c++20 -fPIC -O2 -c v8shim.cpp -I/usr/include/v8
- *        ar rcs libv8shim.a v8shim.o
- *
- * Link: -lv8shim -lv8 -lv8_libplatform
- */
+// v8shim.h — extern "C" wrapper for V8's C++ API.
 #ifndef DUN_V8SHIM_H
 #define DUN_V8SHIM_H
 
@@ -28,7 +18,6 @@ typedef DunV8Value* (*DunV8NativeCallback)(
     int argc, DunV8Value** argv, void* data);
 
 #ifdef __cplusplus
-/* Compile-time ABI guarantees (C++ only) */
 static_assert(sizeof(DunV8NativeCallback) == sizeof(void*),
     "callback must be pointer-sized for FFI");
 static_assert(sizeof(size_t) >= 4,

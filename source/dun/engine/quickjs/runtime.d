@@ -1,8 +1,4 @@
 /// RAII wrapper for JSRuntime.
-///
-/// Owns the QuickJS runtime and frees it on destruction.
-/// Provides safe methods for memory limits, job queue draining,
-/// and interrupt handling.
 module dun.engine.quickjs.runtime;
 
 import dun.engine.quickjs.bindings;
