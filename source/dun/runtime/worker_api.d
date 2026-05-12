@@ -22,8 +22,15 @@ void installWorkerAPI(IJSEngine engine, DunState* state) @trusted
 
     engine.eval(
         `globalThis.Worker = function Worker(p) { return __workerCreate(p); };`
+        ~ `var __NativeInt32Array = globalThis.Int32Array;`
+        ~ `var __NativeSAB = globalThis.SharedArrayBuffer;`
         ~ `globalThis.SharedArrayBuffer = function SharedArrayBuffer(n) { return __sabCreate(n); };`
-        ~ `globalThis.Int32Array = function Int32Array(a) { return __int32ArrayCreate(a); };`,
+        ~ `globalThis.Int32Array = function Int32Array(a) {`
+        ~ `  if (a && a.__isSAB) return __int32ArrayCreate(a);`
+        ~ `  return new __NativeInt32Array(a);`
+        ~ `};`
+        ~ `globalThis.Int32Array.BYTES_PER_ELEMENT = 4;`
+        ~ `globalThis.Int32Array.prototype = __NativeInt32Array.prototype;`,
         "<worker-init>");
 
     auto atomics = engine.newObject();
