@@ -6,8 +6,10 @@ DunJS is a 7-layer JavaScript/TypeScript runtime with a **pluggable engine archi
 (IJSEngine interface), a cross-platform I/O poller (epoll/kqueue/poll), and a Deno-inspired permission system.
 
 Three backends are fully functional: QuickJS-NG (default), JavaScriptCore, and V8.
-All 46 integration tests pass on QuickJS (45 on JSC/V8 + 1 QuickJS-only).
-All built-in modules (fs, path, crypto, net, http, buffer, events, url, os, fetch) are engine-agnostic.
+All 57 integration tests pass on all 3 backends (QuickJS 57/57, JSC 57/57, V8 57/57).
+All 24 built-in modules (fs, path, crypto, net, http, http2, buffer, events, url, os, fetch,
+child_process, stream, zlib, dns, ws, sqlite, util, assert, querystring, string_decoder,
+timers/promises, tls) are engine-agnostic. Workers, SharedArrayBuffer, and Atomics work on all backends.
 HTTPS via OpenSSL, npm package install, 30+ Deno APIs, and web standard globals are included.
 
 Reference: [Bun's Zig->Rust port](https://github.com/oven-sh/bun/pull/30412) -- modular
@@ -29,8 +31,8 @@ RAII wrappers, and pointer safety auditing.
 |  Layer 6: Runtime API (Globals)                               |
 |  +---------+ +------------+ +---------+ +------------+        |
 |  | console | | timers_api | | process | | deno_compat|        |
-|  | (all 3) | |            | | (argv,  | | (30+ APIs) |        |
-|  |         | |            | | cwd,pid)| | web_compat |        |
+|  | (all 3) | | workers    | | (argv,  | | (30+ APIs) |        |
+|  |         | | SAB/Atomics| | cwd,pid)| | web_compat |        |
 |  +---------+ +------------+ +---------+ +------------+        |
 +--------------------------------------------------------------+
 |  Layer 5: Module System                                       |
@@ -38,13 +40,19 @@ RAII wrappers, and pointer safety auditing.
 |  | resolver | | loader | | esm | | builtins | | npm |         |
 |  +----------+ +--------+ +-----+ +----------+ +-----+         |
 +--------------------------------------------------------------+
-|  Layer 4: Built-in Modules (all engine-agnostic)              |
+|  Layer 4: Built-in Modules (24 modules, all engine-agnostic)  |
 |  +----+ +------+ +-----+ +------+ +--------+ +-----+         |
 |  | fs | | path | | net | | http | | crypto | | os  |         |
 |  +----+ +------+ +-----+ +------+ +--------+ +-----+         |
-|  +--------+ +--------+ +-----+ +-------+                       |
-|  | buffer | | events | | url | | fetch |                       |
-|  +--------+ +--------+ +-----+ +-------+                       |
+|  +--------+ +--------+ +-----+ +-------+ +-------+           |
+|  | buffer | | events | | url | | fetch | | http2 |           |
+|  +--------+ +--------+ +-----+ +-------+ +-------+           |
+|  +--------+ +--------+ +------+ +-----+ +----+               |
+|  |child_p | | stream | |  zlib | | dns | | ws |               |
+|  +--------+ +--------+ +------+ +-----+ +----+               |
+|  +--------+ +------+ +--------+ +---------+ +-----+          |
+|  | sqlite | | util | | assert | |querystr | | tls |          |
+|  +--------+ +------+ +--------+ +---------+ +-----+          |
 +--------------------------------------------------------------+
 |  Cross-Cutting Concerns                                       |
 |  +----------------+ +------------------+ +----------------+   |
@@ -422,7 +430,8 @@ that require linking against V8's C++ objects -- these MUST go through the C shi
 | TypeScript | Via tsc/swc | Built-in check+strip | Built-in transpile | **Type stripping** |
 | Engine FFI | Native C++ | rusty_v8 (Rust bindings) | Zig extern(C++) | **extern(C) + C shim** |
 | TMP Bridge | N/A | N/A | N/A | **C++ TMP <-> D TMP** |
-| Event Loop | libuv | Tokio | io_uring | **epoll/kqueue/poll** |
+| Event Loop | libuv | Tokio | io_uring | **epoll/kqueue/poll/io_uring** |
+| Workers | Yes (V8) | Yes (V8) | Yes (JSC) | **Yes (all 3 backends)** |
 | Permission | None | Deny-all | None | **Deny-all** |
 | Module Prefix | `node:` | `node:` | `bun:` | **`dun:`** |
 | Memory Safety | Manual | Borrow checker | Manual | **@safe/@trusted** |
@@ -430,18 +439,29 @@ that require linking against V8's C++ objects -- these MUST go through the C shi
 
 ### Performance Benchmarks
 
-Total wall time across 16 real-world benchmarks:
+Feature benchmarks (25 tests, ops/sec):
 
-| Runtime | Total Time | vs Deno |
-|---------|-----------|---------|
-| Deno | 3.4s | 1.00x |
-| DunJS V8 | 3.6s | 1.05x |
-| Bun | 4.0s | 1.18x |
-| DunJS JSC | 4.4s | 1.29x |
-| DunJS QuickJS | 18.7s | 5.50x |
+| Runtime | Total Throughput | Relative |
+|---------|-----------------|----------|
+| DunJS JSC | 536M | 1.00x (fastest) |
+| Bun | 477M | 0.89x |
+| Node.js | 175M | 0.33x |
+| Deno | 172M | 0.32x |
+| DunJS V8 | 141M | 0.26x |
+| DunJS QuickJS | 11M | 0.02x |
 
-DunJS V8 is competitive with Deno and Bun. QuickJS trades JIT speed for minimal binary size (4.6MB).
-Feature compatibility: **39/39 checks** pass across all runtimes.
+Framework benchmarks (39 tests, ops/sec):
+
+| Runtime | Total Throughput | Relative |
+|---------|-----------------|----------|
+| DunJS JSC | 319M | 1.00x (fastest) |
+| Bun | 279M | 0.87x |
+| Node.js | 196M | 0.62x |
+| DunJS V8 | 190M | 0.60x |
+| Deno | 187M | 0.59x |
+
+React/framework compat: **81/81 checks** pass across all 6 runtimes.
+npm compat: **145/145** pass across all 6 runtimes.
 
 ## Design Decisions
 
@@ -472,52 +492,43 @@ Feature compatibility: **39/39 checks** pass across all runtimes.
 ```
 tests/
 +-- integration/
-|   +-- fixtures/       # 44 test scripts (JS, MJS, TS)
-|   |   +-- hello.js                    # Basic smoke test
-|   |   +-- types.js                    # typeof for all JS types
-|   |   +-- console_methods.js          # log/info/debug, multiple args
-|   |   +-- promises.js                 # Promise + async/await
-|   |   +-- promises_advanced.js        # all/race/any, async errors
-|   |   +-- es2023.js                   # findLast, optional chaining, Array.at
-|   |   +-- error_handling.js           # try/catch, Error subtypes, Error.cause
-|   |   +-- closures.js                 # Closures, generators, destructuring
-|   |   +-- iterators.js               # Map, Set, WeakRef, Array.from
-|   |   +-- json_parsing.js            # JSON parse/stringify, replacer/reviver
-|   |   +-- classes.js                  # Inheritance, private fields, valueOf
-|   |   +-- regex.js                    # Named groups, matchAll, flags
-|   |   +-- typescript.ts              # TS type stripping
-|   |   +-- timers.js                  # setTimeout/setInterval
-|   |   +-- phase2.js                  # Event loop phases
-|   |   +-- phase2_rejection.js        # unhandledRejection
-|   |   +-- async_io.mjs               # Async I/O operations
-|   |   +-- module_esm.mjs            # ES module import/export
-|   |   +-- module_cjs.js             # CommonJS require
-|   |   +-- module_chain.js           # Chained module dependencies
-|   |   +-- json_pipeline.js          # JSON import pipeline
-|   |   +-- npm_compat.js             # npm compatibility
-|   |   +-- fs_ops.mjs                # File system operations
-|   |   +-- path_ops.mjs              # Path manipulation
-|   |   +-- crypto_ops.mjs            # Crypto operations
-|   |   +-- stat_file.js              # File stat
-|   |   +-- env_access.js             # Environment variables
-|   |   +-- perm_deny_read.js         # Permission denial (read)
-|   |   +-- perm_deny_write.js        # Permission denial (write)
-|   |   +-- realworld_config_loader.js     # Config loading end-to-end
-|   |   +-- realworld_task_runner.js       # Task runner simulation
-|   |   +-- realworld_file_processor.mjs   # File processing pipeline
-|   |   +-- realworld_event_system.js      # Event emitter pattern
-|   |   +-- realworld_promise_pool.js      # Concurrent promise pool
-|   |   +-- realworld_ts_library.ts        # TS library patterns
-|   |   +-- realworld_nested_require.js    # Nested require chains
-|   |   +-- realworld_security_boundary.js # Security boundary tests
-|   |   +-- realworld_esm_pipeline.mjs     # ESM pipeline end-to-end
-|   |   +-- buffer_api.js                 # Buffer.from/alloc/concat/slice
-|   |   +-- event_emitter.js              # EventEmitter on/emit/once/off
-|   |   +-- url_api.js                    # URL/URLSearchParams parsing
-|   |   +-- os_api.js                     # os.platform/cpus/totalmem
-|   +-- expected/       # 44 expected stdout files
+|   +-- fixtures/       # 57 test scripts (JS, MJS, TS)
+|   |   +-- hello.js, types.js, console_methods.js    # Core JS
+|   |   +-- promises.js, promises_advanced.js          # Async
+|   |   +-- es2023.js, closures.js, iterators.js       # ES2023+
+|   |   +-- classes.js, regex.js, json_parsing.js      # Language features
+|   |   +-- error_handling.js                          # Error handling
+|   |   +-- typescript.ts, realworld_ts_library.ts     # TypeScript
+|   |   +-- timers.js, phase2.js, phase2_rejection.js  # Event loop
+|   |   +-- async_io.mjs                               # Async I/O
+|   |   +-- module_esm.mjs, module_cjs.js, module_chain.js  # Modules
+|   |   +-- json_pipeline.js, npm_compat.js, npm_real.js     # npm
+|   |   +-- fs_ops.mjs, fs_expanded.js, path_ops.mjs  # Filesystem
+|   |   +-- crypto_ops.mjs, stat_file.js, env_access.js     # Platform
+|   |   +-- buffer_api.js, event_emitter.js            # Node APIs
+|   |   +-- url_api.js, os_api.js, process_api.js      # Node APIs
+|   |   +-- http2_api.js, child_process_api.js         # Node APIs
+|   |   +-- stream_api.js, zlib_api.js, dns_api.js     # Node APIs
+|   |   +-- ws_api.js, sqlite_api.js                   # Node APIs
+|   |   +-- util_api.js, assert_api.js                 # Node APIs
+|   |   +-- querystring_api.js                         # Node APIs
+|   |   +-- workers.js, workers_worker.js              # Workers (all backends)
+|   |   +-- deno_compat.js                             # Deno compat
+|   |   +-- perm_deny_read.js, perm_deny_write.js      # Security
+|   |   +-- sample.test.js, sample.bench.js            # Test/bench runners
+|   |   +-- realworld_*.js/.mjs/.ts (7 scenarios)      # End-to-end
+|   +-- expected/       # 56 expected stdout files
 |   +-- fixtures/lib/   # Shared modules for require tests
-+-- bench/              # Benchmarks
++-- benchmarks/         # Cross-runtime benchmarks (13 files)
+|   +-- feature_bench.js      # 25 cross-runtime perf tests
+|   +-- framework_bench.js    # 39 framework pattern tests
+|   +-- react_compat.js       # 81 React/framework compat checks
+|   +-- react_bench.js        # React pattern perf benchmark
+|   +-- npm_compat_test.js    # 145 simulated npm package tests
+|   +-- stress.js             # 240 comprehensive JS tests
+|   +-- npm_stress.js         # 189 real npm package tests
+|   +-- sqlite_bench.js       # SQLite perf benchmark
+|   +-- realworld.js          # 16 real-world benchmarks
 
 source/dun/engine/
 +-- test.d              # ~50 BDD-style engine contract tests
@@ -528,8 +539,8 @@ source/dun/ts/
 
 source/dun/security/
 +-- test.d              # 27 permission registry tests (inline)
-+-- cve_db.d            # 11 CVE audit tests (semver, vulnerability checks)
++-- cve_db.d            # 8 CVE audit tests (semver, vulnerability checks)
 ```
 
 Test pattern inspired by Node.js standalone scripts: run fixture, compare stdout to expected file.
-All 44 integration tests pass on QuickJS. 42 pass on JSC/V8 (workers/phase2_rejection are QuickJS-only).
+All 57 integration tests pass on all 3 backends: **QuickJS 57/57, JSC 57/57, V8 57/57**.

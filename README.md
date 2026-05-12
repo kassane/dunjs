@@ -73,14 +73,22 @@ const { EventEmitter } = require("events");
 | `dun:path` | join, resolve, basename, dirname, extname, normalize |
 | `dun:net` | createServer, createConnection (TCP) |
 | `dun:http` | createServer, listen, close (HTTP/1.1) |
-| `dun:crypto` | createHash, randomBytes |
+| `dun:http2` | HTTP/2 with ALPN/TLS, HPACK, stream multiplexing |
+| `dun:crypto` | createHash, randomBytes, randomUUID |
 | `dun:os` | platform, arch, hostname, cpus, totalmem, freemem, uptime |
 | `dun:buffer` | Buffer.from, Buffer.alloc, concat, slice, toString |
 | `dun:events` | EventEmitter (on, once, off, emit, listeners) |
 | `dun:url` | URL, URLSearchParams |
 | `dun:sqlite` | open, exec, run, get, all, close (in-memory + file DBs) |
+| `dun:child_process` | execSync, spawnSync, exec |
+| `dun:stream` | Readable, Writable, Duplex, Transform, pipeline |
+| `dun:zlib` | deflateSync, inflateSync, gzipSync, gunzipSync |
+| `dun:dns` | lookup, lookupSync, resolve4, resolve6, reverse |
+| `dun:ws` | WebSocket client/server (RFC 6455) |
+| `dun:util` | inspect, format, types, promisify |
+| `dun:assert` | ok, equal, deepEqual, throws, rejects |
 
-Global: `fetch()`, `setTimeout`/`setInterval`, `console`, `process`, `Deno.*`, `atob`/`btoa`, `TextEncoder`/`TextDecoder`, `structuredClone`
+Global: `fetch()`, `Worker`, `SharedArrayBuffer`, `Atomics`, `setTimeout`/`setInterval`, `console`, `process`, `Deno.*`, `atob`/`btoa`, `TextEncoder`/`TextDecoder`, `structuredClone`
 
 ## npm Support
 
@@ -122,11 +130,11 @@ for 24 hours. `dun install` checks packages before download. See [SECURITY.md](S
 
 | Backend | Tests | Notes |
 |---------|-------|-------|
-| QuickJS-NG | 46/46 | Default. Interpreter, ES2023, smallest binary (4.6MB) |
-| JavaScriptCore | 45/45 | JIT. Same engine as Safari/Bun |
-| V8 | 45/45 | JIT. Same engine as Chrome/Node.js. Via C++ shim |
+| QuickJS-NG | 57/57 | Default. Interpreter, ES2023, smallest binary (4.6MB) |
+| JavaScriptCore | 57/57 | JIT. Same engine as Safari/Bun |
+| V8 | 57/57 | JIT. Same engine as Chrome/Node.js. Via C++ shim |
 
-All 9 built-in modules, fetch, Deno compat, and web globals work on every backend.
+All 24 built-in modules, Workers, SharedArrayBuffer, Atomics, fetch, Deno compat, and web globals work identically on every backend.
 
 ## Architecture
 
@@ -148,8 +156,8 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for the full design.
 ## Testing
 
 ```sh
-dub test -c unittest                    # ~150 unit tests
-./tests/integration/run.sh              # 44 integration tests
+dub test -c unittest                    # ~165 unit tests
+./tests/integration/run.sh              # 57 integration tests (all 3 backends)
 ```
 
 | Suite | Tests |
@@ -157,8 +165,9 @@ dub test -c unittest                    # ~150 unit tests
 | Engine contract | ~50 BDD-style (eval, types, properties, exceptions, promises) |
 | Fuzz/stress | ~50 (rapid create/destroy, string stress, exception recovery) |
 | TypeScript strip | 20 (annotations, interfaces, as, declare, arrow types) |
-| Security | 27 (default deny, scoped grants, deny overrides, parseFlag) |
-| Integration | 46 fixtures (core JS, async, ES2023+, modules, builtins, Deno compat, TypeScript, real-world) |
+| Security | 38 (permissions 27 + CVE audit 8 + security tests 3) |
+| HTTP/2 | 15 (frame encoding, HPACK, static table, settings) |
+| Integration | 57 fixtures (core JS, async, ES2023+, modules, 24 builtins, Workers, Deno compat, TypeScript, real-world) |
 
 ## Comparison
 
@@ -176,28 +185,30 @@ dub test -c unittest                    # ~150 unit tests
 
 ### Performance
 
-Total wall time across 16 real-world benchmarks (lower is better):
+Feature benchmarks (25 tests, ops/sec — higher is better):
 
-| Runtime | Total Time | vs Deno |
-|---------|-----------|---------|
-| Deno | 3.4s | 1.00x |
-| DunJS V8 | 3.6s | 1.05x |
-| Bun | 4.0s | 1.18x |
-| DunJS JSC | 4.4s | 1.29x |
-| DunJS QuickJS | 18.7s | 5.50x |
+| Runtime | Total Throughput | Relative |
+|---------|-----------------|----------|
+| DunJS JSC | 536M | 1.00x (fastest) |
+| Bun | 477M | 0.89x |
+| Node.js | 175M | 0.33x |
+| Deno | 172M | 0.32x |
+| DunJS V8 | 141M | 0.26x |
 
-DunJS V8 is competitive with Deno and Bun on JIT-optimized workloads.
-QuickJS is an interpreter (no JIT) -- it trades raw speed for smallest binary size (4.6MB).
+Framework benchmarks (39 tests, ops/sec):
 
-Selected benchmark (TextEncoder/TextDecoder, 100k iterations):
+| Runtime | Total Throughput | Relative |
+|---------|-----------------|----------|
+| DunJS JSC | 319M | 1.00x (fastest) |
+| Bun | 279M | 0.87x |
+| Node.js | 196M | 0.62x |
+| DunJS V8 | 190M | 0.60x |
+| Deno | 187M | 0.59x |
 
-| Runtime | Time |
-|---------|------|
-| Bun | 15ms |
-| DunJS QuickJS | 50ms |
-| Deno | 62ms |
-
-Feature compatibility: **39/39 checks** pass across all runtimes.
+DunJS JSC outperforms Bun on feature and framework benchmarks.
+DunJS V8 is competitive with Node.js and Deno.
+React/framework compat: **81/81 checks** pass across all 6 runtimes.
+npm compat: **145/145** pass across all 6 runtimes.
 
 ## License
 

@@ -10,7 +10,7 @@ dub build -c jsc                       # JavaScriptCore
 dub build -c v8                        # V8
 
 # Test
-dub test -c unittest                   # all unit tests (~165 tests)
+dub test -c unittest                   # all unit tests (~175 tests)
 ./build/dun run tests/integration/fixtures/hello.js  # smoke test
 
 # Run
@@ -35,16 +35,21 @@ source/dun/
     v8/              # V8 backend (extern(C) -> v8shim C++ wrapper + TMP bridge)
   runtime/
     globals.d        # Console, timers, queueMicrotask, process (argv/cwd/exit/platform)
+    worker_api.d     # Workers, SharedArrayBuffer, Atomics (all 3 backends)
+    worker_self.d    # Worker self.postMessage/close
     deno_compat.d    # 30+ Deno APIs (env, fs, stat, mkdir, remove, permissions, errors)
     web_compat.d     # atob, btoa, TextEncoder, TextDecoder, structuredClone
     rejection_tracker.d  # Unhandled promise rejection tracking
   ts/strip.d         # TypeScript type stripping (20 tests)
-  security/          # Permission model (27 tests)
+  security/          # Permission model (38 tests)
+  workers/           # Worker threads, SharedArrayBuffer, Atomics
   cli/args.d         # CLI argument parser
   loop/
     eventloop.d      # Event loop (epoll/kqueue/poll + io_uring)
     async.d          # Async work queue (background threads + promises)
-  builtins/          # fs, path, net, http, http2, crypto, fetch, buffer, events, url, os
+  builtins/          # 24 modules: fs, path, net, http, http2, crypto, fetch, buffer,
+                     #   events, url, os, child_process, stream, zlib, dns, ws,
+                     #   sqlite, util, assert, querystring, string_decoder, tls
   modules/           # ES modules, CJS require, npm resolver
   platform/          # OpenSSL bindings, memory, threading
 
@@ -59,7 +64,7 @@ vendor/v8shim/       # V8 C++ shim (~300 LOC, uses TMP templates)
 4. **RAII for engine resources** -- JSVal, DunV8Value ref-counting, JSValueProtect
 5. **Permission checks before I/O** -- `state.permissions.check(Permission.read, path)`
 6. **Named constants for limits** -- `DEFAULT_MEMORY_LIMIT`, not `256 * 1024 * 1024`
-7. **Engine-agnostic builtins** -- all modules work identically across QuickJS, JSC, V8
+7. **Engine-agnostic builtins** -- all 24 modules + Workers work identically across QuickJS, JSC, V8
 8. **TIGER_STYLE assertions** -- every @trusted block and extern(C)/NativeCallback gets precondition asserts (null ctx, null engine, double-init guards, static asserts for layout/enum counts)
 9. **Use `setPropertyIndex`/`getPropertyIndex` for array element access** -- O(1) vs O(n) string-based
 10. **Use `engine.newUint8Array(data)` for creating Uint8Array from byte data**

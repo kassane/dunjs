@@ -43,10 +43,10 @@ dub build -c quickjs -b release   # QuickJS release (optimized + stripped)
 ### 3. Test
 
 ```sh
-# Unit tests (engine contract ~50, fuzz ~50, TypeScript 20, security 27, HTTP/2 15)
+# Unit tests (engine contract ~50, fuzz ~50, TypeScript 20, security 38, HTTP/2 15)
 dub test -c unittest
 
-# Integration tests (46 fixtures, requires built binary)
+# Integration tests (57 fixtures, requires built binary)
 dub build -c quickjs
 ./tests/integration/run.sh
 
@@ -54,14 +54,16 @@ dub build -c quickjs
 dub build -c jsc && BACKEND=jsc ./tests/integration/run.sh
 dub build -c v8  && BACKEND=v8  ./tests/integration/run.sh
 
-# Benchmarks
-./build/dun run --allow-all tests/benchmarks/realworld.js
-
-# Cross-runtime feature tests
-./build/dun run --allow-all tests/benchmarks/features.js
+# Cross-runtime benchmarks
+./build/dun run --allow-all tests/benchmarks/feature_bench.js
+./build/dun run --allow-all tests/benchmarks/framework_bench.js
+./build/dun run --allow-all tests/benchmarks/react_compat.js
+./build/dun run --allow-all tests/benchmarks/react_bench.js
+./build/dun run --allow-all tests/benchmarks/npm_compat_test.js
+./build/dun run --allow-all tests/benchmarks/stress.js
 ```
 
-Backend test scores: QuickJS 47/47, JSC 46/46+1skip, V8 46/46+1skip (workers QuickJS-only).
+Backend test scores: **QuickJS 57/57, JSC 57/57, V8 57/57** (full parity, Workers on all backends).
 
 ## CI Pipeline
 

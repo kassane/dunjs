@@ -1,5 +1,5 @@
 === Cross-Runtime Benchmark Results ===
-Date: 2026-05-12 (post workers-all-backends)
+Date: 2026-05-12 (post workers-all-backends + react compat)
 
 ### Runtimes
 - Node.js v22.22.2
@@ -25,6 +25,20 @@ Date: 2026-05-12 (post workers-all-backends)
 | Node.js | 196M | 0.62x |
 | DunJS V8 | 190M | 0.60x |
 | Deno | 187M | 0.59x |
+
+### React/Framework Compat (81 checks)
+All 6 runtimes: 81/81 pass
+(VDOM, SSR, hooks, signals, Proxy reactivity, Redux, router, CSS-in-JS, reconciliation)
+
+### React/Framework Perf Benchmark (ops/sec)
+| Runtime | Total Throughput |
+|---------|-----------------|
+| Deno | 123M |
+| Node.js | 108M |
+| DunJS V8 | 99M |
+| DunJS JSC | 24M |
+| Bun | 21M |
+| DunJS QuickJS | 3M |
 
 ### Stress Tests (240 comprehensive JS tests)
 | Runtime | Wall Time |
