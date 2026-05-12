@@ -4,6 +4,7 @@
 #define DUN_V8SHIM_TMPL_HPP
 
 #include <v8.h>
+#include <cassert>
 #include <concepts>
 #include <span>
 #include <type_traits>
@@ -53,6 +54,8 @@ template <ContextCallable F>
 auto withContext(DunV8Context* cw, F&& fn)
     -> std::invoke_result_t<F, v8::Isolate*, v8::Local<v8::Context>, DunV8Isolate*>
 {
+    assert(cw && "withContext: null DunV8Context");
+    assert(cw->isolate_wrapper && "withContext: null isolate_wrapper");
     auto* isolate = cw->isolate_wrapper->isolate;
     v8::Isolate::Scope isolate_scope(isolate);
     v8::HandleScope handle_scope(isolate);
@@ -65,6 +68,7 @@ template <IsolateCallable F>
 auto withIsolate(DunV8Isolate* iw, F&& fn)
     -> std::invoke_result_t<F, v8::Isolate*>
 {
+    assert(iw && "withIsolate: null DunV8Isolate");
     v8::Isolate::Scope scope(iw->isolate);
     v8::HandleScope handle_scope(iw->isolate);
     return fn(iw->isolate);

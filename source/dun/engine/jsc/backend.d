@@ -10,6 +10,7 @@ class JSCEngine : IJSEngine
 {
     private JSGlobalContextRef ctx;
     private void* opaquePtr;
+    private bool lastCallWasException;
 
     void initialize(EngineConfig config) @trusted
     {
@@ -48,12 +49,14 @@ class JSCEngine : IJSEngine
         JSResult result;
         if (exception !is null)
         {
+            lastCallWasException = true;
             result.isError = true;
             result.errorMessage = jscStringToD(exception);
             result.value = toHandle(cast(void*) JSValueMakeUndefined(ctx));
         }
         else
         {
+            lastCallWasException = false;
             result.value = toHandle(cast(void*) val);
         }
         return result;
@@ -262,9 +265,11 @@ class JSCEngine : IJSEngine
             auto ret = JSObjectCallAsFunction(ctx, jsFunc, jsThis, 0, null, &exc);
             if (exc !is null)
             {
+                lastCallWasException = true;
                 JSValueProtect(ctx, exc);
                 return toHandle(cast(void*) exc);
             }
+            lastCallWasException = false;
             return toHandle(cast(void*) ret);
         }
         auto argv = new JSValueRef[args.length];
@@ -274,9 +279,11 @@ class JSCEngine : IJSEngine
             argv.length, cast(const(JSValueRef)*) argv.ptr, &exc);
         if (exc !is null)
         {
+            lastCallWasException = true;
             JSValueProtect(ctx, exc);
             return toHandle(cast(void*) exc);
         }
+        lastCallWasException = false;
         return toHandle(cast(void*) ret);
     }
 
@@ -294,7 +301,7 @@ class JSCEngine : IJSEngine
         JSValueUnprotect(ctx, cast(JSValueRef) fromHandle(val));
     }
 
-    bool isException(JSHandle val) @trusted { return fromHandle(val) is null; }
+    bool isException(JSHandle) @safe { return lastCallWasException; }
 
     // Type checks via TMP dispatch table (mirrors JSType enum from JSC C API)
     private static __gshared JSCTypeChecks _typeChecks;
@@ -347,6 +354,15 @@ class JSCEngine : IJSEngine
         JSObjectRef resolveFunc, rejectFunc;
         JSValueRef exc = null;
         auto promise = JSObjectMakeDeferredPromise(ctx, &resolveFunc, &rejectFunc, &exc);
+        if (exc !is null || promise is null)
+        {
+            lastCallWasException = true;
+            auto undef = cast(void*) JSValueMakeUndefined(ctx);
+            ph.promise = toHandle(undef);
+            ph.resolve = toHandle(undef);
+            ph.reject = toHandle(undef);
+            return ph;
+        }
         ph.promise = toHandle(cast(void*) promise);
         ph.resolve = toHandle(cast(void*) resolveFunc);
         ph.reject = toHandle(cast(void*) rejectFunc);

@@ -289,8 +289,15 @@ class QuickJSEngine : IJSEngine
     {
         assert(ctx !is null, "Engine not initialized");
         PromiseHandles ph;
-        JSValue[2] resolvingFuncs;
+        JSValue[2] resolvingFuncs = [JS_UNDEFINED(), JS_UNDEFINED()];
         auto promise = JS_NewPromiseCapability(ctx, resolvingFuncs.ptr);
+        if (JS_IsException(promise) != 0)
+        {
+            ph.promise = toHandle(JS_UNDEFINED());
+            ph.resolve = toHandle(JS_UNDEFINED());
+            ph.reject = toHandle(JS_UNDEFINED());
+            return ph;
+        }
         ph.promise = toHandle(promise);
         ph.resolve = toHandle(resolvingFuncs[0]);
         ph.reject = toHandle(resolvingFuncs[1]);

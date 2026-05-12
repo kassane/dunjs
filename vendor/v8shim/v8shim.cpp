@@ -6,20 +6,21 @@
 #include <libplatform/libplatform.h>
 #include <cassert>
 #include <cstring>
+#include <array>
+#include <memory>
 #include <span>
 #include <string>
-#include <atomic>
+#include <mutex>
 
-static std::atomic<bool> g_platform_initialized{false};
+static std::once_flag g_platform_flag;
 static std::unique_ptr<v8::Platform> g_platform;
 
 static void ensurePlatform() {
-    bool expected = false;
-    if (g_platform_initialized.compare_exchange_strong(expected, true)) {
+    std::call_once(g_platform_flag, [] {
         g_platform = v8::platform::NewDefaultPlatform();
         v8::V8::InitializePlatform(g_platform.get());
         v8::V8::Initialize();
-    }
+    });
 }
 
 struct DunV8Isolate {
@@ -95,19 +96,27 @@ static void v8FunctionTrampoline(const v8::FunctionCallbackInfo<v8::Value>& info
     assert(fd->callback && "trampoline: null callback");
 
     const int argc = info.Length();
-    std::vector<DunV8Value*> argv(static_cast<size_t>(argc));
-    auto args = std::span{argv};
+    constexpr int kStackArgLimit = 16;
+    std::array<DunV8Value*, kStackArgLimit> stack_argv{};
+    std::unique_ptr<DunV8Value*[]> heap_argv;
+    DunV8Value** argv;
+    if (argc <= kStackArgLimit) {
+        argv = stack_argv.data();
+    } else {
+        heap_argv = std::make_unique<DunV8Value*[]>(static_cast<size_t>(argc));
+        argv = heap_argv.get();
+    }
     for (int i = 0; i < argc; i++)
-        args[i] = wrapValue(fd->context->isolate_wrapper, info[i]);
+        argv[i] = wrapValue(fd->context->isolate_wrapper, info[i]);
 
     DunV8Value* thisVal = wrapValue(fd->context->isolate_wrapper, info.This());
 
     DunV8Value* result = fd->callback(fd->context, thisVal,
-        argc, argc > 0 ? args.data() : nullptr, fd->user_data);
+        argc, argc > 0 ? argv : nullptr, fd->user_data);
 
     dun_v8_value_unref(thisVal);
-    for (auto* v : args)
-        dun_v8_value_unref(v);
+    for (int i = 0; i < argc; i++)
+        dun_v8_value_unref(argv[i]);
 
     if (result) {
         info.GetReturnValue().Set(result->value.Get(isolate));
@@ -360,6 +369,8 @@ void dun_v8_set_property(DunV8Context* cw, DunV8Value* obj,
 }
 
 DunV8Value* dun_v8_get_property_index(DunV8Context* cw, DunV8Value* obj, unsigned int idx) {
+    assert(cw && "dun_v8_get_property_index: null context");
+    assert(obj && "dun_v8_get_property_index: null obj");
     return dun::withContext(cw, [&](auto isolate, auto context, auto* iw) {
         auto o = obj->value.Get(isolate).template As<v8::Object>();
         auto val = o->Get(context, idx);
@@ -372,6 +383,9 @@ DunV8Value* dun_v8_get_property_index(DunV8Context* cw, DunV8Value* obj, unsigne
 void dun_v8_set_property_index(DunV8Context* cw, DunV8Value* obj,
     unsigned int idx, DunV8Value* val)
 {
+    assert(cw && "dun_v8_set_property_index: null context");
+    assert(obj && "dun_v8_set_property_index: null obj");
+    assert(val && "dun_v8_set_property_index: null val");
     dun::withContext(cw, [&](auto isolate, auto context, auto*) {
         auto o = obj->value.Get(isolate).template As<v8::Object>();
         o->Set(context, idx, val->value.Get(isolate)).FromMaybe(false);
@@ -418,6 +432,8 @@ void dun_v8_value_unref(DunV8Value* vw) {
 // --- Exceptions ---
 
 const char* dun_v8_get_exception(DunV8Context* cw, size_t* len) {
+    assert(cw && "dun_v8_get_exception: null context");
+    assert(len && "dun_v8_get_exception: null len");
     *len = cw->last_exception.size();
     if (*len == 0) return nullptr;
     char* copy = new char[*len + 1];
@@ -475,13 +491,23 @@ DunV8Value* dun_v8_call(DunV8Context* cw, DunV8Value* func,
             this_obj->value.Get(isolate) :
             context->Global().template As<v8::Value>();
 
+        constexpr int kStackLimit = 16;
+        std::array<v8::Local<v8::Value>, kStackLimit> stack_args;
+        std::unique_ptr<v8::Local<v8::Value>[]> heap_args;
+        v8::Local<v8::Value>* args;
+        if (argc <= kStackLimit) {
+            args = stack_args.data();
+        } else {
+            heap_args = std::make_unique<v8::Local<v8::Value>[]>(
+                static_cast<size_t>(argc));
+            args = heap_args.get();
+        }
         auto argv_span = std::span{argv, static_cast<size_t>(argc)};
-        std::vector<v8::Local<v8::Value>> args(static_cast<size_t>(argc));
         for (size_t i = 0; i < argv_span.size(); i++)
             args[i] = argv_span[i]->value.Get(isolate);
 
         auto result = fn->Call(context, recv, argc,
-            argc > 0 ? args.data() : nullptr);
+            argc > 0 ? args : nullptr);
 
         if (result.IsEmpty()) {
             *is_error = 1;
@@ -523,6 +549,7 @@ DunV8Value* dun_v8_new_promise(DunV8Context* cw,
                 if (info.Length() > 0) val = info[0];
                 else val = v8::Undefined(iso);
                 r->Resolve(ctx, val).FromMaybe(false);
+                dun_v8_value_unref(rw);
             }, resolveExt).ToLocalChecked();
 
         auto rejectExt = v8::External::New(isolate, resolverVal);
@@ -537,6 +564,7 @@ DunV8Value* dun_v8_new_promise(DunV8Context* cw,
                 if (info.Length() > 0) val = info[0];
                 else val = v8::Undefined(iso);
                 r->Reject(ctx, val).FromMaybe(false);
+                dun_v8_value_unref(rw);
             }, rejectExt).ToLocalChecked();
 
         *resolve_out = wrapValue(iw, resolveFunc);
@@ -548,11 +576,13 @@ DunV8Value* dun_v8_new_promise(DunV8Context* cw,
 // --- Microtasks ---
 
 int dun_v8_has_pending_microtasks(DunV8Isolate* iw) {
+    if (!iw) return 0;
     v8::Isolate::Scope s(iw->isolate);
     return iw->isolate->HasPendingBackgroundTasks() ? 1 : 0;
 }
 
 void dun_v8_drain_microtasks(DunV8Isolate* iw) {
+    if (!iw) return;
     v8::Isolate::Scope s(iw->isolate);
     iw->isolate->PerformMicrotaskCheckpoint();
 }
@@ -571,14 +601,30 @@ void* dun_v8_get_context_data(DunV8Context* cw) {
 
 // --- Limits ---
 
+static size_t nearHeapLimitCallback(void* data, size_t current, size_t initial) {
+    (void)data; (void)initial;
+    // Don't increase — let V8 OOM. Returning current means "no more room".
+    return current;
+}
+
 void dun_v8_set_memory_limit(DunV8Isolate* iw, size_t bytes) {
-    v8::ResourceConstraints constraints;
-    constraints.set_max_old_generation_size_in_bytes(bytes);
-    (void)iw;
+    assert(iw && "dun_v8_set_memory_limit: null isolate");
+    iw->isolate->AddNearHeapLimitCallback(nearHeapLimitCallback, nullptr);
+    // Constrain young + old generation to requested total
+    v8::HeapStatistics stats;
+    iw->isolate->GetHeapStatistics(&stats);
+    iw->isolate->AdjustAmountOfExternalAllocatedMemory(
+        static_cast<int64_t>(bytes) - static_cast<int64_t>(stats.total_heap_size()));
 }
 
 void dun_v8_set_stack_limit(DunV8Isolate* iw, size_t bytes) {
-    (void)iw; (void)bytes;
+    assert(iw && "dun_v8_set_stack_limit: null isolate");
+    // V8 SetStackLimit takes an absolute address, not a size.
+    // Compute limit as current stack position minus requested size.
+    volatile char stack_var = 0;
+    uintptr_t stack_addr = reinterpret_cast<uintptr_t>(&stack_var);
+    uintptr_t limit = (bytes < stack_addr) ? (stack_addr - bytes) : 0;
+    iw->isolate->SetStackLimit(limit);
 }
 
 // --- Garbage collection ---
