@@ -30,7 +30,7 @@ COPY . .
 RUN mkdir -p vendor/sqlite vendor/v8/lib vendor/v8/include
 
 # Download and compile all vendor deps (SQLite, QuickJS, JSC, V8)
-RUN ldc2 -run build.d --backend=all
+RUN ldc2 -run build.d --backend=all --force
 
 RUN dub build -c quickjs -b release && strip build/dun && cp build/dun /tmp/dun-quickjs
 RUN dub build -c jsc -b release     && strip build/dun && cp build/dun /tmp/dun-jsc

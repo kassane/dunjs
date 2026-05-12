@@ -9,13 +9,16 @@ static assert(JSHandle.sizeof >= (void*).sizeof, "JSHandle too small for JSC poi
 class JSCEngine : IJSEngine
 {
     private JSGlobalContextRef ctx;
+    private JSContextGroupRef group;
     private void* opaquePtr;
     private bool lastCallWasException;
 
     void initialize(EngineConfig config) @trusted
     {
         assert(ctx is null, "Double initialization of JSCEngine");
-        ctx = JSGlobalContextCreate(null);
+        group = JSContextGroupCreate();
+        assert(group !is null, "Failed to create JSContextGroup");
+        ctx = JSGlobalContextCreateInGroup(group, null);
         assert(ctx !is null, "Failed to create JSGlobalContext");
     }
 
@@ -23,8 +26,14 @@ class JSCEngine : IJSEngine
     {
         if (ctx !is null)
         {
+            JSGarbageCollect(ctx);
             JSGlobalContextRelease(ctx);
             ctx = null;
+        }
+        if (group !is null)
+        {
+            JSContextGroupRelease(group);
+            group = null;
         }
     }
 
