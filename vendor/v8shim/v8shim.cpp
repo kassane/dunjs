@@ -15,6 +15,7 @@
 
 #include <v8.h>
 #include <libplatform/libplatform.h>
+#include <cassert>
 #include <cstring>
 #include <string>
 #include <atomic>
@@ -74,7 +75,14 @@ struct DunV8FunctionData {
     DunV8NativeCallback callback;
     DunV8Context* context;
     void* user_data;
+    v8::Global<v8::External> prevent_gc;
 };
+
+static void functionDataweak(const v8::WeakCallbackInfo<DunV8FunctionData>& info) {
+    auto* fd = info.GetParameter();
+    fd->prevent_gc.Reset();
+    delete fd;
+}
 
 static void v8FunctionTrampoline(const v8::FunctionCallbackInfo<v8::Value>& info) {
     auto* isolate = info.GetIsolate();
@@ -126,6 +134,7 @@ void dun_v8_isolate_dispose(DunV8Isolate* iw) {
 // --- Context ---
 
 DunV8Context* dun_v8_context_new(DunV8Isolate* iw) {
+    assert(iw && "dun_v8_context_new: null isolate");
     v8::Isolate::Scope isolate_scope(iw->isolate);
     v8::HandleScope handle_scope(iw->isolate);
     auto context = v8::Context::New(iw->isolate);
@@ -147,6 +156,9 @@ void dun_v8_context_free(DunV8Context* cw) {
 DunV8Value* dun_v8_eval(DunV8Context* cw, const char* source,
     size_t source_len, const char* filename, int* is_error)
 {
+    assert(cw && "dun_v8_eval: null context");
+    assert(source && "dun_v8_eval: null source");
+    assert(is_error && "dun_v8_eval: null is_error");
     return dun::withContext(cw, [&](auto isolate, auto context, auto* iw) -> DunV8Value* {
         v8::TryCatch try_catch(isolate);
 
@@ -216,6 +228,8 @@ DunV8Value* dun_v8_new_number(DunV8Context* cw, double val) {
 }
 
 DunV8Value* dun_v8_new_string(DunV8Context* cw, const char* str, size_t len) {
+    assert(cw && "dun_v8_new_string: null context");
+    assert(str && "dun_v8_new_string: null str");
     return dun::withContext(cw, [&](auto isolate, auto, auto* iw) {
         return wrapValue(iw, v8::String::NewFromUtf8(isolate, str,
             v8::NewStringType::kNormal, static_cast<int>(len))
@@ -240,9 +254,13 @@ DunV8Value* dun_v8_new_array(DunV8Context* cw, int length) {
 DunV8Value* dun_v8_new_function(DunV8Context* cw, DunV8NativeCallback cb,
     const char* name, void* data)
 {
+    assert(cw && "dun_v8_new_function: null context");
+    assert(cb && "dun_v8_new_function: null callback");
     return dun::withContext(cw, [&](auto isolate, auto context, auto* iw) {
-        auto* fd = new DunV8FunctionData{cb, cw, data};
+        auto* fd = new DunV8FunctionData{cb, cw, data, {}};
         auto external = v8::External::New(isolate, fd);
+        fd->prevent_gc.Reset(isolate, external);
+        fd->prevent_gc.SetWeak(fd, functionDataweak, v8::WeakCallbackType::kParameter);
         auto tmpl = v8::FunctionTemplate::New(isolate, v8FunctionTrampoline, external);
         auto fn = tmpl->GetFunction(context).ToLocalChecked();
 
@@ -258,6 +276,9 @@ DunV8Value* dun_v8_new_function(DunV8Context* cw, DunV8NativeCallback cb,
 // --- Value extraction (withContext eliminates scope guard boilerplate) ---
 
 const char* dun_v8_value_to_string(DunV8Context* cw, DunV8Value* vw, size_t* len) {
+    assert(cw && "dun_v8_value_to_string: null context");
+    assert(vw && "dun_v8_value_to_string: null value");
+    assert(len && "dun_v8_value_to_string: null len");
     return dun::withContext(cw, [&](auto isolate, auto, auto*) -> const char* {
         v8::String::Utf8Value utf8(isolate, vw->value.Get(isolate));
         if (!*utf8) { *len = 0; return nullptr; }
@@ -306,6 +327,9 @@ int dun_v8_value_is_array(DunV8Value* vw)       { return valueIsType<dun::V8Tag:
 // --- Property access (withContext eliminates scope guard boilerplate) ---
 
 DunV8Value* dun_v8_get_property(DunV8Context* cw, DunV8Value* obj, const char* name) {
+    assert(cw && "dun_v8_get_property: null context");
+    assert(obj && "dun_v8_get_property: null obj");
+    assert(name && "dun_v8_get_property: null name");
     return dun::withContext(cw, [&](auto isolate, auto context, auto* iw) {
         auto o = obj->value.Get(isolate).template As<v8::Object>();
         auto key = v8::String::NewFromUtf8(isolate, name).ToLocalChecked();
@@ -319,6 +343,10 @@ DunV8Value* dun_v8_get_property(DunV8Context* cw, DunV8Value* obj, const char* n
 void dun_v8_set_property(DunV8Context* cw, DunV8Value* obj,
     const char* name, DunV8Value* val)
 {
+    assert(cw && "dun_v8_set_property: null context");
+    assert(obj && "dun_v8_set_property: null obj");
+    assert(name && "dun_v8_set_property: null name");
+    assert(val && "dun_v8_set_property: null val");
     dun::withContext(cw, [&](auto isolate, auto context, auto*) {
         auto o = obj->value.Get(isolate).template As<v8::Object>();
         auto key = v8::String::NewFromUtf8(isolate, name).ToLocalChecked();
@@ -394,6 +422,8 @@ const char* dun_v8_get_exception(DunV8Context* cw, size_t* len) {
 }
 
 DunV8Value* dun_v8_throw_error(DunV8Context* cw, const char* msg) {
+    assert(cw && "dun_v8_throw_error: null context");
+    assert(msg && "dun_v8_throw_error: null msg");
     return dun::withContext(cw, [&](auto isolate, auto, auto* iw) {
         auto err = v8::Exception::Error(
             v8::String::NewFromUtf8(isolate, msg).ToLocalChecked());
@@ -403,6 +433,8 @@ DunV8Value* dun_v8_throw_error(DunV8Context* cw, const char* msg) {
 }
 
 DunV8Value* dun_v8_throw_type_error(DunV8Context* cw, const char* msg) {
+    assert(cw && "dun_v8_throw_type_error: null context");
+    assert(msg && "dun_v8_throw_type_error: null msg");
     return dun::withContext(cw, [&](auto isolate, auto, auto* iw) {
         auto err = v8::Exception::TypeError(
             v8::String::NewFromUtf8(isolate, msg).ToLocalChecked());
@@ -412,6 +444,8 @@ DunV8Value* dun_v8_throw_type_error(DunV8Context* cw, const char* msg) {
 }
 
 DunV8Value* dun_v8_throw_range_error(DunV8Context* cw, const char* msg) {
+    assert(cw && "dun_v8_throw_range_error: null context");
+    assert(msg && "dun_v8_throw_range_error: null msg");
     return dun::withContext(cw, [&](auto isolate, auto, auto* iw) {
         auto err = v8::Exception::RangeError(
             v8::String::NewFromUtf8(isolate, msg).ToLocalChecked());
@@ -425,6 +459,9 @@ DunV8Value* dun_v8_throw_range_error(DunV8Context* cw, const char* msg) {
 DunV8Value* dun_v8_call(DunV8Context* cw, DunV8Value* func,
     DunV8Value* this_obj, int argc, DunV8Value** argv, int* is_error)
 {
+    assert(cw && "dun_v8_call: null context");
+    assert(func && "dun_v8_call: null func");
+    assert(is_error && "dun_v8_call: null is_error");
     return dun::withContext(cw, [&](auto isolate, auto context, auto* iw) -> DunV8Value* {
         v8::TryCatch try_catch(isolate);
 
@@ -517,10 +554,12 @@ void dun_v8_drain_microtasks(DunV8Isolate* iw) {
 // --- Context data ---
 
 void dun_v8_set_context_data(DunV8Context* cw, void* data) {
+    assert(cw && "dun_v8_set_context_data: null context");
     cw->user_data = data;
 }
 
 void* dun_v8_get_context_data(DunV8Context* cw) {
+    assert(cw && "dun_v8_get_context_data: null context");
     return cw->user_data;
 }
 
@@ -540,8 +579,7 @@ void dun_v8_set_stack_limit(DunV8Isolate* iw, size_t bytes) {
 
 void dun_v8_collect_garbage(DunV8Isolate* iw) {
     if (!iw) return;
-    auto* iso = reinterpret_cast<v8::Isolate*>(iw);
-    iso->LowMemoryNotification();
+    iw->isolate->LowMemoryNotification();
 }
 
 // --- Version ---

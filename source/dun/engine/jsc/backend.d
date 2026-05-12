@@ -161,14 +161,18 @@ class JSCEngine : IJSEngine
     {
         assert(ctx !is null, "JSC context not initialized");
         JSValueRef exc = null;
-        return cast(int) JSValueToNumber(ctx, cast(JSValueRef) fromHandle(val), &exc);
+        auto result = cast(int) JSValueToNumber(ctx, cast(JSValueRef) fromHandle(val), &exc);
+        if (exc !is null) return 0;
+        return result;
     }
 
     double extractFloat(JSHandle val) @trusted
     {
         assert(ctx !is null, "JSC context not initialized");
         JSValueRef exc = null;
-        return JSValueToNumber(ctx, cast(JSValueRef) fromHandle(val), &exc);
+        auto result = JSValueToNumber(ctx, cast(JSValueRef) fromHandle(val), &exc);
+        if (exc !is null) return 0.0;
+        return result;
     }
 
     bool extractBool(JSHandle val) @trusted
@@ -186,6 +190,7 @@ class JSCEngine : IJSEngine
         JSValueRef exc = null;
         auto val = JSObjectGetProperty(ctx, cast(JSObjectRef) fromHandle(obj),
             jsName, &exc);
+        if (exc !is null) return toHandle(cast(void*) JSValueMakeUndefined(ctx));
         return toHandle(cast(void*) val);
     }
 
@@ -233,7 +238,11 @@ class JSCEngine : IJSEngine
         JSValueRef exc = null;
         auto lenVal = JSObjectGetProperty(ctx,
             cast(JSObjectRef) fromHandle(val), jsName, &exc);
-        return cast(int) JSValueToNumber(ctx, lenVal, &exc);
+        if (exc !is null) return 0;
+        exc = null;
+        auto result = cast(int) JSValueToNumber(ctx, lenVal, &exc);
+        if (exc !is null) return 0;
+        return result;
     }
 
     JSHandle getGlobal() @trusted
@@ -251,7 +260,11 @@ class JSCEngine : IJSEngine
         if (args.length == 0)
         {
             auto ret = JSObjectCallAsFunction(ctx, jsFunc, jsThis, 0, null, &exc);
-            if (exc !is null) return toHandle(cast(void*) exc);
+            if (exc !is null)
+            {
+                JSValueProtect(ctx, exc);
+                return toHandle(cast(void*) exc);
+            }
             return toHandle(cast(void*) ret);
         }
         auto argv = new JSValueRef[args.length];
@@ -259,7 +272,11 @@ class JSCEngine : IJSEngine
             argv[i] = cast(JSValueRef) fromHandle(args[i]);
         auto ret = JSObjectCallAsFunction(ctx, jsFunc, jsThis,
             argv.length, cast(const(JSValueRef)*) argv.ptr, &exc);
-        if (exc !is null) return toHandle(cast(void*) exc);
+        if (exc !is null)
+        {
+            JSValueProtect(ctx, exc);
+            return toHandle(cast(void*) exc);
+        }
         return toHandle(cast(void*) ret);
     }
 
@@ -445,9 +462,10 @@ private extern (C) JSValueRef jscNativeTrampoline(JSContextRef ctx,
 
     assert(ctx !is null, "Null JSContextRef in jscNativeTrampoline");
     auto slotName = JSStringCreateWithUTF8CString("__cbSlot__");
+    assert(slotName !is null, "JSStringCreateWithUTF8CString returned null");
+    scope (exit) JSStringRelease(slotName);
     JSValueRef exc = null;
     auto slotVal = JSObjectGetProperty(ctx, func, slotName, &exc);
-    JSStringRelease(slotName);
     int slot = cast(int) JSValueToNumber(ctx, slotVal, &exc);
 
     auto cb = get(slot);
