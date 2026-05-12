@@ -7,7 +7,7 @@
 #   docker run --rm dunjs:quickjs eval "1+1"
 
 # ─── Stage 1: Build ───────────────────────────────────────────
-FROM debian:trixie-slim AS build
+FROM debian:bookworm-slim AS build
 
 ARG BACKEND=quickjs
 ARG LDC_VERSION=1.42.0
@@ -28,7 +28,7 @@ RUN apt-get update -qq \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-# Install LDC
+# Install LDC (symlink to /usr/local/bin for arch-independent PATH)
 RUN arch="$(dpkg --print-architecture)" \
     && case "${arch}" in \
       amd64) ldc_arch="linux-x86_64" ;; \
@@ -39,9 +39,8 @@ RUN arch="$(dpkg --print-architecture)" \
       -o /tmp/ldc.tar.xz \
       --retry 5 \
     && tar -xf /tmp/ldc.tar.xz -C /opt/ \
-    && rm /tmp/ldc.tar.xz
-
-ENV PATH="/opt/ldc2-${LDC_VERSION}-linux-x86_64/bin:${PATH}"
+    && rm /tmp/ldc.tar.xz \
+    && for f in /opt/ldc2-${LDC_VERSION}-${ldc_arch}/bin/*; do ln -sf "$f" /usr/local/bin/; done
 
 WORKDIR /src
 COPY . .
