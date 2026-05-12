@@ -13,7 +13,7 @@ ARG BACKEND=quickjs
 ARG LDC_VERSION=1.42.0
 
 RUN apk add --no-cache \
-    ca-certificates curl xz gcc g++ cmake make pkgconf git bash \
+    ca-certificates curl xz tar gcc g++ cmake make pkgconf git bash \
     libxml2-dev openssl-dev musl-dev linux-headers \
     libstdc++
 
