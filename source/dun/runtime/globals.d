@@ -42,6 +42,11 @@ void installGlobals(IJSEngine engine, DunState* state) @trusted
     import dun.builtins.stream : registerStreamModule;
     import dun.builtins.ws : registerWsModule;
     import dun.builtins.sqlite : registerSqliteModule;
+    import dun.builtins.util : registerUtilModule;
+    import dun.builtins.assert_ : registerAssertModule;
+    import dun.builtins.querystring : registerQuerystringModule;
+    import dun.builtins.string_decoder : registerStringDecoderModule;
+    import dun.builtins.timers_promises : registerTimersPromisesModule;
     import dun.modules.require : installRequire;
 
     installConsole(engine);
@@ -64,6 +69,11 @@ void installGlobals(IJSEngine engine, DunState* state) @trusted
     registerStreamModule(engine);
     registerWsModule(engine);
     registerSqliteModule(engine);
+    registerUtilModule(engine);
+    registerAssertModule(engine);
+    registerQuerystringModule(engine);
+    registerStringDecoderModule(engine);
+    registerTimersPromisesModule(engine);
 
     version (Posix)
         registerFetchGlobal(engine);

@@ -165,6 +165,11 @@ private string builtinGlobalProp(string specifier) @safe pure nothrow
     if (specifier == "dun:buffer" || specifier == "node:buffer") return "__dun_cjs_buffer__";
     if (specifier == "dun:events" || specifier == "node:events") return "__dun_cjs_events__";
     if (specifier == "dun:url" || specifier == "node:url") return "__dun_cjs_url__";
+    if (specifier == "dun:util" || specifier == "node:util") return "__dun_cjs_util__";
+    if (specifier == "dun:assert" || specifier == "node:assert") return "__dun_cjs_assert__";
+    if (specifier == "dun:querystring" || specifier == "node:querystring") return "__dun_cjs_querystring__";
+    if (specifier == "dun:string_decoder" || specifier == "node:string_decoder") return "__dun_cjs_string_decoder__";
+    if (specifier == "dun:timers/promises" || specifier == "node:timers/promises") return "__dun_cjs_timers_promises__";
     return "";
 }
 

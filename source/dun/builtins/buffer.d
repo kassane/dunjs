@@ -13,6 +13,8 @@ void registerBufferModule(IJSEngine engine) @trusted
     engine.setProperty(bufferClass, "isBuffer", engine.newFunction(&jsBufferIsBuffer, "isBuffer", 1));
     engine.setProperty(bufferClass, "concat", engine.newFunction(&jsBufferConcat, "concat", 1));
     engine.setProperty(bufferClass, "byteLength", engine.newFunction(&jsBufferByteLength, "byteLength", 1));
+    engine.setProperty(bufferClass, "isEncoding", engine.newFunction(&jsBufferIsEncoding, "isEncoding", 1));
+    engine.setProperty(bufferClass, "compare", engine.newFunction(&jsBufferStaticCompare, "compare", 2));
 
     auto global = engine.getGlobal();
     engine.setProperty(global, "Buffer", bufferClass);
@@ -50,6 +52,20 @@ private:
 __gshared JSHandle _bufToString, _bufToJSON, _bufSlice, _bufCopy;
 __gshared JSHandle _bufEquals, _bufIndexOf, _bufFill, _bufWrite;
 __gshared JSHandle _bufReadUInt8, _bufWriteUInt8;
+__gshared JSHandle _bufReadUInt16LE, _bufReadUInt16BE;
+__gshared JSHandle _bufReadUInt32LE, _bufReadUInt32BE;
+__gshared JSHandle _bufReadInt8;
+__gshared JSHandle _bufReadInt16LE, _bufReadInt16BE;
+__gshared JSHandle _bufReadInt32LE, _bufReadInt32BE;
+__gshared JSHandle _bufReadFloatLE, _bufReadFloatBE;
+__gshared JSHandle _bufReadDoubleLE, _bufReadDoubleBE;
+__gshared JSHandle _bufWriteUInt16LE, _bufWriteUInt16BE;
+__gshared JSHandle _bufWriteUInt32LE, _bufWriteUInt32BE;
+__gshared JSHandle _bufWriteInt16LE, _bufWriteInt16BE;
+__gshared JSHandle _bufWriteInt32LE, _bufWriteInt32BE;
+__gshared JSHandle _bufWriteFloatLE, _bufWriteFloatBE;
+__gshared JSHandle _bufWriteDoubleLE, _bufWriteDoubleBE;
+__gshared JSHandle _bufCompare, _bufIncludes, _bufSubarray, _bufIsEncoding;
 __gshared bool _bufFnsCached = false;
 
 void ensureBufferFnsCached(IJSEngine engine) @trusted
@@ -65,6 +81,35 @@ void ensureBufferFnsCached(IJSEngine engine) @trusted
     _bufWrite = engine.newFunction(&jsBufferWrite, "write", 1);
     _bufReadUInt8 = engine.newFunction(&jsBufferReadUInt8, "readUInt8", 1);
     _bufWriteUInt8 = engine.newFunction(&jsBufferWriteUInt8, "writeUInt8", 2);
+    _bufReadUInt16LE = engine.newFunction(&jsBufferReadUInt16LE, "readUInt16LE", 1);
+    _bufReadUInt16BE = engine.newFunction(&jsBufferReadUInt16BE, "readUInt16BE", 1);
+    _bufReadUInt32LE = engine.newFunction(&jsBufferReadUInt32LE, "readUInt32LE", 1);
+    _bufReadUInt32BE = engine.newFunction(&jsBufferReadUInt32BE, "readUInt32BE", 1);
+    _bufReadInt8 = engine.newFunction(&jsBufferReadInt8, "readInt8", 1);
+    _bufReadInt16LE = engine.newFunction(&jsBufferReadInt16LE, "readInt16LE", 1);
+    _bufReadInt16BE = engine.newFunction(&jsBufferReadInt16BE, "readInt16BE", 1);
+    _bufReadInt32LE = engine.newFunction(&jsBufferReadInt32LE, "readInt32LE", 1);
+    _bufReadInt32BE = engine.newFunction(&jsBufferReadInt32BE, "readInt32BE", 1);
+    _bufReadFloatLE = engine.newFunction(&jsBufferReadFloatLE, "readFloatLE", 1);
+    _bufReadFloatBE = engine.newFunction(&jsBufferReadFloatBE, "readFloatBE", 1);
+    _bufReadDoubleLE = engine.newFunction(&jsBufferReadDoubleLE, "readDoubleLE", 1);
+    _bufReadDoubleBE = engine.newFunction(&jsBufferReadDoubleBE, "readDoubleBE", 1);
+    _bufWriteUInt16LE = engine.newFunction(&jsBufferWriteUInt16LE, "writeUInt16LE", 2);
+    _bufWriteUInt16BE = engine.newFunction(&jsBufferWriteUInt16BE, "writeUInt16BE", 2);
+    _bufWriteUInt32LE = engine.newFunction(&jsBufferWriteUInt32LE, "writeUInt32LE", 2);
+    _bufWriteUInt32BE = engine.newFunction(&jsBufferWriteUInt32BE, "writeUInt32BE", 2);
+    _bufWriteInt16LE = engine.newFunction(&jsBufferWriteInt16LE, "writeInt16LE", 2);
+    _bufWriteInt16BE = engine.newFunction(&jsBufferWriteInt16BE, "writeInt16BE", 2);
+    _bufWriteInt32LE = engine.newFunction(&jsBufferWriteInt32LE, "writeInt32LE", 2);
+    _bufWriteInt32BE = engine.newFunction(&jsBufferWriteInt32BE, "writeInt32BE", 2);
+    _bufWriteFloatLE = engine.newFunction(&jsBufferWriteFloatLE, "writeFloatLE", 2);
+    _bufWriteFloatBE = engine.newFunction(&jsBufferWriteFloatBE, "writeFloatBE", 2);
+    _bufWriteDoubleLE = engine.newFunction(&jsBufferWriteDoubleLE, "writeDoubleLE", 2);
+    _bufWriteDoubleBE = engine.newFunction(&jsBufferWriteDoubleBE, "writeDoubleBE", 2);
+    _bufCompare = engine.newFunction(&jsBufferCompare, "compare", 1);
+    _bufIncludes = engine.newFunction(&jsBufferIncludes, "includes", 1);
+    _bufSubarray = engine.newFunction(&jsBufferSubarray, "subarray", 2);
+    _bufIsEncoding = engine.newFunction(&jsBufferIsEncoding, "isEncoding", 1);
     _bufFnsCached = true;
 }
 
@@ -94,6 +139,34 @@ JSHandle makeBufferObj(IJSEngine engine, const(ubyte)[] data) @trusted
     engine.setProperty(obj, "write", engine.dupValue(_bufWrite));
     engine.setProperty(obj, "readUInt8", engine.dupValue(_bufReadUInt8));
     engine.setProperty(obj, "writeUInt8", engine.dupValue(_bufWriteUInt8));
+    engine.setProperty(obj, "readUInt16LE", engine.dupValue(_bufReadUInt16LE));
+    engine.setProperty(obj, "readUInt16BE", engine.dupValue(_bufReadUInt16BE));
+    engine.setProperty(obj, "readUInt32LE", engine.dupValue(_bufReadUInt32LE));
+    engine.setProperty(obj, "readUInt32BE", engine.dupValue(_bufReadUInt32BE));
+    engine.setProperty(obj, "readInt8", engine.dupValue(_bufReadInt8));
+    engine.setProperty(obj, "readInt16LE", engine.dupValue(_bufReadInt16LE));
+    engine.setProperty(obj, "readInt16BE", engine.dupValue(_bufReadInt16BE));
+    engine.setProperty(obj, "readInt32LE", engine.dupValue(_bufReadInt32LE));
+    engine.setProperty(obj, "readInt32BE", engine.dupValue(_bufReadInt32BE));
+    engine.setProperty(obj, "readFloatLE", engine.dupValue(_bufReadFloatLE));
+    engine.setProperty(obj, "readFloatBE", engine.dupValue(_bufReadFloatBE));
+    engine.setProperty(obj, "readDoubleLE", engine.dupValue(_bufReadDoubleLE));
+    engine.setProperty(obj, "readDoubleBE", engine.dupValue(_bufReadDoubleBE));
+    engine.setProperty(obj, "writeUInt16LE", engine.dupValue(_bufWriteUInt16LE));
+    engine.setProperty(obj, "writeUInt16BE", engine.dupValue(_bufWriteUInt16BE));
+    engine.setProperty(obj, "writeUInt32LE", engine.dupValue(_bufWriteUInt32LE));
+    engine.setProperty(obj, "writeUInt32BE", engine.dupValue(_bufWriteUInt32BE));
+    engine.setProperty(obj, "writeInt16LE", engine.dupValue(_bufWriteInt16LE));
+    engine.setProperty(obj, "writeInt16BE", engine.dupValue(_bufWriteInt16BE));
+    engine.setProperty(obj, "writeInt32LE", engine.dupValue(_bufWriteInt32LE));
+    engine.setProperty(obj, "writeInt32BE", engine.dupValue(_bufWriteInt32BE));
+    engine.setProperty(obj, "writeFloatLE", engine.dupValue(_bufWriteFloatLE));
+    engine.setProperty(obj, "writeFloatBE", engine.dupValue(_bufWriteFloatBE));
+    engine.setProperty(obj, "writeDoubleLE", engine.dupValue(_bufWriteDoubleLE));
+    engine.setProperty(obj, "writeDoubleBE", engine.dupValue(_bufWriteDoubleBE));
+    engine.setProperty(obj, "compare", engine.dupValue(_bufCompare));
+    engine.setProperty(obj, "includes", engine.dupValue(_bufIncludes));
+    engine.setProperty(obj, "subarray", engine.dupValue(_bufSubarray));
     return obj;
 }
 
@@ -521,4 +594,458 @@ JSHandle jsBufferWriteUInt8(void* ctx, JSHandle thisVal, JSHandle[] args) @trust
     bytes[offset] = cast(ubyte) value;
     engine.setProperty(thisVal, "__data", engine.newString(bytesToHex(bytes)));
     return engine.newInt(offset + 1);
+}
+
+// Buffer.isEncoding(encoding)
+JSHandle jsBufferIsEncoding(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+{
+    auto state = cast(DunState*) ctx;
+    auto engine = state.engine;
+    if (args.length < 1 || !engine.isString(args[0])) return engine.newBool(false);
+    auto enc = engine.extractString(args[0]);
+    if (enc == "utf8" || enc == "utf-8" || enc == "ascii" || enc == "latin1" ||
+        enc == "binary" || enc == "hex" || enc == "base64" || enc == "ucs2" ||
+        enc == "ucs-2" || enc == "utf16le" || enc == "utf-16le")
+        return engine.newBool(true);
+    return engine.newBool(false);
+}
+
+// Buffer.compare(a, b)
+JSHandle jsBufferStaticCompare(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+{
+    auto state = cast(DunState*) ctx;
+    auto engine = state.engine;
+    if (args.length < 2) return engine.throwTypeError("Buffer.compare requires two arguments");
+    auto a = extractBytes(engine, args[0]);
+    auto b = extractBytes(engine, args[1]);
+    auto minLen = a.length < b.length ? a.length : b.length;
+    foreach (i; 0 .. minLen)
+    {
+        if (a[i] < b[i]) return engine.newInt(-1);
+        if (a[i] > b[i]) return engine.newInt(1);
+    }
+    if (a.length < b.length) return engine.newInt(-1);
+    if (a.length > b.length) return engine.newInt(1);
+    return engine.newInt(0);
+}
+
+// buf.readUInt16LE([offset])
+JSHandle jsBufferReadUInt16LE(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+{
+    auto state = cast(DunState*) ctx;
+    auto engine = state.engine;
+    auto bytes = extractBytes(engine, thisVal);
+    int offset = 0;
+    if (args.length >= 1 && engine.isNumber(args[0])) offset = engine.extractInt(args[0]);
+    if (offset < 0 || offset + 1 >= cast(int) bytes.length) return engine.throwRangeError("Offset out of range");
+    int val = cast(int) bytes[offset] | (cast(int) bytes[offset + 1] << 8);
+    return engine.newInt(val);
+}
+
+JSHandle jsBufferReadUInt16BE(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+{
+    auto state = cast(DunState*) ctx;
+    auto engine = state.engine;
+    auto bytes = extractBytes(engine, thisVal);
+    int offset = 0;
+    if (args.length >= 1 && engine.isNumber(args[0])) offset = engine.extractInt(args[0]);
+    if (offset < 0 || offset + 1 >= cast(int) bytes.length) return engine.throwRangeError("Offset out of range");
+    int val = (cast(int) bytes[offset] << 8) | cast(int) bytes[offset + 1];
+    return engine.newInt(val);
+}
+
+JSHandle jsBufferReadUInt32LE(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+{
+    auto state = cast(DunState*) ctx;
+    auto engine = state.engine;
+    auto bytes = extractBytes(engine, thisVal);
+    int offset = 0;
+    if (args.length >= 1 && engine.isNumber(args[0])) offset = engine.extractInt(args[0]);
+    if (offset < 0 || offset + 3 >= cast(int) bytes.length) return engine.throwRangeError("Offset out of range");
+    uint val = cast(uint) bytes[offset] | (cast(uint) bytes[offset+1] << 8) | (cast(uint) bytes[offset+2] << 16) | (cast(uint) bytes[offset+3] << 24);
+    return engine.newFloat(cast(double) val);
+}
+
+JSHandle jsBufferReadUInt32BE(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+{
+    auto state = cast(DunState*) ctx;
+    auto engine = state.engine;
+    auto bytes = extractBytes(engine, thisVal);
+    int offset = 0;
+    if (args.length >= 1 && engine.isNumber(args[0])) offset = engine.extractInt(args[0]);
+    if (offset < 0 || offset + 3 >= cast(int) bytes.length) return engine.throwRangeError("Offset out of range");
+    uint val = (cast(uint) bytes[offset] << 24) | (cast(uint) bytes[offset+1] << 16) | (cast(uint) bytes[offset+2] << 8) | cast(uint) bytes[offset+3];
+    return engine.newFloat(cast(double) val);
+}
+
+JSHandle jsBufferReadInt8(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+{
+    auto state = cast(DunState*) ctx;
+    auto engine = state.engine;
+    auto bytes = extractBytes(engine, thisVal);
+    int offset = 0;
+    if (args.length >= 1 && engine.isNumber(args[0])) offset = engine.extractInt(args[0]);
+    if (offset < 0 || offset >= cast(int) bytes.length) return engine.throwRangeError("Offset out of range");
+    return engine.newInt(cast(int) cast(byte) bytes[offset]);
+}
+
+JSHandle jsBufferReadInt16LE(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+{
+    auto state = cast(DunState*) ctx;
+    auto engine = state.engine;
+    auto bytes = extractBytes(engine, thisVal);
+    int offset = 0;
+    if (args.length >= 1 && engine.isNumber(args[0])) offset = engine.extractInt(args[0]);
+    if (offset < 0 || offset + 1 >= cast(int) bytes.length) return engine.throwRangeError("Offset out of range");
+    short val = cast(short)(cast(ushort) bytes[offset] | (cast(ushort) bytes[offset + 1] << 8));
+    return engine.newInt(cast(int) val);
+}
+
+JSHandle jsBufferReadInt16BE(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+{
+    auto state = cast(DunState*) ctx;
+    auto engine = state.engine;
+    auto bytes = extractBytes(engine, thisVal);
+    int offset = 0;
+    if (args.length >= 1 && engine.isNumber(args[0])) offset = engine.extractInt(args[0]);
+    if (offset < 0 || offset + 1 >= cast(int) bytes.length) return engine.throwRangeError("Offset out of range");
+    short val = cast(short)((cast(ushort) bytes[offset] << 8) | cast(ushort) bytes[offset + 1]);
+    return engine.newInt(cast(int) val);
+}
+
+JSHandle jsBufferReadInt32LE(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+{
+    auto state = cast(DunState*) ctx;
+    auto engine = state.engine;
+    auto bytes = extractBytes(engine, thisVal);
+    int offset = 0;
+    if (args.length >= 1 && engine.isNumber(args[0])) offset = engine.extractInt(args[0]);
+    if (offset < 0 || offset + 3 >= cast(int) bytes.length) return engine.throwRangeError("Offset out of range");
+    int val = cast(int)(cast(uint) bytes[offset] | (cast(uint) bytes[offset+1] << 8) | (cast(uint) bytes[offset+2] << 16) | (cast(uint) bytes[offset+3] << 24));
+    return engine.newInt(val);
+}
+
+JSHandle jsBufferReadInt32BE(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+{
+    auto state = cast(DunState*) ctx;
+    auto engine = state.engine;
+    auto bytes = extractBytes(engine, thisVal);
+    int offset = 0;
+    if (args.length >= 1 && engine.isNumber(args[0])) offset = engine.extractInt(args[0]);
+    if (offset < 0 || offset + 3 >= cast(int) bytes.length) return engine.throwRangeError("Offset out of range");
+    int val = cast(int)((cast(uint) bytes[offset] << 24) | (cast(uint) bytes[offset+1] << 16) | (cast(uint) bytes[offset+2] << 8) | cast(uint) bytes[offset+3]);
+    return engine.newInt(val);
+}
+
+JSHandle jsBufferReadFloatLE(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+{
+    auto state = cast(DunState*) ctx;
+    auto engine = state.engine;
+    auto bytes = extractBytes(engine, thisVal);
+    int offset = 0;
+    if (args.length >= 1 && engine.isNumber(args[0])) offset = engine.extractInt(args[0]);
+    if (offset < 0 || offset + 3 >= cast(int) bytes.length) return engine.throwRangeError("Offset out of range");
+    ubyte[4] buf = [bytes[offset], bytes[offset+1], bytes[offset+2], bytes[offset+3]];
+    float val = *(cast(float*) buf.ptr);
+    return engine.newFloat(cast(double) val);
+}
+
+JSHandle jsBufferReadFloatBE(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+{
+    auto state = cast(DunState*) ctx;
+    auto engine = state.engine;
+    auto bytes = extractBytes(engine, thisVal);
+    int offset = 0;
+    if (args.length >= 1 && engine.isNumber(args[0])) offset = engine.extractInt(args[0]);
+    if (offset < 0 || offset + 3 >= cast(int) bytes.length) return engine.throwRangeError("Offset out of range");
+    ubyte[4] buf = [bytes[offset+3], bytes[offset+2], bytes[offset+1], bytes[offset]];
+    float val = *(cast(float*) buf.ptr);
+    return engine.newFloat(cast(double) val);
+}
+
+JSHandle jsBufferReadDoubleLE(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+{
+    auto state = cast(DunState*) ctx;
+    auto engine = state.engine;
+    auto bytes = extractBytes(engine, thisVal);
+    int offset = 0;
+    if (args.length >= 1 && engine.isNumber(args[0])) offset = engine.extractInt(args[0]);
+    if (offset < 0 || offset + 7 >= cast(int) bytes.length) return engine.throwRangeError("Offset out of range");
+    ubyte[8] buf;
+    foreach (i; 0 .. 8) buf[i] = bytes[offset + i];
+    double val = *(cast(double*) buf.ptr);
+    return engine.newFloat(val);
+}
+
+JSHandle jsBufferReadDoubleBE(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+{
+    auto state = cast(DunState*) ctx;
+    auto engine = state.engine;
+    auto bytes = extractBytes(engine, thisVal);
+    int offset = 0;
+    if (args.length >= 1 && engine.isNumber(args[0])) offset = engine.extractInt(args[0]);
+    if (offset < 0 || offset + 7 >= cast(int) bytes.length) return engine.throwRangeError("Offset out of range");
+    ubyte[8] buf;
+    foreach (i; 0 .. 8) buf[i] = bytes[offset + 7 - i];
+    double val = *(cast(double*) buf.ptr);
+    return engine.newFloat(val);
+}
+
+JSHandle jsBufferWriteUInt16LE(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+{
+    auto state = cast(DunState*) ctx;
+    auto engine = state.engine;
+    if (args.length < 1 || !engine.isNumber(args[0])) return engine.throwTypeError("writeUInt16LE requires a value");
+    auto bytes = extractBytes(engine, thisVal);
+    int value = engine.extractInt(args[0]);
+    int offset = 0;
+    if (args.length >= 2 && engine.isNumber(args[1])) offset = engine.extractInt(args[1]);
+    if (offset < 0 || offset + 1 >= cast(int) bytes.length) return engine.throwRangeError("Offset out of range");
+    bytes[offset] = cast(ubyte)(value & 0xFF);
+    bytes[offset + 1] = cast(ubyte)((value >> 8) & 0xFF);
+    engine.setProperty(thisVal, "__data", engine.newString(bytesToHex(bytes)));
+    return engine.newInt(offset + 2);
+}
+
+JSHandle jsBufferWriteUInt16BE(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+{
+    auto state = cast(DunState*) ctx;
+    auto engine = state.engine;
+    if (args.length < 1 || !engine.isNumber(args[0])) return engine.throwTypeError("writeUInt16BE requires a value");
+    auto bytes = extractBytes(engine, thisVal);
+    int value = engine.extractInt(args[0]);
+    int offset = 0;
+    if (args.length >= 2 && engine.isNumber(args[1])) offset = engine.extractInt(args[1]);
+    if (offset < 0 || offset + 1 >= cast(int) bytes.length) return engine.throwRangeError("Offset out of range");
+    bytes[offset] = cast(ubyte)((value >> 8) & 0xFF);
+    bytes[offset + 1] = cast(ubyte)(value & 0xFF);
+    engine.setProperty(thisVal, "__data", engine.newString(bytesToHex(bytes)));
+    return engine.newInt(offset + 2);
+}
+
+JSHandle jsBufferWriteUInt32LE(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+{
+    auto state = cast(DunState*) ctx;
+    auto engine = state.engine;
+    if (args.length < 1 || !engine.isNumber(args[0])) return engine.throwTypeError("writeUInt32LE requires a value");
+    auto bytes = extractBytes(engine, thisVal);
+    uint value = cast(uint) engine.extractFloat(args[0]);
+    int offset = 0;
+    if (args.length >= 2 && engine.isNumber(args[1])) offset = engine.extractInt(args[1]);
+    if (offset < 0 || offset + 3 >= cast(int) bytes.length) return engine.throwRangeError("Offset out of range");
+    bytes[offset] = cast(ubyte)(value & 0xFF);
+    bytes[offset+1] = cast(ubyte)((value >> 8) & 0xFF);
+    bytes[offset+2] = cast(ubyte)((value >> 16) & 0xFF);
+    bytes[offset+3] = cast(ubyte)((value >> 24) & 0xFF);
+    engine.setProperty(thisVal, "__data", engine.newString(bytesToHex(bytes)));
+    return engine.newInt(offset + 4);
+}
+
+JSHandle jsBufferWriteUInt32BE(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+{
+    auto state = cast(DunState*) ctx;
+    auto engine = state.engine;
+    if (args.length < 1 || !engine.isNumber(args[0])) return engine.throwTypeError("writeUInt32BE requires a value");
+    auto bytes = extractBytes(engine, thisVal);
+    uint value = cast(uint) engine.extractFloat(args[0]);
+    int offset = 0;
+    if (args.length >= 2 && engine.isNumber(args[1])) offset = engine.extractInt(args[1]);
+    if (offset < 0 || offset + 3 >= cast(int) bytes.length) return engine.throwRangeError("Offset out of range");
+    bytes[offset] = cast(ubyte)((value >> 24) & 0xFF);
+    bytes[offset+1] = cast(ubyte)((value >> 16) & 0xFF);
+    bytes[offset+2] = cast(ubyte)((value >> 8) & 0xFF);
+    bytes[offset+3] = cast(ubyte)(value & 0xFF);
+    engine.setProperty(thisVal, "__data", engine.newString(bytesToHex(bytes)));
+    return engine.newInt(offset + 4);
+}
+
+JSHandle jsBufferWriteInt16LE(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+{
+    auto state = cast(DunState*) ctx;
+    auto engine = state.engine;
+    if (args.length < 1 || !engine.isNumber(args[0])) return engine.throwTypeError("writeInt16LE requires a value");
+    auto bytes = extractBytes(engine, thisVal);
+    ushort uval = cast(ushort) cast(short) engine.extractInt(args[0]);
+    int offset = 0;
+    if (args.length >= 2 && engine.isNumber(args[1])) offset = engine.extractInt(args[1]);
+    if (offset < 0 || offset + 1 >= cast(int) bytes.length) return engine.throwRangeError("Offset out of range");
+    bytes[offset] = cast(ubyte)(uval & 0xFF);
+    bytes[offset + 1] = cast(ubyte)((uval >> 8) & 0xFF);
+    engine.setProperty(thisVal, "__data", engine.newString(bytesToHex(bytes)));
+    return engine.newInt(offset + 2);
+}
+
+JSHandle jsBufferWriteInt16BE(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+{
+    auto state = cast(DunState*) ctx;
+    auto engine = state.engine;
+    if (args.length < 1 || !engine.isNumber(args[0])) return engine.throwTypeError("writeInt16BE requires a value");
+    auto bytes = extractBytes(engine, thisVal);
+    ushort uval = cast(ushort) cast(short) engine.extractInt(args[0]);
+    int offset = 0;
+    if (args.length >= 2 && engine.isNumber(args[1])) offset = engine.extractInt(args[1]);
+    if (offset < 0 || offset + 1 >= cast(int) bytes.length) return engine.throwRangeError("Offset out of range");
+    bytes[offset] = cast(ubyte)((uval >> 8) & 0xFF);
+    bytes[offset + 1] = cast(ubyte)(uval & 0xFF);
+    engine.setProperty(thisVal, "__data", engine.newString(bytesToHex(bytes)));
+    return engine.newInt(offset + 2);
+}
+
+JSHandle jsBufferWriteInt32LE(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+{
+    auto state = cast(DunState*) ctx;
+    auto engine = state.engine;
+    if (args.length < 1 || !engine.isNumber(args[0])) return engine.throwTypeError("writeInt32LE requires a value");
+    auto bytes = extractBytes(engine, thisVal);
+    uint uval = cast(uint) engine.extractInt(args[0]);
+    int offset = 0;
+    if (args.length >= 2 && engine.isNumber(args[1])) offset = engine.extractInt(args[1]);
+    if (offset < 0 || offset + 3 >= cast(int) bytes.length) return engine.throwRangeError("Offset out of range");
+    bytes[offset] = cast(ubyte)(uval & 0xFF);
+    bytes[offset+1] = cast(ubyte)((uval >> 8) & 0xFF);
+    bytes[offset+2] = cast(ubyte)((uval >> 16) & 0xFF);
+    bytes[offset+3] = cast(ubyte)((uval >> 24) & 0xFF);
+    engine.setProperty(thisVal, "__data", engine.newString(bytesToHex(bytes)));
+    return engine.newInt(offset + 4);
+}
+
+JSHandle jsBufferWriteInt32BE(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+{
+    auto state = cast(DunState*) ctx;
+    auto engine = state.engine;
+    if (args.length < 1 || !engine.isNumber(args[0])) return engine.throwTypeError("writeInt32BE requires a value");
+    auto bytes = extractBytes(engine, thisVal);
+    uint uval = cast(uint) engine.extractInt(args[0]);
+    int offset = 0;
+    if (args.length >= 2 && engine.isNumber(args[1])) offset = engine.extractInt(args[1]);
+    if (offset < 0 || offset + 3 >= cast(int) bytes.length) return engine.throwRangeError("Offset out of range");
+    bytes[offset] = cast(ubyte)((uval >> 24) & 0xFF);
+    bytes[offset+1] = cast(ubyte)((uval >> 16) & 0xFF);
+    bytes[offset+2] = cast(ubyte)((uval >> 8) & 0xFF);
+    bytes[offset+3] = cast(ubyte)(uval & 0xFF);
+    engine.setProperty(thisVal, "__data", engine.newString(bytesToHex(bytes)));
+    return engine.newInt(offset + 4);
+}
+
+JSHandle jsBufferWriteFloatLE(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+{
+    auto state = cast(DunState*) ctx;
+    auto engine = state.engine;
+    if (args.length < 1 || !engine.isNumber(args[0])) return engine.throwTypeError("writeFloatLE requires a value");
+    auto bytes = extractBytes(engine, thisVal);
+    float value = cast(float) engine.extractFloat(args[0]);
+    int offset = 0;
+    if (args.length >= 2 && engine.isNumber(args[1])) offset = engine.extractInt(args[1]);
+    if (offset < 0 || offset + 3 >= cast(int) bytes.length) return engine.throwRangeError("Offset out of range");
+    ubyte* fp = cast(ubyte*)&value;
+    foreach (i; 0 .. 4) bytes[offset + i] = fp[i];
+    engine.setProperty(thisVal, "__data", engine.newString(bytesToHex(bytes)));
+    return engine.newInt(offset + 4);
+}
+
+JSHandle jsBufferWriteFloatBE(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+{
+    auto state = cast(DunState*) ctx;
+    auto engine = state.engine;
+    if (args.length < 1 || !engine.isNumber(args[0])) return engine.throwTypeError("writeFloatBE requires a value");
+    auto bytes = extractBytes(engine, thisVal);
+    float value = cast(float) engine.extractFloat(args[0]);
+    int offset = 0;
+    if (args.length >= 2 && engine.isNumber(args[1])) offset = engine.extractInt(args[1]);
+    if (offset < 0 || offset + 3 >= cast(int) bytes.length) return engine.throwRangeError("Offset out of range");
+    ubyte* fp = cast(ubyte*)&value;
+    foreach (i; 0 .. 4) bytes[offset + i] = fp[3 - i];
+    engine.setProperty(thisVal, "__data", engine.newString(bytesToHex(bytes)));
+    return engine.newInt(offset + 4);
+}
+
+JSHandle jsBufferWriteDoubleLE(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+{
+    auto state = cast(DunState*) ctx;
+    auto engine = state.engine;
+    if (args.length < 1 || !engine.isNumber(args[0])) return engine.throwTypeError("writeDoubleLE requires a value");
+    auto bytes = extractBytes(engine, thisVal);
+    double value = engine.extractFloat(args[0]);
+    int offset = 0;
+    if (args.length >= 2 && engine.isNumber(args[1])) offset = engine.extractInt(args[1]);
+    if (offset < 0 || offset + 7 >= cast(int) bytes.length) return engine.throwRangeError("Offset out of range");
+    ubyte* dp = cast(ubyte*)&value;
+    foreach (i; 0 .. 8) bytes[offset + i] = dp[i];
+    engine.setProperty(thisVal, "__data", engine.newString(bytesToHex(bytes)));
+    return engine.newInt(offset + 8);
+}
+
+JSHandle jsBufferWriteDoubleBE(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+{
+    auto state = cast(DunState*) ctx;
+    auto engine = state.engine;
+    if (args.length < 1 || !engine.isNumber(args[0])) return engine.throwTypeError("writeDoubleBE requires a value");
+    auto bytes = extractBytes(engine, thisVal);
+    double value = engine.extractFloat(args[0]);
+    int offset = 0;
+    if (args.length >= 2 && engine.isNumber(args[1])) offset = engine.extractInt(args[1]);
+    if (offset < 0 || offset + 7 >= cast(int) bytes.length) return engine.throwRangeError("Offset out of range");
+    ubyte* dp = cast(ubyte*)&value;
+    foreach (i; 0 .. 8) bytes[offset + i] = dp[7 - i];
+    engine.setProperty(thisVal, "__data", engine.newString(bytesToHex(bytes)));
+    return engine.newInt(offset + 8);
+}
+
+JSHandle jsBufferCompare(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+{
+    auto state = cast(DunState*) ctx;
+    auto engine = state.engine;
+    if (args.length < 1) return engine.throwTypeError("compare requires a Buffer argument");
+    auto a = extractBytes(engine, thisVal);
+    auto b = extractBytes(engine, args[0]);
+    auto minLen = a.length < b.length ? a.length : b.length;
+    foreach (i; 0 .. minLen)
+    {
+        if (a[i] < b[i]) return engine.newInt(-1);
+        if (a[i] > b[i]) return engine.newInt(1);
+    }
+    if (a.length < b.length) return engine.newInt(-1);
+    if (a.length > b.length) return engine.newInt(1);
+    return engine.newInt(0);
+}
+
+JSHandle jsBufferIncludes(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+{
+    auto state = cast(DunState*) ctx;
+    auto engine = state.engine;
+    if (args.length < 1) return engine.newBool(false);
+    auto bytes = extractBytes(engine, thisVal);
+    if (engine.isNumber(args[0]))
+    {
+        int val = engine.extractInt(args[0]);
+        foreach (b; bytes) if (b == cast(ubyte) val) return engine.newBool(true);
+        return engine.newBool(false);
+    }
+    if (engine.isString(args[0]))
+    {
+        auto needle = cast(const(ubyte)[]) engine.extractString(args[0]);
+        if (needle.length == 0) return engine.newBool(true);
+        if (needle.length > bytes.length) return engine.newBool(false);
+        foreach (i; 0 .. bytes.length - needle.length + 1)
+            if (bytes[i .. i + needle.length] == needle) return engine.newBool(true);
+        return engine.newBool(false);
+    }
+    return engine.newBool(false);
+}
+
+JSHandle jsBufferSubarray(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+{
+    auto state = cast(DunState*) ctx;
+    auto engine = state.engine;
+    auto bytes = extractBytes(engine, thisVal);
+    int start = 0;
+    int end = cast(int) bytes.length;
+    if (args.length >= 1 && engine.isNumber(args[0])) start = engine.extractInt(args[0]);
+    if (args.length >= 2 && engine.isNumber(args[1])) end = engine.extractInt(args[1]);
+    if (start < 0) start = cast(int) bytes.length + start;
+    if (end < 0) end = cast(int) bytes.length + end;
+    if (start < 0) start = 0;
+    if (end > cast(int) bytes.length) end = cast(int) bytes.length;
+    if (start >= end) return makeBufferObj(engine, []);
+    return makeBufferObj(engine, bytes[start .. end]);
 }

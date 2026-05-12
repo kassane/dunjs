@@ -18,6 +18,14 @@ void registerFsModule(IJSEngine engine) @trusted
     engine.setProperty(obj, "unlinkSync", engine.newFunction(&jsUnlinkSync, "unlinkSync", 1));
     engine.setProperty(obj, "readFile", engine.newFunction(&jsReadFileAsync, "readFile", 1));
     engine.setProperty(obj, "writeFile", engine.newFunction(&jsWriteFileAsync, "writeFile", 2));
+    engine.setProperty(obj, "appendFileSync", engine.newFunction(&jsAppendFileSync, "appendFileSync", 2));
+    engine.setProperty(obj, "copyFileSync", engine.newFunction(&jsCopyFileSync, "copyFileSync", 2));
+    engine.setProperty(obj, "renameSync", engine.newFunction(&jsRenameSync, "renameSync", 2));
+    engine.setProperty(obj, "rmdirSync", engine.newFunction(&jsRmdirSync, "rmdirSync", 1));
+    engine.setProperty(obj, "rmSync", engine.newFunction(&jsRmSync, "rmSync", 1));
+    engine.setProperty(obj, "accessSync", engine.newFunction(&jsAccessSync, "accessSync", 1));
+    engine.setProperty(obj, "realpathSync", engine.newFunction(&jsRealpathSync, "realpathSync", 1));
+    engine.setProperty(obj, "chmodSync", engine.newFunction(&jsChmodSync, "chmodSync", 2));
 
     auto global = engine.getGlobal();
     engine.setProperty(global, "__dun_cjs_fs__", obj);
@@ -37,7 +45,9 @@ version (EngineQuickJS)
         auto m = JS_NewCModule(ctx, "dun:fs", &fsModuleInit);
         if (m is null) return;
         foreach (name; ["readFileSync", "writeFileSync", "existsSync", "readdirSync",
-                        "statSync", "mkdirSync", "unlinkSync", "readFile", "writeFile"])
+                        "statSync", "mkdirSync", "unlinkSync", "readFile", "writeFile",
+                        "appendFileSync", "copyFileSync", "renameSync", "rmdirSync",
+                        "rmSync", "accessSync", "realpathSync", "chmodSync"])
             JS_AddModuleExport(ctx, m, name.ptr);
     }
 
@@ -48,7 +58,9 @@ version (EngineQuickJS)
         auto global = JS_GetGlobalObject(ctx);
         auto fsObj = JS_GetPropertyStr(ctx, global, "__dun_cjs_fs__");
         foreach (name; ["readFileSync", "writeFileSync", "existsSync", "readdirSync",
-                        "statSync", "mkdirSync", "unlinkSync", "readFile", "writeFile"])
+                        "statSync", "mkdirSync", "unlinkSync", "readFile", "writeFile",
+                        "appendFileSync", "copyFileSync", "renameSync", "rmdirSync",
+                        "rmSync", "accessSync", "realpathSync", "chmodSync"])
         {
             auto fn = JS_GetPropertyStr(ctx, fsObj, name.ptr);
             JS_SetModuleExport(ctx, m, name.ptr, fn);
@@ -346,4 +358,180 @@ JSHandle jsWriteFileAsync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     });
 
     return ph.promise;
+}
+
+JSHandle jsAppendFileSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+{
+    assert(ctx !is null, "Null ctx in jsAppendFileSync");
+    auto state = cast(DunState*) ctx;
+    assert(state !is null, "Null DunState in jsAppendFileSync");
+    auto engine = state.engine;
+    if (args.length < 2) return engine.throwTypeError("appendFileSync requires path and data");
+    auto path = engine.extractString(args[0]);
+    auto data = engine.extractString(args[1]);
+    if (!checkPerm(state, Permission.write, path))
+        return throwPermError(engine, "write", path);
+    try
+    {
+        import std.file : append;
+        append(path, data);
+        return engine.newUndefined();
+    }
+    catch (Exception e) { return throwSystemError(engine, "open", path, e); }
+}
+
+JSHandle jsCopyFileSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+{
+    assert(ctx !is null, "Null ctx in jsCopyFileSync");
+    auto state = cast(DunState*) ctx;
+    assert(state !is null, "Null DunState in jsCopyFileSync");
+    auto engine = state.engine;
+    if (args.length < 2) return engine.throwTypeError("copyFileSync requires src and dest");
+    auto src = engine.extractString(args[0]);
+    auto dest = engine.extractString(args[1]);
+    if (!checkPerm(state, Permission.read, src))
+        return throwPermError(engine, "read", src);
+    if (!checkPerm(state, Permission.write, dest))
+        return throwPermError(engine, "write", dest);
+    try
+    {
+        import std.file : copy;
+        copy(src, dest);
+        return engine.newUndefined();
+    }
+    catch (Exception e) { return throwSystemError(engine, "copyfile", src, e); }
+}
+
+JSHandle jsRenameSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+{
+    assert(ctx !is null, "Null ctx in jsRenameSync");
+    auto state = cast(DunState*) ctx;
+    assert(state !is null, "Null DunState in jsRenameSync");
+    auto engine = state.engine;
+    if (args.length < 2) return engine.throwTypeError("renameSync requires oldPath and newPath");
+    auto oldPath = engine.extractString(args[0]);
+    auto newPath = engine.extractString(args[1]);
+    if (!checkPerm(state, Permission.write, oldPath))
+        return throwPermError(engine, "write", oldPath);
+    if (!checkPerm(state, Permission.write, newPath))
+        return throwPermError(engine, "write", newPath);
+    try
+    {
+        import std.file : rename;
+        rename(oldPath, newPath);
+        return engine.newUndefined();
+    }
+    catch (Exception e) { return throwSystemError(engine, "rename", oldPath, e); }
+}
+
+JSHandle jsRmdirSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+{
+    assert(ctx !is null, "Null ctx in jsRmdirSync");
+    auto state = cast(DunState*) ctx;
+    assert(state !is null, "Null DunState in jsRmdirSync");
+    auto engine = state.engine;
+    if (args.length < 1) return engine.throwTypeError("rmdirSync requires a path argument");
+    auto path = engine.extractString(args[0]);
+    if (!checkPerm(state, Permission.write, path))
+        return throwPermError(engine, "write", path);
+    try
+    {
+        import std.file : rmdir;
+        rmdir(path);
+        return engine.newUndefined();
+    }
+    catch (Exception e) { return throwSystemError(engine, "rmdir", path, e); }
+}
+
+JSHandle jsRmSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+{
+    assert(ctx !is null, "Null ctx in jsRmSync");
+    auto state = cast(DunState*) ctx;
+    assert(state !is null, "Null DunState in jsRmSync");
+    auto engine = state.engine;
+    if (args.length < 1) return engine.throwTypeError("rmSync requires a path argument");
+    auto path = engine.extractString(args[0]);
+    bool recursive = false;
+    if (args.length >= 2 && engine.isObject(args[1]))
+    {
+        auto rv = engine.getProperty(args[1], "recursive");
+        recursive = engine.extractBool(rv);
+    }
+    if (!checkPerm(state, Permission.write, path))
+        return throwPermError(engine, "write", path);
+    try
+    {
+        import std.file : remove, rmdirRecurse, isDir;
+        if (recursive && isDir(path))
+            rmdirRecurse(path);
+        else
+            remove(path);
+        return engine.newUndefined();
+    }
+    catch (Exception e) { return throwSystemError(engine, "rm", path, e); }
+}
+
+JSHandle jsAccessSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+{
+    assert(ctx !is null, "Null ctx in jsAccessSync");
+    auto state = cast(DunState*) ctx;
+    assert(state !is null, "Null DunState in jsAccessSync");
+    auto engine = state.engine;
+    if (args.length < 1) return engine.throwTypeError("accessSync requires a path argument");
+    auto path = engine.extractString(args[0]);
+    if (!checkPerm(state, Permission.read, path))
+        return throwPermError(engine, "read", path);
+    try
+    {
+        import std.file : exists;
+        if (!exists(path))
+            return engine.throwTypeError("ENOENT: no such file or directory, access '" ~ path ~ "'");
+        return engine.newUndefined();
+    }
+    catch (Exception e) { return throwSystemError(engine, "access", path, e); }
+}
+
+JSHandle jsRealpathSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+{
+    assert(ctx !is null, "Null ctx in jsRealpathSync");
+    auto state = cast(DunState*) ctx;
+    assert(state !is null, "Null DunState in jsRealpathSync");
+    auto engine = state.engine;
+    if (args.length < 1) return engine.throwTypeError("realpathSync requires a path argument");
+    auto path = engine.extractString(args[0]);
+    if (!checkPerm(state, Permission.read, path))
+        return throwPermError(engine, "read", path);
+    try
+    {
+        import core.sys.posix.stdlib : realpath;
+        import std.string : fromStringz;
+        auto result = (() @trusted => realpath(cast(const(char)*)(path ~ "\0").ptr, null))();
+        if (result is null)
+            return engine.throwTypeError("ENOENT: no such file or directory, realpath '" ~ path ~ "'");
+        auto resolved = (() @trusted => fromStringz(result).idup)();
+        import core.stdc.stdlib : free;
+        (() @trusted => free(result))();
+        return engine.newString(resolved);
+    }
+    catch (Exception e) { return throwSystemError(engine, "realpath", path, e); }
+}
+
+JSHandle jsChmodSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+{
+    assert(ctx !is null, "Null ctx in jsChmodSync");
+    auto state = cast(DunState*) ctx;
+    assert(state !is null, "Null DunState in jsChmodSync");
+    auto engine = state.engine;
+    if (args.length < 2) return engine.throwTypeError("chmodSync requires path and mode");
+    auto path = engine.extractString(args[0]);
+    auto mode = cast(uint) engine.extractInt(args[1]);
+    if (!checkPerm(state, Permission.write, path))
+        return throwPermError(engine, "write", path);
+    try
+    {
+        import std.file : setAttributes;
+        setAttributes(path, mode);
+        return engine.newUndefined();
+    }
+    catch (Exception e) { return throwSystemError(engine, "chmod", path, e); }
 }

@@ -1,0 +1,9 @@
+parse foo: bar
+parse baz: qux,quux
+stringify: a=1&b=2
+escape: hello%20world%26foo%3Dbar
+unescape: hello world
+roundtrip ok: true
+decode alias: true
+encode alias: true
+All querystring tests passed

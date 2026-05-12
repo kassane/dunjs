@@ -22,3 +22,8 @@ public import dun.builtins.child_process;
 public import dun.builtins.stream;
 public import dun.builtins.ws;
 public import dun.builtins.sqlite;
+public import dun.builtins.util;
+public import dun.builtins.assert_;
+public import dun.builtins.querystring;
+public import dun.builtins.string_decoder;
+public import dun.builtins.timers_promises;

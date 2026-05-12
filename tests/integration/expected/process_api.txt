@@ -1,0 +1,14 @@
+stdout: ok
+hrtime array: true
+hrtime sec: true
+hrtime.bigint: true
+uptime: true
+memoryUsage rss: true
+memoryUsage heapTotal: true
+cpuUsage user: true
+cpuUsage system: true
+execPath: true
+title: true
+versions dun: true
+chdir: true
+All process tests passed

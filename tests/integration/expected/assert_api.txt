@@ -1,0 +1,10 @@
+ok: pass
+equal: pass
+strict: pass
+deep: pass
+throws: pass
+match: pass
+fail: true
+error: true
+operator: ===
+All assert tests passed

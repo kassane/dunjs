@@ -54,6 +54,11 @@ JSHandle jsRequire(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     else if (specifier == "dns") specifier = "dun:dns";
     else if (specifier == "ws") specifier = "dun:ws";
     else if (specifier == "sqlite") specifier = "dun:sqlite";
+    else if (specifier == "util") specifier = "dun:util";
+    else if (specifier == "assert") specifier = "dun:assert";
+    else if (specifier == "querystring") specifier = "dun:querystring";
+    else if (specifier == "string_decoder") specifier = "dun:string_decoder";
+    else if (specifier == "timers/promises") specifier = "dun:timers/promises";
 
     auto global = engine.getGlobal();
 
@@ -76,6 +81,11 @@ JSHandle jsRequire(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
         else if (specifier == "dun:dns") propName = "__dun_cjs_dns__";
         else if (specifier == "dun:ws") propName = "__dun_cjs_ws__";
         else if (specifier == "dun:sqlite") propName = "__dun_cjs_sqlite__";
+        else if (specifier == "dun:util") propName = "__dun_cjs_util__";
+        else if (specifier == "dun:assert") propName = "__dun_cjs_assert__";
+        else if (specifier == "dun:querystring") propName = "__dun_cjs_querystring__";
+        else if (specifier == "dun:string_decoder") propName = "__dun_cjs_string_decoder__";
+        else if (specifier == "dun:timers/promises") propName = "__dun_cjs_timers_promises__";
 
         if (propName.length > 0)
         {

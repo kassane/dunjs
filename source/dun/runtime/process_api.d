@@ -28,9 +28,37 @@ bool invokeUncaughtExceptionHandler(IJSEngine engine, string errorMsg) @trusted 
     catch (Throwable) { return false; }
 }
 
+// Store process start time for uptime()
+private __gshared long _processStartTimeTicks;
+private __gshared bool _startTimeInit = false;
+
+private void ensureStartTime() @trusted nothrow
+{
+    if (_startTimeInit) return;
+    try
+    {
+        import core.time : MonoTime;
+        _processStartTimeTicks = MonoTime.currTime.ticks;
+    }
+    catch (Throwable) {}
+    _startTimeInit = true;
+}
+
+private bool isattyFd(int fd) @trusted nothrow
+{
+    version (Posix)
+    {
+        import core.sys.posix.unistd : isatty;
+        return isatty(fd) == 1;
+    }
+    else
+        return false;
+}
+
 void installProcess(IJSEngine engine) @trusted
 {
     assert(engine !is null, "Null engine");
+    ensureStartTime();
     auto state = cast(DunState*) engine.getContextOpaque();
     auto global = engine.getGlobal();
     auto process = engine.newObject();
@@ -94,6 +122,64 @@ void installProcess(IJSEngine engine) @trusted
         engine.setProperty(process, "pid", engine.newInt(getpid()));
     }
 
+    // process.stdout
+    auto stdoutObj = engine.newObject();
+    engine.setProperty(stdoutObj, "write", engine.newFunction(&jsStdoutWrite, "write", 1));
+    engine.setProperty(stdoutObj, "writable", engine.newBool(true));
+    engine.setProperty(stdoutObj, "isTTY", engine.newBool(isattyFd(1)));
+    engine.setProperty(process, "stdout", stdoutObj);
+
+    // process.stderr
+    auto stderrObj = engine.newObject();
+    engine.setProperty(stderrObj, "write", engine.newFunction(&jsStderrWrite, "write", 1));
+    engine.setProperty(stderrObj, "writable", engine.newBool(true));
+    engine.setProperty(stderrObj, "isTTY", engine.newBool(isattyFd(2)));
+    engine.setProperty(process, "stderr", stderrObj);
+
+    // process.hrtime() and process.hrtime.bigint()
+    auto hrtimeFn = engine.newFunction(&jsHrtime, "hrtime", 0);
+    engine.setProperty(hrtimeFn, "bigint", engine.newFunction(&jsHrtimeBigint, "bigint", 0));
+    engine.setProperty(process, "hrtime", hrtimeFn);
+
+    // process.uptime()
+    engine.setProperty(process, "uptime", engine.newFunction(&jsUptime, "uptime", 0));
+
+    // process.memoryUsage()
+    engine.setProperty(process, "memoryUsage", engine.newFunction(&jsMemoryUsage, "memoryUsage", 0));
+
+    // process.cpuUsage()
+    engine.setProperty(process, "cpuUsage", engine.newFunction(&jsCpuUsage, "cpuUsage", 0));
+
+    // process.chdir(directory)
+    engine.setProperty(process, "chdir", engine.newFunction(&jsChdir, "chdir", 1));
+
+    // process.execPath
+    try
+    {
+        import std.file : thisExePath;
+        engine.setProperty(process, "execPath", engine.newString(thisExePath()));
+    }
+    catch (Exception)
+    {
+        engine.setProperty(process, "execPath", engine.newString("/usr/local/bin/dun"));
+    }
+
+    // process.title
+    engine.setProperty(process, "title", engine.newString("dun"));
+
+    // process.versions
+    auto versionsObj = engine.newObject();
+    engine.setProperty(versionsObj, "dun", engine.newString("1.0.0"));
+    version (EngineQuickJS)
+        engine.setProperty(versionsObj, "quickjs", engine.newString("0.8.0"));
+    else version (EngineJSC)
+        engine.setProperty(versionsObj, "jsc", engine.newString("620.1"));
+    else version (EngineV8)
+        engine.setProperty(versionsObj, "v8", engine.newString("12.4.0"));
+    engine.setProperty(versionsObj, "modules", engine.newString("127"));
+    engine.setProperty(versionsObj, "openssl", engine.newString("3.0.0"));
+    engine.setProperty(process, "versions", versionsObj);
+
     engine.setProperty(global, "process", process);
 }
 
@@ -155,4 +241,169 @@ JSHandle jsNextTick(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
     state.eventLoop.nextTicks.enqueue(engine, args[0]);
     return engine.newUndefined();
+}
+
+JSHandle jsStdoutWrite(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+{
+    assert(ctx !is null, "Null ctx in process.stdout.write");
+    auto state = cast(DunState*) ctx;
+    auto engine = state.engine;
+    if (args.length < 1) return engine.newBool(true);
+    try
+    {
+        auto data = engine.extractString(args[0]);
+        import core.stdc.stdio : fwrite, stdout, fflush;
+        fwrite(data.ptr, 1, data.length, stdout);
+        fflush(stdout);
+    }
+    catch (Exception) {}
+    return engine.newBool(true);
+}
+
+JSHandle jsStderrWrite(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+{
+    assert(ctx !is null, "Null ctx in process.stderr.write");
+    auto state = cast(DunState*) ctx;
+    auto engine = state.engine;
+    if (args.length < 1) return engine.newBool(true);
+    try
+    {
+        auto data = engine.extractString(args[0]);
+        import core.stdc.stdio : fwrite, stderr, fflush;
+        fwrite(data.ptr, 1, data.length, stderr);
+        fflush(stderr);
+    }
+    catch (Exception) {}
+    return engine.newBool(true);
+}
+
+JSHandle jsHrtime(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+{
+    assert(ctx !is null, "Null ctx in process.hrtime");
+    auto state = cast(DunState*) ctx;
+    auto engine = state.engine;
+    try
+    {
+        import core.time : MonoTime, ticksToNSecs;
+        auto now = MonoTime.currTime;
+        long totalNs = ticksToNSecs(now.ticks);
+        if (args.length >= 1 && engine.isArray(args[0]))
+        {
+            auto prevSec = engine.extractFloat(engine.getPropertyIndex(args[0], 0));
+            auto prevNs = engine.extractFloat(engine.getPropertyIndex(args[0], 1));
+            long prevTotalNs = cast(long)(prevSec * 1_000_000_000.0 + prevNs);
+            totalNs -= prevTotalNs;
+        }
+        long secs = totalNs / 1_000_000_000;
+        long nanos = totalNs % 1_000_000_000;
+        auto arr = engine.newArray();
+        engine.setPropertyIndex(arr, 0, engine.newFloat(cast(double) secs));
+        engine.setPropertyIndex(arr, 1, engine.newFloat(cast(double) nanos));
+        return arr;
+    }
+    catch (Exception) { return engine.newArray(); }
+}
+
+JSHandle jsHrtimeBigint(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+{
+    assert(ctx !is null, "Null ctx in process.hrtime.bigint");
+    auto state = cast(DunState*) ctx;
+    auto engine = state.engine;
+    try
+    {
+        import core.time : MonoTime, ticksToNSecs;
+        auto now = MonoTime.currTime;
+        long totalNs = ticksToNSecs(now.ticks);
+        return engine.newFloat(cast(double) totalNs);
+    }
+    catch (Exception) { return engine.newFloat(0.0); }
+}
+
+JSHandle jsUptime(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+{
+    assert(ctx !is null, "Null ctx in process.uptime");
+    auto state = cast(DunState*) ctx;
+    auto engine = state.engine;
+    try
+    {
+        import core.time : MonoTime, ticksToNSecs;
+        auto now = MonoTime.currTime;
+        long nowNs = ticksToNSecs(now.ticks);
+        long startNs = ticksToNSecs(_processStartTimeTicks);
+        double uptimeSecs = cast(double)(nowNs - startNs) / 1_000_000_000.0;
+        return engine.newFloat(uptimeSecs);
+    }
+    catch (Exception) { return engine.newFloat(0.0); }
+}
+
+JSHandle jsMemoryUsage(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+{
+    assert(ctx !is null, "Null ctx in process.memoryUsage");
+    auto state = cast(DunState*) ctx;
+    auto engine = state.engine;
+    auto obj = engine.newObject();
+    double rss = 0;
+    version (linux)
+    {
+        try
+        {
+            import std.file : readText;
+            import std.string : split;
+            import std.conv : to;
+            auto statm = readText("/proc/self/statm");
+            auto parts = statm.split(" ");
+            if (parts.length >= 2)
+                rss = to!double(parts[1]) * 4096.0;
+        }
+        catch (Exception) {}
+    }
+    engine.setProperty(obj, "rss", engine.newFloat(rss));
+    engine.setProperty(obj, "heapTotal", engine.newFloat(rss > 0 ? rss * 0.8 : 0));
+    engine.setProperty(obj, "heapUsed", engine.newFloat(rss > 0 ? rss * 0.6 : 0));
+    engine.setProperty(obj, "external", engine.newFloat(0));
+    engine.setProperty(obj, "arrayBuffers", engine.newFloat(0));
+    return obj;
+}
+
+JSHandle jsCpuUsage(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+{
+    assert(ctx !is null, "Null ctx in process.cpuUsage");
+    auto state = cast(DunState*) ctx;
+    auto engine = state.engine;
+    auto obj = engine.newObject();
+    double userUs = 0;
+    double sysUs = 0;
+    version (Posix)
+    {
+        import core.sys.posix.sys.resource : rusage, getrusage, RUSAGE_SELF;
+        rusage usage;
+        if (getrusage(RUSAGE_SELF, &usage) == 0)
+        {
+            userUs = cast(double)(usage.ru_utime.tv_sec * 1_000_000L + usage.ru_utime.tv_usec);
+            sysUs = cast(double)(usage.ru_stime.tv_sec * 1_000_000L + usage.ru_stime.tv_usec);
+        }
+    }
+    engine.setProperty(obj, "user", engine.newFloat(userUs));
+    engine.setProperty(obj, "system", engine.newFloat(sysUs));
+    return obj;
+}
+
+JSHandle jsChdir(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+{
+    assert(ctx !is null, "Null ctx in process.chdir");
+    auto state = cast(DunState*) ctx;
+    auto engine = state.engine;
+    if (args.length < 1 || !engine.isString(args[0]))
+        return engine.throwTypeError("process.chdir requires a directory path");
+    auto dir = engine.extractString(args[0]);
+    try
+    {
+        import std.file : chdir;
+        chdir(dir);
+        return engine.newUndefined();
+    }
+    catch (Exception)
+    {
+        return engine.throwTypeError("ENOENT: no such file or directory, chdir '" ~ dir ~ "'");
+    }
 }

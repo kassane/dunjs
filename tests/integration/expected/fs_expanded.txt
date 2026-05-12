@@ -1,0 +1,10 @@
+write+read: true
+append: true
+copy: true
+rename: true
+access: true
+realpath: true
+readdir count: 2
+rmSync file: true
+rmSync dir: true
+All expanded fs tests passed
