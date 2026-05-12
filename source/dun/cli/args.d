@@ -179,8 +179,6 @@ CliConfig parseArgs(string[] args) @safe
                 config.auditMode = AuditMode.block;
             else if (mode == "off")
                 config.auditMode = AuditMode.off;
-            else if (mode == "live")
-                config.auditMode = AuditMode.live;
             else
                 config.auditMode = AuditMode.warn;
             i++;

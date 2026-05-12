@@ -42,7 +42,7 @@ dun run --allow-read=./data app.js      # Scoped file access
 dun run --allow-net=api.example.com app.js  # Scoped network access
 dun run --allow-all app.js              # Unrestricted
 dun install lodash                      # Install npm package
-dun install jsonpath --audit=block      # Block vulnerable packages
+dun install lodash --audit=block        # Block vulnerable packages
 dun audit                               # Scan node_modules for CVEs
 dun repl                                # Interactive REPL
 dun eval "1 + 1"                        # Evaluate expression
@@ -96,8 +96,8 @@ dun install lodash --audit=block    # Block critical/high severity
 dun install lodash --audit=off      # Skip CVE checks
 ```
 
-DunJS ships with a vendored CVE database (22+ entries) covering critical npm vulnerabilities.
-`dun install` checks packages against the database before download. See [SECURITY.md](SECURITY.md) for details.
+DunJS queries [Google's OSV database](https://osv.dev) for real-time vulnerability data, cached locally
+for 24 hours. `dun install` checks packages before download. See [SECURITY.md](SECURITY.md) for details.
 
 ## Permissions
 

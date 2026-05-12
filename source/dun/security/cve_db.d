@@ -23,63 +23,6 @@ struct CveEntry
 
 static assert(CveEntry.sizeof > 0, "CveEntry must be non-zero size");
 
-private immutable CveEntry[] CVE_DATABASE = [
-    // ---- CRITICAL ----
-    CveEntry("CVE-2023-26920", Severity.critical, "jsonpath", "",
-        "Arbitrary code execution via unsafe eval of JSONPath expressions"),
-    CveEntry("CVE-2020-36632", Severity.critical, "flat", "5.0.1",
-        "Prototype pollution via crafted object keys"),
-    CveEntry("CVE-2020-8203", Severity.critical, "lodash", "4.17.20",
-        "Prototype pollution in zipObjectDeep"),
-    CveEntry("CVE-2021-23337", Severity.critical, "lodash", "4.17.21",
-        "Command injection via template function"),
-    CveEntry("CVE-2021-23334", Severity.critical, "static-eval", "",
-        "Sandbox escape via FunctionExpression"),
-
-    // ---- HIGH ----
-    CveEntry("CVE-2024-21538", Severity.high, "cross-spawn", "7.0.5",
-        "ReDoS via crafted string in argument parsing"),
-    CveEntry("CVE-2020-28500", Severity.high, "lodash", "4.17.21",
-        "ReDoS in toNumber via crafted string"),
-    CveEntry("CVE-2021-23358", Severity.high, "underscore", "1.13.0-2",
-        "Arbitrary code injection via template()"),
-    CveEntry("CVE-2022-46175", Severity.high, "json5", "2.2.2",
-        "Prototype pollution via __proto__ key in parse()"),
-    CveEntry("CVE-2022-24785", Severity.high, "moment", "2.29.2",
-        "Path traversal in moment.locale()"),
-    CveEntry("CVE-2022-31129", Severity.high, "moment", "2.29.4",
-        "ReDoS via RFC 2822 date parsing"),
-    CveEntry("CVE-2022-24999", Severity.high, "qs", "6.10.3",
-        "Prototype poisoning via crafted query string"),
-    CveEntry("CVE-2017-1000048", Severity.high, "qs", "6.0.4",
-        "Prototype pollution via crafted querystring"),
-    CveEntry("CVE-2022-3517", Severity.high, "minimatch", "3.0.5",
-        "ReDoS via crafted glob pattern"),
-    CveEntry("CVE-2020-7788", Severity.high, "ini", "1.3.6",
-        "Prototype pollution via crafted INI string"),
-    CveEntry("CVE-2022-38900", Severity.high, "decode-uri-component", "0.2.1",
-        "Denial of service via crafted encoded URI"),
-    CveEntry("CVE-2025-23061", Severity.high, "mongoose", "8.9.5",
-        "Search injection via crafted query object"),
-
-    // ---- MEDIUM ----
-    CveEntry("CVE-2022-25883", Severity.medium, "semver", "7.5.2",
-        "ReDoS via crafted semver string"),
-    CveEntry("CVE-2020-15366", Severity.medium, "ajv", "6.12.3",
-        "Prototype pollution via crafted schema"),
-    CveEntry("CVE-2021-29060", Severity.medium, "color-string", "1.5.5",
-        "ReDoS via crafted color string"),
-
-    // ---- LOW ----
-    CveEntry("CVE-2017-16137", Severity.low, "debug", "4.3.1",
-        "ReDoS via crafted debug string"),
-    CveEntry("CVE-2024-47764", Severity.low, "cookie", "0.7.0",
-        "Cookie value parsing bypass"),
-];
-
-static assert(CVE_DATABASE.length >= 20,
-    "CVE database must contain at least 20 entries");
-
 struct AuditResult
 {
     string packageName;
@@ -112,49 +55,23 @@ string severityColor(Severity s) pure nothrow @safe @nogc
     }
 }
 
-AuditResult[] checkPackage(string name, string version_, bool useApi = false) @trusted
+// ---------------------------------------------------------------------------
+// Cache configuration
+// ---------------------------------------------------------------------------
+
+private enum CACHE_DIR = ".dun";
+private enum CACHE_FILE = ".dun/audit-cache.json";
+private enum CACHE_MAX_AGE_SECS = 86400; // 24 hours
+
+// ---------------------------------------------------------------------------
+// Public API
+// ---------------------------------------------------------------------------
+
+AuditResult[] checkPackage(string name, string version_) @trusted
 {
     assert(name.length > 0, "Package name must not be empty");
 
-    CveEntry[] vulns;
-
-    // Check static database first (always available, no network needed)
-    foreach (ref entry; CVE_DATABASE)
-    {
-        if (entry.packageName != name)
-            continue;
-
-        if (entry.fixedVersion.length == 0)
-        {
-            vulns ~= CveEntry(entry.cveId, entry.severity,
-                entry.packageName, entry.fixedVersion, entry.description);
-            continue;
-        }
-
-        if (isVersionVulnerable(version_, entry.fixedVersion))
-            vulns ~= CveEntry(entry.cveId, entry.severity,
-                entry.packageName, entry.fixedVersion, entry.description);
-    }
-
-    // Query OSV API for live vulnerability data
-    if (useApi)
-    {
-        auto apiVulns = queryOsvApi(name, version_);
-        foreach (ref av; apiVulns)
-        {
-            bool duplicate = false;
-            foreach (ref existing; vulns)
-            {
-                if (existing.cveId == av.cveId)
-                {
-                    duplicate = true;
-                    break;
-                }
-            }
-            if (!duplicate)
-                vulns ~= av;
-        }
-    }
+    CveEntry[] vulns = queryOsvApi(name, version_);
 
     AuditResult[] results;
     if (vulns.length > 0)
@@ -163,7 +80,7 @@ AuditResult[] checkPackage(string name, string version_, bool useApi = false) @t
     return results;
 }
 
-AuditResult[] auditNodeModules(bool useApi = false) @trusted
+AuditResult[] auditNodeModules() @trusted
 {
     import std.file : dirEntries, SpanMode, exists, readText;
     import std.path : buildNormalizedPath, baseName;
@@ -190,7 +107,7 @@ AuditResult[] auditNodeModules(bool useApi = false) @trusted
         {
             auto j = parseJSON(readText(pkgJson));
             string ver = ("version" in j) ? j["version"].str : "0.0.0";
-            auto results = checkPackage(pkgName, ver, useApi);
+            auto results = checkPackage(pkgName, ver);
             allResults ~= results;
         }
         catch (Exception)
@@ -265,14 +182,23 @@ Severity worstSeverity(AuditResult[] results) pure nothrow @safe @nogc
 }
 
 // ---------------------------------------------------------------------------
-// OSV API integration (https://api.osv.dev)
+// OSV API + cache layer
 // ---------------------------------------------------------------------------
 
 private CveEntry[] queryOsvApi(string packageName, string version_) @trusted
 {
     assert(packageName.length > 0);
 
+    string cacheKey = packageName ~ "@" ~ version_;
+
+    // Check cache first
+    auto cached = loadFromCache(cacheKey);
+    if (cached.valid)
+        return cached.entries;
+
+    // Query OSV API
     CveEntry[] results;
+    bool apiSuccess = false;
 
     try
     {
@@ -286,100 +212,252 @@ private CveEntry[] queryOsvApi(string packageName, string version_) @trusted
         auto resp = doFetch(
             "https://api.osv.dev/v1/query", "POST", body_, false, null);
 
-        if (!resp.ok || resp.body_.length == 0)
-            return results;
-
-        auto j = parseJSON(resp.body_);
-        if ("vulns" !in j)
-            return results;
-
-        auto vulns = j["vulns"].array;
-        foreach (ref vuln; vulns)
+        if (resp.ok && resp.body_.length > 0)
         {
-            string id = ("id" in vuln) ? vuln["id"].str : "";
-            if (id.length == 0)
-                continue;
-
-            // Extract severity from database_specific or severity array
-            Severity sev = Severity.medium;
-            if ("database_specific" in vuln)
-            {
-                auto dbSpec = vuln["database_specific"];
-                if ("severity" in dbSpec)
-                {
-                    auto sevStr = dbSpec["severity"].str;
-                    sev = parseSeverityString(sevStr);
-                }
-            }
-            if ("severity" in vuln && vuln["severity"].type == JSONType.array)
-            {
-                auto sevArr = vuln["severity"].array;
-                if (sevArr.length > 0 && "score" in sevArr[0])
-                {
-                    auto scoreStr = sevArr[0]["score"].str;
-                    sev = parseCvssScore(scoreStr);
-                }
-            }
-
-            // Extract summary
-            string summary = ("summary" in vuln) ? vuln["summary"].str : id;
-
-            // Extract fixed version from affected[].ranges[].events[]
-            string fixedVer;
-            if ("affected" in vuln)
-            {
-                auto affected = vuln["affected"].array;
-                foreach (ref aff; affected)
-                {
-                    if ("ranges" !in aff) continue;
-                    foreach (ref range; aff["ranges"].array)
-                    {
-                        if ("events" !in range) continue;
-                        foreach (ref ev; range["events"].array)
-                        {
-                            if ("fixed" in ev)
-                            {
-                                fixedVer = ev["fixed"].str;
-                                break;
-                            }
-                        }
-                        if (fixedVer.length > 0) break;
-                    }
-                    if (fixedVer.length > 0) break;
-                }
-            }
-
-            // Prefer CVE alias over GHSA ID
-            string cveId = id;
-            if ("aliases" in vuln)
-            {
-                foreach (ref alias_; vuln["aliases"].array)
-                {
-                    auto a = alias_.str;
-                    if (a.length >= 4 && a[0 .. 4] == "CVE-")
-                    {
-                        cveId = a;
-                        break;
-                    }
-                }
-            }
-
-            // Truncate long summaries
-            if (summary.length > 120)
-                summary = summary[0 .. 117] ~ "...";
-
-            results ~= CveEntry(cveId, sev, packageName, fixedVer, summary);
+            auto j = parseJSON(resp.body_);
+            results = parseOsvResponse(j, packageName);
+            apiSuccess = true;
         }
     }
     catch (Exception)
     {
-        // API unavailable -- fall back to static database silently
+        // API unreachable -- use expired cache if available
+    }
+
+    if (apiSuccess)
+    {
+        saveToCache(cacheKey, results);
+    }
+    else
+    {
+        // Fall back to expired cache
+        auto expired = loadFromCache(cacheKey, true);
+        if (expired.valid)
+        {
+            import std.stdio : stderr;
+            try { stderr.writefln("  (using cached audit data for %s)", cacheKey); }
+            catch (Exception) {}
+            return expired.entries;
+        }
     }
 
     return results;
 }
 
+// ---------------------------------------------------------------------------
+// OSV response parsing
+// ---------------------------------------------------------------------------
+
+private CveEntry[] parseOsvResponse(T)(T j, string packageName) @trusted
+{
+    import std.json : JSONType;
+
+    CveEntry[] results;
+
+    if ("vulns" !in j)
+        return results;
+
+    auto vulns = j["vulns"].array;
+    foreach (ref vuln; vulns)
+    {
+        string id = ("id" in vuln) ? vuln["id"].str : "";
+        if (id.length == 0)
+            continue;
+
+        Severity sev = extractSeverity(vuln);
+        string summary = ("summary" in vuln) ? vuln["summary"].str : id;
+        string fixedVer = extractFixedVersion(vuln);
+        string cveId = extractCveId(vuln, id);
+
+        if (summary.length > 120)
+            summary = summary[0 .. 117] ~ "...";
+
+        results ~= CveEntry(cveId, sev, packageName, fixedVer, summary);
+    }
+
+    return results;
+}
+
+private Severity extractSeverity(T)(ref T vuln) @trusted
+{
+    import std.json : JSONType;
+
+    if ("database_specific" in vuln)
+    {
+        auto dbSpec = vuln["database_specific"];
+        if ("severity" in dbSpec)
+            return parseSeverityString(dbSpec["severity"].str);
+    }
+
+    if ("severity" in vuln && vuln["severity"].type == JSONType.array)
+    {
+        auto sevArr = vuln["severity"].array;
+        if (sevArr.length > 0 && "score" in sevArr[0])
+            return parseCvssScore(sevArr[0]["score"].str);
+    }
+
+    return Severity.medium;
+}
+
+private string extractFixedVersion(T)(ref T vuln) @trusted
+{
+    if ("affected" !in vuln)
+        return "";
+
+    foreach (ref aff; vuln["affected"].array)
+    {
+        if ("ranges" !in aff) continue;
+        foreach (ref range; aff["ranges"].array)
+        {
+            if ("events" !in range) continue;
+            foreach (ref ev; range["events"].array)
+            {
+                if ("fixed" in ev)
+                    return ev["fixed"].str;
+            }
+        }
+    }
+    return "";
+}
+
+private string extractCveId(T)(ref T vuln, string defaultId) @trusted
+{
+    if ("aliases" !in vuln)
+        return defaultId;
+
+    foreach (ref alias_; vuln["aliases"].array)
+    {
+        auto a = alias_.str;
+        if (a.length >= 4 && a[0 .. 4] == "CVE-")
+            return a;
+    }
+    return defaultId;
+}
+
+// ---------------------------------------------------------------------------
+// JSON file cache (auto-refresh after 24h)
+// ---------------------------------------------------------------------------
+
+private struct CacheResult
+{
+    CveEntry[] entries;
+    bool valid;
+}
+
+private CacheResult loadFromCache(string key, bool ignoreExpiry = false) @trusted
+{
+    import std.file : exists, readText;
+    import std.json : parseJSON, JSONType;
+
+    CacheResult result;
+
+    if (!exists(CACHE_FILE))
+        return result;
+
+    try
+    {
+        auto j = parseJSON(readText(CACHE_FILE));
+        if (key !in j)
+            return result;
+
+        auto entry = j[key];
+        if ("timestamp" !in entry || "vulns" !in entry)
+            return result;
+
+        // Check expiry
+        if (!ignoreExpiry)
+        {
+            long ts = 0;
+            try { ts = entry["timestamp"].get!long; } catch (Exception) {}
+            long now = currentUnixTime();
+            if (now - ts > CACHE_MAX_AGE_SECS)
+                return result;
+        }
+
+        auto vulns = entry["vulns"].array;
+        foreach (ref v; vulns)
+        {
+            string cveId = ("cveId" in v) ? v["cveId"].str : "";
+            string pkg = ("package" in v) ? v["package"].str : "";
+            string fix = ("fixed" in v) ? v["fixed"].str : "";
+            string desc = ("description" in v) ? v["description"].str : "";
+            int sevInt = 2;
+            try { sevInt = cast(int) v["severity"].get!long; } catch (Exception) {}
+            auto sev = cast(Severity) sevInt;
+
+            result.entries ~= CveEntry(cveId, sev, pkg, fix, desc);
+        }
+        result.valid = true;
+    }
+    catch (Exception) {}
+
+    return result;
+}
+
+private void saveToCache(string key, CveEntry[] entries) @trusted nothrow
+{
+    import std.file : exists, mkdirRecurse, write, readText;
+
+    try
+    {
+        import std.json : parseJSON, JSONValue, JSONType;
+
+        if (!exists(CACHE_DIR))
+            mkdirRecurse(CACHE_DIR);
+
+        // Load existing cache or start fresh
+        JSONValue root;
+        if (exists(CACHE_FILE))
+        {
+            try { root = parseJSON(readText(CACHE_FILE)); }
+            catch (Exception) { root = JSONValue(cast(JSONValue[string]) null); }
+        }
+        else
+        {
+            root = JSONValue(cast(JSONValue[string]) null);
+        }
+
+        // Build vuln array
+        JSONValue[] vulnArr;
+        foreach (ref e; entries)
+        {
+            JSONValue v = JSONValue(cast(JSONValue[string]) null);
+            v["cveId"] = e.cveId;
+            v["severity"] = cast(int) e.severity;
+            v["package"] = e.packageName;
+            v["fixed"] = e.fixedVersion;
+            v["description"] = e.description;
+            vulnArr ~= v;
+        }
+
+        // Set cache entry
+        JSONValue cacheEntry = JSONValue(cast(JSONValue[string]) null);
+        cacheEntry["timestamp"] = currentUnixTime();
+        cacheEntry["vulns"] = JSONValue(vulnArr);
+
+        root[key] = cacheEntry;
+
+        write(CACHE_FILE, root.toString());
+    }
+    catch (Throwable) {}
+}
+
+// ---------------------------------------------------------------------------
+// Utilities
+// ---------------------------------------------------------------------------
+
 private:
+
+long currentUnixTime() @trusted nothrow
+{
+    try
+    {
+        import core.time : dur;
+        import std.datetime.systime : Clock;
+        return Clock.currTime().toUnixTime();
+    }
+    catch (Throwable) { return 0; }
+}
 
 string escapeJson(string s) pure nothrow @safe
 {
@@ -405,11 +483,7 @@ Severity parseSeverityString(string s) pure nothrow @safe @nogc
 
 Severity parseCvssScore(string scoreStr) pure nothrow @safe
 {
-    // Parse CVSS vector to extract score, or just map known ranges
-    // CVSS 3.x: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H" -> 9.8
-    // We'll parse the numeric score if present, otherwise estimate from vector
     double score = 5.0;
-    // Try to find a raw numeric score at the start
     if (scoreStr.length > 0 && scoreStr[0] >= '0' && scoreStr[0] <= '9')
     {
         int whole = 0;
@@ -442,13 +516,6 @@ Severity parseCvssScore(string scoreStr) pure nothrow @safe
     return Severity.medium;
 }
 
-bool isVersionVulnerable(string installed, string fixedIn) pure nothrow @safe
-{
-    if (installed.length == 0 || fixedIn.length == 0)
-        return true;
-    return compareSemver(installed, fixedIn) < 0;
-}
-
 int compareSemver(string a, string b) pure nothrow @safe
 {
     auto av = parseSemverParts(a);
@@ -458,7 +525,6 @@ int compareSemver(string a, string b) pure nothrow @safe
     if (av[1] != bv[1]) return av[1] < bv[1] ? -1 : 1;
     if (av[2] != bv[2]) return av[2] < bv[2] ? -1 : 1;
 
-    // Pre-release: "1.0.0-alpha" < "1.0.0"
     bool aHasPre = hasPrerelease(a);
     bool bHasPre = hasPrerelease(b);
     if (aHasPre && !bHasPre) return -1;
@@ -534,66 +600,8 @@ unittest
 
 unittest
 {
-    // isVersionVulnerable: version below fix is vulnerable
-    assert(isVersionVulnerable("4.17.19", "4.17.20"));
-    assert(!isVersionVulnerable("4.17.20", "4.17.20"));
-    assert(!isVersionVulnerable("4.17.21", "4.17.20"));
-    assert(!isVersionVulnerable("4.18.1", "4.17.20"));
-    assert(isVersionVulnerable("7.0.0", "7.0.5"));
-    assert(!isVersionVulnerable("7.0.5", "7.0.5"));
-}
-
-unittest
-{
-    // checkPackage: lodash 4.17.19 has known CVEs (static DB)
-    auto results = checkPackage("lodash", "4.17.19");
-    assert(results.length > 0, "lodash 4.17.19 should have vulnerabilities");
-    assert(results[0].isVulnerable);
-    assert(results[0].vulnerabilities.length >= 2);
-}
-
-unittest
-{
-    // checkPackage: lodash 4.18.1 is patched (static DB)
-    auto results = checkPackage("lodash", "4.18.1");
-    assert(results.length == 0, "lodash 4.18.1 should have no vulnerabilities");
-}
-
-unittest
-{
-    // checkPackage: jsonpath has no fix (always vulnerable)
-    auto results = checkPackage("jsonpath", "1.3.0");
-    assert(results.length > 0, "jsonpath should always be vulnerable");
-    assert(results[0].vulnerabilities[0].fixedVersion.length == 0);
-    assert(results[0].vulnerabilities[0].severity == Severity.critical);
-}
-
-unittest
-{
-    // checkPackage: cross-spawn 7.0.0 is vulnerable, 7.0.5 is not
-    auto r1 = checkPackage("cross-spawn", "7.0.0");
-    assert(r1.length > 0, "cross-spawn 7.0.0 should be vulnerable");
-    auto r2 = checkPackage("cross-spawn", "7.0.5");
-    assert(r2.length == 0, "cross-spawn 7.0.5 should be patched");
-}
-
-unittest
-{
-    // checkPackage: unknown package returns empty (static DB only)
-    auto results = checkPackage("unknown-safe-pkg", "1.0.0");
-    assert(results.length == 0);
-}
-
-unittest
-{
     // worstSeverity
     assert(worstSeverity([]) == Severity.none);
-
-    auto r = checkPackage("jsonpath", "1.3.0");
-    assert(worstSeverity(r) == Severity.critical);
-
-    auto r2 = checkPackage("debug", "3.0.0");
-    assert(worstSeverity(r2) == Severity.low);
 }
 
 unittest
@@ -604,17 +612,6 @@ unittest
     assert(severityString(Severity.medium) == "MEDIUM");
     assert(severityString(Severity.low) == "LOW");
     assert(severityString(Severity.none) == "NONE");
-}
-
-unittest
-{
-    // Database integrity: every entry has required fields
-    foreach (ref entry; CVE_DATABASE)
-    {
-        assert(entry.cveId.length > 0, "CVE ID must not be empty");
-        assert(entry.packageName.length > 0, "Package name must not be empty");
-        assert(entry.description.length > 0, "Description must not be empty");
-    }
 }
 
 unittest
@@ -643,4 +640,51 @@ unittest
     assert(parseCvssScore("7.5") == Severity.high);
     assert(parseCvssScore("5.3") == Severity.medium);
     assert(parseCvssScore("3.1") == Severity.low);
+}
+
+unittest
+{
+    // Cache round-trip: save and reload entries
+    import std.file : exists, mkdirRecurse, rmdirRecurse;
+    import std.json : parseJSON, JSONValue;
+    import std.file : write, readText;
+
+    enum TEST_DIR = ".dun-test-cache";
+    enum TEST_FILE = ".dun-test-cache/audit-cache.json";
+
+    auto testEntries = [
+        CveEntry("CVE-2024-TEST1", Severity.critical, "test-pkg", "2.0.0", "Test vuln 1"),
+        CveEntry("CVE-2024-TEST2", Severity.high, "test-pkg", "", "Test vuln 2"),
+    ];
+
+    mkdirRecurse(TEST_DIR);
+
+    JSONValue root = JSONValue(cast(JSONValue[string]) null);
+    JSONValue[] vulnArr;
+    foreach (ref e; testEntries)
+    {
+        JSONValue v = JSONValue(cast(JSONValue[string]) null);
+        v["cveId"] = e.cveId;
+        v["severity"] = cast(int) e.severity;
+        v["package"] = e.packageName;
+        v["fixed"] = e.fixedVersion;
+        v["description"] = e.description;
+        vulnArr ~= v;
+    }
+    JSONValue cacheEntry = JSONValue(cast(JSONValue[string]) null);
+    cacheEntry["timestamp"] = currentUnixTime();
+    cacheEntry["vulns"] = JSONValue(vulnArr);
+    root["test-pkg@1.0.0"] = cacheEntry;
+    write(TEST_FILE, root.toString());
+
+    assert(exists(TEST_FILE), "Cache file should exist");
+    auto reloaded = parseJSON(readText(TEST_FILE));
+    assert("test-pkg@1.0.0" in reloaded, "Cache should contain the key");
+    auto entry = reloaded["test-pkg@1.0.0"];
+    assert("vulns" in entry);
+    assert(entry["vulns"].array.length == 2, "Should have 2 cached vulns");
+    assert(entry["vulns"].array[0]["cveId"].str == "CVE-2024-TEST1");
+
+    // Cleanup
+    rmdirRecurse(TEST_DIR);
 }

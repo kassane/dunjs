@@ -213,18 +213,13 @@ int runAudit(T)(T config)
 {
     version (Posix)
     {
-        import std.stdio : writeln, writefln;
+        import std.stdio : writeln;
         import dun.security.cve_db : auditNodeModules, printAuditReport,
             worstSeverity, Severity;
-        import dun.modules.npm : AuditMode;
 
-        bool useApi = (config.auditMode == AuditMode.live);
-        if (useApi)
-            writeln("Auditing node_modules via OSV API (live)...\n");
-        else
-            writeln("Auditing node_modules for known vulnerabilities...\n");
+        writeln("Auditing node_modules via OSV API (cached locally)...\n");
 
-        auto results = auditNodeModules(useApi);
+        auto results = auditNodeModules();
         printAuditReport(results);
 
         auto worst = worstSeverity(results);
@@ -260,7 +255,6 @@ void printUsage()
         ~ "Security options:\n"
         ~ "  --audit=warn           Warn about vulnerable packages (default)\n"
         ~ "  --audit=block          Block install of critical/high severity\n"
-        ~ "  --audit=live           Query OSV API for live vulnerability data\n"
         ~ "  --audit=off            Disable CVE checking during install\n\n"
         ~ "Runtime options:\n"
         ~ "  --max-memory=<bytes>   JS heap memory limit (default: 256MB)\n"

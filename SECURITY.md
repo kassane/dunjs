@@ -82,8 +82,9 @@ The `PermissionRegistry` is tested in `source/dun/security/test.d`:
 
 ## npm Package Auditing (CVE)
 
-DunJS includes a vendored CVE database for npm packages. Vulnerability checks run
-automatically during `dun install` and can be invoked manually via `dun audit`.
+DunJS audits npm packages against [Google's OSV database](https://osv.dev) (Open Source
+Vulnerabilities). Results are cached locally in `.dun/audit-cache.json` and auto-refresh
+every 24 hours. When offline, the cached data is used as a fallback.
 
 ### Audit Modes
 
@@ -91,7 +92,6 @@ automatically during `dun install` and can be invoked manually via `dun audit`.
 |------|------|----------|
 | **warn** (default) | `--audit=warn` | Print CVE warnings, continue install |
 | **block** | `--audit=block` | Refuse to install packages with critical/high CVEs |
-| **live** | `--audit=live` | Query OSV API for latest vulnerability data |
 | **off** | `--audit=off` | Skip vulnerability checking |
 
 ### Usage
@@ -100,14 +100,8 @@ automatically during `dun install` and can be invoked manually via `dun audit`.
 # Scan existing node_modules for known CVEs
 dun audit
 
-# Scan with live OSV API data (requires network)
-dun audit --audit=live
-
 # Install with blocking mode (refuses vulnerable packages)
 dun install jsonpath --audit=block
-
-# Install with live API checking
-dun install lodash --audit=live
 
 # Install with warnings (default)
 dun install lodash
@@ -116,37 +110,29 @@ dun install lodash
 dun install cross-spawn --audit=off
 ```
 
-### Data Sources
+### Data Source: OSV API
 
-**Static database** (always available, no network required):
-The CVE database is vendored at compile time in `source/dun/security/cve_db.d`.
-It covers 22+ entries across critical npm packages.
+All vulnerability data comes from the [OSV API](https://api.osv.dev):
+- `POST https://api.osv.dev/v1/query` with package name, version, and `"ecosystem":"npm"`
+- Results are parsed for CVE IDs (prefers CVE aliases over GHSA IDs), severity (CVSS or
+  database_specific), fixed versions, and summaries
+- Covers all npm advisories from GitHub Security Advisories, NVD, and other sources
 
-**OSV API** (live mode, requires `--audit=live`):
-Queries [Google's OSV database](https://osv.dev) via `POST https://api.osv.dev/v1/query`
-for real-time vulnerability data. Results are merged with the static database and
-deduplicated by CVE ID. Falls back silently to static-only if the API is unreachable.
+### Local Cache (Auto-Refresh)
 
-The CVE database covers critical npm packages including:
-
-| Severity | Example CVEs |
-|----------|-------------|
-| **Critical** | CVE-2023-26920 (jsonpath), CVE-2020-8203 (lodash), CVE-2020-36632 (flat) |
-| **High** | CVE-2024-21538 (cross-spawn), CVE-2022-46175 (json5), CVE-2022-24785 (moment) |
-| **Medium** | CVE-2022-25883 (semver), CVE-2020-15366 (ajv), CVE-2021-29060 (color-string) |
-| **Low** | CVE-2017-16137 (debug), CVE-2024-47764 (cookie) |
-
-Packages with no available fix (e.g., `jsonpath`) are always flagged regardless of version.
+- **Location**: `.dun/audit-cache.json` (auto-created, gitignored)
+- **TTL**: 24 hours — entries older than 24h are re-fetched from OSV API
+- **Offline fallback**: If the API is unreachable, expired cache entries are used
+- **Format**: JSON keyed by `"package@version"`, each entry has `timestamp` and `vulns` array
 
 ### Implementation
 
 - **Pre-download check**: After version resolution, before download — blocks early in `--audit=block` mode
-- **Post-install scan**: `dun audit` walks `node_modules/`, reads each `package.json`, checks version against CVE database
-- **Live API**: `queryOsvApi()` posts to `https://api.osv.dev/v1/query` with package name, version, and ecosystem
-- **Deduplication**: OSV API results are merged with static DB, deduplicated by CVE ID
+- **Post-install scan**: `dun audit` walks `node_modules/`, reads each `package.json`, queries OSV per package
+- **OSV parsing**: Extracts CVE aliases, CVSS severity, fixed versions from affected[].ranges[].events[]
 - **Semver comparison**: Custom pure D implementation (`compareSemver`) with pre-release handling
-- **CVSS parsing**: Extracts severity from OSV `database_specific.severity` or CVSS score vectors
-- **14 unit tests**: Semver parsing, version vulnerability checks, database integrity, CVSS parsing, JSON escaping
+- **CVSS parsing**: Extracts severity from `database_specific.severity` or CVSS score vectors
+- **8 unit tests**: Semver parsing, CVSS parsing, severity mapping, JSON escaping, cache round-trip
 
 ## Resource Limits
 

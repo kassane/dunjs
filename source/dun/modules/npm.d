@@ -9,10 +9,9 @@ enum AuditMode
     warn,
     block,
     off,
-    live,
 }
 
-static assert(__traits(allMembers, AuditMode).length == 4,
+static assert(__traits(allMembers, AuditMode).length == 3,
     "AuditMode enum member count changed -- update parseAuditFlag");
 
 bool installPackage(string spec, AuditMode auditMode = AuditMode.warn) @trusted
@@ -52,14 +51,13 @@ bool installPackage(string spec, AuditMode auditMode = AuditMode.warn) @trusted
         return false;
     }
 
-    // Pre-download CVE audit
+    // Pre-download CVE audit (queries OSV API, falls back to cache)
     if (auditMode != AuditMode.off)
     {
         import dun.security.cve_db : checkPackage, worstSeverity, Severity,
             severityString, severityColor;
 
-        bool useApi = (auditMode == AuditMode.live);
-        auto vulns = checkPackage(name, version_, useApi);
+        auto vulns = checkPackage(name, version_);
         if (vulns.length > 0)
         {
             auto worst = worstSeverity(vulns);
