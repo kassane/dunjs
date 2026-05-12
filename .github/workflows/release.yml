@@ -32,19 +32,9 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Install LDC (Linux)
-        if: runner.os == 'Linux'
-        run: |
-          curl -fsSL "https://github.com/ldc-developers/ldc/releases/download/v${{ env.LDC_VERSION }}/ldc2-${{ env.LDC_VERSION }}-linux-x86_64.tar.xz" -o /tmp/ldc.tar.xz
-          tar -xJf /tmp/ldc.tar.xz -C /tmp
-          echo "/tmp/ldc2-${{ env.LDC_VERSION }}-linux-x86_64/bin" >> $GITHUB_PATH
-
-      - name: Install LDC (macOS)
-        if: runner.os == 'macOS'
-        run: |
-          curl -fsSL "https://github.com/ldc-developers/ldc/releases/download/v${{ env.LDC_VERSION }}/ldc2-${{ env.LDC_VERSION }}-osx-universal.tar.xz" -o /tmp/ldc.tar.xz
-          tar -xJf /tmp/ldc.tar.xz -C /tmp
-          echo "/tmp/ldc2-${{ env.LDC_VERSION }}-osx-universal/bin" >> $GITHUB_PATH
+      - uses: dlang-community/setup-dlang@v2
+        with:
+          compiler: ldc-${{ env.LDC_VERSION }}
 
       - name: Install JSC dev (Linux)
         if: matrix.engine == 'jsc' && runner.os == 'Linux'
@@ -61,6 +51,9 @@ jobs:
           path: vendor/
           key: vendor-${{ matrix.engine }}-${{ matrix.os }}-${{ hashFiles('build.d', 'dub.json') }}
           restore-keys: vendor-${{ matrix.engine }}-${{ matrix.os }}-
+
+      - name: Build vendor deps
+        run: ldc2 -run build.d --backend=${{ matrix.engine }} --verbose
 
       - name: Build release binary
         run: dub build -c ${{ matrix.engine }} -b release

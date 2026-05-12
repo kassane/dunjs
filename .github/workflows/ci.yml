@@ -41,27 +41,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install LDC (Linux)
-        if: runner.os == 'Linux'
-        run: |
-          curl -fsSL "https://github.com/ldc-developers/ldc/releases/download/v${{ env.LDC_VERSION }}/ldc2-${{ env.LDC_VERSION }}-linux-x86_64.tar.xz" -o /tmp/ldc.tar.xz
-          tar -xJf /tmp/ldc.tar.xz -C /tmp
-          echo "/tmp/ldc2-${{ env.LDC_VERSION }}-linux-x86_64/bin" >> $GITHUB_PATH
-
-      - name: Install LDC (macOS)
-        if: runner.os == 'macOS'
-        run: |
-          curl -fsSL "https://github.com/ldc-developers/ldc/releases/download/v${{ env.LDC_VERSION }}/ldc2-${{ env.LDC_VERSION }}-osx-universal.tar.xz" -o /tmp/ldc.tar.xz
-          tar -xJf /tmp/ldc.tar.xz -C /tmp
-          echo "/tmp/ldc2-${{ env.LDC_VERSION }}-osx-universal/bin" >> $GITHUB_PATH
-
-      - name: Install LDC (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          Invoke-WebRequest -Uri "https://github.com/ldc-developers/ldc/releases/download/v${{ env.LDC_VERSION }}/ldc2-${{ env.LDC_VERSION }}-windows-multilib.7z" -OutFile "$env:TEMP\ldc.7z"
-          7z x "$env:TEMP\ldc.7z" -o"$env:TEMP" -y | Out-Null
-          "$env:TEMP\ldc2-${{ env.LDC_VERSION }}-windows-multilib\bin" | Out-File -FilePath $env:GITHUB_PATH -Append
+      - uses: dlang-community/setup-dlang@v2
+        with:
+          compiler: ldc-${{ env.LDC_VERSION }}
 
       - name: Install system deps (JSC · Linux)
         if: matrix.engine == 'jsc' && runner.os == 'Linux'
@@ -228,27 +210,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install LDC (Linux)
-        if: runner.os == 'Linux'
-        run: |
-          curl -fsSL "https://github.com/ldc-developers/ldc/releases/download/v${{ env.LDC_VERSION }}/ldc2-${{ env.LDC_VERSION }}-linux-x86_64.tar.xz" -o /tmp/ldc.tar.xz
-          tar -xJf /tmp/ldc.tar.xz -C /tmp
-          echo "/tmp/ldc2-${{ env.LDC_VERSION }}-linux-x86_64/bin" >> $GITHUB_PATH
-
-      - name: Install LDC (macOS)
-        if: runner.os == 'macOS'
-        run: |
-          curl -fsSL "https://github.com/ldc-developers/ldc/releases/download/v${{ env.LDC_VERSION }}/ldc2-${{ env.LDC_VERSION }}-osx-universal.tar.xz" -o /tmp/ldc.tar.xz
-          tar -xJf /tmp/ldc.tar.xz -C /tmp
-          echo "/tmp/ldc2-${{ env.LDC_VERSION }}-osx-universal/bin" >> $GITHUB_PATH
-
-      - name: Install LDC (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          Invoke-WebRequest -Uri "https://github.com/ldc-developers/ldc/releases/download/v${{ env.LDC_VERSION }}/ldc2-${{ env.LDC_VERSION }}-windows-multilib.7z" -OutFile "$env:TEMP\ldc.7z"
-          7z x "$env:TEMP\ldc.7z" -o"$env:TEMP" -y | Out-Null
-          "$env:TEMP\ldc2-${{ env.LDC_VERSION }}-windows-multilib\bin" | Out-File -FilePath $env:GITHUB_PATH -Append
+      - uses: dlang-community/setup-dlang@v2
+        with:
+          compiler: ldc-${{ env.LDC_VERSION }}
 
       - name: Setup MSVC (Windows)
         if: runner.os == 'Windows'
