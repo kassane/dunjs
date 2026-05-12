@@ -10,6 +10,7 @@ class V8Engine : IJSEngine
 {
     private DunV8Isolate* isolate;
     private DunV8Context* ctx;
+    private bool lastCallWasException;
 
     void initialize(EngineConfig config) @trusted
     {
@@ -51,6 +52,7 @@ class V8Engine : IJSEngine
         JSResult result;
         result.value = toHandle(val);
         result.isError = isError != 0;
+        lastCallWasException = result.isError;
         if (result.isError)
             result.errorMessage = getException();
         return result;
@@ -58,17 +60,21 @@ class V8Engine : IJSEngine
 
     JSHandle newUndefined() @trusted
     {
+        assert(ctx !is null, "V8 context not initialized");
         return toHandle(dun_v8_new_undefined(ctx));
     }
 
     JSHandle newNull() @trusted
     {
+        assert(ctx !is null, "V8 context not initialized");
         return toHandle(dun_v8_new_null(ctx));
     }
 
     JSHandle newString(const(char)[] s) @trusted
     {
         assert(ctx !is null, "V8 context not initialized");
+        if (s.length == 0)
+            return toHandle(dun_v8_new_string(ctx, "".ptr, 0));
         return toHandle(dun_v8_new_string(ctx, s.ptr, s.length));
     }
 
@@ -208,13 +214,27 @@ class V8Engine : IJSEngine
         if (args.length == 0)
         {
             auto ret = dun_v8_call(ctx, jsFunc, jsThis, 0, null, &isError);
+            lastCallWasException = isError != 0;
             return toHandle(ret);
         }
-        auto argv = new DunV8Value*[args.length];
-        foreach (i; 0 .. args.length)
-            argv[i] = fromHandle(args[i]);
-        auto ret = dun_v8_call(ctx, jsFunc, jsThis,
-            cast(int) args.length, argv.ptr, &isError);
+        DunV8Value*[16] stackArgv = void;
+        auto argc = cast(int) args.length;
+        DunV8Value** argp;
+        if (argc <= 16)
+        {
+            foreach (i; 0 .. argc)
+                stackArgv[i] = fromHandle(args[i]);
+            argp = stackArgv.ptr;
+        }
+        else
+        {
+            auto buf = new DunV8Value*[argc];
+            foreach (i; 0 .. argc)
+                buf[i] = fromHandle(args[i]);
+            argp = buf.ptr;
+        }
+        auto ret = dun_v8_call(ctx, jsFunc, jsThis, argc, argp, &isError);
+        lastCallWasException = isError != 0;
         return toHandle(ret);
     }
 
@@ -235,7 +255,7 @@ class V8Engine : IJSEngine
             dun_v8_value_unref(v);
     }
 
-    bool isException(JSHandle val) @trusted { return fromHandle(val) is null; }
+    bool isException(JSHandle) @safe { return lastCallWasException; }
 
     // Type checks via TMP dispatch table (mirrors C++ isV8Type<Tag>)
     private static __gshared V8TypeChecks _typeChecks;
@@ -290,6 +310,15 @@ class V8Engine : IJSEngine
         PromiseHandles ph;
         DunV8Value* resolveOut, rejectOut;
         auto promise = dun_v8_new_promise(ctx, &resolveOut, &rejectOut);
+        if (promise is null)
+        {
+            lastCallWasException = true;
+            auto undef = dun_v8_new_undefined(ctx);
+            ph.promise = toHandle(undef);
+            ph.resolve = toHandle(undef);
+            ph.reject = toHandle(undef);
+            return ph;
+        }
         ph.promise = toHandle(promise);
         ph.resolve = toHandle(resolveOut);
         ph.reject = toHandle(rejectOut);
@@ -339,8 +368,9 @@ class V8Engine : IJSEngine
         {
             JSResult result;
             result.isError = true;
+            lastCallWasException = true;
             result.errorMessage = "ESM transpile error: " ~ e.msg;
-            result.value = toHandle(cast(DunV8Value*) null);
+            result.value = toHandle(dun_v8_new_undefined(ctx));
             return result;
         }
     }
@@ -379,6 +409,7 @@ class V8Engine : IJSEngine
         auto fn = dun_v8_new_function(ctx, cb, name.toStringz, data);
         auto global = dun_v8_global(ctx);
         dun_v8_set_property(ctx, global, name.toStringz, fn);
+        dun_v8_value_unref(global);
     }
 
     static JSHandle toHandle(DunV8Value* ptr) pure nothrow @nogc @trusted

@@ -272,11 +272,23 @@ class JSCEngine : IJSEngine
             lastCallWasException = false;
             return toHandle(cast(void*) ret);
         }
-        auto argv = new JSValueRef[args.length];
-        foreach (i; 0 .. args.length)
-            argv[i] = cast(JSValueRef) fromHandle(args[i]);
-        auto ret = JSObjectCallAsFunction(ctx, jsFunc, jsThis,
-            argv.length, cast(const(JSValueRef)*) argv.ptr, &exc);
+        JSValueRef[16] stackArgv = void;
+        auto argc = args.length;
+        const(JSValueRef)* argp;
+        if (argc <= 16)
+        {
+            foreach (i; 0 .. argc)
+                stackArgv[i] = cast(JSValueRef) fromHandle(args[i]);
+            argp = cast(const(JSValueRef)*) stackArgv.ptr;
+        }
+        else
+        {
+            auto buf = new JSValueRef[argc];
+            foreach (i; 0 .. argc)
+                buf[i] = cast(JSValueRef) fromHandle(args[i]);
+            argp = cast(const(JSValueRef)*) buf.ptr;
+        }
+        auto ret = JSObjectCallAsFunction(ctx, jsFunc, jsThis, argc, argp, &exc);
         if (exc !is null)
         {
             lastCallWasException = true;
@@ -342,9 +354,23 @@ class JSCEngine : IJSEngine
         return toHandle(cast(void*) err);
     }
 
-    JSHandle throwRangeError(const(char)[] msg)
+    JSHandle throwRangeError(const(char)[] msg) @trusted
     {
-        return throwTypeError(msg);
+        assert(ctx !is null, "JSC context not initialized");
+        auto jsMsg = newString(msg);
+        auto args = cast(JSValueRef) fromHandle(jsMsg);
+        JSValueRef exc = null;
+        auto err = JSObjectMakeError(ctx, 1, &args, &exc);
+        // Set name to "RangeError" to distinguish from TypeError
+        auto nameProp = JSStringCreateWithUTF8CString("name");
+        auto rangeStr = JSStringCreateWithUTF8CString("RangeError");
+        auto rangeVal = JSValueMakeString(ctx, rangeStr);
+        JSObjectSetProperty(ctx, err, nameProp, rangeVal,
+            kJSPropertyAttributeNone, &exc);
+        JSStringRelease(nameProp);
+        JSStringRelease(rangeStr);
+        _jscPendingThrow = err;
+        return toHandle(cast(void*) err);
     }
 
     PromiseHandles newPromise() @trusted
@@ -400,8 +426,9 @@ class JSCEngine : IJSEngine
         {
             JSResult result;
             result.isError = true;
+            lastCallWasException = true;
             result.errorMessage = "ESM transpile error: " ~ e.msg;
-            result.value = toHandle(cast(void*) null);
+            result.value = toHandle(cast(void*) JSValueMakeUndefined(ctx));
             return result;
         }
     }
