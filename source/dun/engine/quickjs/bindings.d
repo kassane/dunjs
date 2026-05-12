@@ -454,6 +454,7 @@ void JS_SetModuleLoaderFunc(JSRuntime* rt,
     JSModuleNormalizeFunc module_normalize,
     JSModuleLoaderFunc module_loader,
     void* opaque);
+JSValue JS_GetImportMeta(JSContext* ctx, JSModuleDef* m);
 
 // --- Classes ---
 JSClassID JS_NewClassID(JSRuntime* rt, JSClassID* pclass_id);

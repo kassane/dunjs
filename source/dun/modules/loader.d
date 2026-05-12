@@ -139,6 +139,29 @@ version (EngineQuickJS)
         auto mod = cast(JSModuleDef*) compiled.ptr;
         JS_FreeValue(ctx, compiled);
 
+        // Set import.meta.url for the module
+        try
+        {
+            import std.path : absolutePath, dirName;
+            auto meta = JS_GetImportMeta(ctx, mod);
+            if (JS_IsException(meta) == 0)
+            {
+                auto absPath = absolutePath(specifier);
+                auto urlStr = "file://" ~ absPath;
+                JS_SetPropertyStr(ctx, meta, "url",
+                    JS_NewStringLen(ctx, urlStr.ptr, urlStr.length));
+                JS_SetPropertyStr(ctx, meta, "filename",
+                    JS_NewStringLen(ctx, absPath.ptr, absPath.length));
+                auto dirStr = dirName(absPath);
+                JS_SetPropertyStr(ctx, meta, "dirname",
+                    JS_NewStringLen(ctx, dirStr.ptr, dirStr.length));
+                JS_SetPropertyStr(ctx, meta, "main",
+                    JS_NewBool(ctx, false));
+                JS_FreeValue(ctx, meta);
+            }
+        }
+        catch (Throwable) {}
+
         // Cache by resolved absolute path
         try { loader.cache[specifier] = mod; } catch (Throwable) {}
 

@@ -9,12 +9,91 @@ void installRequire(IJSEngine engine) @trusted
 {
     assert(engine !is null, "Null engine in installRequire");
     auto global = engine.getGlobal();
-    engine.setProperty(global, "require", engine.newFunction(&jsRequire, "require", 1));
+    auto requireFn = engine.newFunction(&jsRequire, "require", 1);
+    engine.setProperty(global, "require", requireFn);
     engine.setProperty(global, "__dunCjsCache__", engine.newObject());
     engine.setProperty(global, "__dunCjsStack__", engine.newArray());
+
+    // require.resolve()
+    auto resolveFn = engine.newFunction(&jsRequireResolve, "resolve", 1);
+    engine.setProperty(requireFn, "resolve", resolveFn);
+
+    // require.cache (alias to __dunCjsCache__)
+    auto cacheRef = engine.getProperty(global, "__dunCjsCache__");
+    engine.setProperty(requireFn, "cache", cacheRef);
 }
 
 private:
+
+JSHandle jsRequireResolve(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+{
+    import std.algorithm : startsWith, endsWith;
+    import std.path : buildNormalizedPath, isAbsolute, dirName, absolutePath;
+    import std.file : exists, isFile, isDir, getcwd;
+
+    assert(ctx !is null, "Null ctx in require.resolve");
+    auto state = cast(DunState*) ctx;
+    auto engine = state.engine;
+
+    if (args.length < 1)
+        return engine.throwTypeError("require.resolve() needs at least 1 argument");
+
+    string specifier = engine.extractString(args[0]);
+    if (specifier.length == 0)
+        return engine.throwTypeError("require.resolve() argument must be a string");
+
+    // Built-in modules resolve to themselves
+    if (specifier.startsWith("node:") || specifier.startsWith("dun:"))
+        return engine.newString(specifier);
+
+    string[24] builtins = ["fs", "path", "crypto", "net", "http", "http2",
+        "os", "buffer", "events", "url", "child_process", "stream",
+        "zlib", "dns", "ws", "sqlite", "util", "assert", "querystring",
+        "string_decoder", "timers/promises", "tls", "dgram", "vm"];
+    foreach (b; builtins)
+        if (specifier == b) return engine.newString(specifier);
+
+    auto global = engine.getGlobal();
+    string resolved;
+
+    try
+    {
+        if (isAbsolute(specifier))
+            resolved = buildNormalizedPath(specifier);
+        else if (specifier.startsWith("./") || specifier.startsWith("../"))
+        {
+            string curDir = getCjsStackDir(engine, global);
+            resolved = buildNormalizedPath(curDir, specifier);
+        }
+        else
+        {
+            string curDir = getCjsStackDir(engine, global);
+            resolved = findNodeModule(specifier, curDir);
+            if (resolved.length == 0)
+                return engine.throwTypeError("Cannot find module '" ~ specifier ~ "'");
+            return engine.newString(resolved);
+        }
+
+        if (exists(resolved) && isFile(resolved))
+            return engine.newString(resolved);
+
+        static immutable exts = [".js", ".ts", ".cjs", ".cts", ".json"];
+        foreach (ext; exts)
+            if (exists(resolved ~ ext) && isFile(resolved ~ ext))
+                return engine.newString(resolved ~ ext);
+
+        static immutable idxExts = ["/index.js", "/index.ts", "/index.cjs"];
+        foreach (ext; idxExts)
+            if (exists(resolved ~ ext) && isFile(resolved ~ ext))
+                return engine.newString(resolved ~ ext);
+
+        return engine.throwTypeError("Cannot find module '" ~ specifier ~ "'");
+    }
+    catch (Exception)
+    {
+        return engine.throwTypeError("Cannot find module '" ~ specifier ~ "'");
+    }
+}
 
 JSHandle jsRequire(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {

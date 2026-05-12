@@ -144,7 +144,7 @@ ubyte[H2_FRAME_HEADER_SIZE] encodeFrameHeader(uint length, H2FrameType type, uby
     return hdr;
 }
 
-bool parseFrameHeader(const(ubyte)[] data, out H2Frame frame) pure nothrow @safe @nogc
+bool parseFrameHeader(scope const(ubyte)[] data, out H2Frame frame) pure nothrow @safe @nogc
 {
     if (data.length < H2_FRAME_HEADER_SIZE) return false;
     frame.length = (cast(uint) data[0] << 16) | (cast(uint) data[1] << 8) | data[2];
@@ -235,7 +235,7 @@ struct HpackDecoder
     size_t dynamicTableSize;
     size_t maxDynamicTableSize = H2_DEFAULT_HEADER_TABLE_SIZE;
 
-    HeaderField[] decode(const(ubyte)[] block) @trusted nothrow
+    HeaderField[] decode(scope const(ubyte)[] block) @trusted nothrow
     {
         HeaderField[] headers;
         size_t pos = 0;
@@ -346,7 +346,7 @@ struct HpackDecoder
     }
 }
 
-bool decodeInt(const(ubyte)[] data, ref size_t pos, int prefix, out uint result) pure nothrow @safe @nogc
+bool decodeInt(scope const(ubyte)[] data, ref size_t pos, int prefix, out uint result) pure nothrow @safe @nogc
 {
     if (pos >= data.length) return false;
     uint mask = (1 << prefix) - 1;
@@ -366,7 +366,7 @@ bool decodeInt(const(ubyte)[] data, ref size_t pos, int prefix, out uint result)
     return false;
 }
 
-bool decodeString(const(ubyte)[] data, ref size_t pos, out string result) nothrow @trusted
+bool decodeString(scope const(ubyte)[] data, ref size_t pos, out string result) nothrow @trusted
 {
     if (pos >= data.length) return false;
     bool huffman = (data[pos] & 0x80) != 0;

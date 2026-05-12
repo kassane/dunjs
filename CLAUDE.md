@@ -139,10 +139,12 @@ All runtime globals are **engine-agnostic** (use `IJSEngine` + `NativeCallback`)
 | `timers/promises` | `registerTimersPromisesModule(engine)` | `require('timers/promises')`, ESM `import from 'dun:timers/promises'` |
 | `fetch` | `registerFetchGlobal(engine)` | Global `fetch()` (Posix, HTTPS via OpenSSL) |
 | Web globals | `installWebCompat(engine)` | `atob`, `btoa`, `structuredClone`, `TextEncoder`, `TextDecoder`, native Uint8Array creation |
+| Web APIs | `installWebAPIs(engine)` | `performance`, `EventTarget`, `Event`, `CustomEvent`, `AbortController`, `AbortSignal`, `DOMException`, `navigator`, `Blob`, `File`, `FormData`, `Headers`, `Request`, `Response`, `MessageChannel`, `MessagePort`, `BroadcastChannel`, `ReadableStream`, `WritableStream`, `TransformStream`, `setImmediate`, `clearImmediate`, `Promise.withResolvers`, `crypto.getRandomValues`, `crypto.randomUUID`, `console.time/timeEnd/timeLog/count/countReset/table/dir/trace` |
 | `Deno.*` | `installDenoCompat(engine)` | Full Deno compat (30+ APIs: env, fs, permissions, errors) |
 
 All modules work identically across QuickJS, JSC, and V8 backends.
 Workers work identically across QuickJS, JSC, and V8 backends.
+Web APIs (91 checks) pass identically across all 3 backends.
 
 ### Module Resolution (package.json)
 
@@ -377,7 +379,7 @@ dub test -c unittest    # All unit tests
 | V8 TMP bridge | `source/dun/engine/v8/cppbindings.d` | compile-time | V8TypeName coverage, tag->name mapping |
 | JSC TMP bridge | `source/dun/engine/jsc/cppbindings.d` | compile-time | JSCTypeName coverage, kJSType* alignment |
 
-### Integration Tests (52 fixtures)
+### Integration Tests (58 fixtures)
 
 ```sh
 # Run against a specific backend
@@ -397,12 +399,13 @@ dub build -c v8  && BACKEND=v8  ./tests/integration/run.sh
 | Node APIs | `buffer_api`, `event_emitter`, `url_api`, `os_api`, `http2_api` | Buffer.from/alloc/concat, EventEmitter on/emit/once, URL/URLSearchParams, os.platform/cpus/totalmem, HTTP/2 API (20 checks) |
 | New Modules | `child_process_api`, `stream_api`, `zlib_api`, `dns_api`, `ws_api` | execSync/spawnSync, Readable/Writable/Transform/pipeline, deflate/gzip round-trip, DNS lookup/resolve, WebSocket API |
 | Database | `sqlite_api` | open, exec, run, get, all, close, NULL handling, types (20 checks) |
+| Web APIs | `web_apis` | 91 checks: performance, EventTarget/Event, AbortController, Blob, FormData, Headers, Request/Response, MessageChannel, BroadcastChannel, ReadableStream, WritableStream, TransformStream, crypto.getRandomValues, navigator, Promise.withResolvers, require.resolve |
 | Deno compat | `deno_compat` | 22 checks: env, fs, stat, copy, rename, remove, web globals |
 | Security | `perm_deny_read`, `perm_deny_write`, `realworld_security_boundary` | Permission denial enforcement |
 | TypeScript | `typescript`, `realworld_ts_library` | Type annotations, interfaces, as, arrow types |
 | Real-world | 7 end-to-end scenarios | Config loading, task runner, file processing, events, promise pool, nested require, ESM pipeline |
 
-Backend test scores: **QuickJS 57/57**, **JSC 57/57**, **V8 57/57** (all backends at full parity).
+Backend test scores: **QuickJS 58/58**, **JSC 58/58**, **V8 58/58** (all backends at full parity).
 
 Test pattern: fixtures in `tests/integration/fixtures/*.{js,mjs,ts}`, expected stdout in `tests/integration/expected/*.txt`.
 
@@ -637,3 +640,11 @@ Benchmark impact (25 benchmarks, feature_bench.js):
 | 10f | Perf: allocations | CTFE hex LUT (Buffer 59x faster), WS frame pre-alloc, ESM Appender | **Done** |
 | 10g | GC tuning | collectGarbage() API, gc() global, rt_options minPoolSize:16, --DRT-gcopt docs | **Done** |
 | 10h | Benchmarks | feature_bench.js (25 cross-runtime benchmarks), GC profiling integration | **Done** |
+| 11a | Web APIs | performance, EventTarget/Event, AbortController/AbortSignal, DOMException | **Done** |
+| 11b | Web APIs | Blob/File, FormData, Headers, Request/Response, navigator | **Done** |
+| 11c | Web APIs | MessageChannel/MessagePort, BroadcastChannel, ReadableStream/WritableStream/TransformStream | **Done** |
+| 11d | Web Crypto | crypto.getRandomValues(), crypto.randomUUID() as globals | **Done** |
+| 11e | Console ext | console.time/timeEnd/timeLog/count/countReset/table/dir/trace | **Done** |
+| 11f | Module compat | require.resolve(), require.cache, import.meta.url (QuickJS ESM) | **Done** |
+| 11g | ES2024 | Promise.withResolvers(), setImmediate/clearImmediate | **Done** |
+| 11h | Safety | `-preview=dip1000` enabled (scope safety for slices) | **Done** |
