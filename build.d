@@ -2036,6 +2036,7 @@ int main(string[] args)
             // Build all backends; don't stop on first failure
             bool qjsOk  = buildQuickJS(tc, opts);
             bool jscOk   = checkJSC(tc, opts);
+            checkV8Libs(tc, opts);  // stage V8 headers before shim compilation
             bool v8Ok    = buildV8Shim(tc, opts) && checkV8Libs(tc, opts);
 
             writeln();
