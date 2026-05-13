@@ -261,9 +261,18 @@ version(Posix)
         r.dev = buf.st_dev;
         r.ino = buf.st_ino;
         r.nlink = cast(int) buf.st_nlink;
-        r.atimeMs = cast(double)(buf.st_atim.tv_sec * 1000L + buf.st_atim.tv_nsec / 1_000_000L);
-        r.mtimeMs = cast(double)(buf.st_mtim.tv_sec * 1000L + buf.st_mtim.tv_nsec / 1_000_000L);
-        r.ctimeMs = cast(double)(buf.st_ctim.tv_sec * 1000L + buf.st_ctim.tv_nsec / 1_000_000L);
+        version (linux)
+        {
+            r.atimeMs = cast(double)(buf.st_atim.tv_sec * 1000L + buf.st_atim.tv_nsec / 1_000_000L);
+            r.mtimeMs = cast(double)(buf.st_mtim.tv_sec * 1000L + buf.st_mtim.tv_nsec / 1_000_000L);
+            r.ctimeMs = cast(double)(buf.st_ctim.tv_sec * 1000L + buf.st_ctim.tv_nsec / 1_000_000L);
+        }
+        else
+        {
+            r.atimeMs = cast(double)(buf.st_atime) * 1000.0;
+            r.mtimeMs = cast(double)(buf.st_mtime) * 1000.0;
+            r.ctimeMs = cast(double)(buf.st_ctime) * 1000.0;
+        }
         return r;
     }
 
