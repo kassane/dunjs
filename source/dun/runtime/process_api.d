@@ -10,6 +10,10 @@ private __gshared JSHandle gUncaughtHandler;
 private __gshared IJSEngine gUncaughtEngine;
 private __gshared bool gHasUncaughtHandler;
 
+private __gshared JSHandle gRejectionHandler;
+private __gshared IJSEngine gRejectionEngine;
+private __gshared bool gHasRejectionHandler;
+
 bool hasUncaughtExceptionHandler() @trusted nothrow @nogc
 {
     return gHasUncaughtHandler;
@@ -25,6 +29,24 @@ bool invokeUncaughtExceptionHandler(IJSEngine engine, string errorMsg) @trusted 
         auto global = engine.getGlobal();
         engine.callFunction(gUncaughtHandler, global, args[]);
         engine.freeValue(errObj);
+        return true;
+    }
+    catch (Throwable) { return false; }
+}
+
+bool hasUnhandledRejectionHandler() @trusted nothrow @nogc
+{
+    return gHasRejectionHandler;
+}
+
+bool invokeUnhandledRejectionHandler(IJSEngine engine, JSHandle reason, JSHandle promise) @trusted nothrow
+{
+    if (!gHasRejectionHandler || engine is null) return false;
+    try
+    {
+        JSHandle[2] args = [reason, promise];
+        auto global = engine.getGlobal();
+        engine.callFunction(gRejectionHandler, global, args[]);
         return true;
     }
     catch (Throwable) { return false; }
@@ -240,6 +262,14 @@ JSHandle jsProcessOn(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
         gUncaughtHandler = engine.dupValue(args[1]);
         gUncaughtEngine = engine;
         gHasUncaughtHandler = true;
+    }
+    else if (event == "unhandledRejection")
+    {
+        if (gHasRejectionHandler)
+            engine.freeValue(gRejectionHandler);
+        gRejectionHandler = engine.dupValue(args[1]);
+        gRejectionEngine = engine;
+        gHasRejectionHandler = true;
     }
     return engine.dupValue(thisVal);
 }

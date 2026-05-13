@@ -168,16 +168,27 @@ struct EventLoop
         auto pending = unhandledRejections;
         unhandledRejections = null;
 
+        import dun.runtime.process_api : hasUnhandledRejectionHandler,
+            invokeUnhandledRejectionHandler;
         import dun.cli.errors : isColorEnabled, formatRejection;
+        bool hasHandler = hasUnhandledRejectionHandler();
         bool color = isColorEnabled();
         foreach (ref entry; pending)
         {
             try
             {
-                string reason = entry.reasonStr.length > 0
-                    ? entry.reasonStr : "<unknown>";
-                stderr.write(formatRejection(reason, color));
-                stderr.flush();
+                if (hasHandler)
+                {
+                    invokeUnhandledRejectionHandler(entry.engine,
+                        entry.reason, entry.promise);
+                }
+                else
+                {
+                    string reason = entry.reasonStr.length > 0
+                        ? entry.reasonStr : "<unknown>";
+                    stderr.write(formatRejection(reason, color));
+                    stderr.flush();
+                }
             }
             catch (Exception) {}
             entry.engine.freeValue(entry.promise);

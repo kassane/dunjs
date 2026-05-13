@@ -6,10 +6,40 @@ import dun.runtime.globals : DunState;
 version (linux)
 {
     extern (C) long syscall(long nr, ...) nothrow @nogc;
+
     private enum {
-        SYS_futex  = 202,
         FUTEX_WAIT = 0,
         FUTEX_WAKE = 1,
+    }
+
+    version (X86_64)
+        private enum SYS_futex = 202;
+    else version (X86)
+        private enum SYS_futex = 240;
+    else version (AArch64)
+        private enum SYS_futex = 98;
+    else version (ARM)
+        private enum SYS_futex = 240;
+    else
+        static assert(false, "SYS_futex not defined for this architecture");
+}
+else
+{
+    import core.sync.mutex : Mutex;
+    import core.sync.condition : Condition;
+
+    private struct WaitEntry
+    {
+        Condition cond;
+        bool notified;
+    }
+
+    private __gshared Mutex gWaitMutex;
+    private __gshared WaitEntry[][size_t] gWaiters;
+
+    shared static this() @trusted
+    {
+        gWaitMutex = new Mutex();
     }
 }
 
@@ -429,18 +459,50 @@ private JSHandle _atomicsWait(void* ctx, JSHandle thisVal, JSHandle[] args) @tru
     }
     else
     {
-        import core.thread : Thread;
-        import core.time : dur;
-        long elapsed;
-        while (true)
+        auto addr = cast(size_t) ptr;
+        auto entry = WaitEntry(new Condition(gWaitMutex), false);
+
+        gWaitMutex.lock();
+        if (addr !in gWaiters) gWaiters[addr] = [];
+        gWaiters[addr] ~= entry;
+        gWaitMutex.unlock();
+
+        scope(exit)
         {
-            if (atomicLoad!(MemoryOrder.seq)(*cast(shared(int)*) ptr) != expected)
-                break;
-            if (timeoutMs >= 0 && elapsed >= timeoutMs)
-                break;
-            Thread.sleep(dur!"msecs"(1));
-            elapsed++;
+            gWaitMutex.lock();
+            if (auto arr = addr in gWaiters)
+            {
+                import std.algorithm : remove;
+                foreach (i, ref e; *arr)
+                    if (e.cond is entry.cond) { *arr = (*arr).remove(i); break; }
+            }
+            gWaitMutex.unlock();
         }
+
+        gWaitMutex.lock();
+        if (timeoutMs < 0)
+        {
+            while (!entry.notified &&
+                   atomicLoad!(MemoryOrder.seq)(*cast(shared(int)*) ptr) == expected)
+                entry.cond.wait();
+        }
+        else
+        {
+            import core.time : dur;
+            while (!entry.notified &&
+                   atomicLoad!(MemoryOrder.seq)(*cast(shared(int)*) ptr) == expected)
+            {
+                if (!entry.cond.wait(dur!"msecs"(timeoutMs)))
+                    break;
+            }
+        }
+        gWaitMutex.unlock();
+
+        if (atomicLoad!(MemoryOrder.seq)(*cast(shared(int)*) ptr) != expected)
+            return engine.newString("ok");
+        if (entry.notified)
+            return engine.newString("ok");
+        return engine.newString("timed-out");
     }
 
     return engine.newString("ok");
@@ -465,6 +527,20 @@ private JSHandle _atomicsNotify(void* ctx, JSHandle thisVal, JSHandle[] args) @t
     }
     else
     {
-        return engine.newInt(0);
+        auto addr = cast(size_t) ptr;
+        int woken = 0;
+        gWaitMutex.lock();
+        if (auto arr = addr in gWaiters)
+        {
+            foreach (ref e; *arr)
+            {
+                if (woken >= count) break;
+                e.notified = true;
+                e.cond.notify();
+                woken++;
+            }
+        }
+        gWaitMutex.unlock();
+        return engine.newInt(woken);
     }
 }
