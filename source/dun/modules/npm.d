@@ -1,9 +1,5 @@
 module dun.modules.npm;
 
-version (Posix):
-
-import std.stdio : writeln, writefln;
-
 enum AuditMode
 {
     warn,
@@ -13,6 +9,10 @@ enum AuditMode
 
 static assert(__traits(allMembers, AuditMode).length == 3,
     "AuditMode enum member count changed -- update parseAuditFlag");
+
+version (Posix):
+
+import std.stdio : writeln, writefln;
 
 bool installPackage(string spec, AuditMode auditMode = AuditMode.warn) @trusted
 {
