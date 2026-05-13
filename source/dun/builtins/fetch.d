@@ -34,6 +34,12 @@ private JSHandle jsFetch(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
     string url = engine.extractString(args[0]);
 
+    import dun.security.permissions : Permission;
+    auto parsed = parseUrl(url);
+    if (!state.permissions.check(Permission.net, parsed.host))
+        return engine.throwTypeError(
+            "Requires net permission for " ~ parsed.host ~ " (use --allow-net)");
+
     string method = "GET";
     string reqBody;
     string[string] reqHeaders;
@@ -167,6 +173,10 @@ FetchResult doFetch(string url, string method, string reqBody,
         throw new Exception("too many redirects");
 
     auto parsed = parseUrl(url);
+
+    if (parsed.scheme != "http" && parsed.scheme != "https")
+        throw new Exception("fetch: unsupported scheme '" ~ parsed.scheme
+            ~ "' (only http/https allowed)");
 
     bool isTls = parsed.scheme == "https";
     ushort port = parsed.port;

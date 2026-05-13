@@ -9,6 +9,24 @@ private enum {
     HTTP_DEFAULT_PORT = 80,
 }
 
+private string sanitizeHeaderValue(string s) @safe pure
+{
+    foreach (ch; s)
+        if (ch == '\r' || ch == '\n' || ch == '\0')
+            return stripCRLF(s);
+    return s;
+}
+
+private string stripCRLF(string s) @safe pure
+{
+    char[] result;
+    result.reserve(s.length);
+    foreach (ch; s)
+        if (ch != '\r' && ch != '\n' && ch != '\0')
+            result ~= ch;
+    return result.idup;
+}
+
 void registerHttpModule(IJSEngine engine) @trusted
 {
     assert(engine !is null, "Null IJSEngine in registerHttpModule");
@@ -409,8 +427,8 @@ JSHandle jsResSetHeader(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
     try
     {
-        string name = engine.extractString(args[0]);
-        string val = engine.extractString(args[1]);
+        string name = sanitizeHeaderValue(engine.extractString(args[0]));
+        string val = sanitizeHeaderValue(engine.extractString(args[1]));
         httpConns[connId].respHeaders[name] = val;
     }
     catch (Exception) {}
@@ -535,6 +553,23 @@ void sendStatusLine(HttpConnState* conn) nothrow @trusted
         sendRaw(conn, line);
     }
     catch (Exception) {}
+}
+
+void sendError(HttpConnState* conn, int status, string text) nothrow @trusted
+{
+    assert(conn !is null, "Null HttpConnState in sendError");
+    import std.conv : to;
+    try
+    {
+        sendRaw(conn, "HTTP/1.1 " ~ status.to!string ~ " " ~ text
+            ~ "\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
+    }
+    catch (Exception) {}
+    version (Posix)
+    {
+        import core.sys.posix.unistd : close;
+        if (conn.fd >= 0) { close(conn.fd); conn.fd = -1; }
+    }
 }
 
 void sendRaw(HttpConnState* conn, string data) nothrow @trusted
@@ -666,10 +701,19 @@ void tryParseHeaders(HttpConnState* conn, int cid) nothrow @trusted
     auto headerText = conn.buf[0 .. sepPos].idup;
     parseRequestHeaders(conn, headerText);
 
-    if (auto cl = "content-length" in conn.headers)
+    bool hasTE = ("transfer-encoding" in conn.headers) !is null;
+    bool hasCL = ("content-length" in conn.headers) !is null;
+
+    if (hasTE && hasCL)
+    {
+        sendError(conn, 400, "Bad Request");
+        return;
+    }
+
+    if (hasCL)
     {
         import std.conv : to;
-        try { conn.contentLength = (*cl).to!size_t; } catch (Exception) {}
+        try { conn.contentLength = conn.headers["content-length"].to!size_t; } catch (Exception) {}
     }
 
     bool bodyComplete = conn.bufLen >= conn.bodyStart + conn.contentLength;

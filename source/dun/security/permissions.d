@@ -156,6 +156,17 @@ struct PermissionRegistry
         }
     }
 
+    bool isGlobalGrant(Permission perm) @safe
+    {
+        if (auto s = Permission.all in globalPerms)
+            if (*s == PermissionState.granted)
+                return true;
+        if (auto s = perm in globalPerms)
+            if (*s == PermissionState.granted)
+                return true;
+        return false;
+    }
+
     private bool isDenied(Permission perm, string resource) @safe
     {
         if (auto scopes = perm in scopedDenyList)

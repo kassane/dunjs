@@ -57,7 +57,7 @@ CliConfig parseArgs(string[] args) @safe
 
     if (args.length < 2)
     {
-        config.command = Command.help;
+        config.command = Command.repl;
         return config;
     }
 

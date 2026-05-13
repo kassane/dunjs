@@ -94,6 +94,7 @@ void ensureWsFnsCached(IJSEngine engine) @trusted
 }
 
 enum MAX_BUF = 16 * 1024;
+enum MAX_WS_MESSAGE = 16 * 1024 * 1024;
 enum WS_MAGIC = "258EAFA5-E914-47DA-95CA-5CF5AB53E0B5";
 
 enum WsState : ubyte
@@ -253,7 +254,7 @@ ParseResult parseWsFrame(const(ubyte)[] data) @trusted nothrow
         offset += 4;
     }
 
-    if (payLen > MAX_BUF || data.length < offset + payLen) return fail;
+    if (payLen > MAX_WS_MESSAGE || data.length < offset + payLen) return fail;
 
     if (f.masked)
     {

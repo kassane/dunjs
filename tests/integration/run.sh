@@ -104,4 +104,70 @@ else
   fails=$((fails+1))
 fi
 
+# --- CLI feature tests ---
+cli_fails=0
+
+# Test: dun eval
+cli_out=$("$DUN" eval '1+2' 2>&1 || true)
+echo "$cli_out" | grep -q '^3$' || { echo "FAIL cli_eval"; cli_fails=1; }
+
+# Test: dun version
+cli_out=$("$DUN" version 2>&1 || true)
+echo "$cli_out" | grep -q 'dun 0\.' || { echo "FAIL cli_version"; cli_fails=1; }
+
+# Test: dun --version
+cli_out=$("$DUN" --version 2>&1 || true)
+echo "$cli_out" | grep -q 'dun 0\.' || { echo "FAIL cli_version_flag"; cli_fails=1; }
+
+# Test: dun help shows commands
+cli_out=$("$DUN" help 2>&1 || true)
+echo "$cli_out" | grep -q 'run <file>' && echo "$cli_out" | grep -q 'Permission flags' || { echo "FAIL cli_help"; cli_fails=1; }
+
+# Test: bare filename (implicit run)
+echo 'console.log("bare-file-test")' > /tmp/dun_cli_bare.js
+cli_out=$("$DUN" /tmp/dun_cli_bare.js 2>&1 || true)
+echo "$cli_out" | grep -q 'bare-file-test' || { echo "FAIL cli_bare_file"; cli_fails=1; }
+rm -f /tmp/dun_cli_bare.js
+
+# Test: -- argument separator passes args to script
+echo 'console.log(process.argv.slice(2).join(","))' > /tmp/dun_cli_args.js
+cli_out=$("$DUN" run /tmp/dun_cli_args.js -- foo bar 2>&1 || true)
+echo "$cli_out" | grep -q 'foo,bar' || { echo "FAIL cli_arg_separator"; cli_fails=1; }
+rm -f /tmp/dun_cli_args.js
+
+# Test: no args starts REPL
+cli_out=$(echo '.exit' | "$DUN" 2>&1 || true)
+echo "$cli_out" | grep -q 'dun 0\.' || { echo "FAIL cli_no_args_repl"; cli_fails=1; }
+
+# Test: dun init creates project
+tmpdir=$(mktemp -d)
+cli_out=$("$DUN" init "$tmpdir/testproj" 2>&1 || true)
+echo "$cli_out" | grep -q 'Initialized' && [ -f "$tmpdir/testproj/main.ts" ] || { echo "FAIL cli_init"; cli_fails=1; }
+rm -rf "$tmpdir"
+
+# Test: dun clean (run from tmpdir to avoid side effects)
+cli_cleandir=$(mktemp -d)
+_absdun=$(cd "$(dirname "$DUN")" && pwd)/$(basename "$DUN")
+cli_out=$(cd "$cli_cleandir" && "$_absdun" clean 2>&1 || true)
+echo "$cli_out" | grep -qiE 'clean|nothing' || { echo "FAIL cli_clean"; cli_fails=1; }
+rm -rf "$cli_cleandir"
+
+# Test: fetch permission denied without --allow-net
+echo 'try { fetch("http://localhost:9999"); console.log("FAIL_NO_DENY"); } catch(e) { console.log("PERM_DENIED"); }' > /tmp/dun_fetch_perm.js
+cli_out=$("$DUN" run /tmp/dun_fetch_perm.js 2>&1 || true)
+echo "$cli_out" | grep -q 'PERM_DENIED' || { echo "FAIL cli_fetch_perm"; cli_fails=1; }
+rm -f /tmp/dun_fetch_perm.js
+
+# Test: shell metachar rejected with scoped --allow-run
+echo 'try { require("child_process").execSync("echo hi; cat /etc/passwd"); console.log("FAIL_NO_DENY"); } catch(e) { console.log("META_BLOCKED:" + e.message.includes("metachar")); }' > /tmp/dun_meta.js
+cli_out=$("$DUN" run --allow-run=echo /tmp/dun_meta.js 2>&1 || true)
+echo "$cli_out" | grep -q 'META_BLOCKED' || { echo "FAIL cli_shell_meta"; cli_fails=1; }
+rm -f /tmp/dun_meta.js
+
+if [ "$cli_fails" -eq 0 ]; then
+  echo "PASS cli_features (11 checks)"
+else
+  fails=$((fails+1))
+fi
+
 exit $((fails > 0 ? 1 : 0))

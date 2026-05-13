@@ -54,6 +54,13 @@ version (EngineQuickJS)
 
 private:
 
+bool hasGlobalRun(DunState* state) nothrow @trusted
+{
+    if (state is null || state.permissions is null) return false;
+    try { return state.permissions.isGlobalGrant(Permission.run); }
+    catch (Exception) { return false; }
+}
+
 bool checkPerm(DunState* state, Permission perm, string resource = "") nothrow @trusted
 {
     if (state is null || state.permissions is null) return false;
@@ -76,6 +83,22 @@ string extractCommand(string fullCmd) @trusted
         if (part.length > 0) return part;
     }
     return fullCmd;
+}
+
+bool hasShellMetaChars(string cmd) @safe pure nothrow
+{
+    foreach (ch; cmd)
+    {
+        switch (ch)
+        {
+            case ';': case '&': case '|': case '$':
+            case '`': case '(': case ')': case '{':
+            case '}': case '<': case '>': case '\n':
+                return true;
+            default: break;
+        }
+    }
+    return false;
 }
 
 string extractOptString(IJSEngine engine, JSHandle opts, string key) @trusted
@@ -119,6 +142,10 @@ JSHandle jsExecSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     auto cmd = extractCommand(command);
     if (!checkPerm(state, Permission.run, cmd))
         return throwPermError(engine, cmd);
+
+    if (hasShellMetaChars(command) && !hasGlobalRun(state))
+        return engine.throwTypeError(
+            "execSync: shell metacharacters require --allow-run (global)");
 
     string cwd = "";
     int maxBuffer = MAX_BUFFER;
