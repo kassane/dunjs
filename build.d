@@ -71,20 +71,20 @@ enum JSC_PKG_NAMES      = ["javascriptcoregtk-4.1", "javascriptcoregtk-6.0", "ja
 enum JSC_LIB_MARKER     = "lib/libJavaScriptCore.a";
 
 // V8 configuration
-// Pre-built monolith from github.com/kuoruan/libv8 (preferred: self-contained, no system dep).
-// Archive layout (flat root): include/ + libv8_monolith.a + gn-args_*.txt
+// Pre-built monolith from github.com/kassane/libv8 (preferred: self-contained, no system dep).
+// Archive layout: libv8-<ver>-<platform>-<arch>-<profile>/lib/libv8_monolith.a + include/ + args.gn
 // Fallback: system libv8-dev headers via /usr/include/v8 or Node.js headers tarball.
-enum V8_PREBUILT_VERSION  = "v13.1.201.22";
-enum V8_PREBUILT_BASE_URL = "https://github.com/kuoruan/libv8/releases/download/"
+enum V8_PREBUILT_VERSION  = "v14.9.207.4";
+enum V8_PREBUILT_BASE_URL = "https://github.com/kassane/libv8/releases/download/"
                             ~ V8_PREBUILT_VERSION ~ "/";
 enum V8_NODE_VERSION   = "v22.15.0";   // kept for fallback header download
 enum V8_HEADERS_MARKER = "v8.h";
 enum V8_SYSTEM_INCLUDE = "/usr/include/v8";
-// Custom libv8 builds: set V8_CUSTOM_LIB env var to a local path to a
-// libv8-*.zip (with include/ + lib/ dirs). Supports V8 14.9+ with or without
-// pointer compression. The shim auto-detects V8_COMPRESS_POINTERS from
-// gn-args or the V8_COMPRESS_POINTERS=1 env var.
-// Example: V8_CUSTOM_LIB=./libv8-14.9.207.4-linux-x64-default.zip rdmd build.d --backend=v8
+// Pointer compression: kassane/libv8 provides both -default (no ptrcomp) and
+// -pointer-compression variants. Set V8_COMPRESS_POINTERS=1 to auto-select
+// the pointer-compression tarball. The shim auto-detects from args.gn.
+// Custom builds: set V8_CUSTOM_LIB env var to a local archive path.
+// Example: V8_CUSTOM_LIB=./libv8-14.9.207.4-linux-x64-default.tar.xz rdmd build.d --backend=v8
 
 // SQLite configuration
 // Downloads the amalgamation source (sqlite3.c + sqlite3.h) for ImportC bindings.
@@ -118,26 +118,28 @@ string v8PrebuiltExt()
     else              return ".tar.xz";
 }
 
-/// Return the kuoruan/libv8 archive URL for the current platform + arch.
+/// Return the kassane/libv8 archive URL for the current platform + arch.
+/// Profile is "default" (no pointer compression) or "pointer-compression".
 string v8PrebuiltUrl()
 {
-    version (Windows)
-    {
-        return V8_PREBUILT_BASE_URL ~ "v8_Windows_x64.7z";
-    }
-    else version (OSX)
-    {
-        version (AArch64)
-            return V8_PREBUILT_BASE_URL ~ "v8_macOS_arm64.tar.xz";
-        else
-            return V8_PREBUILT_BASE_URL ~ "v8_macOS_x64.tar.xz";
-    }
-    else // Linux
+    import std.process : environment;
+    auto ptrComp = environment.get("V8_COMPRESS_POINTERS", "");
+    string profile = (ptrComp == "1" || ptrComp == "true") ? "pointer-compression" : "default";
+    // kassane/libv8 naming: libv8-<version>-<platform>-<arch>-<profile>.tar.xz
+    string stem = "libv8-" ~ V8_PREBUILT_VERSION[1..$] ~ "-";
+    version (OSX)
     {
         version (AArch64)
-            return V8_PREBUILT_BASE_URL ~ "v8_Linux_aarch64.tar.xz";
+            return V8_PREBUILT_BASE_URL ~ stem ~ "macos-arm64-" ~ profile ~ ".tar.xz";
         else
-            return V8_PREBUILT_BASE_URL ~ "v8_Linux_x64.tar.xz";
+            return V8_PREBUILT_BASE_URL ~ stem ~ "macos-x64-" ~ profile ~ ".tar.xz";
+    }
+    else // Linux (kassane/libv8 v14.9 has linux-x64 and macos-arm64)
+    {
+        version (AArch64)
+            return V8_PREBUILT_BASE_URL ~ stem ~ "linux-arm64-" ~ profile ~ ".tar.xz";
+        else
+            return V8_PREBUILT_BASE_URL ~ stem ~ "linux-x64-" ~ profile ~ ".tar.xz";
     }
 }
 
@@ -159,9 +161,9 @@ bool detectV8PointerCompression()
     if (envVal == "0" || envVal == "false") return false;
 
     foreach (gnArgs; [
+        buildPath(v8Dir(), "args.gn"),
         buildPath(v8Dir(), "gn-args_Linux.txt"),
         buildPath(v8Dir(), "gn-args.txt"),
-        buildPath(v8Dir(), "args.gn"),
     ])
     {
         if (exists(gnArgs))
@@ -176,6 +178,12 @@ bool detectV8PointerCompression()
                     if (lines[i].canFind("v8_enable_pointer_compression") &&
                         !lines[i].canFind("8gb") && !lines[i].canFind("shared_cage"))
                     {
+                        // Single-line format: v8_enable_pointer_compression = true
+                        if (lines[i].canFind("true"))
+                            return true;
+                        if (lines[i].canFind("false"))
+                            return false;
+                        // Multi-line format (kuoruan): key on one line, value on next
                         if (i + 1 < lines.length && lines[i+1].canFind("true"))
                             return true;
                         if (i + 1 < lines.length && lines[i+1].canFind("false"))
@@ -1518,8 +1526,8 @@ bool checkV8Libs(ref const Toolchain tc, ref const BuildOptions opts)
         }
     }
 
-    // --- Try auto-download from kuoruan/libv8 prebuilt ---------------
-    logInfo(tag, "Attempting auto-download of V8 prebuilt from github.com/kuoruan/libv8...");
+    // --- Try auto-download from kassane/libv8 prebuilt ---------------
+    logInfo(tag, "Attempting auto-download of V8 prebuilt from github.com/kassane/libv8...");
     if (downloadV8Prebuilt(tc, opts) && exists(stagedV8) && exists(stagedPlat))
     {
         logInfo(tag, "V8 libs ready via prebuilt download");
@@ -1927,7 +1935,7 @@ bool downloadV8Headers(ref const Toolchain tc)
  *   vendor/v8/lib/libv8_libplatform.a (empty stub — symbols are in monolith)
  *
  * Archive layout (flat root): include/ + libv8_monolith.a + gn-args_*.txt
- * Source: https://github.com/kuoruan/libv8/releases
+ * Source: https://github.com/kassane/libv8/releases
  */
 bool downloadV8Prebuilt(ref const Toolchain tc, ref const BuildOptions opts)
 {
@@ -1947,7 +1955,7 @@ bool downloadV8Prebuilt(ref const Toolchain tc, ref const BuildOptions opts)
     immutable url     = v8PrebuiltUrl();
     immutable archive = v8PrebuiltArchive();
 
-    logInfo(tag, "Downloading V8 prebuilt " ~ V8_PREBUILT_VERSION ~ " for this platform...");
+    logInfo(tag, "Downloading V8 prebuilt " ~ V8_PREBUILT_VERSION ~ " from kassane/libv8...");
     logInfo(tag, "URL: " ~ url);
 
     if (!downloadFile(tc, url, archive))
@@ -1960,29 +1968,11 @@ bool downloadV8Prebuilt(ref const Toolchain tc, ref const BuildOptions opts)
     mkdirRecurse(v8IncludeDir());
     mkdirRecurse(libDir);
 
-    version (Windows)
+    // kassane/libv8 archives are .tar.xz with a top-level directory:
+    // libv8-<ver>-<platform>-<arch>-<profile>/lib/libv8_monolith.a
+    // libv8-<ver>-<platform>-<arch>-<profile>/include/v8.h
+    // libv8-<ver>-<platform>-<arch>-<profile>/args.gn
     {
-        // 7z e archive.7z -o<dir> — requires 7z in PATH
-        auto r = executeShell("7z x \"" ~ archive ~ "\" -o\"" ~ v8Dir() ~ "\" -y 2>&1");
-        if (r.status != 0)
-        {
-            logError(tag, "7z extraction failed: " ~ r.output);
-            return false;
-        }
-        // On Windows the monolith may land as v8_monolith.lib
-        foreach (candidate; ["libv8_monolith.a", "v8_monolith.lib"])
-        {
-            string src = buildPath(v8Dir(), candidate);
-            if (exists(src))
-            {
-                std.file.copy(src, monolithDst);
-                break;
-            }
-        }
-    }
-    else
-    {
-        // tar -xJf archive.tar.xz -C vendor/v8 --strip-components=0
         auto r = executeShell(
             "tar -xJf \"" ~ archive ~ "\" -C \"" ~ v8Dir() ~ "\" 2>&1");
         if (r.status != 0)
@@ -1990,18 +1980,36 @@ bool downloadV8Prebuilt(ref const Toolchain tc, ref const BuildOptions opts)
             logError(tag, "tar extraction failed: " ~ r.output);
             return false;
         }
-        // monolith should now be at vendor/v8/libv8_monolith.a; move to lib/
-        string extracted = buildPath(v8Dir(), "libv8_monolith.a");
-        if (!exists(extracted))
+
+        // Find the extracted subdirectory and move contents up
+        bool found = false;
+        foreach (entry; dirEntries(v8Dir(), SpanMode.shallow))
         {
-            logError(tag, "libv8_monolith.a not found after extraction");
-            logError(tag, "Expected: " ~ extracted);
+            if (entry.isDir && exists(buildPath(entry.name, "lib", "libv8_monolith.a")))
+            {
+                foreach (sub; dirEntries(entry.name, SpanMode.shallow))
+                {
+                    auto dest = buildPath(v8Dir(), baseName(sub.name));
+                    if (exists(dest))
+                    {
+                        if (isDir(dest)) rmdirRecurse(dest);
+                        else std.file.remove(dest);
+                    }
+                    rename(sub.name, dest);
+                }
+                rmdirRecurse(entry.name);
+                found = true;
+                break;
+            }
+        }
+
+        if (!found)
+        {
+            logError(tag, "libv8_monolith.a not found in extracted archive");
             return false;
         }
-        rename(extracted, monolithDst);
 
-        // include/ lands at vendor/v8/include/ — already the right place
-        // (the extraction target is v8Dir() and archive root has include/)
+        // After flatten: vendor/v8/lib/libv8_monolith.a, vendor/v8/include/, vendor/v8/args.gn
     }
 
     if (!exists(monolithDst))
