@@ -9,16 +9,34 @@ private enum : size_t {
     MAX_READ_LENGTH   = 64 * 1024 * 1024,
 }
 
-// POSIX functions not in all druntime builds (e.g. musl/Alpine)
-private extern(C) nothrow @nogc
+// ── Cross-platform compatibility layer ──────────────────────────
+
+version(Posix)
 {
-    int truncate(const(char)* path, long length);
-    int fdatasync(int fd);
+    private extern(C) nothrow @nogc
+    {
+        int truncate(const(char)* path, long length);
+        int fdatasync(int fd);
+    }
+}
+else version(Windows)
+{
+    private extern(C) nothrow @nogc
+    {
+        int _open(const(char)* filename, int oflag, ...);
+        int _close(int fd);
+        int _read(int fd, void* buffer, uint count);
+        int _write(int fd, const(void)* buffer, uint count);
+        long _lseeki64(int fd, long offset, int origin);
+        int _chsize(int fd, long size);
+        int _commit(int fd);
+        int _mkdir(const(char)* dirname);
+    }
+    private enum _O_BINARY = 0x8000;
 }
 
-/// POSIX-based file read that uses C errno instead of D exceptions.
-/// Returns null on error with errMsg set to the POSIX error description.
-private string posixReadFile(string path, out string errMsg) @trusted nothrow
+/// File read using C stdio — no D exceptions, portable across all platforms.
+private string safeReadFile(string path, out string errMsg) @trusted nothrow
 {
     import core.stdc.stdio : FILE, fopen, fread, fclose, fseek, ftell, SEEK_END, SEEK_SET;
     import core.stdc.errno : errno;
@@ -59,8 +77,8 @@ private string posixReadFile(string path, out string errMsg) @trusted nothrow
     return result;
 }
 
-/// POSIX-based file write using C fopen/fwrite.
-private bool posixWriteFile(string path, string data, out string errMsg) @trusted nothrow
+/// File write using C stdio — portable across all platforms.
+private bool safeWriteFile(string path, string data, out string errMsg) @trusted nothrow
 {
     import core.stdc.stdio : FILE, fopen, fwrite, fclose;
     import core.stdc.errno : errno;
@@ -89,12 +107,24 @@ private bool posixWriteFile(string path, string data, out string errMsg) @truste
     return true;
 }
 
-/// POSIX existence check using access(2) — no D exceptions.
-private bool posixExists(string path) @trusted nothrow
+/// Existence check — portable across POSIX and Windows.
+private bool safeExists(string path) @trusted nothrow
 {
-    import core.sys.posix.unistd : access, F_OK;
-    auto cpath = (path ~ '\0');
-    return access(cpath.ptr, F_OK) == 0;
+    version(Posix)
+    {
+        import core.sys.posix.unistd : access, F_OK;
+        auto cpath = (path ~ '\0');
+        return access(cpath.ptr, F_OK) == 0;
+    }
+    else
+    {
+        import core.stdc.stdio : fopen, fclose;
+        auto cpath = (path ~ '\0');
+        auto fp = fopen(cpath.ptr, "rb");
+        if (fp is null) return false;
+        fclose(fp);
+        return true;
+    }
 }
 
 void registerFsModule(IJSEngine engine) @trusted
@@ -187,8 +217,6 @@ version (EngineQuickJS)
 
 private:
 
-import core.sys.posix.sys.stat : stat_t;
-
 // Cached stat method handles — registered once to avoid callback slot exhaustion
 __gshared JSHandle _cachedIsFileFn, _cachedIsDirFn, _cachedIsSymlinkFn;
 __gshared bool _statFnsCached = false;
@@ -204,24 +232,118 @@ void ensureStatFnsCached(IJSEngine engine) @trusted
     }
 }
 
-JSHandle buildStatFromPosix(IJSEngine engine, ref stat_t buf) @trusted
+private struct SafeStatResult
 {
-    import core.sys.posix.sys.stat : S_ISREG, S_ISDIR, S_ISLNK;
+    long size;
+    uint mode;
+    int uid, gid;
+    long dev, ino;
+    int nlink;
+    double atimeMs, mtimeMs, ctimeMs;
+    bool isFile, isDir, isLink;
+}
+
+version(Posix)
+{
+    import core.sys.posix.sys.stat : stat_t;
+
+    private SafeStatResult statToResult(ref stat_t buf) @trusted nothrow
+    {
+        import core.sys.posix.sys.stat : S_ISREG, S_ISDIR, S_ISLNK;
+        SafeStatResult r;
+        r.isFile = S_ISREG(buf.st_mode);
+        r.isDir = S_ISDIR(buf.st_mode);
+        r.isLink = S_ISLNK(buf.st_mode);
+        r.size = buf.st_size;
+        r.mode = buf.st_mode & 0xFFFF;
+        r.uid = cast(int) buf.st_uid;
+        r.gid = cast(int) buf.st_gid;
+        r.dev = buf.st_dev;
+        r.ino = buf.st_ino;
+        r.nlink = cast(int) buf.st_nlink;
+        r.atimeMs = cast(double)(buf.st_atim.tv_sec * 1000L + buf.st_atim.tv_nsec / 1_000_000L);
+        r.mtimeMs = cast(double)(buf.st_mtim.tv_sec * 1000L + buf.st_mtim.tv_nsec / 1_000_000L);
+        r.ctimeMs = cast(double)(buf.st_ctim.tv_sec * 1000L + buf.st_ctim.tv_nsec / 1_000_000L);
+        return r;
+    }
+
+    private int safeStat(const(char)* cpath, out SafeStatResult result) @trusted nothrow
+    {
+        import core.sys.posix.sys.stat : stat_t, stat;
+        stat_t st;
+        auto ret = stat(cpath, &st);
+        if (ret == 0) result = statToResult(st);
+        return ret;
+    }
+
+    private int safeLstat(const(char)* cpath, out SafeStatResult result) @trusted nothrow
+    {
+        import core.sys.posix.sys.stat : stat_t, lstat;
+        stat_t st;
+        auto ret = lstat(cpath, &st);
+        if (ret == 0) result = statToResult(st);
+        return ret;
+    }
+
+    private int safeFstat(int fd, out SafeStatResult result) @trusted nothrow
+    {
+        import core.sys.posix.sys.stat : stat_t, fstat;
+        stat_t st;
+        auto ret = fstat(fd, &st);
+        if (ret == 0) result = statToResult(st);
+        return ret;
+    }
+
+    JSHandle buildStatFromPosix(IJSEngine engine, ref stat_t buf) @trusted
+    {
+        auto r = statToResult(buf);
+        return buildStatObject(engine, r);
+    }
+}
+else version(Windows)
+{
+    private int safeStat(const(char)* cpath, out SafeStatResult result) @trusted nothrow
+    {
+        import core.stdc.stdio : FILE, fopen, fclose, fseek, ftell, SEEK_END;
+        result = SafeStatResult.init;
+        auto fp = fopen(cpath, "rb");
+        if (fp is null) return -1;
+        fseek(fp, 0, SEEK_END);
+        auto size = ftell(fp);
+        fclose(fp);
+        result.size = size >= 0 ? size : 0;
+        result.isFile = true;
+        result.mode = 0x81A4; // S_IFREG | 0644
+        return 0;
+    }
+
+    private int safeLstat(const(char)* cpath, out SafeStatResult result) @trusted nothrow
+    {
+        return safeStat(cpath, result);
+    }
+
+    private int safeFstat(int fd, out SafeStatResult result) @trusted nothrow
+    {
+        result = SafeStatResult.init;
+        result.isFile = true;
+        return 0;
+    }
+}
+
+JSHandle buildStatObject(IJSEngine engine, ref SafeStatResult r) @trusted
+{
     auto obj = engine.newObject();
-    bool isFile = S_ISREG(buf.st_mode);
-    bool isDir = S_ISDIR(buf.st_mode);
-    bool isLink = S_ISLNK(buf.st_mode);
-    engine.setProperty(obj, "_type", engine.newInt(isFile ? 1 : isDir ? 2 : isLink ? 3 : 0));
-    engine.setProperty(obj, "size", engine.newFloat(cast(double) buf.st_size));
-    engine.setProperty(obj, "mode", engine.newInt(cast(int)(buf.st_mode & 0xFFFF)));
-    engine.setProperty(obj, "uid", engine.newInt(cast(int) buf.st_uid));
-    engine.setProperty(obj, "gid", engine.newInt(cast(int) buf.st_gid));
-    engine.setProperty(obj, "dev", engine.newFloat(cast(double) buf.st_dev));
-    engine.setProperty(obj, "ino", engine.newFloat(cast(double) buf.st_ino));
-    engine.setProperty(obj, "nlink", engine.newInt(cast(int) buf.st_nlink));
-    engine.setProperty(obj, "atimeMs", engine.newFloat(cast(double)(buf.st_atim.tv_sec * 1000L + buf.st_atim.tv_nsec / 1_000_000L)));
-    engine.setProperty(obj, "mtimeMs", engine.newFloat(cast(double)(buf.st_mtim.tv_sec * 1000L + buf.st_mtim.tv_nsec / 1_000_000L)));
-    engine.setProperty(obj, "ctimeMs", engine.newFloat(cast(double)(buf.st_ctim.tv_sec * 1000L + buf.st_ctim.tv_nsec / 1_000_000L)));
+    engine.setProperty(obj, "_type", engine.newInt(r.isFile ? 1 : r.isDir ? 2 : r.isLink ? 3 : 0));
+    engine.setProperty(obj, "size", engine.newFloat(cast(double) r.size));
+    engine.setProperty(obj, "mode", engine.newInt(cast(int) r.mode));
+    engine.setProperty(obj, "uid", engine.newInt(r.uid));
+    engine.setProperty(obj, "gid", engine.newInt(r.gid));
+    engine.setProperty(obj, "dev", engine.newFloat(cast(double) r.dev));
+    engine.setProperty(obj, "ino", engine.newFloat(cast(double) r.ino));
+    engine.setProperty(obj, "nlink", engine.newInt(r.nlink));
+    engine.setProperty(obj, "atimeMs", engine.newFloat(r.atimeMs));
+    engine.setProperty(obj, "mtimeMs", engine.newFloat(r.mtimeMs));
+    engine.setProperty(obj, "ctimeMs", engine.newFloat(r.ctimeMs));
     ensureStatFnsCached(engine);
     engine.setProperty(obj, "isFile", engine.dupValue(_cachedIsFileFn));
     engine.setProperty(obj, "isDirectory", engine.dupValue(_cachedIsDirFn));
@@ -285,7 +407,7 @@ JSHandle jsReadFileSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     if (!checkPerm(state, Permission.read, path))
         return throwPermError(engine, "read", path);
     string errMsg;
-    auto content = posixReadFile(path, errMsg);
+    auto content = safeReadFile(path, errMsg);
     if (content is null)
         return engine.throwTypeError("ENOENT: " ~ errMsg ~ ", open '" ~ path ~ "'");
     return engine.newString(content);
@@ -303,7 +425,7 @@ JSHandle jsWriteFileSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     if (!checkPerm(state, Permission.write, path))
         return throwPermError(engine, "write", path);
     string errMsg;
-    if (!posixWriteFile(path, data, errMsg))
+    if (!safeWriteFile(path, data, errMsg))
         return engine.throwTypeError("EIO: " ~ errMsg ~ ", open '" ~ path ~ "'");
     return engine.newUndefined();
 }
@@ -318,7 +440,7 @@ JSHandle jsExistsSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     auto path = engine.extractString(args[0]);
     if (!checkPerm(state, Permission.read, path))
         return throwPermError(engine, "read", path);
-    return engine.newBool(posixExists(path));
+    return engine.newBool(safeExists(path));
 }
 
 JSHandle jsReaddirSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
@@ -355,27 +477,11 @@ JSHandle jsStatSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     if (!checkPerm(state, Permission.read, path))
         return throwPermError(engine, "read", path);
 
-    import core.sys.posix.sys.stat : stat_t, stat;
     auto cpath = (path ~ '\0');
-    stat_t st;
-    if (stat(cpath.ptr, &st) != 0)
+    SafeStatResult sr;
+    if (safeStat(cpath.ptr, sr) != 0)
         return engine.throwTypeError("ENOENT: no such file or directory, stat '" ~ path ~ "'");
-
-    import core.sys.posix.sys.stat : S_ISREG, S_ISDIR;
-    bool pathIsFile = S_ISREG(st.st_mode);
-    bool pathIsDir = S_ISDIR(st.st_mode);
-    ulong fileSize = cast(ulong) st.st_size;
-    long mtimeMs = cast(long) st.st_mtime * 1000L;
-
-    auto obj = engine.newObject();
-    engine.setProperty(obj, "_type", engine.newInt(pathIsFile ? 1 : pathIsDir ? 2 : 0));
-    engine.setProperty(obj, "size", engine.newFloat(cast(double) fileSize));
-    engine.setProperty(obj, "mtimeMs", engine.newFloat(cast(double) mtimeMs));
-    ensureStatFnsCached(engine);
-    engine.setProperty(obj, "isFile", engine.dupValue(_cachedIsFileFn));
-    engine.setProperty(obj, "isDirectory", engine.dupValue(_cachedIsDirFn));
-    engine.setProperty(obj, "isSymbolicLink", engine.dupValue(_cachedIsSymlinkFn));
-    return obj;
+    return buildStatObject(engine, sr);
 }
 
 JSHandle jsStatIsFile(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
@@ -426,10 +532,19 @@ JSHandle jsMkdirSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     }
     else
     {
-        import core.sys.posix.sys.stat : mkdir;
-        import std.conv : octal;
         auto cpath = (path ~ '\0');
-        if (mkdir(cpath.ptr, octal!755) != 0)
+        int ret;
+        version(Posix)
+        {
+            import core.sys.posix.sys.stat : mkdir;
+            import std.conv : octal;
+            ret = mkdir(cpath.ptr, octal!755);
+        }
+        else version(Windows)
+        {
+            ret = _mkdir(cpath.ptr);
+        }
+        if (ret != 0)
         {
             import core.stdc.errno : errno, EEXIST, ENOENT;
             import core.stdc.string : strerror;
@@ -665,15 +780,26 @@ JSHandle jsRealpathSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
         return throwPermError(engine, "read", path);
     try
     {
-        import core.sys.posix.stdlib : realpath;
-        import std.string : fromStringz;
-        auto result = (() @trusted => realpath(cast(const(char)*)(path ~ "\0").ptr, null))();
-        if (result is null)
-            return engine.throwTypeError("ENOENT: no such file or directory, realpath '" ~ path ~ "'");
-        auto resolved = (() @trusted => fromStringz(result).idup)();
-        import core.stdc.stdlib : free;
-        (() @trusted => free(result))();
-        return engine.newString(resolved);
+        version(Posix)
+        {
+            import core.sys.posix.stdlib : realpath;
+            import std.string : fromStringz;
+            auto result = (() @trusted => realpath(cast(const(char)*)(path ~ "\0").ptr, null))();
+            if (result is null)
+                return engine.throwTypeError("ENOENT: no such file or directory, realpath '" ~ path ~ "'");
+            auto resolved = (() @trusted => fromStringz(result).idup)();
+            import core.stdc.stdlib : free;
+            (() @trusted => free(result))();
+            return engine.newString(resolved);
+        }
+        else
+        {
+            import std.path : absolutePath, buildNormalizedPath;
+            auto resolved = buildNormalizedPath(absolutePath(path));
+            if (!safeExists(resolved))
+                return engine.throwTypeError("ENOENT: no such file or directory, realpath '" ~ path ~ "'");
+            return engine.newString(resolved);
+        }
     }
     catch (Exception e) { return throwSystemError(engine, "realpath", path, e); }
 }
@@ -722,12 +848,11 @@ JSHandle jsLstatSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
         return throwPermError(engine, "read", path);
     try
     {
-        import core.sys.posix.sys.stat : lstat, stat_t;
-        import std.string : toStringz;
-        stat_t buf;
-        if (lstat(path.toStringz, &buf) != 0)
+        auto cpath = (path ~ '\0');
+        SafeStatResult sr;
+        if (safeLstat(cpath.ptr, sr) != 0)
             return engine.throwTypeError("ENOENT: no such file or directory, lstat '" ~ path ~ "'");
-        return buildStatFromPosix(engine, buf);
+        return buildStatObject(engine, sr);
     }
     catch (Exception e) { return throwSystemError(engine, "lstat", path, e); }
 }
@@ -749,17 +874,24 @@ JSHandle jsLinkSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
         return throwPermError(engine, "write", newPath);
     try
     {
-        import core.sys.posix.unistd : link;
-        import std.string : toStringz;
-        if (link(existingPath.toStringz, newPath.toStringz) != 0)
+        version(Posix)
         {
-            import core.stdc.errno : errno;
-            import core.stdc.string : strerror;
-            import std.string : fromStringz;
-            auto msg = fromStringz(strerror(errno)).idup;
-            return engine.throwTypeError("ELINK: " ~ msg ~ ", link '" ~ existingPath ~ "' -> '" ~ newPath ~ "'");
+            import core.sys.posix.unistd : link;
+            import std.string : toStringz;
+            if (link(existingPath.toStringz, newPath.toStringz) != 0)
+            {
+                import core.stdc.errno : errno;
+                import core.stdc.string : strerror;
+                import std.string : fromStringz;
+                auto msg = fromStringz(strerror(errno)).idup;
+                return engine.throwTypeError("ELINK: " ~ msg ~ ", link '" ~ existingPath ~ "' -> '" ~ newPath ~ "'");
+            }
+            return engine.newUndefined();
         }
-        return engine.newUndefined();
+        else
+        {
+            return engine.throwTypeError("ENOSYS: linkSync is not supported on this platform");
+        }
     }
     catch (Exception e) { return throwSystemError(engine, "link", existingPath, e); }
 }
@@ -779,17 +911,24 @@ JSHandle jsSymlinkSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
         return throwPermError(engine, "write", path);
     try
     {
-        import core.sys.posix.unistd : symlink;
-        import std.string : toStringz;
-        if (symlink(target.toStringz, path.toStringz) != 0)
+        version(Posix)
         {
-            import core.stdc.errno : errno;
-            import core.stdc.string : strerror;
-            import std.string : fromStringz;
-            auto msg = fromStringz(strerror(errno)).idup;
-            return engine.throwTypeError("ESYMLINK: " ~ msg ~ ", symlink '" ~ target ~ "' -> '" ~ path ~ "'");
+            import core.sys.posix.unistd : symlink;
+            import std.string : toStringz;
+            if (symlink(target.toStringz, path.toStringz) != 0)
+            {
+                import core.stdc.errno : errno;
+                import core.stdc.string : strerror;
+                import std.string : fromStringz;
+                auto msg = fromStringz(strerror(errno)).idup;
+                return engine.throwTypeError("ESYMLINK: " ~ msg ~ ", symlink '" ~ target ~ "' -> '" ~ path ~ "'");
+            }
+            return engine.newUndefined();
         }
-        return engine.newUndefined();
+        else
+        {
+            return engine.throwTypeError("ENOSYS: symlinkSync is not supported on this platform");
+        }
     }
     catch (Exception e) { return throwSystemError(engine, "symlink", target, e); }
 }
@@ -808,13 +947,20 @@ JSHandle jsReadlinkSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
         return throwPermError(engine, "read", path);
     try
     {
-        import core.sys.posix.unistd : readlink;
-        import std.string : toStringz;
-        char[READLINK_BUF_SIZE] buf;
-        auto len = readlink(path.toStringz, buf.ptr, buf.length);
-        if (len < 0)
-            return engine.throwTypeError("ENOENT: no such file or directory, readlink '" ~ path ~ "'");
-        return engine.newString(cast(string) buf[0 .. len]);
+        version(Posix)
+        {
+            import core.sys.posix.unistd : readlink;
+            import std.string : toStringz;
+            char[READLINK_BUF_SIZE] buf;
+            auto len = readlink(path.toStringz, buf.ptr, buf.length);
+            if (len < 0)
+                return engine.throwTypeError("ENOENT: no such file or directory, readlink '" ~ path ~ "'");
+            return engine.newString(cast(string) buf[0 .. len]);
+        }
+        else
+        {
+            return engine.throwTypeError("ENOSYS: readlinkSync is not supported on this platform");
+        }
     }
     catch (Exception e) { return throwSystemError(engine, "readlink", path, e); }
 }
@@ -835,14 +981,31 @@ JSHandle jsTruncateSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
         return throwPermError(engine, "write", path);
     try
     {
-        import std.string : toStringz;
-        if (truncate(path.toStringz, len) != 0)
+        version(Posix)
         {
-            import core.stdc.errno : errno;
-            import core.stdc.string : strerror;
-            import std.string : fromStringz;
-            auto msg = fromStringz(strerror(errno)).idup;
-            return engine.throwTypeError("EIO: " ~ msg ~ ", truncate '" ~ path ~ "'");
+            import std.string : toStringz;
+            if (truncate(path.toStringz, len) != 0)
+            {
+                import core.stdc.errno : errno;
+                import core.stdc.string : strerror;
+                import std.string : fromStringz;
+                auto msg = fromStringz(strerror(errno)).idup;
+                return engine.throwTypeError("EIO: " ~ msg ~ ", truncate '" ~ path ~ "'");
+            }
+        }
+        else version(Windows)
+        {
+            import std.string : toStringz;
+            enum _O_RDWR_WIN = 0x0002, _O_BINARY_WIN = 0x8000;
+            auto wfd = _open(path.toStringz, _O_RDWR_WIN | _O_BINARY_WIN);
+            if (wfd < 0)
+                return engine.throwTypeError("ENOENT: cannot open file, truncate '" ~ path ~ "'");
+            if (_chsize(wfd, len) != 0)
+            {
+                _close(wfd);
+                return engine.throwTypeError("EIO: truncate failed, truncate '" ~ path ~ "'");
+            }
+            _close(wfd);
         }
         return engine.newUndefined();
     }
@@ -865,17 +1028,24 @@ JSHandle jsChownSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
         return throwPermError(engine, "write", path);
     try
     {
-        import core.sys.posix.unistd : chown;
-        import std.string : toStringz;
-        if (chown(path.toStringz, uid, gid) != 0)
+        version(Posix)
         {
-            import core.stdc.errno : errno;
-            import core.stdc.string : strerror;
-            import std.string : fromStringz;
-            auto msg = fromStringz(strerror(errno)).idup;
-            return engine.throwTypeError("EPERM: " ~ msg ~ ", chown '" ~ path ~ "'");
+            import core.sys.posix.unistd : chown;
+            import std.string : toStringz;
+            if (chown(path.toStringz, uid, gid) != 0)
+            {
+                import core.stdc.errno : errno;
+                import core.stdc.string : strerror;
+                import std.string : fromStringz;
+                auto msg = fromStringz(strerror(errno)).idup;
+                return engine.throwTypeError("EPERM: " ~ msg ~ ", chown '" ~ path ~ "'");
+            }
+            return engine.newUndefined();
         }
-        return engine.newUndefined();
+        else
+        {
+            return engine.newUndefined();
+        }
     }
     catch (Exception e) { return throwSystemError(engine, "chown", path, e); }
 }
@@ -884,7 +1054,15 @@ JSHandle jsChownSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
 int parseFsFlags(string flags) nothrow @trusted
 {
-    import core.sys.posix.fcntl : O_RDONLY, O_WRONLY, O_RDWR, O_CREAT, O_TRUNC, O_APPEND;
+    version(Posix)
+    {
+        import core.sys.posix.fcntl : O_RDONLY, O_WRONLY, O_RDWR, O_CREAT, O_TRUNC, O_APPEND;
+    }
+    else
+    {
+        enum O_RDONLY = 0x0000, O_WRONLY = 0x0001, O_RDWR = 0x0002,
+             O_CREAT = 0x0100, O_TRUNC = 0x0200, O_APPEND = 0x0008;
+    }
     if (flags == "r") return O_RDONLY;
     if (flags == "r+") return O_RDWR;
     if (flags == "w") return O_WRONLY | O_CREAT | O_TRUNC;
@@ -917,9 +1095,17 @@ JSHandle jsOpenSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
         return throwPermError(engine, "write", path);
     try
     {
-        import core.sys.posix.fcntl : open;
         import std.string : toStringz;
-        auto fd = open(path.toStringz, parseFsFlags(flags), mode);
+        int fd;
+        version(Posix)
+        {
+            import core.sys.posix.fcntl : open;
+            fd = open(path.toStringz, parseFsFlags(flags), mode);
+        }
+        else version(Windows)
+        {
+            fd = _open(path.toStringz, parseFsFlags(flags) | _O_BINARY, mode);
+        }
         if (fd < 0)
         {
             import core.stdc.errno : errno;
@@ -941,8 +1127,15 @@ JSHandle jsCloseSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     auto engine = state.engine;
     if (args.length < 1) return engine.throwTypeError("closeSync requires a file descriptor");
     auto fd = engine.extractInt(args[0]);
-    import core.sys.posix.unistd : close;
-    close(fd);
+    version(Posix)
+    {
+        import core.sys.posix.unistd : close;
+        close(fd);
+    }
+    else version(Windows)
+    {
+        _close(fd);
+    }
     return engine.newUndefined();
 }
 
@@ -970,12 +1163,30 @@ JSHandle jsReadSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
             pos = engine.extractInt(args[4]);
 
         try {
-            import core.sys.posix.unistd : read, lseek;
-            import core.sys.posix.sys.types : off_t;
             if (pos >= 0)
-                lseek(fd, cast(off_t) pos, 0); // SEEK_SET
+            {
+                version(Posix)
+                {
+                    import core.sys.posix.unistd : lseek;
+                    import core.sys.posix.sys.types : off_t;
+                    lseek(fd, cast(off_t) pos, 0);
+                }
+                else version(Windows)
+                {
+                    _lseeki64(fd, cast(long) pos, 0);
+                }
+            }
             auto buf = new ubyte[length];
-            auto bytesRead = read(fd, buf.ptr, length);
+            long bytesRead;
+            version(Posix)
+            {
+                import core.sys.posix.unistd : read;
+                bytesRead = read(fd, buf.ptr, length);
+            }
+            else version(Windows)
+            {
+                bytesRead = _read(fd, buf.ptr, cast(uint) length);
+            }
             if (bytesRead < 0) {
                 import core.stdc.errno : errno;
                 import core.stdc.string : strerror;
@@ -993,9 +1204,17 @@ JSHandle jsReadSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
         return engine.throwRangeError("readSync length out of range");
     try
     {
-        import core.sys.posix.unistd : read;
         auto buf = new ubyte[length];
-        auto bytesRead = read(fd, buf.ptr, length);
+        long bytesRead;
+        version(Posix)
+        {
+            import core.sys.posix.unistd : read;
+            bytesRead = read(fd, buf.ptr, length);
+        }
+        else version(Windows)
+        {
+            bytesRead = _read(fd, buf.ptr, cast(uint) length);
+        }
         if (bytesRead < 0)
         {
             import core.stdc.errno : errno;
@@ -1023,8 +1242,16 @@ JSHandle jsWriteSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     auto data = engine.extractString(args[1]);
     try
     {
-        import core.sys.posix.unistd : write;
-        auto written = write(fd, data.ptr, data.length);
+        long written;
+        version(Posix)
+        {
+            import core.sys.posix.unistd : write;
+            written = write(fd, data.ptr, data.length);
+        }
+        else version(Windows)
+        {
+            written = _write(fd, data.ptr, cast(uint) data.length);
+        }
         if (written < 0)
         {
             import core.stdc.errno : errno;
@@ -1053,9 +1280,8 @@ JSHandle jsFstatSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     auto fd = engine.extractInt(args[0]);
     try
     {
-        import core.sys.posix.sys.stat : fstat, stat_t;
-        stat_t buf;
-        if (fstat(fd, &buf) != 0)
+        SafeStatResult sr;
+        if (safeFstat(fd, sr) != 0)
         {
             import core.stdc.errno : errno;
             import core.stdc.string : strerror;
@@ -1063,7 +1289,7 @@ JSHandle jsFstatSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
             auto msg = fromStringz(strerror(errno)).idup;
             return engine.throwTypeError("EBADF: " ~ msg ~ ", fstat");
         }
-        return buildStatFromPosix(engine, buf);
+        return buildStatObject(engine, sr);
     }
     catch (Exception e)
     {
@@ -1079,8 +1305,17 @@ JSHandle jsFsyncSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     auto engine = state.engine;
     if (args.length < 1) return engine.throwTypeError("fsyncSync requires a file descriptor");
     auto fd = engine.extractInt(args[0]);
-    import core.sys.posix.unistd : fsync;
-    if (fsync(fd) != 0)
+    int ret;
+    version(Posix)
+    {
+        import core.sys.posix.unistd : fsync;
+        ret = fsync(fd);
+    }
+    else version(Windows)
+    {
+        ret = _commit(fd);
+    }
+    if (ret != 0)
     {
         import core.stdc.errno : errno;
         import core.stdc.string : strerror;
@@ -1099,7 +1334,16 @@ JSHandle jsFdatasyncSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     auto engine = state.engine;
     if (args.length < 1) return engine.throwTypeError("fdatasyncSync requires a file descriptor");
     auto fd = engine.extractInt(args[0]);
-    if (fdatasync(fd) != 0)
+    int ret;
+    version(Posix)
+    {
+        ret = fdatasync(fd);
+    }
+    else version(Windows)
+    {
+        ret = _commit(fd);
+    }
+    if (ret != 0)
     {
         import core.stdc.errno : errno;
         import core.stdc.string : strerror;

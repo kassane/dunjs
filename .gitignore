@@ -40,6 +40,7 @@ vendor/sqlite/*.o
 vendor/v8shim/*.o
 vendor/v8shim/*.a
 vendor/v8shim/build/
+vendor/crt/
 vendor/*.tar.gz
 vendor/*.tar.xz
 

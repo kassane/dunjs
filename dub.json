@@ -87,18 +87,7 @@
 			],
 			"name": "v8",
 			"dflags-linux-ldc": [
-				"--link-internally",
-				"-L-L/usr/lib/x86_64-linux-gnu",
-				"-L-L/usr/lib/gcc/x86_64-linux-gnu/13",
-				"-L-L/lib/x86_64-linux-gnu",
-				"-L/usr/lib/x86_64-linux-gnu/Scrt1.o",
-				"-L/usr/lib/x86_64-linux-gnu/crti.o",
-				"-L-lgcc_s",
-				"-L-lgcc",
-				"-L-lc",
-				"-L/usr/lib/x86_64-linux-gnu/crtn.o",
-				"-L--dynamic-linker=/lib64/ld-linux-x86-64.so.2",
-				"-L--pie"
+				"--link-internally"
 			],
 			"lflags-linux": [
 				"-L$PACKAGE_DIR/vendor/v8shim",
@@ -106,7 +95,23 @@
 				"-lv8shim",
 				"-lv8",
 				"-lv8_libplatform",
-				"-lstdc++"
+				"-lstdc++",
+				"-L/usr/lib/x86_64-linux-gnu",
+				"-L/usr/lib/aarch64-linux-gnu",
+				"-L/usr/lib/gcc/x86_64-linux-gnu/13",
+				"-L/usr/lib/gcc/x86_64-linux-gnu/14",
+				"-L/usr/lib/gcc/aarch64-linux-gnu/13",
+				"-L/usr/lib/gcc/aarch64-linux-gnu/14",
+				"-L/lib/x86_64-linux-gnu",
+				"-L/lib/aarch64-linux-gnu",
+				"$PACKAGE_DIR/vendor/crt/Scrt1.o",
+				"$PACKAGE_DIR/vendor/crt/crti.o",
+				"-lgcc_s",
+				"-lgcc",
+				"-lc",
+				"$PACKAGE_DIR/vendor/crt/crtn.o",
+				"--pie",
+				"@$PACKAGE_DIR/vendor/crt/dynlinker.rsp"
 			],
 			"lflags-osx": [
 				"-L$PACKAGE_DIR/vendor/v8shim",
@@ -129,6 +134,9 @@
 			"targetType": "executable",
 			"preBuildCommands-posix": [
 				"$DC -run $PACKAGE_DIR/build.d --backend=v8"
+			],
+			"preBuildCommands-linux": [
+				"sh -c 'M=$$(gcc -dumpmachine 2>/dev/null||echo x86_64-linux-gnu);A=$$(uname -m);case $$A in aarch64)DL=/lib/ld-linux-aarch64.so.1;;i?86)DL=/lib/ld-linux.so.2;;*)DL=/lib64/ld-linux-x86-64.so.2;;esac;mkdir -p $PACKAGE_DIR/vendor/crt;for f in Scrt1.o crti.o crtn.o;do ln -sf /usr/lib/$$M/$$f $PACKAGE_DIR/vendor/crt/$$f 2>/dev/null;done;echo \"--dynamic-linker=$$DL\">$PACKAGE_DIR/vendor/crt/dynlinker.rsp'"
 			]
 		},
 		{
