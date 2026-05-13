@@ -80,6 +80,11 @@ enum V8_PREBUILT_BASE_URL = "https://github.com/kuoruan/libv8/releases/download/
 enum V8_NODE_VERSION   = "v22.15.0";   // kept for fallback header download
 enum V8_HEADERS_MARKER = "v8.h";
 enum V8_SYSTEM_INCLUDE = "/usr/include/v8";
+// Custom libv8 builds: set V8_CUSTOM_LIB env var to a local path to a
+// libv8-*.zip (with include/ + lib/ dirs). Supports V8 14.9+ with or without
+// pointer compression. The shim auto-detects V8_COMPRESS_POINTERS from
+// gn-args or the V8_COMPRESS_POINTERS=1 env var.
+// Example: V8_CUSTOM_LIB=./libv8-14.9.207.4-linux-x64-default.zip rdmd build.d --backend=v8
 
 // SQLite configuration
 // Downloads the amalgamation source (sqlite3.c + sqlite3.h) for ImportC bindings.
@@ -142,6 +147,123 @@ string nodeHeadersUrl()
 {
     return "https://nodejs.org/dist/" ~ V8_NODE_VERSION
          ~ "/node-" ~ V8_NODE_VERSION ~ "-headers.tar.gz";
+}
+
+/// Detect whether the vendored V8 was built with pointer compression.
+/// Checks: V8_COMPRESS_POINTERS env var, then gn-args text files.
+bool detectV8PointerCompression()
+{
+    import std.process : environment;
+    auto envVal = environment.get("V8_COMPRESS_POINTERS", "");
+    if (envVal == "1" || envVal == "true") return true;
+    if (envVal == "0" || envVal == "false") return false;
+
+    foreach (gnArgs; [
+        buildPath(v8Dir(), "gn-args_Linux.txt"),
+        buildPath(v8Dir(), "gn-args.txt"),
+        buildPath(v8Dir(), "args.gn"),
+    ])
+    {
+        if (exists(gnArgs))
+        {
+            try
+            {
+                import std.algorithm : canFind;
+                auto content = readText(gnArgs);
+                auto lines = content.split("\n");
+                for (size_t i = 0; i < lines.length; i++)
+                {
+                    if (lines[i].canFind("v8_enable_pointer_compression") &&
+                        !lines[i].canFind("8gb") && !lines[i].canFind("shared_cage"))
+                    {
+                        if (i + 1 < lines.length && lines[i+1].canFind("true"))
+                            return true;
+                        if (i + 1 < lines.length && lines[i+1].canFind("false"))
+                            return false;
+                    }
+                }
+            }
+            catch (Exception) {}
+        }
+    }
+    return false;
+}
+
+/// Extract a custom V8 zip archive (from V8_CUSTOM_LIB env) into vendor/v8/.
+/// Returns true if extraction succeeded and include/lib dirs are populated.
+bool extractCustomV8Lib()
+{
+    import std.process : environment, executeShell;
+    auto customLib = environment.get("V8_CUSTOM_LIB", "");
+    if (customLib.length == 0 || !exists(customLib))
+        return false;
+
+    enum tag = "v8";
+    logInfo(tag, "Extracting custom V8 from: " ~ customLib);
+
+    auto destDir = v8Dir();
+    mkdirRecurse(destDir);
+
+    import std.algorithm : endsWith;
+    int status;
+    if (customLib.endsWith(".zip"))
+    {
+        auto r = executeShell("unzip -o " ~ customLib ~ " -d " ~ destDir ~ " 2>&1");
+        status = r.status;
+    }
+    else if (customLib.endsWith(".tar.xz"))
+    {
+        auto r = executeShell("tar -xf " ~ customLib ~ " -C " ~ destDir ~ " 2>&1");
+        status = r.status;
+    }
+    else if (customLib.endsWith(".tar.gz"))
+    {
+        auto r = executeShell("tar -xzf " ~ customLib ~ " -C " ~ destDir ~ " 2>&1");
+        status = r.status;
+    }
+    else
+    {
+        logError(tag, "Unsupported archive format: " ~ customLib);
+        return false;
+    }
+
+    if (status != 0)
+    {
+        logError(tag, "Failed to extract " ~ customLib);
+        return false;
+    }
+
+    // Check for include/v8.h (may be in a subdirectory)
+    if (exists(buildPath(destDir, "include", "v8.h")))
+    {
+        logInfo(tag, "Custom V8 extracted — headers found in " ~ destDir ~ "/include/");
+        return true;
+    }
+
+    // Try to find include/ in a subdirectory (e.g. libv8-14.9.207.4-linux-x64-default/)
+    foreach (entry; dirEntries(destDir, SpanMode.shallow))
+    {
+        if (entry.isDir && exists(buildPath(entry.name, "include", "v8.h")))
+        {
+            // Move contents up one level
+            foreach (sub; dirEntries(entry.name, SpanMode.shallow))
+            {
+                auto dest = buildPath(destDir, baseName(sub.name));
+                if (exists(dest))
+                {
+                    if (isDir(dest)) rmdirRecurse(dest);
+                    else std.file.remove(dest);
+                }
+                rename(sub.name, dest);
+            }
+            rmdirRecurse(entry.name);
+            logInfo(tag, "Custom V8 extracted — headers found in " ~ destDir ~ "/include/");
+            return true;
+        }
+    }
+
+    logWarning(tag, "Custom V8 archive extracted but include/v8.h not found");
+    return false;
 }
 
 // ════════════════════════════════════════════════════════════════════
@@ -1238,6 +1360,31 @@ bool checkV8Libs(ref const Toolchain tc, ref const BuildOptions opts)
 
     mkdirRecurse(libDir);
 
+    // --- Try custom V8 archive from V8_CUSTOM_LIB env ------------------
+    if (extractCustomV8Lib())
+    {
+        // Check if the extracted archive has lib/ with the expected files
+        immutable customMonolith = buildPath(v8Dir(), "lib", "libv8_monolith.a");
+        immutable customV8a = buildPath(v8Dir(), "lib", "libv8.a");
+        if (exists(customMonolith) || exists(customV8a))
+        {
+            logInfo(tag, "Custom V8 libs found after extraction");
+            if (exists(customMonolith) && !exists(stagedV8))
+            {
+                version (Posix)
+                {
+                    import core.sys.posix.unistd : symlink;
+                    import std.string : toStringz;
+                    symlink("libv8_monolith.a".toStringz, stagedV8.toStringz);
+                }
+                else
+                    std.file.copy(customMonolith, stagedV8);
+            }
+            if (exists(stagedV8))
+                return true;
+        }
+    }
+
     // Helper: symlink (relative) or copy a file
     bool stageFile(string src, string dst)
     {
@@ -1492,6 +1639,16 @@ bool buildV8Shim(ref const Toolchain tc, ref const BuildOptions opts)
     logVerbose(tag, "C++ compiler: " ~ tc.cxx.path);
     logVerbose(tag, "Archiver:     " ~ tc.ar.path);
 
+    // ── Detect V8 pointer compression ────────────────────────────
+    bool v8PtrCompress = detectV8PointerCompression();
+    string[] v8ExtraCxxFlags;
+    if (v8PtrCompress)
+    {
+        logInfo(tag, "V8 pointer compression detected — adding -DV8_COMPRESS_POINTERS");
+        v8ExtraCxxFlags ~= "-DV8_COMPRESS_POINTERS";
+        v8ExtraCxxFlags ~= "-DV8_31BIT_SMIS_ON_64BIT_ARCH";
+    }
+
     // ── Build: prefer CMake when available, fallback to manual ────
     immutable cmakeLists = buildPath(v8shimDir(), "CMakeLists.txt");
     bool useCMake = tc.cmake.found && exists(cmakeLists);
@@ -1514,6 +1671,9 @@ bool buildV8Shim(ref const Toolchain tc, ref const BuildOptions opts)
 
         if (v8Includes.length > 0)
             cmakeArgs ~= "-DV8_INCLUDE_DIR=" ~ v8Includes;
+
+        if (v8PtrCompress)
+            cmakeArgs ~= "-DV8_POINTER_COMPRESSION=ON";
 
         if (tc.platform == Platform.windows)
         {
@@ -1618,6 +1778,10 @@ bool buildV8Shim(ref const Toolchain tc, ref const BuildOptions opts)
             if (v8Includes.length > 0)
                 compileCmd ~= "-I" ~ v8Includes;
         }
+
+        // Pointer compression flags
+        foreach (ef; v8ExtraCxxFlags)
+            compileCmd ~= ef;
 
         // Try pkg-config cflags (POSIX only)
         if (!isMSVC && tc.pkgConfig.found)

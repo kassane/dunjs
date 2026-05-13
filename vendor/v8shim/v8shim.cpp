@@ -182,8 +182,10 @@ DunV8Value* dun_v8_eval(DunV8Context* cw, const char* source,
         auto origin_name = v8::String::NewFromUtf8(
             isolate, filename ? filename : "<eval>").ToLocalChecked();
 #if V8_MAJOR_VERSION >= 10 && V8_MAJOR_VERSION <= 12
+        // V8 10-12: ScriptOrigin takes isolate as first arg
         v8::ScriptOrigin origin(isolate, origin_name);
 #else
+        // V8 13+: ScriptOrigin takes value directly (no isolate)
         v8::ScriptOrigin origin(origin_name);
 #endif
 
@@ -582,7 +584,13 @@ DunV8Value* dun_v8_new_promise(DunV8Context* cw,
 int dun_v8_has_pending_microtasks(DunV8Isolate* iw) {
     if (!iw) return 0;
     v8::Isolate::Scope s(iw->isolate);
+#if V8_MAJOR_VERSION >= 14
+    // HasPendingBackgroundTasks removed in V8 14.x; microtask checkpoint is
+    // the only reliable way to drain — return 0 so callers just checkpoint.
+    return 0;
+#else
     return iw->isolate->HasPendingBackgroundTasks() ? 1 : 0;
+#endif
 }
 
 void dun_v8_drain_microtasks(DunV8Isolate* iw) {

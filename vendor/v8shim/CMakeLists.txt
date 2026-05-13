@@ -24,6 +24,8 @@ endif()
 
 message(STATUS "V8 headers: ${V8_INCLUDE_DIR}")
 
+option(V8_POINTER_COMPRESSION "Enable V8 pointer compression defines" OFF)
+
 add_library(v8shim STATIC
     v8shim.cpp
 )
@@ -37,6 +39,14 @@ target_compile_options(v8shim PRIVATE
     $<$<CXX_COMPILER_ID:GNU,Clang,AppleClang>:-O2 -Wall -Wextra -Wno-unused-parameter>
     $<$<CXX_COMPILER_ID:MSVC>:/O2 /W3 /EHsc>
 )
+
+if(V8_POINTER_COMPRESSION)
+    target_compile_definitions(v8shim PRIVATE
+        V8_COMPRESS_POINTERS
+        V8_31BIT_SMIS_ON_64BIT_ARCH
+    )
+    message(STATUS "V8 pointer compression: ON")
+endif()
 
 install(TARGETS v8shim ARCHIVE DESTINATION lib)
 install(FILES v8shim.h DESTINATION include)
