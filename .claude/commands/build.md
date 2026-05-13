@@ -69,7 +69,7 @@ dub build -c v8  && BACKEND=v8  bash tests/integration/run.sh
 ./build/dun "--DRT-gcopt=parallel:4 minPoolSize:32" run --allow-all tests/benchmarks/feature_bench.js
 ```
 
-Backend test scores: **QuickJS 62/62, JSC 62/62, V8 61/62** (Workers on all backends; V8 error_handling fails due to DWARF exception unwind through C++ frames).
+Backend test scores: **QuickJS 62/62, JSC 62/62, V8 62/62** (full parity, Workers on all backends).
 
 ### 4. Docker
 

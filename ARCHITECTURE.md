@@ -7,7 +7,7 @@ DunJS is a 7-layer JavaScript/TypeScript runtime with a **pluggable engine archi
 
 Three backends are fully functional: QuickJS-NG (default), JavaScriptCore, and V8.
 All 62 integration tests pass on QuickJS and JSC (QuickJS 62/62, JSC 62/62).
-V8 14.9 passes 61/62 (error_handling fails due to DWARF exception unwind through C++ frames).
+V8 14.9 passes 62/62 (full parity with QuickJS and JSC).
 All 24 built-in modules (fs, path, crypto, net, http, http2, buffer, events, url, os, fetch,
 child_process, stream, zlib, dns, ws, sqlite, util, assert, querystring, string_decoder,
 timers/promises, tls) are engine-agnostic. Workers, SharedArrayBuffer, and Atomics work on all backends.
@@ -572,4 +572,4 @@ source/dun/security/
 ```
 
 Test pattern inspired by Node.js standalone scripts: run fixture, compare stdout to expected file.
-**QuickJS 62/62, JSC 62/62, V8 61/62** (V8 error_handling fails due to DWARF exception unwind through C++ frames).
+**QuickJS 62/62, JSC 62/62, V8 62/62** (all backends at full parity).

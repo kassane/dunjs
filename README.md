@@ -132,7 +132,7 @@ for 24 hours. `dun install` checks packages before download. See [SECURITY.md](S
 |---------|-------|-------|
 | QuickJS-NG | 62/62 | Default. Interpreter, ES2023, smallest binary (4.6MB) |
 | JavaScriptCore | 62/62 | JIT. Same engine as Safari/Bun |
-| V8 | 61/62 | JIT. Same engine as Chrome/Node.js. Via C++ shim (error_handling test fails due to DWARF exception unwind) |
+| V8 | 62/62 | JIT. Same engine as Chrome/Node.js (V8 14.9). Via C++ shim |
 
 All 24 built-in modules, Workers, SharedArrayBuffer, Atomics, fetch, Deno compat, and web globals work identically on every backend.
 

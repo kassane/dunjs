@@ -412,7 +412,7 @@ dub build -c v8  && BACKEND=v8  ./tests/integration/run.sh
 | import.meta | `import_meta` | 6 checks: url, filename, dirname, main (all 3 backends) |
 | Real-world | 7 end-to-end scenarios | Config loading, task runner, file processing, events, promise pool, nested require, ESM pipeline |
 
-Backend test scores: **QuickJS 62/62**, **JSC 62/62**, **V8 61/62** (V8: error_handling fails due to DWARF exception unwind through V8 C++ frames).
+Backend test scores: **QuickJS 62/62**, **JSC 62/62**, **V8 62/62** (full parity across all 3 backends).
 
 Test pattern: fixtures in `tests/integration/fixtures/*.{js,mjs,ts}`, expected stdout in `tests/integration/expected/*.txt`.
 
