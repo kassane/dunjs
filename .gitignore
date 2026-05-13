@@ -48,3 +48,9 @@ node_modules/
 
 # DunJS local cache (audit cache, etc.)
 .dun/
+
+# Benchmark results (machine-specific)
+tests/benchmarks/results/
+
+# Claude Code local settings
+.claude/settings.local.json
