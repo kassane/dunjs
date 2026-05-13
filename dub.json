@@ -86,6 +86,20 @@
 				"EngineV8"
 			],
 			"name": "v8",
+			"dflags-linux-ldc": [
+				"--link-internally",
+				"-L-L/usr/lib/x86_64-linux-gnu",
+				"-L-L/usr/lib/gcc/x86_64-linux-gnu/13",
+				"-L-L/lib/x86_64-linux-gnu",
+				"-L/usr/lib/x86_64-linux-gnu/Scrt1.o",
+				"-L/usr/lib/x86_64-linux-gnu/crti.o",
+				"-L-lgcc_s",
+				"-L-lgcc",
+				"-L-lc",
+				"-L/usr/lib/x86_64-linux-gnu/crtn.o",
+				"-L--dynamic-linker=/lib64/ld-linux-x86-64.so.2",
+				"-L--pie"
+			],
 			"lflags-linux": [
 				"-L$PACKAGE_DIR/vendor/v8shim",
 				"-L$PACKAGE_DIR/vendor/v8/lib",

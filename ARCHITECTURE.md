@@ -6,7 +6,8 @@ DunJS is a 7-layer JavaScript/TypeScript runtime with a **pluggable engine archi
 (IJSEngine interface), a cross-platform I/O poller (epoll/kqueue/poll), and a Deno-inspired permission system.
 
 Three backends are fully functional: QuickJS-NG (default), JavaScriptCore, and V8.
-All 60 integration tests pass on all 3 backends (QuickJS 60/60, JSC 60/60, V8 60/60).
+All 62 integration tests pass on QuickJS and JSC (QuickJS 62/62, JSC 62/62).
+V8 14.9 passes 61/62 (error_handling fails due to DWARF exception unwind through C++ frames).
 All 24 built-in modules (fs, path, crypto, net, http, http2, buffer, events, url, os, fetch,
 child_process, stream, zlib, dns, ws, sqlite, util, assert, querystring, string_decoder,
 timers/promises, tls) are engine-agnostic. Workers, SharedArrayBuffer, and Atomics work on all backends.
@@ -403,6 +404,29 @@ refactored via `withContext<F>` to eliminate scope guard boilerplate:
 | Data | `set_context_data`, `get_context_data` | -- |
 | Limits | `set_memory_limit`, `set_stack_limit` | -- |
 
+### V8 14.x External::New Compatibility
+
+V8 14.x changed `v8::External::New` to require an `ExternalPointerTypeTag` parameter,
+breaking the 2-argument signature used in V8 12.x and earlier. The shim uses compat
+macros to abstract across V8 versions:
+
+```cpp
+// vendor/v8shim/v8shim.h (or v8shim.cpp)
+#if V8_MAJOR_VERSION >= 14
+  #define DUN_EXTERNAL_NEW(isolate, ptr) \
+      v8::External::New(isolate, ptr, v8::ExternalPointerTag::kExternalPointerNullTag)
+  #define DUN_EXTERNAL_VALUE(ext) \
+      ext->Value(v8::ExternalPointerTag::kExternalPointerNullTag)
+#else
+  #define DUN_EXTERNAL_NEW(isolate, ptr) v8::External::New(isolate, ptr)
+  #define DUN_EXTERNAL_VALUE(ext)        ext->Value()
+#endif
+```
+
+All uses of `v8::External` in the trampoline and native callback registration go
+through `DUN_EXTERNAL_NEW` / `DUN_EXTERNAL_VALUE` so that the shim compiles against
+both V8 12.x (Node.js 22 headers) and V8 14.9 (kassane/libv8).
+
 ### D extern(C++, "v8") Direct Bindings
 
 For V8's all-static `V8` class (no vtable, safe to bind directly):
@@ -448,7 +472,7 @@ Feature benchmarks (25 tests, ops/sec):
 | Bun | 477M | 0.89x |
 | Node.js | 175M | 0.33x |
 | Deno | 172M | 0.32x |
-| DunJS V8 | 141M | 0.26x |
+| DunJS V8 | ~125M | 0.23x |
 | DunJS QuickJS | 11M | 0.02x |
 
 Framework benchmarks (39 tests, ops/sec):
@@ -458,7 +482,7 @@ Framework benchmarks (39 tests, ops/sec):
 | DunJS JSC | 319M | 1.00x (fastest) |
 | Bun | 279M | 0.87x |
 | Node.js | 196M | 0.62x |
-| DunJS V8 | 190M | 0.60x |
+| DunJS V8 | ~168M | 0.53x |
 | Deno | 187M | 0.59x |
 
 React/framework compat: **81/81 checks** pass across all 6 runtimes.
@@ -479,6 +503,7 @@ npm compat: **145/145** pass across all 6 runtimes.
 | D TMP (V8) | V8TypeChecks dispatch table | Function pointer table mirrors C++ isV8Type<Tag> |
 | D TMP (JSC) | JSCTypeChecks + getType() | Single-dispatch via JSValueGetType(), mirrors kJSType* |
 | C++ FFI (direct) | extern(C++, "v8") | Only for static-method classes (no vtable) |
+| V8 source | kassane/libv8 (V8 14.9.207.4) | Pre-built monolith, LDC --link-internally for CREL relocations |
 | V8 headers | Vendored from Node.js | Eliminate libv8-dev compile dependency |
 | Event loop | epoll/kqueue/poll | D stdlib syscalls, zero deps, cross-platform |
 | Build system | DUB (JSON) | Standard D tooling, configurations per engine |
@@ -493,7 +518,7 @@ npm compat: **145/145** pass across all 6 runtimes.
 ```
 tests/
 +-- integration/
-|   +-- fixtures/       # 60 test scripts (JS, MJS, TS)
+|   +-- fixtures/       # 62 test scripts (JS, MJS, TS)
 |   |   +-- hello.js, types.js, console_methods.js    # Core JS
 |   |   +-- promises.js, promises_advanced.js          # Async
 |   |   +-- es2023.js, closures.js, iterators.js       # ES2023+
@@ -521,7 +546,7 @@ tests/
 |   |   +-- fetch_response.js                          # fetch() Response object (19 checks)
 |   |   +-- import_meta.mjs                            # import.meta (all backends, 6 checks)
 |   |   +-- realworld_*.js/.mjs/.ts (7 scenarios)      # End-to-end
-|   +-- expected/       # 60 expected stdout files
+|   +-- expected/       # 62 expected stdout files
 |   +-- fixtures/lib/   # Shared modules for require tests
 +-- benchmarks/         # Cross-runtime benchmarks (13 files)
 |   +-- feature_bench.js      # 25 cross-runtime perf tests
@@ -547,4 +572,4 @@ source/dun/security/
 ```
 
 Test pattern inspired by Node.js standalone scripts: run fixture, compare stdout to expected file.
-All 60 integration tests pass on all 3 backends: **QuickJS 60/60, JSC 60/60, V8 60/60**.
+**QuickJS 62/62, JSC 62/62, V8 61/62** (V8 error_handling fails due to DWARF exception unwind through C++ frames).

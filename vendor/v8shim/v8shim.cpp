@@ -12,6 +12,17 @@
 #include <string>
 #include <mutex>
 
+// V8 14.x: External::New/Value require ExternalPointerTypeTag parameter
+#if V8_MAJOR_VERSION >= 14
+#define DUN_EXTERNAL_NEW(iso, ptr) \
+    v8::External::New(iso, ptr, v8::kExternalPointerTypeTagDefault)
+#define DUN_EXTERNAL_VALUE(ext) \
+    (ext)->Value(v8::kExternalPointerTypeTagDefault)
+#else
+#define DUN_EXTERNAL_NEW(iso, ptr) v8::External::New(iso, ptr)
+#define DUN_EXTERNAL_VALUE(ext)    (ext)->Value()
+#endif
+
 static std::once_flag g_platform_flag;
 static std::unique_ptr<v8::Platform> g_platform;
 
@@ -91,7 +102,7 @@ static void v8FunctionTrampoline(const v8::FunctionCallbackInfo<v8::Value>& info
     v8::HandleScope handle_scope(isolate);
 
     auto external = v8::Local<v8::External>::Cast(info.Data());
-    auto* fd = static_cast<DunV8FunctionData*>(external->Value());
+    auto* fd = static_cast<DunV8FunctionData*>(DUN_EXTERNAL_VALUE(external));
     assert(fd && "trampoline: null FunctionData");
     assert(fd->callback && "trampoline: null callback");
 
@@ -277,7 +288,7 @@ DunV8Value* dun_v8_new_function(DunV8Context* cw, DunV8NativeCallback cb,
     assert(cb && "dun_v8_new_function: null callback");
     return dun::withContext(cw, [&](auto isolate, auto context, auto* iw) {
         auto* fd = new DunV8FunctionData{cb, cw, data, {}};
-        auto external = v8::External::New(isolate, fd);
+        auto external = DUN_EXTERNAL_NEW(isolate, fd);
         fd->prevent_gc.Reset(isolate, external);
         fd->prevent_gc.SetWeak(fd, functionDataweak, v8::WeakCallbackType::kParameter);
         auto tmpl = v8::FunctionTemplate::New(isolate, v8FunctionTrampoline, external);
@@ -543,33 +554,35 @@ DunV8Value* dun_v8_new_promise(DunV8Context* cw,
         resolverVal->isolate_wrapper = iw;
         resolverVal->ref_count = 2; // one for resolve, one for reject
 
-        auto resolveExt = v8::External::New(isolate, resolverVal);
+        auto resolveExt = DUN_EXTERNAL_NEW(isolate, resolverVal);
         auto resolveFunc = v8::Function::New(context,
             [](const v8::FunctionCallbackInfo<v8::Value>& info) {
                 auto ext = v8::Local<v8::External>::Cast(info.Data());
-                auto* rw = static_cast<DunV8Value*>(ext->Value());
+                auto* rw = static_cast<DunV8Value*>(DUN_EXTERNAL_VALUE(ext));
                 auto iso = info.GetIsolate();
                 auto ctx = iso->GetCurrentContext();
-                auto r = rw->value.Get(iso).template As<v8::Promise::Resolver>();
+                auto resolver = v8::Local<v8::Promise::Resolver>::Cast(
+                    rw->value.Get(iso));
                 v8::Local<v8::Value> val;
                 if (info.Length() > 0) val = info[0];
                 else val = v8::Undefined(iso);
-                r->Resolve(ctx, val).FromMaybe(false);
+                resolver->Resolve(ctx, val).FromMaybe(false);
                 dun_v8_value_unref(rw);
             }, resolveExt).ToLocalChecked();
 
-        auto rejectExt = v8::External::New(isolate, resolverVal);
+        auto rejectExt = DUN_EXTERNAL_NEW(isolate, resolverVal);
         auto rejectFunc = v8::Function::New(context,
             [](const v8::FunctionCallbackInfo<v8::Value>& info) {
                 auto ext = v8::Local<v8::External>::Cast(info.Data());
-                auto* rw = static_cast<DunV8Value*>(ext->Value());
+                auto* rw = static_cast<DunV8Value*>(DUN_EXTERNAL_VALUE(ext));
                 auto iso = info.GetIsolate();
                 auto ctx = iso->GetCurrentContext();
-                auto r = rw->value.Get(iso).template As<v8::Promise::Resolver>();
+                auto resolver = v8::Local<v8::Promise::Resolver>::Cast(
+                    rw->value.Get(iso));
                 v8::Local<v8::Value> val;
                 if (info.Length() > 0) val = info[0];
                 else val = v8::Undefined(iso);
-                r->Reject(ctx, val).FromMaybe(false);
+                resolver->Reject(ctx, val).FromMaybe(false);
                 dun_v8_value_unref(rw);
             }, rejectExt).ToLocalChecked();
 
@@ -621,12 +634,14 @@ static size_t nearHeapLimitCallback(void* data, size_t current, size_t initial) 
 
 void dun_v8_set_memory_limit(DunV8Isolate* iw, size_t bytes) {
     assert(iw && "dun_v8_set_memory_limit: null isolate");
+    v8::Isolate::Scope isolate_scope(iw->isolate);
+    v8::HandleScope handle_scope(iw->isolate);
     iw->isolate->AddNearHeapLimitCallback(nearHeapLimitCallback, nullptr);
-    // Constrain young + old generation to requested total
     v8::HeapStatistics stats;
     iw->isolate->GetHeapStatistics(&stats);
-    iw->isolate->AdjustAmountOfExternalAllocatedMemory(
-        static_cast<int64_t>(bytes) - static_cast<int64_t>(stats.total_heap_size()));
+    int64_t delta = static_cast<int64_t>(bytes) - static_cast<int64_t>(stats.total_heap_size());
+    if (delta > 0)
+        iw->isolate->AdjustAmountOfExternalAllocatedMemory(delta);
 }
 
 void dun_v8_set_stack_limit(DunV8Isolate* iw, size_t bytes) {

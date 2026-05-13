@@ -130,9 +130,9 @@ for 24 hours. `dun install` checks packages before download. See [SECURITY.md](S
 
 | Backend | Tests | Notes |
 |---------|-------|-------|
-| QuickJS-NG | 60/60 | Default. Interpreter, ES2023, smallest binary (4.6MB) |
-| JavaScriptCore | 60/60 | JIT. Same engine as Safari/Bun |
-| V8 | 60/60 | JIT. Same engine as Chrome/Node.js. Via C++ shim |
+| QuickJS-NG | 62/62 | Default. Interpreter, ES2023, smallest binary (4.6MB) |
+| JavaScriptCore | 62/62 | JIT. Same engine as Safari/Bun |
+| V8 | 61/62 | JIT. Same engine as Chrome/Node.js. Via C++ shim (error_handling test fails due to DWARF exception unwind) |
 
 All 24 built-in modules, Workers, SharedArrayBuffer, Atomics, fetch, Deno compat, and web globals work identically on every backend.
 
@@ -193,7 +193,7 @@ Feature benchmarks (25 tests, ops/sec — higher is better):
 | Bun | 477M | 0.89x |
 | Node.js | 175M | 0.33x |
 | Deno | 172M | 0.32x |
-| DunJS V8 | 141M | 0.26x |
+| DunJS V8 | 127M | 0.26x |
 
 Framework benchmarks (39 tests, ops/sec):
 

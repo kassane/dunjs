@@ -360,7 +360,9 @@ Key shim patterns:
 - **withContext<F>**: RAII scope guard (Isolate::Scope + HandleScope + Context::Scope) with perfect forwarding
 - **isV8Type<Tag>**: `if constexpr` dispatch to V8 `IsXxx()` methods (9 types)
 - **FunctionTemplate trampoline**: D callback -> `DunV8FunctionData*` in `v8::External` -> `v8FunctionTrampoline` -> D function pointer
-- **Headers vendored from Node.js**: `node-v22.15.0-headers.tar.gz` -> `vendor/v8/include/`
+- **V8 14.x compat**: `DUN_EXTERNAL_NEW(iso, ptr)` / `DUN_EXTERNAL_VALUE(ext)` macros for `ExternalPointerTypeTag` parameter (V8 14+ requires 3-arg `External::New`)
+- **Headers from kassane/libv8**: V8 14.9.207.4 headers + monolith from `github.com/kassane/libv8/releases`
+- **CREL relocations**: V8 14.9 monolith uses LLVM 19+ CREL format; requires LDC's internal linker (`--link-internally`, LLVM 21 based) on Linux — GNU ld 2.42 and lld-18 cannot process CREL
 
 ## Testing
 
@@ -382,7 +384,7 @@ dub test -c unittest    # All unit tests
 | V8 TMP bridge | `source/dun/engine/v8/cppbindings.d` | compile-time | V8TypeName coverage, tag->name mapping |
 | JSC TMP bridge | `source/dun/engine/jsc/cppbindings.d` | compile-time | JSCTypeName coverage, kJSType* alignment |
 
-### Integration Tests (60 fixtures)
+### Integration Tests (62 fixtures)
 
 ```sh
 # Run against a specific backend
@@ -410,7 +412,7 @@ dub build -c v8  && BACKEND=v8  ./tests/integration/run.sh
 | import.meta | `import_meta` | 6 checks: url, filename, dirname, main (all 3 backends) |
 | Real-world | 7 end-to-end scenarios | Config loading, task runner, file processing, events, promise pool, nested require, ESM pipeline |
 
-Backend test scores: **QuickJS 60/60**, **JSC 60/60**, **V8 60/60** (all backends at full parity).
+Backend test scores: **QuickJS 62/62**, **JSC 62/62**, **V8 61/62** (V8: error_handling fails due to DWARF exception unwind through V8 C++ frames).
 
 Test pattern: fixtures in `tests/integration/fixtures/*.{js,mjs,ts}`, expected stdout in `tests/integration/expected/*.txt`.
 
@@ -443,9 +445,9 @@ Cross-runtime comparison (feature_bench.js, 25 tests, ops/sec):
 | Bun 1.3.11 | 458M | 1.00x |
 | DunJS JSC (release) | 426M | **0.93x** |
 | DunJS JSC (debug) | 412M | 0.90x |
-| Node.js v22 | 177M | 0.39x |
-| Deno 2.7 | 172M | 0.38x |
-| DunJS V8 | 141M | 0.31x |
+| Node.js v22 (V8 12.4) | 168M | 0.37x |
+| Deno 2.7.14 (V8 14.7) | 157M | 0.34x |
+| DunJS V8 14.9 (release) | 127M | 0.28x |
 | DunJS QuickJS | 7.4M | 0.02x |
 
 Framework benchmarks (framework_bench.js, 39 tests, ops/sec):
@@ -454,9 +456,9 @@ Framework benchmarks (framework_bench.js, 39 tests, ops/sec):
 |---------|-----------------|
 | **DunJS JSC** | **332M** |
 | Bun | 323M |
-| Node.js | 193M |
-| DunJS V8 | 192M |
-| Deno | 180M |
+| Node.js v22 | 179M |
+| DunJS V8 14.9 | 172M |
+| Deno 2.7.14 | 159M |
 
 npm compat test (npm_compat_test.js, 145 assertions): **All 6 runtimes: 145/145 pass**
 

@@ -69,7 +69,7 @@ dub build -c v8  && BACKEND=v8  bash tests/integration/run.sh
 ./build/dun "--DRT-gcopt=parallel:4 minPoolSize:32" run --allow-all tests/benchmarks/feature_bench.js
 ```
 
-Backend test scores: **QuickJS 60/60, JSC 60/60, V8 60/60** (full parity, Workers on all backends).
+Backend test scores: **QuickJS 62/62, JSC 62/62, V8 61/62** (Workers on all backends; V8 error_handling fails due to DWARF exception unwind through C++ frames).
 
 ### 4. Docker
 
@@ -99,7 +99,7 @@ The GitHub Actions workflow (`.github/workflows/ci.yml`) runs:
 |--------|-------------|-------------|------------|
 | `quickjs` | `EngineQuickJS` | CMake-built libqjs.a | `-lqjs`, `-lm`, `-ldl` |
 | `jsc` | `EngineJSC` | Prebuilt from oven-sh/WebKit | `-L vendor/jsc/lib`, JSC libs |
-| `v8` | `EngineV8` | Prebuilt from kuoruan/libv8 + v8shim | `-lv8`, `-lv8_libplatform`, `-lv8shim` |
+| `v8` | `EngineV8` | V8 14.9.207.4 from kassane/libv8 + v8shim | `-lv8`, `-lv8_libplatform`, `-lv8shim` (LDC: `--link-internally`) |
 | `unittest` | `EngineQuickJS` + `DunTest` | Same as quickjs | Same as quickjs |
 
 ## GC Tuning
@@ -123,4 +123,5 @@ The GitHub Actions workflow (`.github/workflows/ci.yml`) runs:
 - **Windows MSVC errors**: Ensure `ilammy/msvc-dev-cmd` or VS Developer prompt is active
 - **Windows __imp_fesetround**: QuickJS CRT mismatch -- build.d forces `/MT` via CMake flags
 - **OpenSSL not found (macOS)**: Install via `brew install openssl`, paths auto-detected
+- **V8 "unknown architecture" link error**: V8 14.9 monolith uses CREL relocations (LLVM 19+). LDC's internal linker (`--link-internally`) handles this; GNU ld 2.42 and lld-18 cannot. The `dflags-linux-ldc` in dub.json enables this automatically
 - **segfault debugging**: Use `gdb ./build/dun` with `run script.js`, check backtrace
