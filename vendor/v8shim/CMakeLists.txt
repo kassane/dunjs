@@ -1,0 +1,52 @@
+cmake_minimum_required(VERSION 3.15)
+project(v8shim LANGUAGES CXX)
+
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+
+# V8 headers: vendored (preferred) or system
+set(V8_INCLUDE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../v8/include"
+    CACHE PATH "Path to V8 headers (v8.h, libplatform/)")
+
+if(NOT EXISTS "${V8_INCLUDE_DIR}/v8.h")
+    # Fallback: system headers
+    find_path(V8_SYSTEM_INCLUDE v8.h PATHS /usr/include/v8 /usr/local/include/v8)
+    if(V8_SYSTEM_INCLUDE)
+        set(V8_INCLUDE_DIR "${V8_SYSTEM_INCLUDE}")
+    else()
+        message(FATAL_ERROR
+            "V8 headers not found. Either:\n"
+            "  1. Run: rdmd build.d --backend=v8  (downloads headers automatically)\n"
+            "  2. Set -DV8_INCLUDE_DIR=/path/to/v8/include")
+    endif()
+endif()
+
+message(STATUS "V8 headers: ${V8_INCLUDE_DIR}")
+
+option(V8_POINTER_COMPRESSION "Enable V8 pointer compression defines" OFF)
+
+add_library(v8shim STATIC
+    v8shim.cpp
+)
+
+target_include_directories(v8shim PRIVATE
+    ${V8_INCLUDE_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}
+)
+
+target_compile_options(v8shim PRIVATE
+    $<$<CXX_COMPILER_ID:GNU,Clang,AppleClang>:-O2 -Wall -Wextra -Wno-unused-parameter>
+    $<$<CXX_COMPILER_ID:MSVC>:/O2 /W3 /EHsc>
+)
+
+if(V8_POINTER_COMPRESSION)
+    target_compile_definitions(v8shim PRIVATE
+        V8_COMPRESS_POINTERS
+        V8_31BIT_SMIS_ON_64BIT_ARCH
+    )
+    message(STATUS "V8 pointer compression: ON")
+endif()
+
+install(TARGETS v8shim ARCHIVE DESTINATION lib)
+install(FILES v8shim.h DESTINATION include)

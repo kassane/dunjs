@@ -1,0 +1,8 @@
+read denied: true
+write denied: true
+path.join works: true
+crypto works: true
+math works: true
+json works: true
+date works: true
+all security checks passed

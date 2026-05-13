@@ -1,0 +1,8 @@
+log message
+info message
+debug message
+multiple args 42 true
+types: null undefined NaN Infinity
+empty call follows
+
+nested [object Object] 1,2,3

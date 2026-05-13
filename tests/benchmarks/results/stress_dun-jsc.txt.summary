@@ -1,0 +1,3 @@
+  nullish: 2ms
+  typeof: 2ms
+  ternary: 1ms

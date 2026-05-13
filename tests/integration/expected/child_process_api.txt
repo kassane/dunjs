@@ -1,0 +1,6 @@
+execSync: hello_child
+spawnSync status: 0
+spawnSync stdout: spawn_test
+spawnSync error: null
+exec fail caught: true
+child_process done

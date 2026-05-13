@@ -1,0 +1,9 @@
+3
+30
+inner
+0 1 2
+1,2,3
+1 2 {"c":3,"d":4}
+hello world
+symbol
+Symbol(test)

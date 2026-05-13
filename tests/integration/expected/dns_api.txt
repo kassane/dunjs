@@ -1,0 +1,4 @@
+lookupSync address: 127.0.0.1
+lookupSync family: 4
+resolve4 count: true
+dns done

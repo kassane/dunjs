@@ -1,0 +1,14 @@
+3
+2
+42
+undefined
+default
+fallback
+0
+5
+1
+true
+false
+aaxxcc
+fulfilled
+rejected

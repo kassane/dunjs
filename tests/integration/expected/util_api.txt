@@ -1,0 +1,15 @@
+hello world
+1 + 2 = 3
+{"a":1}
+%
+string
+isDate: true
+isRegExp: true
+isNativeError: true
+isPromise: true
+isMap: true
+isSet: true
+inherits: hello 1
+deepEqual: true
+deepNotEqual: false
+promisify: 42

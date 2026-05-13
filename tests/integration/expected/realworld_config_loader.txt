@@ -1,0 +1,8 @@
+version: 1.0
+debug: false
+items: 3
+ext: .json
+base: sample.json
+dir: tests/integration/fixtures/data
+checksum length: 16
+checksum type: string

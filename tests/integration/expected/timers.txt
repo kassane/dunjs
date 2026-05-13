@@ -1,0 +1,4 @@
+start
+end sync
+timeout 50ms
+timeout 100ms

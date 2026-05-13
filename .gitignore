@@ -22,3 +22,29 @@ docs/
 
 # Code coverage
 *.lst
+
+# Build output
+build/
+
+.omc/
+
+# Downloaded vendor dependencies
+vendor/quickjs/
+vendor/jsc/
+vendor/v8/
+vendor/sqlite/build/
+vendor/sqlite/sqlite3.c
+vendor/sqlite/sqlite3.h
+vendor/sqlite/sqlite3_api.c
+vendor/sqlite/*.o
+vendor/v8shim/*.o
+vendor/v8shim/*.a
+vendor/v8shim/build/
+vendor/*.tar.gz
+vendor/*.tar.xz
+
+# npm packages (installed by dun install)
+node_modules/
+
+# DunJS local cache (audit cache, etc.)
+.dun/

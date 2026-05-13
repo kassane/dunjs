@@ -1,0 +1,7 @@
+42 hello
+3
+42
+100
+Hello, world!
+Hi, TypeScript!
+generic

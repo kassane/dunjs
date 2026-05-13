@@ -1,0 +1,14 @@
+platform: linux
+arch: x64
+type: Linux
+endianness: LE
+EOL: "\n"
+devNull: /dev/null
+homedir exists: true
+tmpdir exists: true
+cpus count: true
+totalmem > 0: true
+freemem > 0: true
+uptime > 0: true
+release exists: true
+hostname exists: true

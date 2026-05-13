@@ -1,0 +1,75 @@
+# DunJS Multi-Backend Container
+# All three backends in one image, switchable via DUN_BACKEND env.
+# Usage:
+#   docker build -f Dockerfile.multibackend -t dunjs:multi .
+#   docker run --rm dunjs:multi run script.js                      # quickjs (default)
+#   docker run --rm -e DUN_BACKEND=jsc dunjs:multi run script.js   # jsc
+#   docker run --rm -e DUN_BACKEND=v8 dunjs:multi run script.js    # v8
+
+# ─── Stage 1: Build all backends ──────────────────────────────
+FROM debian:bookworm-slim AS build
+
+ARG LDC_VERSION=1.42.0
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates curl xz-utils tar gcc g++ cmake make pkg-config git bash \
+    libxml2-dev libssl-dev linux-headers-amd64 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install LDC
+RUN curl -sLO --fail https://github.com/ldc-developers/ldc/releases/download/v${LDC_VERSION}/ldc2-${LDC_VERSION}-linux-x86_64.tar.xz \
+    && tar -xJf ldc2-${LDC_VERSION}-linux-x86_64.tar.xz --directory /opt \
+    && ln -s /opt/ldc2-${LDC_VERSION}-linux-x86_64/bin/ldc2 /usr/bin/ldc2 \
+    && ln -s /opt/ldc2-${LDC_VERSION}-linux-x86_64/bin/ldmd2 /usr/bin/ldmd2 \
+    && ln -s /opt/ldc2-${LDC_VERSION}-linux-x86_64/bin/dub /usr/bin/dub \
+    && ln -s /opt/ldc2-${LDC_VERSION}-linux-x86_64/bin/ldc-build-plugin /usr/bin/ldc-build-plugin \
+    && ln -s /opt/ldc2-${LDC_VERSION}-linux-x86_64/bin/ldc-build-runtime /usr/bin/ldc-build-runtime
+
+WORKDIR /src
+COPY . .
+RUN mkdir -p vendor/sqlite vendor/v8/lib vendor/v8/include
+
+# Download and compile all vendor deps (SQLite, QuickJS, JSC, V8)
+RUN ldc2 -run build.d --backend=all --force
+
+RUN dub build -c quickjs -b release && strip build/dun && cp build/dun /tmp/dun-quickjs
+RUN dub build -c jsc -b release     && strip build/dun && cp build/dun /tmp/dun-jsc
+RUN dub build -c v8 -b release      && strip build/dun && cp build/dun /tmp/dun-v8
+
+# Build backend switcher (statically linked, runs anywhere)
+RUN gcc -static -O2 -o /tmp/dun-switch docker/dun-switch.c && strip /tmp/dun-switch
+
+# Collect shared libs
+RUN mkdir -p /deps/lib \
+    && for bin in /tmp/dun-quickjs /tmp/dun-jsc /tmp/dun-v8; do \
+      ldd "$bin" 2>/dev/null | grep "=> /" | awk '{print $3}' | while read lib; do \
+        [ -f "$lib" ] && cp -anL "$lib" /deps/lib/ 2>/dev/null || true; \
+      done; \
+    done \
+    && for lib in vendor/jsc/lib/*.so*; do \
+      [ -f "$lib" ] && cp -a "$lib" /deps/lib/ 2>/dev/null || true; \
+    done
+
+# ─── Stage 2: Runtime ────────────────────────────────────────
+FROM debian:bookworm-slim
+
+LABEL org.opencontainers.image.title="DunJS Multi-Backend" \
+      org.opencontainers.image.description="Secure JS/TS runtime with QuickJS, JSC, and V8 backends"
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libstdc++6 libgcc-s1 libssl3 \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=build /tmp/dun-quickjs /usr/local/bin/dun-quickjs
+COPY --from=build /tmp/dun-jsc     /usr/local/bin/dun-jsc
+COPY --from=build /tmp/dun-v8      /usr/local/bin/dun-v8
+COPY --from=build /deps/lib/       /usr/local/lib/
+COPY --from=build /tmp/dun-switch  /usr/local/bin/dun
+
+RUN ldconfig
+
+ENV DUN_BACKEND="quickjs"
+
+WORKDIR /app
+
+ENTRYPOINT ["/usr/local/bin/dun"]

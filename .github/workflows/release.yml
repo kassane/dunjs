@@ -1,0 +1,91 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-release:
+    name: Release (${{ matrix.engine }}, ${{ matrix.target }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # QuickJS — all platforms (self-contained)
+          - { os: ubuntu-latest,  target: linux-x86_64,    engine: quickjs }
+          - { os: macos-latest,   target: macos-arm64,     engine: quickjs }
+          # JSC — platform-native
+          - { os: ubuntu-latest,  target: linux-x86_64,    engine: jsc     }
+          - { os: macos-latest,   target: macos-arm64,     engine: jsc     }
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: recursive
+
+      - uses: dlang-community/setup-dlang@v2
+        with:
+          compiler: ldc-latest
+
+      - name: Install JSC dev (Linux)
+        if: matrix.engine == 'jsc' && runner.os == 'Linux'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y libjavascriptcoregtk-4.1-dev
+
+      - uses: lukka/get-cmake@v4
+        if: matrix.engine == 'quickjs'
+
+      - name: Cache vendor libraries
+        uses: actions/cache@v5
+        with:
+          path: vendor/
+          key: vendor-${{ matrix.engine }}-${{ matrix.os }}-${{ hashFiles('build.d', 'dub.json') }}
+          restore-keys: vendor-${{ matrix.engine }}-${{ matrix.os }}-
+
+      - name: Build vendor deps
+        run: ldc2 -run build.d --backend=${{ matrix.engine }} --verbose
+
+      - name: Build release binary
+        run: dub build -c ${{ matrix.engine }} -b release
+
+      - name: Package
+        run: |
+          mkdir -p dist
+          cp build/dun dist/dun-${{ matrix.engine }}-${{ matrix.target }}
+          chmod +x dist/dun-${{ matrix.engine }}-${{ matrix.target }}
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: dun-${{ matrix.engine }}-${{ matrix.target }}
+          path: dist/
+
+  publish:
+    name: Publish release
+    needs: build-release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v8
+        with:
+          path: artifacts/
+
+      - name: Collect binaries
+        run: |
+          mkdir -p release
+          find artifacts -type f -name 'dun-*' -exec cp {} release/ \;
+          ls -lh release/
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v3
+        with:
+          files: release/*
+          generate_release_notes: true

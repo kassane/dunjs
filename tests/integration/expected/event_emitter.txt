@@ -1,0 +1,8 @@
+basic: data:hello, data:world
+once: 3
+off: 3
+chain: data:hello, data:world, done:yes, a, b
+count: 2
+events: a, b, data, multi
+error caught: error:boom
+cleared: 0

@@ -1,0 +1,15 @@
+from string: hello
+length: 5
+alloc fill: AAAAA
+base64: hello
+hex decode: hello
+hex encode: 68656c6c6f
+isBuffer: true
+isBuffer string: false
+concat: hello world
+byteLength: 5
+slice: el
+indexOf: 2
+writeUInt8: ABC
+readUInt8: 66
+equals: true

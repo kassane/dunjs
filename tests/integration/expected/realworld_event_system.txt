@@ -1,0 +1,8 @@
+data: hello
+data2: HELLO
+data: world
+data2: WORLD
+data: foo
+data2: FOO
+end (once)
+total events: 7

@@ -1,0 +1,4 @@
+apple,banana,cherry
+1.0
+true
+tests/integration/fixtures/data

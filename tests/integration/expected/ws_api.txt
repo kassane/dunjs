@@ -1,0 +1,5 @@
+ws module: true
+WebSocketServer: true
+WebSocket class: true
+ws constructor: true
+ws done
