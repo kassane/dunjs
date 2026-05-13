@@ -4,6 +4,11 @@ import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
 import dun.runtime.globals : DunState;
 import dun.security.permissions : Permission;
 
+private enum : size_t {
+    READLINK_BUF_SIZE = 4096,
+    MAX_READ_LENGTH   = 64 * 1024 * 1024,
+}
+
 // POSIX functions not in all druntime builds (e.g. musl/Alpine)
 private extern(C) nothrow @nogc
 {
@@ -710,7 +715,7 @@ JSHandle jsReadlinkSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     {
         import core.sys.posix.unistd : readlink;
         import std.string : toStringz;
-        char[4096] buf;
+        char[READLINK_BUF_SIZE] buf;
         auto len = readlink(path.toStringz, buf.ptr, buf.length);
         if (len < 0)
             return engine.throwTypeError("ENOENT: no such file or directory, readlink '" ~ path ~ "'");
@@ -862,7 +867,7 @@ JSHandle jsReadSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     if (isBufferForm) {
         auto offset = engine.extractInt(args[2]);
         auto length = engine.extractInt(args[3]);
-        if (length <= 0 || length > 64 * 1024 * 1024)
+        if (length <= 0 || length > MAX_READ_LENGTH)
             return engine.throwRangeError("readSync length out of range");
 
         int pos = -1;
@@ -889,7 +894,7 @@ JSHandle jsReadSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     }
 
     auto length = engine.extractInt(args[1]);
-    if (length <= 0 || length > 64 * 1024 * 1024)
+    if (length <= 0 || length > MAX_READ_LENGTH)
         return engine.throwRangeError("readSync length out of range");
     try
     {

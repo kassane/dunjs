@@ -4,6 +4,12 @@ import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
 import dun.runtime.globals : DunState;
 import dun.loop.agnostic_pending : pushAgnosticPending;
 
+private enum : size_t {
+    SOCKET_READ_BUF_SIZE = 4096,
+    LISTEN_BACKLOG       = 128,
+    IO_EVENT_BUF_SIZE    = 64,
+}
+
 void registerNetModule(IJSEngine engine) @trusted
 {
     assert(engine !is null, "Null IJSEngine in registerNetModule");
@@ -80,7 +86,7 @@ struct SocketState
     int fd = -1;
     bool closed;
     bool eventsSet;
-    ubyte[4096] readBuf;
+    ubyte[SOCKET_READ_BUF_SIZE] readBuf;
 }
 
 struct ServerState
@@ -349,7 +355,7 @@ JSHandle jsServerListen(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
             return engine.throwTypeError("server.listen: bind() failed");
         }
 
-        if (listen(lfd, 128) < 0)
+        if (listen(lfd, LISTEN_BACKLOG) < 0)
         {
             import core.sys.posix.unistd : close;
             close(lfd);
@@ -550,7 +556,7 @@ public void pollNetIO() nothrow @trusted
     version (linux)
     {
         ensurePoller();
-        IOEvent[64] evBuf;
+        IOEvent[IO_EVENT_BUF_SIZE] evBuf;
         auto events = gNetPoller.poll(0, evBuf[]);
         foreach (ref ev; events)
         {

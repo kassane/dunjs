@@ -248,7 +248,9 @@ ubyte[] extractBytes(IJSEngine engine, JSHandle obj) @trusted
 // Buffer.from(input, [encoding])
 JSHandle jsBufferFrom(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
+    assert(ctx !is null, "Null ctx in jsBufferFrom");
     auto state = cast(DunState*) ctx;
+    assert(state.engine !is null, "Null engine in jsBufferFrom");
     auto engine = state.engine;
     if (args.length < 1) return engine.throwTypeError("Buffer.from requires an argument");
 
@@ -316,7 +318,9 @@ JSHandle jsBufferFrom(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 // Buffer.alloc(size, [fill], [encoding])
 JSHandle jsBufferAlloc(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
+    assert(ctx !is null, "Null ctx in jsBufferAlloc");
     auto state = cast(DunState*) ctx;
+    assert(state.engine !is null, "Null engine in jsBufferAlloc");
     auto engine = state.engine;
     if (args.length < 1 || !engine.isNumber(args[0]))
         return engine.throwTypeError("Buffer.alloc requires a size");
@@ -336,7 +340,9 @@ JSHandle jsBufferAlloc(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 // Buffer.allocUnsafe(size)
 JSHandle jsBufferAllocUnsafe(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
+    assert(ctx !is null, "Null ctx in jsBufferAllocUnsafe");
     auto state = cast(DunState*) ctx;
+    assert(state.engine !is null, "Null engine in jsBufferAllocUnsafe");
     auto engine = state.engine;
     if (args.length < 1 || !engine.isNumber(args[0]))
         return engine.throwTypeError("Buffer.allocUnsafe requires a size");
@@ -351,7 +357,9 @@ JSHandle jsBufferAllocUnsafe(void* ctx, JSHandle thisVal, JSHandle[] args) @trus
 // Buffer.isBuffer(obj)
 JSHandle jsBufferIsBuffer(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
+    assert(ctx !is null, "Null ctx in jsBufferIsBuffer");
     auto state = cast(DunState*) ctx;
+    assert(state.engine !is null, "Null engine in jsBufferIsBuffer");
     auto engine = state.engine;
     if (args.length < 1 || !engine.isObject(args[0]))
         return engine.newBool(false);
@@ -362,7 +370,9 @@ JSHandle jsBufferIsBuffer(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 // Buffer.concat(list, [totalLength])
 JSHandle jsBufferConcat(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
+    assert(ctx !is null, "Null ctx in jsBufferConcat");
     auto state = cast(DunState*) ctx;
+    assert(state.engine !is null, "Null engine in jsBufferConcat");
     auto engine = state.engine;
     if (args.length < 1) return makeBufferObj(engine, cast(ubyte[]) []);
 
@@ -387,7 +397,9 @@ JSHandle jsBufferConcat(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 // Buffer.byteLength(string, [encoding])
 JSHandle jsBufferByteLength(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
+    assert(ctx !is null, "Null ctx in jsBufferByteLength");
     auto state = cast(DunState*) ctx;
+    assert(state.engine !is null, "Null engine in jsBufferByteLength");
     auto engine = state.engine;
     if (args.length < 1) return engine.newInt(0);
     if (engine.isString(args[0]))
@@ -406,7 +418,9 @@ JSHandle jsBufferByteLength(void* ctx, JSHandle thisVal, JSHandle[] args) @trust
 // buf.toString([encoding], [start], [end])
 JSHandle jsBufferToString(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
+    assert(ctx !is null, "Null ctx in jsBufferToString");
     auto state = cast(DunState*) ctx;
+    assert(state.engine !is null, "Null engine in jsBufferToString");
     auto engine = state.engine;
     auto bytes = extractBytes(engine, thisVal);
     string encoding = "utf8";
@@ -448,7 +462,9 @@ JSHandle jsBufferToString(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 // buf.toJSON()
 JSHandle jsBufferToJSON(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
+    assert(ctx !is null, "Null ctx in jsBufferToJSON");
     auto state = cast(DunState*) ctx;
+    assert(state.engine !is null, "Null engine in jsBufferToJSON");
     auto engine = state.engine;
     auto bytes = extractBytes(engine, thisVal);
     auto obj = engine.newObject();
@@ -463,7 +479,9 @@ JSHandle jsBufferToJSON(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 // buf.slice([start], [end])
 JSHandle jsBufferSlice(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
+    assert(ctx !is null, "Null ctx in jsBufferSlice");
     auto state = cast(DunState*) ctx;
+    assert(state.engine !is null, "Null engine in jsBufferSlice");
     auto engine = state.engine;
     auto bytes = extractBytes(engine, thisVal);
     int start = 0;
@@ -485,7 +503,9 @@ JSHandle jsBufferSlice(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 // buf.copy(target)
 JSHandle jsBufferCopy(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
+    assert(ctx !is null, "Null ctx in jsBufferCopy");
     auto state = cast(DunState*) ctx;
+    assert(state.engine !is null, "Null engine in jsBufferCopy");
     auto engine = state.engine;
     auto srcBytes = extractBytes(engine, thisVal);
     return engine.newInt(cast(int) srcBytes.length);
@@ -494,7 +514,9 @@ JSHandle jsBufferCopy(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 // buf.equals(other)
 JSHandle jsBufferEquals(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
+    assert(ctx !is null, "Null ctx in jsBufferEquals");
     auto state = cast(DunState*) ctx;
+    assert(state.engine !is null, "Null engine in jsBufferEquals");
     auto engine = state.engine;
     if (args.length < 1 || !engine.isObject(args[0]))
         return engine.newBool(false);
@@ -506,7 +528,9 @@ JSHandle jsBufferEquals(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 // buf.indexOf(value)
 JSHandle jsBufferIndexOf(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
+    assert(ctx !is null, "Null ctx in jsBufferIndexOf");
     auto state = cast(DunState*) ctx;
+    assert(state.engine !is null, "Null engine in jsBufferIndexOf");
     auto engine = state.engine;
     if (args.length < 1) return engine.newInt(-1);
     auto bytes = extractBytes(engine, thisVal);
@@ -534,7 +558,9 @@ JSHandle jsBufferIndexOf(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 // buf.fill(value)
 JSHandle jsBufferFill(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
+    assert(ctx !is null, "Null ctx in jsBufferFill");
     auto state = cast(DunState*) ctx;
+    assert(state.engine !is null, "Null engine in jsBufferFill");
     auto engine = state.engine;
     if (args.length < 1) return thisVal;
     auto bytes = extractBytes(engine, thisVal);
@@ -556,7 +582,9 @@ JSHandle jsBufferFill(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 // buf.write(string, [offset])
 JSHandle jsBufferWrite(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
+    assert(ctx !is null, "Null ctx in jsBufferWrite");
     auto state = cast(DunState*) ctx;
+    assert(state.engine !is null, "Null engine in jsBufferWrite");
     auto engine = state.engine;
     if (args.length < 1 || !engine.isString(args[0]))
         return engine.newInt(0);
@@ -582,7 +610,9 @@ JSHandle jsBufferWrite(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 // buf.readUInt8([offset])
 JSHandle jsBufferReadUInt8(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
+    assert(ctx !is null, "Null ctx in jsBufferReadUInt8");
     auto state = cast(DunState*) ctx;
+    assert(state.engine !is null, "Null engine in jsBufferReadUInt8");
     auto engine = state.engine;
     auto bytes = extractBytes(engine, thisVal);
     int offset = 0;
@@ -596,7 +626,9 @@ JSHandle jsBufferReadUInt8(void* ctx, JSHandle thisVal, JSHandle[] args) @truste
 // buf.writeUInt8(value, [offset])
 JSHandle jsBufferWriteUInt8(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
+    assert(ctx !is null, "Null ctx in jsBufferWriteUInt8");
     auto state = cast(DunState*) ctx;
+    assert(state.engine !is null, "Null engine in jsBufferWriteUInt8");
     auto engine = state.engine;
     if (args.length < 1 || !engine.isNumber(args[0]))
         return engine.throwTypeError("writeUInt8 requires a value");
@@ -617,7 +649,9 @@ JSHandle jsBufferWriteUInt8(void* ctx, JSHandle thisVal, JSHandle[] args) @trust
 // Buffer.isEncoding(encoding)
 JSHandle jsBufferIsEncoding(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
+    assert(ctx !is null, "Null ctx in jsBufferIsEncoding");
     auto state = cast(DunState*) ctx;
+    assert(state.engine !is null, "Null engine in jsBufferIsEncoding");
     auto engine = state.engine;
     if (args.length < 1 || !engine.isString(args[0])) return engine.newBool(false);
     auto enc = engine.extractString(args[0]);
@@ -631,7 +665,9 @@ JSHandle jsBufferIsEncoding(void* ctx, JSHandle thisVal, JSHandle[] args) @trust
 // Buffer.compare(a, b)
 JSHandle jsBufferStaticCompare(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
+    assert(ctx !is null, "Null ctx in jsBufferStaticCompare");
     auto state = cast(DunState*) ctx;
+    assert(state.engine !is null, "Null engine in jsBufferStaticCompare");
     auto engine = state.engine;
     if (args.length < 2) return engine.throwTypeError("Buffer.compare requires two arguments");
     auto a = extractBytes(engine, args[0]);
@@ -650,7 +686,9 @@ JSHandle jsBufferStaticCompare(void* ctx, JSHandle thisVal, JSHandle[] args) @tr
 // buf.readUInt16LE([offset])
 JSHandle jsBufferReadUInt16LE(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
+    assert(ctx !is null, "Null ctx in jsBufferReadUInt16LE");
     auto state = cast(DunState*) ctx;
+    assert(state.engine !is null, "Null engine in jsBufferReadUInt16LE");
     auto engine = state.engine;
     auto bytes = extractBytes(engine, thisVal);
     int offset = 0;
@@ -662,7 +700,9 @@ JSHandle jsBufferReadUInt16LE(void* ctx, JSHandle thisVal, JSHandle[] args) @tru
 
 JSHandle jsBufferReadUInt16BE(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
+    assert(ctx !is null, "Null ctx in jsBufferReadUInt16BE");
     auto state = cast(DunState*) ctx;
+    assert(state.engine !is null, "Null engine in jsBufferReadUInt16BE");
     auto engine = state.engine;
     auto bytes = extractBytes(engine, thisVal);
     int offset = 0;
@@ -674,7 +714,9 @@ JSHandle jsBufferReadUInt16BE(void* ctx, JSHandle thisVal, JSHandle[] args) @tru
 
 JSHandle jsBufferReadUInt32LE(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
+    assert(ctx !is null, "Null ctx in jsBufferReadUInt32LE");
     auto state = cast(DunState*) ctx;
+    assert(state.engine !is null, "Null engine in jsBufferReadUInt32LE");
     auto engine = state.engine;
     auto bytes = extractBytes(engine, thisVal);
     int offset = 0;
@@ -686,7 +728,9 @@ JSHandle jsBufferReadUInt32LE(void* ctx, JSHandle thisVal, JSHandle[] args) @tru
 
 JSHandle jsBufferReadUInt32BE(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
+    assert(ctx !is null, "Null ctx in jsBufferReadUInt32BE");
     auto state = cast(DunState*) ctx;
+    assert(state.engine !is null, "Null engine in jsBufferReadUInt32BE");
     auto engine = state.engine;
     auto bytes = extractBytes(engine, thisVal);
     int offset = 0;
@@ -698,7 +742,9 @@ JSHandle jsBufferReadUInt32BE(void* ctx, JSHandle thisVal, JSHandle[] args) @tru
 
 JSHandle jsBufferReadInt8(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
+    assert(ctx !is null, "Null ctx in jsBufferReadInt8");
     auto state = cast(DunState*) ctx;
+    assert(state.engine !is null, "Null engine in jsBufferReadInt8");
     auto engine = state.engine;
     auto bytes = extractBytes(engine, thisVal);
     int offset = 0;
@@ -709,7 +755,9 @@ JSHandle jsBufferReadInt8(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
 JSHandle jsBufferReadInt16LE(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
+    assert(ctx !is null, "Null ctx in jsBufferReadInt16LE");
     auto state = cast(DunState*) ctx;
+    assert(state.engine !is null, "Null engine in jsBufferReadInt16LE");
     auto engine = state.engine;
     auto bytes = extractBytes(engine, thisVal);
     int offset = 0;
@@ -721,7 +769,9 @@ JSHandle jsBufferReadInt16LE(void* ctx, JSHandle thisVal, JSHandle[] args) @trus
 
 JSHandle jsBufferReadInt16BE(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
+    assert(ctx !is null, "Null ctx in jsBufferReadInt16BE");
     auto state = cast(DunState*) ctx;
+    assert(state.engine !is null, "Null engine in jsBufferReadInt16BE");
     auto engine = state.engine;
     auto bytes = extractBytes(engine, thisVal);
     int offset = 0;
@@ -733,7 +783,9 @@ JSHandle jsBufferReadInt16BE(void* ctx, JSHandle thisVal, JSHandle[] args) @trus
 
 JSHandle jsBufferReadInt32LE(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
+    assert(ctx !is null, "Null ctx in jsBufferReadInt32LE");
     auto state = cast(DunState*) ctx;
+    assert(state.engine !is null, "Null engine in jsBufferReadInt32LE");
     auto engine = state.engine;
     auto bytes = extractBytes(engine, thisVal);
     int offset = 0;
@@ -745,7 +797,9 @@ JSHandle jsBufferReadInt32LE(void* ctx, JSHandle thisVal, JSHandle[] args) @trus
 
 JSHandle jsBufferReadInt32BE(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
+    assert(ctx !is null, "Null ctx in jsBufferReadInt32BE");
     auto state = cast(DunState*) ctx;
+    assert(state.engine !is null, "Null engine in jsBufferReadInt32BE");
     auto engine = state.engine;
     auto bytes = extractBytes(engine, thisVal);
     int offset = 0;
@@ -757,7 +811,9 @@ JSHandle jsBufferReadInt32BE(void* ctx, JSHandle thisVal, JSHandle[] args) @trus
 
 JSHandle jsBufferReadFloatLE(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
+    assert(ctx !is null, "Null ctx in jsBufferReadFloatLE");
     auto state = cast(DunState*) ctx;
+    assert(state.engine !is null, "Null engine in jsBufferReadFloatLE");
     auto engine = state.engine;
     auto bytes = extractBytes(engine, thisVal);
     int offset = 0;
@@ -770,7 +826,9 @@ JSHandle jsBufferReadFloatLE(void* ctx, JSHandle thisVal, JSHandle[] args) @trus
 
 JSHandle jsBufferReadFloatBE(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
+    assert(ctx !is null, "Null ctx in jsBufferReadFloatBE");
     auto state = cast(DunState*) ctx;
+    assert(state.engine !is null, "Null engine in jsBufferReadFloatBE");
     auto engine = state.engine;
     auto bytes = extractBytes(engine, thisVal);
     int offset = 0;
@@ -783,7 +841,9 @@ JSHandle jsBufferReadFloatBE(void* ctx, JSHandle thisVal, JSHandle[] args) @trus
 
 JSHandle jsBufferReadDoubleLE(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
+    assert(ctx !is null, "Null ctx in jsBufferReadDoubleLE");
     auto state = cast(DunState*) ctx;
+    assert(state.engine !is null, "Null engine in jsBufferReadDoubleLE");
     auto engine = state.engine;
     auto bytes = extractBytes(engine, thisVal);
     int offset = 0;
@@ -797,7 +857,9 @@ JSHandle jsBufferReadDoubleLE(void* ctx, JSHandle thisVal, JSHandle[] args) @tru
 
 JSHandle jsBufferReadDoubleBE(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
+    assert(ctx !is null, "Null ctx in jsBufferReadDoubleBE");
     auto state = cast(DunState*) ctx;
+    assert(state.engine !is null, "Null engine in jsBufferReadDoubleBE");
     auto engine = state.engine;
     auto bytes = extractBytes(engine, thisVal);
     int offset = 0;
@@ -811,7 +873,9 @@ JSHandle jsBufferReadDoubleBE(void* ctx, JSHandle thisVal, JSHandle[] args) @tru
 
 JSHandle jsBufferWriteUInt16LE(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
+    assert(ctx !is null, "Null ctx in jsBufferWriteUInt16LE");
     auto state = cast(DunState*) ctx;
+    assert(state.engine !is null, "Null engine in jsBufferWriteUInt16LE");
     auto engine = state.engine;
     if (args.length < 1 || !engine.isNumber(args[0])) return engine.throwTypeError("writeUInt16LE requires a value");
     auto bytes = extractBytes(engine, thisVal);
@@ -827,7 +891,9 @@ JSHandle jsBufferWriteUInt16LE(void* ctx, JSHandle thisVal, JSHandle[] args) @tr
 
 JSHandle jsBufferWriteUInt16BE(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
+    assert(ctx !is null, "Null ctx in jsBufferWriteUInt16BE");
     auto state = cast(DunState*) ctx;
+    assert(state.engine !is null, "Null engine in jsBufferWriteUInt16BE");
     auto engine = state.engine;
     if (args.length < 1 || !engine.isNumber(args[0])) return engine.throwTypeError("writeUInt16BE requires a value");
     auto bytes = extractBytes(engine, thisVal);
@@ -843,7 +909,9 @@ JSHandle jsBufferWriteUInt16BE(void* ctx, JSHandle thisVal, JSHandle[] args) @tr
 
 JSHandle jsBufferWriteUInt32LE(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
+    assert(ctx !is null, "Null ctx in jsBufferWriteUInt32LE");
     auto state = cast(DunState*) ctx;
+    assert(state.engine !is null, "Null engine in jsBufferWriteUInt32LE");
     auto engine = state.engine;
     if (args.length < 1 || !engine.isNumber(args[0])) return engine.throwTypeError("writeUInt32LE requires a value");
     auto bytes = extractBytes(engine, thisVal);
@@ -861,7 +929,9 @@ JSHandle jsBufferWriteUInt32LE(void* ctx, JSHandle thisVal, JSHandle[] args) @tr
 
 JSHandle jsBufferWriteUInt32BE(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
+    assert(ctx !is null, "Null ctx in jsBufferWriteUInt32BE");
     auto state = cast(DunState*) ctx;
+    assert(state.engine !is null, "Null engine in jsBufferWriteUInt32BE");
     auto engine = state.engine;
     if (args.length < 1 || !engine.isNumber(args[0])) return engine.throwTypeError("writeUInt32BE requires a value");
     auto bytes = extractBytes(engine, thisVal);
@@ -879,7 +949,9 @@ JSHandle jsBufferWriteUInt32BE(void* ctx, JSHandle thisVal, JSHandle[] args) @tr
 
 JSHandle jsBufferWriteInt16LE(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
+    assert(ctx !is null, "Null ctx in jsBufferWriteInt16LE");
     auto state = cast(DunState*) ctx;
+    assert(state.engine !is null, "Null engine in jsBufferWriteInt16LE");
     auto engine = state.engine;
     if (args.length < 1 || !engine.isNumber(args[0])) return engine.throwTypeError("writeInt16LE requires a value");
     auto bytes = extractBytes(engine, thisVal);
@@ -895,7 +967,9 @@ JSHandle jsBufferWriteInt16LE(void* ctx, JSHandle thisVal, JSHandle[] args) @tru
 
 JSHandle jsBufferWriteInt16BE(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
+    assert(ctx !is null, "Null ctx in jsBufferWriteInt16BE");
     auto state = cast(DunState*) ctx;
+    assert(state.engine !is null, "Null engine in jsBufferWriteInt16BE");
     auto engine = state.engine;
     if (args.length < 1 || !engine.isNumber(args[0])) return engine.throwTypeError("writeInt16BE requires a value");
     auto bytes = extractBytes(engine, thisVal);
@@ -911,7 +985,9 @@ JSHandle jsBufferWriteInt16BE(void* ctx, JSHandle thisVal, JSHandle[] args) @tru
 
 JSHandle jsBufferWriteInt32LE(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
+    assert(ctx !is null, "Null ctx in jsBufferWriteInt32LE");
     auto state = cast(DunState*) ctx;
+    assert(state.engine !is null, "Null engine in jsBufferWriteInt32LE");
     auto engine = state.engine;
     if (args.length < 1 || !engine.isNumber(args[0])) return engine.throwTypeError("writeInt32LE requires a value");
     auto bytes = extractBytes(engine, thisVal);
@@ -929,7 +1005,9 @@ JSHandle jsBufferWriteInt32LE(void* ctx, JSHandle thisVal, JSHandle[] args) @tru
 
 JSHandle jsBufferWriteInt32BE(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
+    assert(ctx !is null, "Null ctx in jsBufferWriteInt32BE");
     auto state = cast(DunState*) ctx;
+    assert(state.engine !is null, "Null engine in jsBufferWriteInt32BE");
     auto engine = state.engine;
     if (args.length < 1 || !engine.isNumber(args[0])) return engine.throwTypeError("writeInt32BE requires a value");
     auto bytes = extractBytes(engine, thisVal);
@@ -947,7 +1025,9 @@ JSHandle jsBufferWriteInt32BE(void* ctx, JSHandle thisVal, JSHandle[] args) @tru
 
 JSHandle jsBufferWriteFloatLE(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
+    assert(ctx !is null, "Null ctx in jsBufferWriteFloatLE");
     auto state = cast(DunState*) ctx;
+    assert(state.engine !is null, "Null engine in jsBufferWriteFloatLE");
     auto engine = state.engine;
     if (args.length < 1 || !engine.isNumber(args[0])) return engine.throwTypeError("writeFloatLE requires a value");
     auto bytes = extractBytes(engine, thisVal);
@@ -963,7 +1043,9 @@ JSHandle jsBufferWriteFloatLE(void* ctx, JSHandle thisVal, JSHandle[] args) @tru
 
 JSHandle jsBufferWriteFloatBE(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
+    assert(ctx !is null, "Null ctx in jsBufferWriteFloatBE");
     auto state = cast(DunState*) ctx;
+    assert(state.engine !is null, "Null engine in jsBufferWriteFloatBE");
     auto engine = state.engine;
     if (args.length < 1 || !engine.isNumber(args[0])) return engine.throwTypeError("writeFloatBE requires a value");
     auto bytes = extractBytes(engine, thisVal);
@@ -979,7 +1061,9 @@ JSHandle jsBufferWriteFloatBE(void* ctx, JSHandle thisVal, JSHandle[] args) @tru
 
 JSHandle jsBufferWriteDoubleLE(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
+    assert(ctx !is null, "Null ctx in jsBufferWriteDoubleLE");
     auto state = cast(DunState*) ctx;
+    assert(state.engine !is null, "Null engine in jsBufferWriteDoubleLE");
     auto engine = state.engine;
     if (args.length < 1 || !engine.isNumber(args[0])) return engine.throwTypeError("writeDoubleLE requires a value");
     auto bytes = extractBytes(engine, thisVal);
@@ -995,7 +1079,9 @@ JSHandle jsBufferWriteDoubleLE(void* ctx, JSHandle thisVal, JSHandle[] args) @tr
 
 JSHandle jsBufferWriteDoubleBE(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
+    assert(ctx !is null, "Null ctx in jsBufferWriteDoubleBE");
     auto state = cast(DunState*) ctx;
+    assert(state.engine !is null, "Null engine in jsBufferWriteDoubleBE");
     auto engine = state.engine;
     if (args.length < 1 || !engine.isNumber(args[0])) return engine.throwTypeError("writeDoubleBE requires a value");
     auto bytes = extractBytes(engine, thisVal);
@@ -1011,7 +1097,9 @@ JSHandle jsBufferWriteDoubleBE(void* ctx, JSHandle thisVal, JSHandle[] args) @tr
 
 JSHandle jsBufferCompare(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
+    assert(ctx !is null, "Null ctx in jsBufferCompare");
     auto state = cast(DunState*) ctx;
+    assert(state.engine !is null, "Null engine in jsBufferCompare");
     auto engine = state.engine;
     if (args.length < 1) return engine.throwTypeError("compare requires a Buffer argument");
     auto a = extractBytes(engine, thisVal);
@@ -1029,7 +1117,9 @@ JSHandle jsBufferCompare(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
 JSHandle jsBufferIncludes(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
+    assert(ctx !is null, "Null ctx in jsBufferIncludes");
     auto state = cast(DunState*) ctx;
+    assert(state.engine !is null, "Null engine in jsBufferIncludes");
     auto engine = state.engine;
     if (args.length < 1) return engine.newBool(false);
     auto bytes = extractBytes(engine, thisVal);
@@ -1053,7 +1143,9 @@ JSHandle jsBufferIncludes(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
 JSHandle jsBufferSubarray(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
+    assert(ctx !is null, "Null ctx in jsBufferSubarray");
     auto state = cast(DunState*) ctx;
+    assert(state.engine !is null, "Null engine in jsBufferSubarray");
     auto engine = state.engine;
     auto bytes = extractBytes(engine, thisVal);
     int start = 0;

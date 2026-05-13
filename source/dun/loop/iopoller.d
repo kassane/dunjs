@@ -1,5 +1,7 @@
 module dun.loop.iopoller;
 
+private enum MAX_FD_WATCHES = 64;
+
 struct IOEvent
 {
     int fd;
@@ -31,7 +33,7 @@ struct IOPoller
         private IORingCQE*  cqes;
         private bool        singleMmap;
         // per-fd state for one-shot re-arming
-        private FdWatch[64] fdWatches;
+        private FdWatch[MAX_FD_WATCHES] fdWatches;
     }
     else version (FreeBSD)
     {
@@ -476,7 +478,7 @@ version (linux)
             sqHead, sqTail, sqMask, sqArray, sqes);
     }
 
-    private void uringTrackFd(ref FdWatch[64] watches, int fd,
+    private void uringTrackFd(ref FdWatch[MAX_FD_WATCHES] watches, int fd,
         bool forRead, bool forWrite) @trusted nothrow
     {
         foreach (ref w; watches)
@@ -489,7 +491,7 @@ version (linux)
         }
     }
 
-    private void uringUntrackFd(ref FdWatch[64] watches, int fd) @trusted nothrow
+    private void uringUntrackFd(ref FdWatch[MAX_FD_WATCHES] watches, int fd) @trusted nothrow
     {
         foreach (ref w; watches)
         {
@@ -497,7 +499,7 @@ version (linux)
         }
     }
 
-    private FdWatch uringLookupFd(ref FdWatch[64] watches, int fd) @trusted nothrow
+    private FdWatch uringLookupFd(ref FdWatch[MAX_FD_WATCHES] watches, int fd) @trusted nothrow
     {
         foreach (ref w; watches)
             if (w.fd == fd) return w;

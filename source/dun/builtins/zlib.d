@@ -3,6 +3,12 @@ module dun.builtins.zlib;
 import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
 import dun.runtime.globals : DunState;
 
+private enum {
+    ZLIB_DEFLATE_WINDOW = 15,
+    ZLIB_GZIP_WINDOW    = 31,
+    ZLIB_RAW_WINDOW     = -15,
+}
+
 void registerZlibModule(IJSEngine engine) @trusted
 {
     assert(engine !is null, "Null IJSEngine in registerZlibModule");
@@ -87,7 +93,7 @@ JSHandle doCompress(void* ctx, JSHandle[] args, int windowBits) @trusted
 {
     assert(ctx !is null, "Null ctx in doCompress");
     auto state = cast(DunState*) ctx;
-    assert(state !is null, "Null DunState in doCompress");
+    assert(state.engine !is null, "Null engine in doCompress");
     auto engine = state.engine;
     if (args.length < 1) return engine.throwTypeError("Expected data argument");
 
@@ -99,10 +105,10 @@ JSHandle doCompress(void* ctx, JSHandle[] args, int windowBits) @trusted
         import std.zlib : Compress, HeaderFormat;
 
         HeaderFormat hf;
-        if (windowBits == 31)
+        if (windowBits == ZLIB_GZIP_WINDOW)
             hf = HeaderFormat.gzip;
-        else if (windowBits == -15)
-            hf = HeaderFormat.deflate; // raw deflate uses negative windowBits in C zlib; std.zlib doesn't expose raw directly
+        else if (windowBits == ZLIB_RAW_WINDOW)
+            hf = HeaderFormat.deflate;
         else
             hf = HeaderFormat.deflate;
 
@@ -112,7 +118,7 @@ JSHandle doCompress(void* ctx, JSHandle[] args, int windowBits) @trusted
         ubyte[] result = chunk ~ flushed;
 
         // For raw deflate, strip the 2-byte zlib header and 4-byte checksum
-        if (windowBits == -15 && result.length > 6)
+        if (windowBits == ZLIB_RAW_WINDOW && result.length > 6)
             result = result[2 .. $ - 4];
 
         return returnBytes(engine, result);
@@ -124,7 +130,7 @@ JSHandle doDecompress(void* ctx, JSHandle[] args, int windowBits) @trusted
 {
     assert(ctx !is null, "Null ctx in doDecompress");
     auto state = cast(DunState*) ctx;
-    assert(state !is null, "Null DunState in doDecompress");
+    assert(state.engine !is null, "Null engine in doDecompress");
     auto engine = state.engine;
     if (args.length < 1) return engine.throwTypeError("Expected data argument");
 
@@ -136,16 +142,16 @@ JSHandle doDecompress(void* ctx, JSHandle[] args, int windowBits) @trusted
         import std.zlib : UnCompress, HeaderFormat;
 
         HeaderFormat hf;
-        if (windowBits == 31)
+        if (windowBits == ZLIB_GZIP_WINDOW)
             hf = HeaderFormat.gzip;
-        else if (windowBits == -15)
+        else if (windowBits == ZLIB_RAW_WINDOW)
             hf = HeaderFormat.deflate;
         else
             hf = HeaderFormat.deflate;
 
         // For raw inflate, wrap with zlib header so std.zlib can handle it
         ubyte[] toDecompress = input;
-        if (windowBits == -15)
+        if (windowBits == ZLIB_RAW_WINDOW)
         {
             // Add minimal zlib header (CMF=0x78, FLG=0x01) and recompute
             toDecompress = [cast(ubyte) 0x78, cast(ubyte) 0x01] ~ input;
@@ -170,30 +176,30 @@ JSHandle doDecompress(void* ctx, JSHandle[] args, int windowBits) @trusted
 
 JSHandle jsDeflateSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
-    return doCompress(ctx, args, 15);
+    return doCompress(ctx, args, ZLIB_DEFLATE_WINDOW);
 }
 
 JSHandle jsInflateSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
-    return doDecompress(ctx, args, 15);
+    return doDecompress(ctx, args, ZLIB_DEFLATE_WINDOW);
 }
 
 JSHandle jsGzipSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
-    return doCompress(ctx, args, 31);
+    return doCompress(ctx, args, ZLIB_GZIP_WINDOW);
 }
 
 JSHandle jsGunzipSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
-    return doDecompress(ctx, args, 31);
+    return doDecompress(ctx, args, ZLIB_GZIP_WINDOW);
 }
 
 JSHandle jsDeflateRawSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
-    return doCompress(ctx, args, -15);
+    return doCompress(ctx, args, ZLIB_RAW_WINDOW);
 }
 
 JSHandle jsInflateRawSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
-    return doDecompress(ctx, args, -15);
+    return doDecompress(ctx, args, ZLIB_RAW_WINDOW);
 }

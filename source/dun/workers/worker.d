@@ -3,11 +3,17 @@ module dun.workers.worker;
 import core.thread : Thread;
 import core.sync.mutex : Mutex;
 import dun.workers.channel : MessageChannel;
-import dun.engine.iface : IJSEngine, JSHandle, EngineConfig, createEngine;
+import dun.engine.iface : IJSEngine, JSHandle, EngineConfig, createEngine,
+    TEST_MEMORY_LIMIT;
 import dun.runtime.globals : DunState;
 import dun.security.permissions : PermissionRegistry, Permission;
 
 enum WorkerStatus { pending, running, done }
+
+private enum : size_t {
+    WORKER_MEMORY_LIMIT = TEST_MEMORY_LIMIT,
+    WORKER_STACK_SIZE   = 512 * 1024,
+}
 
 final class WorkerState
 {
@@ -117,7 +123,7 @@ private void _runWorker(WorkerState wst) @trusted
     import std.string : replace;
 
     auto engine = createEngine();
-    engine.initialize(EngineConfig(64 * 1024 * 1024, 512 * 1024));
+    engine.initialize(EngineConfig(WORKER_MEMORY_LIMIT, WORKER_STACK_SIZE));
 
     auto perms = new PermissionRegistry();
     perms.grant(Permission.all);

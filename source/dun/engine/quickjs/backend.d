@@ -221,7 +221,7 @@ class QuickJSEngine : IJSEngine
     JSHandle callFunction(JSHandle func, JSHandle thisVal, JSHandle[] args) @trusted
     {
         assert(ctx !is null, "Engine not initialized");
-        JSValue[16] argv = void;
+        JSValue[NATIVE_CALL_STACK_ARGS] argv = void;
         auto argc = cast(int) args.length;
         JSValue* argp = null;
         if (argc > 0)
@@ -453,7 +453,7 @@ private extern (C) JSValue qjsNativeTrampoline(JSContext* ctx,
     auto opaque = JS_GetContextOpaque(ctx);
     JSHandle thisH;
     *cast(JSValue*)&thisH = cast(JSValue) this_val;
-    JSHandle[16] stackArgs = void;
+    JSHandle[NATIVE_CALL_STACK_ARGS] stackArgs = void;
     JSHandle[] args;
     try
     {

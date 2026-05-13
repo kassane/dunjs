@@ -3,6 +3,8 @@ module dun.builtins.os;
 import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
 import dun.runtime.globals : DunState;
 
+private enum HOSTNAME_BUF_SIZE = 256;
+
 void registerOsModule(IJSEngine engine) @trusted
 {
     auto obj = engine.newObject();
@@ -95,19 +97,28 @@ string archStr() pure @safe nothrow
 
 JSHandle jsOsPlatform(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
-    auto engine = (cast(DunState*) ctx).engine;
+    assert(ctx !is null, "Null ctx in jsOsPlatform");
+    auto state = cast(DunState*) ctx;
+    assert(state.engine !is null, "Null engine in jsOsPlatform");
+    auto engine = state.engine;
     return engine.newString(platformStr());
 }
 
 JSHandle jsOsArch(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
-    auto engine = (cast(DunState*) ctx).engine;
+    assert(ctx !is null, "Null ctx in jsOsArch");
+    auto state = cast(DunState*) ctx;
+    assert(state.engine !is null, "Null engine in jsOsArch");
+    auto engine = state.engine;
     return engine.newString(archStr());
 }
 
 JSHandle jsOsType(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
-    auto engine = (cast(DunState*) ctx).engine;
+    assert(ctx !is null, "Null ctx in jsOsType");
+    auto state = cast(DunState*) ctx;
+    assert(state.engine !is null, "Null engine in jsOsType");
+    auto engine = state.engine;
     version (linux) return engine.newString("Linux");
     else version (OSX) return engine.newString("Darwin");
     else version (Windows) return engine.newString("Windows_NT");
@@ -116,7 +127,10 @@ JSHandle jsOsType(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
 JSHandle jsOsHostname(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
-    auto engine = (cast(DunState*) ctx).engine;
+    assert(ctx !is null, "Null ctx in jsOsHostname");
+    auto state = cast(DunState*) ctx;
+    assert(state.engine !is null, "Null engine in jsOsHostname");
+    auto engine = state.engine;
     try
     {
         import std.process : environment;
@@ -126,7 +140,7 @@ JSHandle jsOsHostname(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
             version (Posix)
             {
                 import core.sys.posix.unistd : gethostname;
-                char[256] buf;
+                char[HOSTNAME_BUF_SIZE] buf;
                 if (gethostname(buf.ptr, buf.length) == 0)
                 {
                     import core.stdc.string : strlen;
@@ -141,7 +155,10 @@ JSHandle jsOsHostname(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
 JSHandle jsOsHomedir(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
-    auto engine = (cast(DunState*) ctx).engine;
+    assert(ctx !is null, "Null ctx in jsOsHomedir");
+    auto state = cast(DunState*) ctx;
+    assert(state.engine !is null, "Null engine in jsOsHomedir");
+    auto engine = state.engine;
     try
     {
         import std.process : environment;
@@ -156,7 +173,10 @@ JSHandle jsOsHomedir(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
 JSHandle jsOsTmpdir(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
-    auto engine = (cast(DunState*) ctx).engine;
+    assert(ctx !is null, "Null ctx in jsOsTmpdir");
+    auto state = cast(DunState*) ctx;
+    assert(state.engine !is null, "Null engine in jsOsTmpdir");
+    auto engine = state.engine;
     try
     {
         import std.file : tempDir;
@@ -167,7 +187,10 @@ JSHandle jsOsTmpdir(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
 JSHandle jsOsCpus(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
-    auto engine = (cast(DunState*) ctx).engine;
+    assert(ctx !is null, "Null ctx in jsOsCpus");
+    auto state = cast(DunState*) ctx;
+    assert(state.engine !is null, "Null engine in jsOsCpus");
+    auto engine = state.engine;
     auto arr = engine.newArray();
     try
     {
@@ -195,7 +218,10 @@ JSHandle jsOsCpus(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
 JSHandle jsOsTotalmem(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
-    auto engine = (cast(DunState*) ctx).engine;
+    assert(ctx !is null, "Null ctx in jsOsTotalmem");
+    auto state = cast(DunState*) ctx;
+    assert(state.engine !is null, "Null engine in jsOsTotalmem");
+    auto engine = state.engine;
     version (linux)
     {
         try
@@ -227,7 +253,10 @@ JSHandle jsOsTotalmem(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
 JSHandle jsOsFreemem(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
-    auto engine = (cast(DunState*) ctx).engine;
+    assert(ctx !is null, "Null ctx in jsOsFreemem");
+    auto state = cast(DunState*) ctx;
+    assert(state.engine !is null, "Null engine in jsOsFreemem");
+    auto engine = state.engine;
     version (linux)
     {
         try
@@ -258,7 +287,10 @@ JSHandle jsOsFreemem(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
 JSHandle jsOsUptime(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
-    auto engine = (cast(DunState*) ctx).engine;
+    assert(ctx !is null, "Null ctx in jsOsUptime");
+    auto state = cast(DunState*) ctx;
+    assert(state.engine !is null, "Null engine in jsOsUptime");
+    auto engine = state.engine;
     version (linux)
     {
         try
@@ -278,7 +310,10 @@ JSHandle jsOsUptime(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
 JSHandle jsOsRelease(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
-    auto engine = (cast(DunState*) ctx).engine;
+    assert(ctx !is null, "Null ctx in jsOsRelease");
+    auto state = cast(DunState*) ctx;
+    assert(state.engine !is null, "Null engine in jsOsRelease");
+    auto engine = state.engine;
     version (linux)
     {
         try
@@ -299,7 +334,10 @@ JSHandle jsOsRelease(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
 JSHandle jsOsEndianness(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
-    auto engine = (cast(DunState*) ctx).engine;
+    assert(ctx !is null, "Null ctx in jsOsEndianness");
+    auto state = cast(DunState*) ctx;
+    assert(state.engine !is null, "Null engine in jsOsEndianness");
+    auto engine = state.engine;
     version (LittleEndian)
         return engine.newString("LE");
     else

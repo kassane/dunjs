@@ -198,7 +198,9 @@ private:
 
 JSHandle jsCwd(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
+    assert(ctx !is null, "Null ctx in jsCwd");
     auto state = cast(DunState*) ctx;
+    assert(state.engine !is null, "Null engine in jsCwd");
     auto engine = state.engine;
     try
     {
@@ -210,7 +212,9 @@ JSHandle jsCwd(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
 JSHandle jsExit(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
+    assert(ctx !is null, "Null ctx in jsExit");
     auto state = cast(DunState*) ctx;
+    assert(state.engine !is null, "Null engine in jsExit");
     auto engine = state.engine;
     int code = 0;
     if (args.length >= 1 && engine.isNumber(args[0]))

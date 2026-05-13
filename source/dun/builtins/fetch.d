@@ -24,7 +24,9 @@ private JSHandle jsFetch(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     import dun.engine.iface : PromiseHandles;
     import dun.loop.async : asyncSubmit;
 
+    assert(ctx !is null, "Null ctx in jsFetch");
     auto state = cast(DunState*) ctx;
+    assert(state.engine !is null, "Null engine in jsFetch");
     auto engine = state.engine;
 
     if (args.length < 1 || !engine.isString(args[0]))
@@ -615,7 +617,9 @@ JSHandle makeResponseFallback(IJSEngine engine, FetchResult r) @trusted
 
 JSHandle responseText(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
+    assert(ctx !is null, "Null ctx in responseText");
     auto state = cast(DunState*) ctx;
+    assert(state.engine !is null, "Null engine in responseText");
     auto engine = state.engine;
     auto body_ = engine.getProperty(thisVal, "__body");
     return body_;
@@ -623,7 +627,9 @@ JSHandle responseText(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
 JSHandle responseJson(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
+    assert(ctx !is null, "Null ctx in responseJson");
     auto state = cast(DunState*) ctx;
+    assert(state.engine !is null, "Null engine in responseJson");
     auto engine = state.engine;
     auto body_ = engine.getProperty(thisVal, "__body");
     scope (exit) engine.freeValue(body_);

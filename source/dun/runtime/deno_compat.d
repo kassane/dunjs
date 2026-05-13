@@ -195,7 +195,9 @@ bool checkPerm(DunState* state, Permission perm, string resource = "") @trusted 
 
 JSHandle denoEnvGet(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
+    assert(ctx !is null, "Null ctx in denoEnvGet");
     auto state = cast(DunState*) ctx;
+    assert(state.engine !is null, "Null engine in denoEnvGet");
     auto engine = state.engine;
 
     if (args.length < 1 || !engine.isString(args[0]))
@@ -217,7 +219,9 @@ JSHandle denoEnvGet(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
 JSHandle denoEnvSet(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
+    assert(ctx !is null, "Null ctx in denoEnvSet");
     auto state = cast(DunState*) ctx;
+    assert(state.engine !is null, "Null engine in denoEnvSet");
     auto engine = state.engine;
 
     if (args.length < 2 || !engine.isString(args[0]) || !engine.isString(args[1]))
@@ -237,7 +241,9 @@ JSHandle denoEnvSet(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
 JSHandle denoEnvDelete(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
+    assert(ctx !is null, "Null ctx in denoEnvDelete");
     auto state = cast(DunState*) ctx;
+    assert(state.engine !is null, "Null engine in denoEnvDelete");
     auto engine = state.engine;
 
     if (args.length < 1 || !engine.isString(args[0]))
@@ -257,7 +263,9 @@ JSHandle denoEnvDelete(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
 JSHandle denoEnvHas(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
+    assert(ctx !is null, "Null ctx in denoEnvHas");
     auto state = cast(DunState*) ctx;
+    assert(state.engine !is null, "Null engine in denoEnvHas");
     auto engine = state.engine;
 
     if (args.length < 1 || !engine.isString(args[0]))
@@ -276,7 +284,9 @@ JSHandle denoEnvHas(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
 JSHandle denoEnvToObject(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
+    assert(ctx !is null, "Null ctx in denoEnvToObject");
     auto state = cast(DunState*) ctx;
+    assert(state.engine !is null, "Null engine in denoEnvToObject");
     auto engine = state.engine;
 
     if (!checkPerm(state, Permission.env))
@@ -297,7 +307,9 @@ JSHandle denoEnvToObject(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
 JSHandle denoReadTextFileSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
+    assert(ctx !is null, "Null ctx in denoReadTextFileSync");
     auto state = cast(DunState*) ctx;
+    assert(state.engine !is null, "Null engine in denoReadTextFileSync");
     auto engine = state.engine;
 
     if (args.length < 1 || !engine.isString(args[0]))
@@ -322,7 +334,9 @@ JSHandle denoReadTextFile(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
     import dun.loop.async : asyncSubmit;
 
+    assert(ctx !is null, "Null ctx in denoReadTextFile");
     auto state = cast(DunState*) ctx;
+    assert(state.engine !is null, "Null engine in denoReadTextFile");
     auto engine = state.engine;
 
     if (args.length < 1 || !engine.isString(args[0]))
@@ -348,7 +362,9 @@ JSHandle denoReadTextFile(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
 JSHandle denoWriteTextFileSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
+    assert(ctx !is null, "Null ctx in denoWriteTextFileSync");
     auto state = cast(DunState*) ctx;
+    assert(state.engine !is null, "Null engine in denoWriteTextFileSync");
     auto engine = state.engine;
 
     if (args.length < 2 || !engine.isString(args[0]) || !engine.isString(args[1]))
@@ -376,7 +392,9 @@ JSHandle denoWriteTextFile(void* ctx, JSHandle thisVal, JSHandle[] args) @truste
 {
     import dun.loop.async : asyncSubmit;
 
+    assert(ctx !is null, "Null ctx in denoWriteTextFile");
     auto state = cast(DunState*) ctx;
+    assert(state.engine !is null, "Null engine in denoWriteTextFile");
     auto engine = state.engine;
 
     if (args.length < 2 || !engine.isString(args[0]) || !engine.isString(args[1]))
@@ -405,7 +423,9 @@ JSHandle denoWriteTextFile(void* ctx, JSHandle thisVal, JSHandle[] args) @truste
 
 JSHandle denoStatSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
+    assert(ctx !is null, "Null ctx in denoStatSync");
     auto state = cast(DunState*) ctx;
+    assert(state.engine !is null, "Null engine in denoStatSync");
     auto engine = state.engine;
 
     if (args.length < 1 || !engine.isString(args[0]))
@@ -463,7 +483,9 @@ JSHandle denoStatSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
 JSHandle denoMkdirSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
+    assert(ctx !is null, "Null ctx in denoMkdirSync");
     auto state = cast(DunState*) ctx;
+    assert(state.engine !is null, "Null engine in denoMkdirSync");
     auto engine = state.engine;
 
     if (args.length < 1 || !engine.isString(args[0]))
@@ -497,7 +519,9 @@ JSHandle denoMkdirSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
 JSHandle denoRemoveSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
+    assert(ctx !is null, "Null ctx in denoRemoveSync");
     auto state = cast(DunState*) ctx;
+    assert(state.engine !is null, "Null engine in denoRemoveSync");
     auto engine = state.engine;
 
     if (args.length < 1 || !engine.isString(args[0]))
@@ -534,7 +558,9 @@ JSHandle denoRemoveSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
 JSHandle denoRenameSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
+    assert(ctx !is null, "Null ctx in denoRenameSync");
     auto state = cast(DunState*) ctx;
+    assert(state.engine !is null, "Null engine in denoRenameSync");
     auto engine = state.engine;
 
     if (args.length < 2 || !engine.isString(args[0]) || !engine.isString(args[1]))
@@ -564,7 +590,9 @@ JSHandle denoRenameSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
 JSHandle denoCopyFileSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
+    assert(ctx !is null, "Null ctx in denoCopyFileSync");
     auto state = cast(DunState*) ctx;
+    assert(state.engine !is null, "Null engine in denoCopyFileSync");
     auto engine = state.engine;
 
     if (args.length < 2 || !engine.isString(args[0]) || !engine.isString(args[1]))
@@ -594,7 +622,9 @@ JSHandle denoCopyFileSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
 JSHandle denoReadDirSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
+    assert(ctx !is null, "Null ctx in denoReadDirSync");
     auto state = cast(DunState*) ctx;
+    assert(state.engine !is null, "Null engine in denoReadDirSync");
     auto engine = state.engine;
 
     if (args.length < 1 || !engine.isString(args[0]))
@@ -637,7 +667,9 @@ JSHandle denoReadDirSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
 JSHandle denoRealPathSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
+    assert(ctx !is null, "Null ctx in denoRealPathSync");
     auto state = cast(DunState*) ctx;
+    assert(state.engine !is null, "Null engine in denoRealPathSync");
     auto engine = state.engine;
 
     if (args.length < 1 || !engine.isString(args[0]))
@@ -663,7 +695,9 @@ JSHandle denoRealPathSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
 JSHandle denoTruncateSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
+    assert(ctx !is null, "Null ctx in denoTruncateSync");
     auto state = cast(DunState*) ctx;
+    assert(state.engine !is null, "Null engine in denoTruncateSync");
     auto engine = state.engine;
 
     if (args.length < 1 || !engine.isString(args[0]))
@@ -689,7 +723,9 @@ JSHandle denoTruncateSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
 JSHandle denoCwd(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
+    assert(ctx !is null, "Null ctx in denoCwd");
     auto state = cast(DunState*) ctx;
+    assert(state.engine !is null, "Null engine in denoCwd");
     auto engine = state.engine;
 
     try
@@ -702,7 +738,9 @@ JSHandle denoCwd(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
 JSHandle denoChdir(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
+    assert(ctx !is null, "Null ctx in denoChdir");
     auto state = cast(DunState*) ctx;
+    assert(state.engine !is null, "Null engine in denoChdir");
     auto engine = state.engine;
 
     if (args.length < 1 || !engine.isString(args[0]))
@@ -728,7 +766,9 @@ JSHandle denoChdir(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
 JSHandle denoExit(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
+    assert(ctx !is null, "Null ctx in denoExit");
     auto state = cast(DunState*) ctx;
+    assert(state.engine !is null, "Null engine in denoExit");
     auto engine = state.engine;
 
     int code = 0;
@@ -744,7 +784,9 @@ JSHandle denoExit(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
 JSHandle denoHostname(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
+    assert(ctx !is null, "Null ctx in denoHostname");
     auto state = cast(DunState*) ctx;
+    assert(state.engine !is null, "Null engine in denoHostname");
     auto engine = state.engine;
 
     try
@@ -774,7 +816,9 @@ JSHandle denoHostname(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
 JSHandle denoPermissionsQuery(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
+    assert(ctx !is null, "Null ctx in denoPermissionsQuery");
     auto state = cast(DunState*) ctx;
+    assert(state.engine !is null, "Null engine in denoPermissionsQuery");
     auto engine = state.engine;
 
     if (args.length < 1 || !engine.isObject(args[0]))
@@ -817,7 +861,9 @@ makeResult:
 
 JSHandle denoInspect(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
+    assert(ctx !is null, "Null ctx in denoInspect");
     auto state = cast(DunState*) ctx;
+    assert(state.engine !is null, "Null engine in denoInspect");
     auto engine = state.engine;
 
     if (args.length < 1)

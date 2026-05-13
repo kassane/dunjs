@@ -5,7 +5,8 @@ import dun.engine.iface : NativeCallback;
 private __gshared NativeCallback[] _table;
 private __gshared int _nextId;
 
-enum MAX_CALLBACK_SLOTS = 32_767; // QuickJS magic is int16_t
+enum MAX_CALLBACK_SLOTS = 32_767;
+enum CALLBACK_TABLE_GROWTH = 64;
 
 int register(NativeCallback cb) nothrow @trusted
 {
@@ -14,7 +15,7 @@ int register(NativeCallback cb) nothrow @trusted
         assert(_nextId < MAX_CALLBACK_SLOTS,
             "NativeCallback slot exhaustion — cache function handles instead of creating per-call");
         if (_nextId >= cast(int) _table.length)
-            _table.length = _table.length + 64;
+            _table.length = _table.length + CALLBACK_TABLE_GROWTH;
         _table[_nextId] = cb;
         return _nextId++;
     }

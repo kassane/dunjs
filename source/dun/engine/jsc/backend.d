@@ -281,7 +281,7 @@ class JSCEngine : IJSEngine
             lastCallWasException = false;
             return toHandle(cast(void*) ret);
         }
-        JSValueRef[16] stackArgv = void;
+        JSValueRef[NATIVE_CALL_STACK_ARGS] stackArgv = void;
         auto argc = args.length;
         const(JSValueRef)* argp;
         if (argc <= 16)
@@ -528,7 +528,7 @@ private extern (C) JSValueRef jscNativeTrampoline(JSContextRef ctx,
 
     JSHandle thisH;
     thisH.opaque[0] = cast(void*) thisObject;
-    JSHandle[16] stackArgs = void;
+    JSHandle[NATIVE_CALL_STACK_ARGS] stackArgs = void;
     JSHandle[] args;
     try
     {

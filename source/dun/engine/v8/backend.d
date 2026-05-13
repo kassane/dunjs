@@ -217,7 +217,7 @@ class V8Engine : IJSEngine
             lastCallWasException = isError != 0;
             return toHandle(ret);
         }
-        DunV8Value*[16] stackArgv = void;
+        DunV8Value*[NATIVE_CALL_STACK_ARGS] stackArgv = void;
         auto argc = cast(int) args.length;
         DunV8Value** argp;
         if (argc <= 16)
@@ -440,7 +440,7 @@ private extern (C) DunV8Value* v8NativeTrampoline(DunV8Context* ctx,
 
     JSHandle thisH;
     thisH.opaque[0] = cast(void*) thisVal;
-    JSHandle[16] stackArgs = void;
+    JSHandle[NATIVE_CALL_STACK_ARGS] stackArgs = void;
     JSHandle[] args;
     try
     {

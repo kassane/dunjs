@@ -27,6 +27,7 @@ enum DEFAULT_MEMORY_LIMIT = MiB(256);
 enum DEFAULT_MAX_STACK = MiB(8);
 enum TEST_MEMORY_LIMIT = MiB(64);
 enum TEST_MAX_STACK = MiB(4);
+enum NATIVE_CALL_STACK_ARGS = 16;
 
 struct EngineConfig
 {
