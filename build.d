@@ -197,6 +197,55 @@ bool detectV8PointerCompression()
     return false;
 }
 
+/// Write build/v8-crt.rsp with platform-detected CRT object paths and linker flags.
+/// Called after V8 build succeeds on Linux so lld (--link-internally) can find CRT.
+void writeV8CrtResponseFile()
+{
+    version (linux)
+    {
+        enum tag = "v8";
+        auto r = executeShell("gcc -dumpmachine 2>/dev/null");
+        string multiarch = (r.status == 0) ? r.output.strip() : "x86_64-linux-gnu";
+
+        string archDir = "/usr/lib/" ~ multiarch;
+        string[] gccDirs;
+        foreach (ver; ["15", "14", "13", "12"])
+        {
+            string d = "/usr/lib/gcc/" ~ multiarch ~ "/" ~ ver;
+            if (exists(d)) { gccDirs ~= d; break; }
+        }
+
+        string dynLinker;
+        auto uname = executeShell("uname -m 2>/dev/null");
+        string arch = (uname.status == 0) ? uname.output.strip() : "x86_64";
+        if (arch == "aarch64")
+            dynLinker = "/lib/ld-linux-aarch64.so.1";
+        else if (arch.length >= 3 && arch[0] == 'i' && arch[2] == '6')
+            dynLinker = "/lib/ld-linux.so.2";
+        else
+            dynLinker = "/lib64/ld-linux-x86-64.so.2";
+
+        mkdirRecurse(buildPath(PACKAGE_DIR, "build"));
+        string rspPath = buildPath(PACKAGE_DIR, "build", "v8-crt.rsp");
+
+        auto f = File(rspPath, "w");
+        f.writeln("-L" ~ archDir);
+        foreach (d; gccDirs) f.writeln("-L" ~ d);
+        f.writeln("-L/lib/" ~ multiarch);
+        f.writeln(archDir ~ "/Scrt1.o");
+        f.writeln(archDir ~ "/crti.o");
+        f.writeln("-lgcc_s");
+        f.writeln("-lgcc");
+        f.writeln("-lc");
+        f.writeln(archDir ~ "/crtn.o");
+        f.writeln("--pie");
+        f.writeln("--dynamic-linker=" ~ dynLinker);
+        f.close();
+
+        logInfo(tag, "Wrote " ~ rspPath ~ " (CRT for " ~ arch ~ ")");
+    }
+}
+
 /// Extract a custom V8 zip archive (from V8_CUSTOM_LIB env) into vendor/v8/.
 /// Returns true if extraction succeeded and include/lib dirs are populated.
 bool extractCustomV8Lib()
@@ -2202,6 +2251,7 @@ int main(string[] args)
             // Download prebuilt first so its headers are available for v8shim compilation
             checkV8Libs(tc, opts);  // may populate vendor/v8/include/ and vendor/v8/lib/
             success = buildV8Shim(tc, opts) && checkV8Libs(tc, opts);
+            if (success) writeV8CrtResponseFile();
             break;
 
         case Backend.all:
@@ -2210,6 +2260,7 @@ int main(string[] args)
             bool jscOk   = checkJSC(tc, opts);
             checkV8Libs(tc, opts);  // stage V8 headers before shim compilation
             bool v8Ok    = buildV8Shim(tc, opts) && checkV8Libs(tc, opts);
+            if (v8Ok) writeV8CrtResponseFile();
 
             writeln();
             logInfo("all", "Build summary:");
