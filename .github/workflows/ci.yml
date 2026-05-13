@@ -54,7 +54,7 @@ jobs:
 
       - name: Install CMake
         if: matrix.engine == 'quickjs'
-        uses: lukka/get-cmake@v4
+        uses: lukka/get-cmake@latest
 
       - name: Cache vendor
         uses: actions/cache@v5
@@ -215,7 +215,7 @@ jobs:
         if: runner.os == 'Windows'
         uses: ilammy/msvc-dev-cmd@v1.13.0
 
-      - uses: lukka/get-cmake@v4
+      - uses: lukka/get-cmake@latest
 
       - name: Cache vendor
         uses: actions/cache@v5
