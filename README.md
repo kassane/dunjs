@@ -156,8 +156,8 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for the full design.
 ## Testing
 
 ```sh
-dub test -c unittest                    # ~165 unit tests
-./tests/integration/run.sh              # 60 integration tests (all 3 backends)
+dub test -c unittest                    # ~175 unit tests
+./tests/integration/run.sh              # 62 integration tests (all 3 backends)
 ```
 
 | Suite | Tests |
@@ -167,7 +167,7 @@ dub test -c unittest                    # ~165 unit tests
 | TypeScript strip | 20 (annotations, interfaces, as, declare, arrow types) |
 | Security | 38 (permissions 27 + CVE audit 8 + security tests 3) |
 | HTTP/2 | 15 (frame encoding, HPACK, static table, settings) |
-| Integration | 60 fixtures (core JS, async, ES2023+, modules, 24 builtins, Workers, Deno compat, TypeScript, fetch Response, import.meta, real-world) |
+| Integration | 62 fixtures (core JS, async, ES2023+, modules, 24 builtins, Workers, Deno compat, TypeScript, fetch Response, import.meta, real-world) |
 
 ## Comparison
 
@@ -189,23 +189,23 @@ Feature benchmarks (25 tests, ops/sec — higher is better):
 
 | Runtime | Total Throughput | Relative |
 |---------|-----------------|----------|
-| DunJS JSC | 536M | 1.00x (fastest) |
-| Bun | 477M | 0.89x |
-| Node.js | 175M | 0.33x |
-| Deno | 172M | 0.32x |
-| DunJS V8 | 127M | 0.26x |
+| Bun 1.3.11 | 761M | 1.00x |
+| DunJS V8 | 545M | 0.72x |
+| DunJS JSC | 534M | 0.70x |
+| Node.js v22 | 158M | 0.21x |
+| Deno 2.7.14 | 136M | 0.18x |
 
 Framework benchmarks (39 tests, ops/sec):
 
 | Runtime | Total Throughput | Relative |
 |---------|-----------------|----------|
-| DunJS JSC | 319M | 1.00x (fastest) |
-| Bun | 279M | 0.87x |
-| Node.js | 196M | 0.62x |
-| DunJS V8 | 190M | 0.60x |
-| Deno | 187M | 0.59x |
+| Bun 1.3.11 | 373M | 1.00x |
+| DunJS JSC | 318M | 0.85x |
+| Node.js v22 | 160M | 0.43x |
+| Deno 2.7.14 | 159M | 0.43x |
+| DunJS V8 | 161M | 0.43x |
 
-DunJS JSC outperforms Bun on feature and framework benchmarks.
+DunJS JSC and V8 are competitive with Bun on feature and framework benchmarks.
 DunJS V8 is competitive with Node.js and Deno.
 React/framework compat: **81/81 checks** pass across all 6 runtimes.
 npm compat: **145/145** pass across all 6 runtimes.

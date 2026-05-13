@@ -23,7 +23,7 @@ ldc2 -run build.d --backend=quickjs --verbose
 # JSC (downloads prebuilt from oven-sh/WebKit, macOS: system framework)
 ldc2 -run build.d --backend=jsc --verbose
 
-# V8 (downloads prebuilt from kuoruan/libv8 + compiles v8shim.cpp)
+# V8 (downloads prebuilt from kassane/libv8 + compiles v8shim.cpp)
 ldc2 -run build.d --backend=v8 --verbose
 
 # All backends at once
@@ -46,9 +46,11 @@ dub build -c quickjs -b release   # QuickJS release (optimized + stripped)
 
 ```sh
 # Unit tests (engine contract ~50, fuzz ~50, TypeScript 20, security 38, HTTP/2 15)
-dub test -c unittest
+dub test -c unittest                 # QuickJS
+dub test -c unittest-jsc             # JSC
+dub test -c unittest-v8              # V8
 
-# Integration tests (60 fixtures, requires built binary)
+# Integration tests (62 fixtures, requires built binary)
 dub build -c quickjs
 bash tests/integration/run.sh
 
@@ -91,7 +93,7 @@ docker run --rm -e DUN_BACKEND=v8 dunjs:multi run script.js
 The GitHub Actions workflow (`.github/workflows/ci.yml`) runs:
 1. **Build matrix**: QuickJS (Linux/macOS/Windows), JSC (Linux/macOS), V8 (Linux compile-check)
 2. **Unit tests**: `dub test -c unittest` on Linux/macOS/Windows
-3. **Integration tests**: Run 60 fixtures against expected output on Linux/macOS/Windows
+3. **Integration tests**: Run 62 fixtures against expected output on Linux/macOS/Windows
 
 ## DUB Configurations
 

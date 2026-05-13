@@ -8,9 +8,6 @@ on:
 permissions:
   contents: write
 
-env:
-  LDC_VERSION: "1.42.0"
-
 jobs:
   build-release:
     name: Release (${{ matrix.engine }}, ${{ matrix.target }})
@@ -28,15 +25,13 @@ jobs:
     runs-on: ${{ matrix.os }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           submodules: recursive
 
-      - name: Install ldcup
-        run: curl -sSf https://raw.githubusercontent.com/kassane/ldcup/main/scripts/install.sh | sh
-
-      - name: Install LDC
-        run: ldcup install ldc2-${{ env.LDC_VERSION }}
+      - uses: dlang-community/setup-dlang@v2
+        with:
+          compiler: ldc-latest
 
       - name: Install JSC dev (Linux)
         if: matrix.engine == 'jsc' && runner.os == 'Linux'
@@ -44,11 +39,11 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y libjavascriptcoregtk-4.1-dev
 
-      - uses: lukka/get-cmake@latest
+      - uses: lukka/get-cmake@v4
         if: matrix.engine == 'quickjs'
 
       - name: Cache vendor libraries
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: vendor/
           key: vendor-${{ matrix.engine }}-${{ matrix.os }}-${{ hashFiles('build.d', 'dub.json') }}
@@ -67,7 +62,7 @@ jobs:
           chmod +x dist/dun-${{ matrix.engine }}-${{ matrix.target }}
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: dun-${{ matrix.engine }}-${{ matrix.target }}
           path: dist/
@@ -79,7 +74,7 @@ jobs:
 
     steps:
       - name: Download all artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           path: artifacts/
 
@@ -90,7 +85,7 @@ jobs:
           ls -lh release/
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: release/*
           generate_release_notes: true

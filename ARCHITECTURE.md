@@ -468,22 +468,26 @@ Feature benchmarks (25 tests, ops/sec):
 
 | Runtime | Total Throughput | Relative |
 |---------|-----------------|----------|
-| DunJS JSC | 536M | 1.00x (fastest) |
-| Bun | 477M | 0.89x |
-| Node.js | 175M | 0.33x |
-| Deno | 172M | 0.32x |
-| DunJS V8 | ~125M | 0.23x |
-| DunJS QuickJS | 11M | 0.02x |
+| Bun 1.3.11 | 761M | 1.00x |
+| DunJS V8 (debug) | 545M | 0.72x |
+| DunJS JSC (debug) | 540M | 0.71x |
+| DunJS JSC (release) | 534M | 0.70x |
+| Node.js v22 | 158M | 0.21x |
+| Deno 2.7.14 | 136M | 0.18x |
+| DunJS V8 (release) | 117M | 0.15x |
+| DunJS QuickJS | 9.5M | 0.01x |
 
 Framework benchmarks (39 tests, ops/sec):
 
 | Runtime | Total Throughput | Relative |
 |---------|-----------------|----------|
-| DunJS JSC | 319M | 1.00x (fastest) |
-| Bun | 279M | 0.87x |
-| Node.js | 196M | 0.62x |
-| DunJS V8 | ~168M | 0.53x |
-| Deno | 187M | 0.59x |
+| Bun 1.3.11 | 373M | 1.00x |
+| DunJS JSC (debug) | 318M | 0.85x |
+| DunJS JSC (release) | 249M | 0.67x |
+| Node.js v22 | 160M | 0.43x |
+| Deno 2.7.14 | 159M | 0.43x |
+| DunJS V8 (debug) | 161M | 0.43x |
+| DunJS V8 (release) | 157M | 0.42x |
 
 React/framework compat: **81/81 checks** pass across all 6 runtimes.
 npm compat: **145/145** pass across all 6 runtimes.
