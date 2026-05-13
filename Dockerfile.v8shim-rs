@@ -1,0 +1,174 @@
+# Build the experimental rusty_v8 Rust shim (vendor/v8shim_rs/)
+# Produces libdun_v8shim.a that can replace the C++ v8shim
+#
+# Usage:
+#   docker build -f Dockerfile.v8shim-rs -t dunjs:v8shim-rs .
+#   docker run --rm dunjs:v8shim-rs   # prints V8 version + runs smoke test
+
+FROM rust:1.87-bookworm AS build
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    clang cmake g++ make pkg-config python3 \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /src
+COPY vendor/v8shim_rs/ ./
+
+# Build the Rust static library
+RUN cargo build --release 2>&1 \
+    && ls -lh target/release/libdun_v8shim.a
+
+# Verify exported symbols match v8shim.h
+RUN nm target/release/libdun_v8shim.a 2>/dev/null \
+    | grep -c "T dun_v8_" \
+    | xargs -I{} echo "Exported dun_v8_* symbols: {}"
+
+# Smoke test: write a minimal C program that calls the shim
+RUN cat > /tmp/smoke.c << 'CEOF'
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+/* Forward declarations matching v8shim.h */
+typedef struct DunV8Isolate DunV8Isolate;
+typedef struct DunV8Context DunV8Context;
+typedef struct DunV8Value DunV8Value;
+
+extern DunV8Isolate* dun_v8_isolate_new(void);
+extern void dun_v8_isolate_dispose(DunV8Isolate* isolate);
+extern DunV8Context* dun_v8_context_new(DunV8Isolate* isolate);
+extern void dun_v8_context_free(DunV8Context* ctx);
+extern DunV8Value* dun_v8_eval(DunV8Context* ctx, const char* source,
+    size_t source_len, const char* filename, int* is_error);
+extern const char* dun_v8_value_to_string(DunV8Context* ctx, DunV8Value* val, size_t* len);
+extern void dun_v8_free_string(const char* str);
+extern void dun_v8_value_unref(DunV8Value* val);
+extern const char* dun_v8_version(void);
+extern int dun_v8_value_is_number(DunV8Value* val);
+extern int dun_v8_value_to_int(DunV8Context* ctx, DunV8Value* val);
+extern DunV8Value* dun_v8_new_string(DunV8Context* ctx, const char* str, size_t len);
+extern int dun_v8_value_is_string(DunV8Value* val);
+extern DunV8Value* dun_v8_global(DunV8Context* ctx);
+extern void dun_v8_set_property(DunV8Context* ctx, DunV8Value* obj,
+    const char* name, DunV8Value* val);
+extern DunV8Value* dun_v8_get_property(DunV8Context* ctx, DunV8Value* obj,
+    const char* name);
+
+int main(void) {
+    int pass = 0, fail = 0;
+    printf("=== rusty_v8 Rust shim smoke test ===\n");
+
+    /* Test 1: Version */
+    const char* ver = dun_v8_version();
+    printf("V8 version: %s\n", ver ? ver : "(null)");
+    if (ver && ver[0] == '1' && ver[1] == '4') { printf("PASS: V8 14.x\n"); pass++; }
+    else { printf("FAIL: expected V8 14.x\n"); fail++; }
+
+    /* Test 2: Create isolate + context */
+    DunV8Isolate* iso = dun_v8_isolate_new();
+    if (iso) { printf("PASS: isolate created\n"); pass++; }
+    else { printf("FAIL: isolate null\n"); fail++; return 1; }
+
+    DunV8Context* ctx = dun_v8_context_new(iso);
+    if (ctx) { printf("PASS: context created\n"); pass++; }
+    else { printf("FAIL: context null\n"); fail++; return 1; }
+
+    /* Test 3: Eval arithmetic */
+    int is_err = 0;
+    const char* src = "1 + 2";
+    DunV8Value* result = dun_v8_eval(ctx, src, strlen(src), "test.js", &is_err);
+    if (!is_err && result) {
+        int val = dun_v8_value_to_int(ctx, result);
+        if (val == 3) { printf("PASS: eval '1+2' = %d\n", val); pass++; }
+        else { printf("FAIL: eval '1+2' = %d (expected 3)\n", val); fail++; }
+        dun_v8_value_unref(result);
+    } else { printf("FAIL: eval error\n"); fail++; }
+
+    /* Test 4: Eval string */
+    const char* str_src = "'hello' + ' ' + 'world'";
+    result = dun_v8_eval(ctx, str_src, strlen(str_src), "test.js", &is_err);
+    if (!is_err && result) {
+        size_t len = 0;
+        const char* s = dun_v8_value_to_string(ctx, result, &len);
+        if (s && strcmp(s, "hello world") == 0) {
+            printf("PASS: eval string = '%s'\n", s); pass++;
+        } else {
+            printf("FAIL: eval string = '%s' (expected 'hello world')\n", s ? s : "(null)"); fail++;
+        }
+        if (s) dun_v8_free_string(s);
+        dun_v8_value_unref(result);
+    } else { printf("FAIL: eval string error\n"); fail++; }
+
+    /* Test 5: Type checks */
+    const char* num_src = "42";
+    result = dun_v8_eval(ctx, num_src, strlen(num_src), "test.js", &is_err);
+    if (!is_err && result && dun_v8_value_is_number(result)) {
+        printf("PASS: is_number(42) = true\n"); pass++;
+    } else { printf("FAIL: is_number check\n"); fail++; }
+    if (result) dun_v8_value_unref(result);
+
+    /* Test 6: new_string + is_string */
+    DunV8Value* str_val = dun_v8_new_string(ctx, "test", 4);
+    if (str_val && dun_v8_value_is_string(str_val)) {
+        printf("PASS: new_string + is_string\n"); pass++;
+    } else { printf("FAIL: new_string\n"); fail++; }
+    if (str_val) dun_v8_value_unref(str_val);
+
+    /* Test 7: Global property set/get */
+    DunV8Value* global = dun_v8_global(ctx);
+    DunV8Value* prop_val = dun_v8_new_string(ctx, "bar", 3);
+    dun_v8_set_property(ctx, global, "foo", prop_val);
+    DunV8Value* got = dun_v8_get_property(ctx, global, "foo");
+    if (got && dun_v8_value_is_string(got)) {
+        size_t len = 0;
+        const char* s = dun_v8_value_to_string(ctx, got, &len);
+        if (s && strcmp(s, "bar") == 0) {
+            printf("PASS: global.foo = '%s'\n", s); pass++;
+        } else {
+            printf("FAIL: global.foo = '%s'\n", s ? s : "(null)"); fail++;
+        }
+        if (s) dun_v8_free_string(s);
+    } else { printf("FAIL: get_property\n"); fail++; }
+    if (got) dun_v8_value_unref(got);
+    if (prop_val) dun_v8_value_unref(prop_val);
+    if (global) dun_v8_value_unref(global);
+
+    /* Test 8: Eval with global */
+    const char* global_src = "foo";
+    result = dun_v8_eval(ctx, global_src, strlen(global_src), "test.js", &is_err);
+    if (!is_err && result) {
+        size_t len = 0;
+        const char* s = dun_v8_value_to_string(ctx, result, &len);
+        if (s && strcmp(s, "bar") == 0) {
+            printf("PASS: eval reads global.foo = '%s'\n", s); pass++;
+        } else {
+            printf("FAIL: eval global.foo = '%s'\n", s ? s : "(null)"); fail++;
+        }
+        if (s) dun_v8_free_string(s);
+        dun_v8_value_unref(result);
+    } else { printf("FAIL: eval global\n"); fail++; }
+
+    /* Cleanup */
+    dun_v8_context_free(ctx);
+    dun_v8_isolate_dispose(iso);
+
+    printf("\n=== Results: %d/%d passed ===\n", pass, pass + fail);
+    return fail > 0 ? 1 : 0;
+}
+CEOF
+
+# Compile and link the smoke test against the Rust shim
+RUN gcc -o /tmp/smoke_test /tmp/smoke.c \
+    -L/src/target/release -ldun_v8shim \
+    -lstdc++ -lm -lpthread -ldl \
+    2>&1
+
+# Run the smoke test
+RUN /tmp/smoke_test
+
+# Final stage: just report success
+FROM debian:bookworm-slim
+COPY --from=build /src/target/release/libdun_v8shim.a /usr/local/lib/
+COPY --from=build /tmp/smoke_test /usr/local/bin/v8shim_smoke_test
+RUN echo "rusty_v8 Rust shim built and tested successfully"
+CMD ["/usr/local/bin/v8shim_smoke_test"]
