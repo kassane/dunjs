@@ -36,6 +36,7 @@ struct CliConfig
     size_t memoryLimit = DEFAULT_MEMORY_LIMIT;
     size_t stackSize = DEFAULT_MAX_STACK;
     bool verbose;
+    string evalFile;
 
     import dun.modules.npm : AuditMode;
     AuditMode auditMode = AuditMode.warn;
@@ -262,6 +263,13 @@ CliConfig parseArgs(string[] args) @safe
         if (arg == "--verbose" || arg == "-V")
         {
             config.verbose = true;
+            i++;
+            continue;
+        }
+
+        if (arg.startsWith("--eval-file="))
+        {
+            config.evalFile = arg["--eval-file=".length .. $];
             i++;
             continue;
         }
