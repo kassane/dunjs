@@ -3,6 +3,14 @@ module dun.builtins.crypto;
 import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
 import dun.runtime.globals : DunState;
 
+private enum {
+    SCRYPT_DEFAULT_N      = 16_384,
+    SCRYPT_DEFAULT_R      = 8,
+    SCRYPT_DEFAULT_P      = 1,
+    SCRYPT_DEFAULT_MAXMEM = 32 * 1024 * 1024,
+    SCRYPT_MAX_KEYLEN     = 1024,
+}
+
 // OpenSSL bindings for HMAC, PBKDF2, scrypt
 private extern (C) @nogc nothrow
 {
@@ -425,14 +433,13 @@ JSHandle jsCryptoScryptSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trust
         auto salt = engine.extractString(args[1]);
         int keylen = engine.extractInt(args[2]);
 
-        if (keylen <= 0 || keylen > 1024)
+        if (keylen <= 0 || keylen > SCRYPT_MAX_KEYLEN)
             return engine.throwTypeError("keylen must be between 1 and 1024");
 
-        // Default scrypt parameters
-        ulong N = 16384;
-        ulong r = 8;
-        ulong p = 1;
-        ulong maxmem = 32 * 1024 * 1024; // 32 MB
+        ulong N = SCRYPT_DEFAULT_N;
+        ulong r = SCRYPT_DEFAULT_R;
+        ulong p = SCRYPT_DEFAULT_P;
+        ulong maxmem = SCRYPT_DEFAULT_MAXMEM;
 
         // Optional options object as 4th arg
         if (args.length >= 4 && engine.isObject(args[3]))

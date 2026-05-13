@@ -3,6 +3,14 @@ module dun.builtins.fetch;
 import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
 import dun.runtime.globals : DunState;
 
+private enum : size_t {
+    SERIALIZE_RESERVE    = 256,
+    HEADERS_RESERVE      = 128,
+    REQUEST_RESERVE      = 256,
+    HTTP_READ_BUF        = 8192,
+    JSON_RESERVE_EXTRA   = 512,
+}
+
 void registerFetchGlobal(IJSEngine engine) @trusted
 {
     auto global = engine.getGlobal();
@@ -71,18 +79,25 @@ private JSHandle jsFetch(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
 string serializeFetchResult(FetchResult r) @safe
 {
+    import dun.platform.arena : Appender;
     import std.conv : to;
-    string s = r.status.to!string ~ "\n";
-    s ~= (r.ok ? "1" : "0") ~ "\n";
-    s ~= r.statusText ~ "\n";
-    s ~= r.url ~ "\n";
-    string hdrs;
+
+    Appender!(char[]) s;
+    s.reserve(SERIALIZE_RESERVE + r.body_.length);
+    s ~= r.status.to!string; s ~= "\n";
+    s ~= (r.ok ? "1" : "0"); s ~= "\n";
+    s ~= r.statusText; s ~= "\n";
+    s ~= r.url; s ~= "\n";
+
+    Appender!(char[]) hdrs;
+    hdrs.reserve(HEADERS_RESERVE);
     foreach (k, v; r.headers)
-        hdrs ~= k ~ ": " ~ v ~ "\r\n";
-    s ~= hdrs.length.to!string ~ "\n";
-    s ~= hdrs;
+    { hdrs ~= k; hdrs ~= ": "; hdrs ~= v; hdrs ~= "\r\n"; }
+    auto hdrSlice = (() @trusted => hdrs[])();
+    s ~= hdrSlice.length.to!string; s ~= "\n";
+    s ~= hdrSlice;
     s ~= r.body_;
-    return s;
+    return (() @trusted => cast(string) s[])();
 }
 
 FetchResult deserializeFetchResult(string s) @safe
@@ -301,30 +316,33 @@ ParsedUrl parseUrl(string url) @safe
 string buildRequest(string method, ParsedUrl p, string body_,
     bool hasBody, string[string] extraHeaders) @safe
 {
+    import dun.platform.arena : Appender;
     import std.conv : to;
 
-    string r = method ~ " " ~ p.path ~ " HTTP/1.1\r\n";
-    r ~= "Host: " ~ p.host;
+    Appender!(char[]) r;
+    r.reserve(REQUEST_RESERVE + body_.length);
+    r ~= method; r ~= " "; r ~= p.path; r ~= " HTTP/1.1\r\n";
+    r ~= "Host: "; r ~= p.host;
     if (p.port != 0 && p.port != 80 && p.port != 443)
-        r ~= ":" ~ p.port.to!string;
+    { r ~= ":"; r ~= p.port.to!string; }
     r ~= "\r\n";
     r ~= "Connection: close\r\n";
     r ~= "User-Agent: DunJS/1.0\r\n";
     r ~= "Accept: */*\r\n";
 
     foreach (k, v; extraHeaders)
-        r ~= k ~ ": " ~ v ~ "\r\n";
+    { r ~= k; r ~= ": "; r ~= v; r ~= "\r\n"; }
 
     if (hasBody)
     {
-        r ~= "Content-Length: " ~ body_.length.to!string ~ "\r\n";
+        r ~= "Content-Length: "; r ~= body_.length.to!string; r ~= "\r\n";
         if ("content-type" !in extraHeaders && "Content-Type" !in extraHeaders)
             r ~= "Content-Type: application/json\r\n";
     }
 
     r ~= "\r\n";
     if (hasBody) r ~= body_;
-    return r;
+    return (() @trusted => cast(string) r[])();
 }
 
 FetchResult readHttpResponse(scope int delegate(ubyte[]) @trusted reader) @trusted
@@ -336,9 +354,12 @@ FetchResult readHttpResponse(scope int delegate(ubyte[]) @trusted reader) @trust
     FetchResult result;
     result.ok = false;
 
+    import dun.platform.arena : Appender;
+
     // Read all data into a buffer
-    ubyte[] raw;
-    ubyte[8192] buf;
+    Appender!(ubyte[]) raw;
+    raw.reserve(HTTP_READ_BUF);
+    ubyte[HTTP_READ_BUF] buf;
     while (true)
     {
         int n = reader(buf[]);
@@ -346,7 +367,8 @@ FetchResult readHttpResponse(scope int delegate(ubyte[]) @trusted reader) @trust
         raw ~= buf[0 .. n];
 
         // Check if we have the full headers
-        auto rawStr = cast(string) raw;
+        auto rawSlice = raw[];
+        auto rawStr = cast(string) rawSlice;
         auto headerEnd = rawStr.indexOf("\r\n\r\n");
         if (headerEnd >= 0)
         {
@@ -429,19 +451,19 @@ FetchResult readHttpResponse(scope int delegate(ubyte[]) @trusted reader) @trust
                     raw ~= buf[0 .. n];
                 }
                 result.body_ = decodeChunked(
-                    cast(string) raw[bodyStart .. $]);
+                    cast(string) raw[][bodyStart .. $]);
             }
             else if (contentLen >= 0)
             {
                 // Read exactly contentLen bytes
-                while (cast(long)(raw.length - bodyStart) < contentLen)
+                while (cast(long)(raw[].length - bodyStart) < contentLen)
                 {
                     n = reader(buf[]);
                     if (n <= 0) break;
                     raw ~= buf[0 .. n];
                 }
-                auto end = min(bodyStart + cast(size_t) contentLen, raw.length);
-                result.body_ = (cast(string) raw[bodyStart .. end]).idup;
+                auto end = min(bodyStart + cast(size_t) contentLen, raw[].length);
+                result.body_ = (cast(string) raw[][bodyStart .. end]).idup;
             }
             else
             {
@@ -452,7 +474,7 @@ FetchResult readHttpResponse(scope int delegate(ubyte[]) @trusted reader) @trust
                     if (n <= 0) break;
                     raw ~= buf[0 .. n];
                 }
-                result.body_ = (cast(string) raw[bodyStart .. $]).idup;
+                result.body_ = (cast(string) raw[][bodyStart .. $]).idup;
             }
 
             break;
@@ -536,10 +558,10 @@ int tcpConnect(string host, ushort port) @trusted
 JSHandle makeResponse(IJSEngine engine, FetchResult r) @trusted
 {
     import std.conv : to;
-    import std.array : Appender;
+    import dun.platform.arena : Appender;
 
     Appender!(char[]) js;
-    js.reserve(512 + r.body_.length);
+    js.reserve(JSON_RESERVE_EXTRA + r.body_.length);
 
     // Build Response using the global Response constructor from web_apis.d
     js ~= "(function(){var h=new Headers();";
@@ -618,7 +640,10 @@ JSHandle responseJson(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
 string jsonQuote(string s) @safe
 {
-    string r = "\"";
+    import dun.platform.arena : Appender;
+    Appender!(char[]) r;
+    r.reserve(s.length + s.length / 4 + 2);
+    r ~= '"';
     foreach (c; s)
     {
         switch (c)
@@ -631,6 +656,6 @@ string jsonQuote(string s) @safe
         default: r ~= c;
         }
     }
-    r ~= "\"";
-    return r;
+    r ~= '"';
+    return (() @trusted => cast(string) r[])();
 }

@@ -3,6 +3,8 @@ module dun.builtins.buffer;
 import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
 import dun.runtime.globals : DunState;
 
+private enum BUFFER_MAX_SIZE = 1024 * 1024 * 1024;
+
 void registerBufferModule(IJSEngine engine) @trusted
 {
     auto bufferClass = engine.newObject();
@@ -319,7 +321,7 @@ JSHandle jsBufferAlloc(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     if (args.length < 1 || !engine.isNumber(args[0]))
         return engine.throwTypeError("Buffer.alloc requires a size");
     int size = engine.extractInt(args[0]);
-    if (size < 0 || size > 1024 * 1024 * 1024)
+    if (size < 0 || size > BUFFER_MAX_SIZE)
         return engine.throwRangeError("Invalid buffer size");
 
     ubyte fillByte = 0;
@@ -339,7 +341,7 @@ JSHandle jsBufferAllocUnsafe(void* ctx, JSHandle thisVal, JSHandle[] args) @trus
     if (args.length < 1 || !engine.isNumber(args[0]))
         return engine.throwTypeError("Buffer.allocUnsafe requires a size");
     int size = engine.extractInt(args[0]);
-    if (size < 0 || size > 1024 * 1024 * 1024)
+    if (size < 0 || size > BUFFER_MAX_SIZE)
         return engine.throwRangeError("Invalid buffer size");
 
     auto bytes = new ubyte[size];

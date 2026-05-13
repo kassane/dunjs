@@ -4,7 +4,14 @@ import dun.engine.iface : IJSEngine, JSHandle;
 import dun.runtime.globals : DunState;
 
 version (linux)
+{
     extern (C) long syscall(long nr, ...) nothrow @nogc;
+    private enum {
+        SYS_futex  = 202,
+        FUTEX_WAIT = 0,
+        FUTEX_WAKE = 1,
+    }
+}
 
 void installWorkerAPI(IJSEngine engine, DunState* state) @trusted
 {
@@ -407,9 +414,6 @@ private JSHandle _atomicsWait(void* ctx, JSHandle thisVal, JSHandle[] args) @tru
 
     version (linux)
     {
-        enum FUTEX_WAIT = 0;
-        enum SYS_futex  = 202;
-
         if (timeoutMs < 0)
         {
             syscall(SYS_futex, ptr, FUTEX_WAIT, expected, null, null, 0);
@@ -456,8 +460,6 @@ private JSHandle _atomicsNotify(void* ctx, JSHandle thisVal, JSHandle[] args) @t
 
     version (linux)
     {
-        enum FUTEX_WAKE = 1;
-        enum SYS_futex  = 202;
         long woken = syscall(SYS_futex, ptr, FUTEX_WAKE, count, null, null, 0);
         return engine.newInt(cast(int) woken);
     }

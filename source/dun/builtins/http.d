@@ -4,6 +4,11 @@ import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
 import dun.runtime.globals : DunState;
 import dun.loop.agnostic_pending : pushAgnosticPending;
 
+private enum {
+    HTTP_STATUS_OK   = 200,
+    HTTP_DEFAULT_PORT = 80,
+}
+
 void registerHttpModule(IJSEngine engine) @trusted
 {
     assert(engine !is null, "Null IJSEngine in registerHttpModule");
@@ -108,7 +113,7 @@ struct HttpConnState
     size_t contentLength;
     size_t bodyStart;
     bool headersDone;
-    int statusCode = 200;
+    int statusCode = HTTP_STATUS_OK;
     string[string] respHeaders;
     bool headersSent;
 }
@@ -182,7 +187,7 @@ JSHandle jsHttpServerListen(void* ctx, JSHandle thisVal, JSHandle[] args) @trust
 
         auto srv = &httpServers[idVal];
 
-        int port = 80;
+        int port = HTTP_DEFAULT_PORT;
         JSHandle listenCb;
         bool hasCb = false;
         if (args.length >= 1 && engine.isNumber(args[0]))

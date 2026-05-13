@@ -3,6 +3,7 @@ module dun.builtins.http2;
 import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
 import dun.runtime.globals : DunState;
 import dun.loop.agnostic_pending : pushAgnosticPending;
+import dun.platform.arena : Appender;
 
 void registerHttp2Module(IJSEngine engine) @trusted
 {
@@ -112,6 +113,18 @@ enum H2_DEFAULT_MAX_FRAME_SIZE = 16_384;
 enum H2_DEFAULT_HEADER_TABLE_SIZE = 4_096;
 enum H2_MAX_FRAME_SIZE = 16_777_215;
 enum H2_CONNECTION_PREFACE_LEN = 24;
+enum H2_SETTING_ENTRY_SIZE = 6;
+enum H2_SETTINGS_COUNT = 3;
+
+enum : ubyte {
+    HPACK_INDEXED_PREFIX     = 0x80,
+    HPACK_INCR_INDEX_PREFIX  = 0x40,
+    HPACK_NO_INDEX_PREFIX    = 0x00,
+}
+enum HPACK_INDEXED_PREFIX_BITS      = 7;
+enum HPACK_INCR_INDEX_PREFIX_BITS   = 6;
+enum HPACK_STRING_LENGTH_PREFIX_BITS = 7;
+enum HPACK_AVG_ENTRY_SIZE = 32;
 
 immutable ubyte[] H2_CLIENT_PREFACE = cast(immutable ubyte[])
     "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n";
@@ -732,7 +745,10 @@ string huffmanDecode(const(ubyte)[] data) nothrow @trusted
 
 ubyte[] hpackEncode(HeaderField[] headers) nothrow @trusted
 {
-    ubyte[] result;
+    Appender!(ubyte[]) result;
+    try { result.reserve(headers.length * HPACK_AVG_ENTRY_SIZE); }
+    catch (Throwable) { return null; }
+
     foreach (ref hf; headers)
     {
         int staticIdx = findStaticIndex(hf.name, hf.value);
@@ -740,33 +756,23 @@ ubyte[] hpackEncode(HeaderField[] headers) nothrow @trusted
         if (staticIdx > 0 && HPACK_STATIC_TABLE[staticIdx].value == hf.value
             && hf.value.length > 0)
         {
-            // Indexed representation — full match
-            try { result ~= encodeIntHpack(cast(uint) staticIdx, 7, 0x80); }
-            catch (Throwable) { return null; }
+            encodeIntHpackTo(result, cast(uint) staticIdx,
+                HPACK_INDEXED_PREFIX_BITS, HPACK_INDEXED_PREFIX);
         }
         else if (staticIdx > 0)
         {
-            // Literal with incremental indexing, name referenced
-            try
-            {
-                result ~= encodeIntHpack(cast(uint) staticIdx, 6, 0x40);
-                result ~= encodeLiteralString(hf.value);
-            }
-            catch (Throwable) { return null; }
+            encodeIntHpackTo(result, cast(uint) staticIdx,
+                HPACK_INCR_INDEX_PREFIX_BITS, HPACK_INCR_INDEX_PREFIX);
+            encodeLiteralStringTo(result, hf.value);
         }
         else
         {
-            // Literal without indexing, new name
-            try
-            {
-                result ~= cast(ubyte) 0x00;
-                result ~= encodeLiteralString(hf.name);
-                result ~= encodeLiteralString(hf.value);
-            }
-            catch (Throwable) { return null; }
+            result ~= HPACK_NO_INDEX_PREFIX;
+            encodeLiteralStringTo(result, hf.name);
+            encodeLiteralStringTo(result, hf.value);
         }
     }
-    return result;
+    return (() @trusted => result[])();
 }
 
 int findStaticIndex(string name, string value) pure nothrow @safe
@@ -784,43 +790,45 @@ int findStaticIndex(string name, string value) pure nothrow @safe
     return nameMatch > 0 ? nameMatch : 0;
 }
 
-ubyte[] encodeIntHpack(uint value, int prefix, ubyte pattern) nothrow @trusted
+void encodeIntHpackTo(ref Appender!(ubyte[]) result, uint value, int prefix, ubyte pattern)
+    nothrow @trusted
 {
-    ubyte[] result;
     uint mask = (1 << prefix) - 1;
     if (value < mask)
     {
-        try { result ~= cast(ubyte)(pattern | (value & 0xFF)); }
-        catch (Throwable) { return null; }
-        return result;
+        result ~= cast(ubyte)(pattern | (value & 0xFF));
+        return;
     }
-    try
+    result ~= cast(ubyte)(pattern | mask);
+    value -= mask;
+    while (value >= 128)
     {
-        result ~= cast(ubyte)(pattern | mask);
-        value -= mask;
-        while (value >= 128)
-        {
-            result ~= cast(ubyte)((value & 0x7F) | 0x80);
-            value >>= 7;
-        }
-        result ~= cast(ubyte) value;
+        result ~= cast(ubyte)((value & 0x7F) | 0x80);
+        value >>= 7;
     }
-    catch (Throwable) { return null; }
-    return result;
+    result ~= cast(ubyte) value;
+}
+
+ubyte[] encodeIntHpack(uint value, int prefix, ubyte pattern) nothrow @trusted
+{
+    Appender!(ubyte[]) result;
+    encodeIntHpackTo(result, value, prefix, pattern);
+    return (() @trusted => result[])();
+}
+
+void encodeLiteralStringTo(ref Appender!(ubyte[]) result, string s) nothrow @trusted
+{
+    encodeIntHpackTo(result, cast(uint) s.length,
+        HPACK_STRING_LENGTH_PREFIX_BITS, HPACK_NO_INDEX_PREFIX);
+    foreach (c; s)
+        result ~= cast(ubyte) c;
 }
 
 ubyte[] encodeLiteralString(string s) nothrow @trusted
 {
-    // No Huffman encoding for simplicity — use literal
-    ubyte[] result;
-    try
-    {
-        result ~= encodeIntHpack(cast(uint) s.length, 7, 0x00);
-        foreach (c; s)
-            result ~= cast(ubyte) c;
-    }
-    catch (Throwable) { return null; }
-    return result;
+    Appender!(ubyte[]) result;
+    encodeLiteralStringTo(result, s);
+    return (() @trusted => result[])();
 }
 
 // ── HTTP/2 Stream State Machine ──────────────────────────────────
@@ -1341,24 +1349,24 @@ struct H2Connection
 
 ubyte[] encodeSettings(ref H2Settings s) nothrow @trusted
 {
-    ubyte[] result;
-    try
+    enum bufSize = H2_SETTINGS_COUNT * H2_SETTING_ENTRY_SIZE;
+    ubyte[bufSize] buf;
+    size_t pos = 0;
+
+    void addSetting(ushort id, uint val) nothrow @nogc
     {
-        void addSetting(ushort id, uint val)
-        {
-            result ~= cast(ubyte)((id >> 8) & 0xFF);
-            result ~= cast(ubyte)(id & 0xFF);
-            result ~= cast(ubyte)((val >> 24) & 0xFF);
-            result ~= cast(ubyte)((val >> 16) & 0xFF);
-            result ~= cast(ubyte)((val >> 8) & 0xFF);
-            result ~= cast(ubyte)(val & 0xFF);
-        }
-        addSetting(H2Setting.MAX_CONCURRENT_STREAMS, s.maxConcurrentStreams);
-        addSetting(H2Setting.INITIAL_WINDOW_SIZE, s.initialWindowSize);
-        addSetting(H2Setting.MAX_FRAME_SIZE, s.maxFrameSize);
+        buf[pos++] = cast(ubyte)((id >> 8) & 0xFF);
+        buf[pos++] = cast(ubyte)(id & 0xFF);
+        buf[pos++] = cast(ubyte)((val >> 24) & 0xFF);
+        buf[pos++] = cast(ubyte)((val >> 16) & 0xFF);
+        buf[pos++] = cast(ubyte)((val >> 8) & 0xFF);
+        buf[pos++] = cast(ubyte)(val & 0xFF);
     }
-    catch (Throwable) { return null; }
-    return result;
+    addSetting(H2Setting.MAX_CONCURRENT_STREAMS, s.maxConcurrentStreams);
+    addSetting(H2Setting.INITIAL_WINDOW_SIZE, s.initialWindowSize);
+    addSetting(H2Setting.MAX_FRAME_SIZE, s.maxFrameSize);
+    assert(pos == bufSize);
+    return buf[0 .. pos].dup;
 }
 
 // ── HTTP/2 Server State ──────────────────────────────────────────

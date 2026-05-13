@@ -4,6 +4,20 @@ import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
 import dun.runtime.globals : DunState;
 import dun.loop.agnostic_pending : pushAgnosticPending;
 
+private enum : size_t {
+    WS_PAYLOAD_LEN_16BIT  = 126,
+    WS_PAYLOAD_LEN_64BIT  = 127,
+    WS_MASK_KEY_LEN       = 4,
+    WS_MIN_HEADER_SIZE    = 2,
+    WS_SHA1_DIGEST_SIZE   = 20,
+}
+private enum : ushort {
+    WS_CLOSE_NORMAL       = 1000,
+    WS_DEFAULT_PORT       = 80,
+    WS_DEFAULT_TLS_PORT   = 443,
+    WS_DEFAULT_SERVER_PORT = 8080,
+}
+
 void registerWsModule(IJSEngine engine) @trusted
 {
     assert(engine !is null, "Null IJSEngine in registerWsModule");
@@ -152,9 +166,9 @@ ubyte[] buildWsFrame(WsOpcode opcode, const(ubyte)[] payload, bool mask) @truste
 {
     // Pre-calculate frame size: 1 (opcode) + 1-9 (length) + 0|4 (mask key) + payload
     size_t headerLen = 2;
-    if (payload.length >= 126 && payload.length <= 0xFFFF) headerLen = 4;
+    if (payload.length >= WS_PAYLOAD_LEN_16BIT && payload.length <= 0xFFFF) headerLen = 4;
     else if (payload.length > 0xFFFF) headerLen = 10;
-    size_t maskLen = mask ? 4 : 0;
+    size_t maskLen = mask ? WS_MASK_KEY_LEN : 0;
     size_t totalLen = headerLen + maskLen + payload.length;
 
     auto frame = new ubyte[totalLen];
@@ -163,19 +177,19 @@ ubyte[] buildWsFrame(WsOpcode opcode, const(ubyte)[] payload, bool mask) @truste
     frame[pos++] = cast(ubyte)(0x80 | (opcode & 0x0F));
 
     ubyte maskBit = mask ? 0x80 : 0;
-    if (payload.length < 126)
+    if (payload.length < WS_PAYLOAD_LEN_16BIT)
     {
         frame[pos++] = cast(ubyte)(maskBit | cast(ubyte) payload.length);
     }
     else if (payload.length <= 0xFFFF)
     {
-        frame[pos++] = cast(ubyte)(maskBit | 126);
+        frame[pos++] = cast(ubyte)(maskBit | WS_PAYLOAD_LEN_16BIT);
         frame[pos++] = cast(ubyte)(payload.length >> 8);
         frame[pos++] = cast(ubyte)(payload.length & 0xFF);
     }
     else
     {
-        frame[pos++] = cast(ubyte)(maskBit | 127);
+        frame[pos++] = cast(ubyte)(maskBit | WS_PAYLOAD_LEN_64BIT);
         ulong len = payload.length;
         foreach_reverse (i; 0 .. 8)
             frame[pos++] = cast(ubyte)((len >> (i * 8)) & 0xFF);
@@ -217,13 +231,13 @@ ParseResult parseWsFrame(const(ubyte)[] data) @trusted nothrow
     ulong payLen = data[1] & 0x7F;
     size_t offset = 2;
 
-    if (payLen == 126)
+    if (payLen == WS_PAYLOAD_LEN_16BIT)
     {
         if (data.length < 4) return fail;
         payLen = (cast(ulong) data[2] << 8) | data[3];
         offset = 4;
     }
-    else if (payLen == 127)
+    else if (payLen == WS_PAYLOAD_LEN_64BIT)
     {
         if (data.length < 10) return fail;
         payLen = 0;
@@ -278,7 +292,7 @@ JSHandle jsWsCreateServer(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     assert(state !is null, "Null DunState in jsWsCreateServer");
     auto engine = state.engine;
 
-    int port = 8080;
+    int port = WS_DEFAULT_SERVER_PORT;
     if (args.length >= 1 && engine.isObject(args[0]))
     {
         auto portProp = engine.getProperty(args[0], "port");
@@ -494,7 +508,7 @@ JSHandle jsWsConnect(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
             return engine.throwTypeError("WebSocket: requires --allow-net");
 
         string host;
-        ushort port = 80;
+        ushort port = WS_DEFAULT_PORT;
         string path = "/";
         if (!parseWsUrl(urlStr, host, port, path))
             return engine.throwTypeError("WebSocket: invalid ws:// URL");
@@ -662,7 +676,7 @@ JSHandle jsWsClientClose(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
         auto conn = &wsConns[cid];
         if (conn.state == WsState.closed) return engine.newUndefined();
 
-        ushort code = 1000;
+        ushort code = WS_CLOSE_NORMAL;
         string reason = "";
         if (args.length >= 1 && engine.isNumber(args[0]))
             code = cast(ushort) engine.extractInt(args[0]);
@@ -1035,7 +1049,7 @@ void sendClientHandshake(int fd, string host, ushort port, string path) nothrow 
             try { keyBytes = cast(ubyte[]) read("/dev/urandom", 16); } catch (Exception) {}
         }
         string wsKey = cast(string) Base64.encode(keyBytes);
-        string portStr = port == 80 ? "" : ":" ~ port.to!string;
+        string portStr = port == WS_DEFAULT_PORT ? "" : ":" ~ port.to!string;
 
         string req = "GET " ~ path ~ " HTTP/1.1\r\n"
             ~ "Host: " ~ host ~ portStr ~ "\r\n"
@@ -1085,7 +1099,7 @@ bool parseWsUrl(string url, out string host, out ushort port, out string path) n
         else if (url.length >= 6 && url[0 .. 6] == "wss://")
         {
             rest = url[6 .. $];
-            port = 443;
+            port = WS_DEFAULT_TLS_PORT;
         }
         else
             return false;
@@ -1114,7 +1128,7 @@ bool parseWsUrl(string url, out string host, out ushort port, out string path) n
         else
         {
             host = hostPort;
-            if (port == 0) port = 80;
+            if (port == 0) port = WS_DEFAULT_PORT;
         }
         return host.length > 0;
     }
@@ -1170,8 +1184,8 @@ unittest
 {
     // Test: close frame with code
     ubyte[] payload;
-    payload ~= cast(ubyte)(1000 >> 8);
-    payload ~= cast(ubyte)(1000 & 0xFF);
+    payload ~= cast(ubyte)(WS_CLOSE_NORMAL >> 8);
+    payload ~= cast(ubyte)(WS_CLOSE_NORMAL & 0xFF);
     auto frame = buildWsFrame(WsOpcode.close, payload, false);
     assert(frame[0] == 0x88); // FIN + close opcode
     assert(frame[1] == 2);

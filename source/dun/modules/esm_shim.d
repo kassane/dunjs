@@ -2,7 +2,7 @@ module dun.modules.esm_shim;
 
 string transpileESM(string source, string filename) @safe pure
 {
-    import std.array : Appender;
+    import dun.platform.arena : Appender;
 
     Appender!(char[]) result;
     result.reserve(source.length);
@@ -134,7 +134,7 @@ private bool containsImportMeta(string s) @safe pure nothrow
 
 private string replaceImportMeta(string s) @safe pure
 {
-    import std.array : Appender;
+    import dun.platform.arena : Appender;
     Appender!(char[]) out_;
     out_.reserve(s.length);
     size_t i = 0;
@@ -247,7 +247,7 @@ private string replaceImportMeta(string s) @safe pure
 
 private string escapeJsString(string s) @safe pure
 {
-    import std.array : Appender;
+    import dun.platform.arena : Appender;
     Appender!(char[]) buf;
     buf.reserve(s.length + s.length / 8);
     foreach (c; s)
@@ -286,7 +286,7 @@ private string dirOfPath(string path) @safe pure nothrow
 
 private string parseImportLine(string line) @safe pure
 {
-    import std.array : Appender;
+    import dun.platform.arena : Appender;
 
     if (line.length < 7) return "";
     auto rest = line[7 .. $];
@@ -425,7 +425,7 @@ private string extractIdent(string s) @safe pure nothrow
 
 private string[] splitLines(string s) @safe pure
 {
-    import std.array : Appender;
+    import dun.platform.arena : Appender;
     Appender!(string[]) result;
     if (s.length > 0)
         result.reserve(s.length / 40 + 1);

@@ -4,6 +4,8 @@ import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
 import dun.runtime.globals : DunState;
 import dun.security.permissions : Permission;
 
+private enum STDIN_READ_BUF_SIZE = 65_536;
+
 private __gshared JSHandle gUncaughtHandler;
 private __gshared IJSEngine gUncaughtEngine;
 private __gshared bool gHasUncaughtHandler;
@@ -432,7 +434,7 @@ JSHandle jsStdinRead(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
         fcntl(fd, F_SETFL, origFlags | O_NONBLOCK);
         scope (exit) fcntl(fd, F_SETFL, origFlags);
 
-        ubyte[65536] buf = void;
+        ubyte[STDIN_READ_BUF_SIZE] buf = void;
         auto n = posixRead(fd, buf.ptr, buf.length);
         if (n <= 0)
             return engine.newNull();
