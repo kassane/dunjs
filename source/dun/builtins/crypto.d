@@ -110,6 +110,8 @@ private:
 
 JSHandle jsCryptoRandomBytes(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
+    import core.stdc.stdlib : malloc, free;
+
     assert(ctx !is null, "Null ctx in jsCryptoRandomBytes");
     auto state = cast(DunState*) ctx;
     assert(state !is null, "Null DunState in jsCryptoRandomBytes");
@@ -117,13 +119,19 @@ JSHandle jsCryptoRandomBytes(void* ctx, JSHandle thisVal, JSHandle[] args) @trus
     if (args.length < 1) return engine.throwTypeError("randomBytes requires a length argument");
     int n = engine.extractInt(args[0]);
     if (n < 0) return engine.throwTypeError("randomBytes length must be non-negative");
-    try
+    enum STACK_LIMIT = 256;
+    ubyte[STACK_LIMIT] stackBuf = void;
+    if (n <= STACK_LIMIT)
     {
-        auto bytes = new ubyte[n];
-        fillRandomBytes(bytes);
-        return engine.newUint8Array(bytes);
+        auto buf = stackBuf[0 .. n];
+        fillRandomBytes(buf);
+        return engine.newUint8Array(buf);
     }
-    catch (Exception) { return engine.throwTypeError("Failed to generate random bytes"); }
+    auto buf = cast(ubyte*) malloc(n);
+    if (buf is null) return engine.throwTypeError("Failed to allocate random bytes buffer");
+    scope(exit) free(buf);
+    fillRandomBytes(buf[0 .. n]);
+    return engine.newUint8Array(buf[0 .. n]);
 }
 
 JSHandle jsCryptoRandomUUID(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted

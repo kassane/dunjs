@@ -12,6 +12,7 @@ class JSCEngine : IJSEngine
     private JSContextGroupRef group;
     private void* opaquePtr;
     private bool lastCallWasException;
+    private JSObjectRef uint8ArrayCtor;
 
     void initialize(EngineConfig config) @trusted
     {
@@ -126,20 +127,30 @@ class JSCEngine : IJSEngine
 
     JSHandle newUint8Array(const(ubyte)[] data) @trusted
     {
+        import core.stdc.string : memcpy;
+
         assert(ctx !is null, "JSC context not initialized");
+        if (uint8ArrayCtor is null)
+        {
+            auto global = JSContextGetGlobalObject(ctx);
+            auto name = JSStringCreateWithUTF8CString("Uint8Array");
+            scope(exit) JSStringRelease(name);
+            JSValueRef exc = null;
+            auto ctorVal = JSObjectGetProperty(ctx, global, name, &exc);
+            uint8ArrayCtor = cast(JSObjectRef) ctorVal;
+            assert(uint8ArrayCtor !is null, "Uint8Array constructor not found");
+            JSValueProtect(ctx, cast(JSValueRef) uint8ArrayCtor);
+        }
         JSValueRef exc = null;
-        auto ta = JSObjectMakeTypedArray(ctx,
-            JSTypedArrayType.kJSTypedArrayTypeUint8Array, data.length, &exc);
+        JSValueRef[1] ctorArgs = [JSValueMakeNumber(ctx, cast(double) data.length)];
+        auto ta = JSObjectCallAsConstructor(ctx, uint8ArrayCtor, 1, ctorArgs.ptr, &exc);
         if (exc !is null || ta is null)
             return toHandle(cast(void*) JSValueMakeUndefined(ctx));
         if (data.length > 0)
         {
             auto ptr = cast(ubyte*) JSObjectGetTypedArrayBytesPtr(ctx, ta, &exc);
             if (ptr !is null)
-            {
-                import core.stdc.string : memcpy;
                 memcpy(ptr, data.ptr, data.length);
-            }
         }
         return toHandle(cast(void*) cast(JSValueRef) ta);
     }
