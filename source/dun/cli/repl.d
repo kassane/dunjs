@@ -474,6 +474,9 @@ private bool isTtyStdin() @trusted nothrow
         return false;
 }
 
+version (Posix)
+{
+
 private struct Termios
 {
     uint c_iflag;
@@ -1046,6 +1049,36 @@ struct LineEditor
     {
         return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
             || (c >= '0' && c <= '9') || c == '_' || c == '$';
+    }
+}
+
+} // version(Posix)
+else
+{
+    struct LineEditor
+    {
+        private bool color;
+        private string[] _history;
+
+        @disable this();
+
+        this(bool c) @safe { this.color = c; }
+        string[] history() @safe nothrow { return _history; }
+
+        string readLine(string prompt) @trusted
+        {
+            import std.stdio : write, readln, stdout;
+            write(prompt);
+            try { stdout.flush(); } catch (Exception) {}
+            auto line = readln();
+            if (line is null) return null;
+            while (line.length > 0 && (line[$ - 1] == '\n' || line[$ - 1] == '\r'))
+                line = line[0 .. $ - 1];
+            return line;
+        }
+
+        void loadHistory() @safe {}
+        void saveHistory() @safe {}
     }
 }
 
