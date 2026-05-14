@@ -312,6 +312,18 @@
 				"-release",
 				"-boundscheck=off"
 			],
+			"dflags-ldc": [
+				"-O3",
+				"--release",
+				"--boundscheck=off",
+				"--mcpu=native",
+				"--flto=thin",
+				"--fno-plt",
+				"--frame-pointer=none",
+				"--linkonce-templates",
+				"--inline-threshold=350",
+				"--hot-cold-split"
+			],
 			"lflags-posix": [
 				"-s"
 			]
@@ -320,6 +332,39 @@
 			"dflags": [
 				"-O",
 				"-g"
+			],
+			"dflags-ldc": [
+				"-O3",
+				"-g"
+			]
+		},
+		"release-pgo-gen": {
+			"dflags-ldc": [
+				"-O3",
+				"--release",
+				"--boundscheck=off",
+				"--mcpu=native",
+				"--fprofile-instr-generate=build/dun-%m.profraw"
+			],
+			"lflags-posix": [
+				"-L/opt/ldc2-1.42.0-linux-x86_64/lib",
+				"-lldc_rt.profile"
+			]
+		},
+		"release-pgo": {
+			"dflags-ldc": [
+				"-O3",
+				"--release",
+				"--boundscheck=off",
+				"--mcpu=native",
+				"--flto=thin",
+				"--fno-plt",
+				"--frame-pointer=none",
+				"--linkonce-templates",
+				"--fprofile-instr-use=build/dun.profdata"
+			],
+			"lflags-posix": [
+				"-s"
 			]
 		},
 		"asan": {

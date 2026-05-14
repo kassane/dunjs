@@ -12,6 +12,24 @@ private enum {
     IO_POLL_BATCH_SIZE = 64,
 }
 
+// Interned header names — returns compile-time string for known headers,
+// avoiding GC allocation (.idup) on every request
+private string internHeaderName(const(char)[] raw) nothrow @trusted
+{
+    static immutable string[17] known = [
+        "host", "connection", "content-type", "content-length",
+        "accept", "accept-encoding", "accept-language", "user-agent",
+        "cache-control", "cookie", "authorization", "transfer-encoding",
+        "upgrade", "origin", "referer", "x-forwarded-for", "if-none-match",
+    ];
+    foreach (k; known)
+        if (k.length == raw.length && k == raw)
+            return k;
+    // Uncommon header: must allocate
+    try return cast(string) raw.idup;
+    catch (Exception) return "";
+}
+
 private string sanitizeHeaderValue(string s) @safe pure
 {
     foreach (ch; s)
@@ -160,10 +178,10 @@ struct HttpConnState
     bool closed;
     char[MAX_BUF] buf;
     size_t bufLen;
-    string method;
-    string url;
-    string httpVersion;
-    string[string] headers;
+    const(char)[] method;
+    const(char)[] url;
+    const(char)[] httpVersion;
+    const(char)[][string] headers;
     size_t contentLength;
     size_t bodyStart;
     bool headersDone;
@@ -646,12 +664,13 @@ JSHandle jsResEnd(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
             conn.contentLength = 0;
             conn.statusCode = HTTP_STATUS_OK;
             conn.respLen = 0;
+            conn.method = null;
+            conn.url = null;
+            conn.httpVersion = null;
             try
             {
-                conn.method = "";
-                conn.url = "";
-                conn.headers = null;
-                conn.respHeaders = null;
+                conn.headers.clear();
+                conn.respHeaders.clear();
             }
             catch (Throwable) {}
 
@@ -1088,15 +1107,16 @@ void parseRequestHeaders(HttpConnState* conn, const(char)[] text) nothrow @trust
                 if (lineNo == 0)
                 {
                     // Request line: METHOD URL HTTP/1.1
+                    // Zero-copy: slice directly into conn.buf (lives until keep-alive reset)
                     size_t sp1 = 0;
                     while (sp1 < lineSlice.length && lineSlice[sp1] != ' ') sp1++;
-                    conn.method = cast(string) lineSlice[0 .. sp1].idup;
+                    conn.method = lineSlice[0 .. sp1];
                     size_t sp2 = sp1 + 1;
                     while (sp2 < lineSlice.length && lineSlice[sp2] != ' ') sp2++;
                     if (sp1 < lineSlice.length)
-                        conn.url = cast(string) lineSlice[sp1 + 1 .. sp2].idup;
+                        conn.url = lineSlice[sp1 + 1 .. sp2];
                     if (sp2 + 1 < lineSlice.length)
-                        conn.httpVersion = cast(string) lineSlice[sp2 + 1 .. $].idup;
+                        conn.httpVersion = lineSlice[sp2 + 1 .. $];
                 }
                 else if (lineSlice.length > 0)
                 {
@@ -1109,13 +1129,14 @@ void parseRequestHeaders(HttpConnState* conn, const(char)[] text) nothrow @trust
                         size_t nameLen = col < HTTP_MAX_HEADER_NAME ? col : HTTP_MAX_HEADER_NAME;
                         nameBuf[0 .. nameLen] = lineSlice[0 .. nameLen];
                         asciiToLowerBuf(nameBuf[0 .. nameLen]);
-                        string name = cast(string) nameBuf[0 .. nameLen].idup;
+                        // Intern common header names to avoid GC allocation per request
+                        string name = internHeaderName(nameBuf[0 .. nameLen]);
 
                         // Trim leading whitespace from value
+                        // Zero-copy: slice directly into conn.buf (lives until keep-alive reset)
                         size_t valStart = col + 1;
                         while (valStart < lineSlice.length && lineSlice[valStart] == ' ') valStart++;
-                        string val = cast(string) lineSlice[valStart .. $].idup;
-                        conn.headers[name] = val;
+                        conn.headers[name] = lineSlice[valStart .. $];
                     }
                 }
                 lineNo++;

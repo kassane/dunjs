@@ -51,16 +51,19 @@ struct EventLoop
         drainNextTicksAndMicrotasks();
 
         {
-            import dun.builtins.net : pollNetIO;
-            import dun.builtins.http : pollHttpIO, dispatchHttpCallbacks;
-            import dun.builtins.http2 : pollHttp2IO;
-            import dun.builtins.ws : pollWsIO;
+            import dun.builtins.net : pollNetIO, hasActiveNetIO;
+            import dun.builtins.http : pollHttpIO, dispatchHttpCallbacks, hasActiveHttpIO;
+            import dun.builtins.http2 : pollHttp2IO, hasActiveHttp2IO;
+            import dun.builtins.ws : pollWsIO, hasActiveWsIO;
             import dun.loop.async : asyncDrain, asyncHasWork;
-            pollNetIO();
-            pollHttpIO();
-            dispatchHttpCallbacks();
-            pollHttp2IO();
-            pollWsIO();
+
+            // Only poll subsystems that have active I/O — skip idle ones
+            bool anyIO = false;
+            if (hasActiveNetIO()) { pollNetIO(); anyIO = true; }
+            if (hasActiveHttpIO()) { pollHttpIO(); dispatchHttpCallbacks(); anyIO = true; }
+            else { dispatchHttpCallbacks(); } // still dispatch any queued callbacks
+            if (hasActiveHttp2IO()) { pollHttp2IO(); anyIO = true; }
+            if (hasActiveWsIO()) { pollWsIO(); anyIO = true; }
 
             if (asyncDrain() > 0)
                 drainNextTicksAndMicrotasks();
@@ -75,7 +78,6 @@ struct EventLoop
                 pollClusterWorkers();
             }
 
-            // Drain pending POSIX signals (SIGTERM/SIGINT) and dispatch JS callbacks
             {
                 import dun.runtime.signals : checkSignals, drainSignals;
                 if (checkSignals())

@@ -137,6 +137,8 @@ class V8Engine : IJSEngine
         return toHandle(fn);
     }
 
+    private enum V8_STACK_STRING_SIZE = 512;
+
     string extractString(JSHandle val) @trusted
     {
         assert(ctx !is null, "V8 context not initialized");
@@ -144,6 +146,15 @@ class V8Engine : IJSEngine
         auto cstr = dun_v8_value_to_string(ctx, fromHandle(val), &len);
         if (cstr is null)
             return "";
+        // Single copy: directly from C string to immutable D string
+        // Stack buffer avoids GC allocation for short strings (~99% of cases)
+        if (len <= V8_STACK_STRING_SIZE)
+        {
+            char[V8_STACK_STRING_SIZE] stackBuf = void;
+            stackBuf[0 .. len] = cstr[0 .. len];
+            dun_v8_free_string(cstr);
+            return stackBuf[0 .. len].idup;
+        }
         auto result = cstr[0 .. len].idup;
         dun_v8_free_string(cstr);
         return result;

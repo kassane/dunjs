@@ -86,9 +86,23 @@ class JSCEngine : IJSEngine
 
     JSHandle newString(const(char)[] s) @trusted
     {
-        import std.string : toStringz;
         assert(ctx !is null, "JSC context not initialized");
-        auto jsStr = JSStringCreateWithUTF8CString(s.toStringz);
+        // Stack-terminate for short strings to avoid GC allocation from toStringz
+        enum STACK_TERM_SIZE = 512;
+        const(char)* cstr;
+        char[STACK_TERM_SIZE] stackBuf = void;
+        if (s.length < STACK_TERM_SIZE)
+        {
+            stackBuf[0 .. s.length] = s[];
+            stackBuf[s.length] = '\0';
+            cstr = stackBuf.ptr;
+        }
+        else
+        {
+            import std.string : toStringz;
+            cstr = s.toStringz;
+        }
+        auto jsStr = JSStringCreateWithUTF8CString(cstr);
         assert(jsStr !is null, "JSStringCreateWithUTF8CString returned null");
         auto val = JSValueMakeString(ctx, jsStr);
         JSStringRelease(jsStr);
@@ -178,12 +192,10 @@ class JSCEngine : IJSEngine
         auto jsName = JSStringCreateWithUTF8CString(name.toStringz);
         auto fn = JSObjectMakeFunctionWithCallback(ctx, jsName, &jscNativeTrampoline);
         JSStringRelease(jsName);
-        auto slotName = JSStringCreateWithUTF8CString("__cbSlot__");
         JSValueRef exc = null;
-        JSObjectSetProperty(ctx, fn, slotName,
+        JSObjectSetProperty(ctx, fn, getCbSlotStr(),
             JSValueMakeNumber(ctx, cast(double) slot),
             kJSPropertyAttributeReadOnly | kJSPropertyAttributeDontEnum, &exc);
-        JSStringRelease(slotName);
         return toHandle(cast(void*) fn);
     }
 
@@ -265,15 +277,21 @@ class JSCEngine : IJSEngine
         return JSValueIsArray(ctx, cast(JSValueRef) fromHandle(val));
     }
 
+    private static __gshared JSStringRef _cachedLengthStr;
+
+    private static JSStringRef getLengthStr() nothrow @trusted
+    {
+        if (_cachedLengthStr is null)
+            _cachedLengthStr = JSStringCreateWithUTF8CString("length");
+        return _cachedLengthStr;
+    }
+
     int getArrayLength(JSHandle val) @trusted
     {
         assert(ctx !is null, "JSC context not initialized");
-        import std.string : toStringz;
-        auto jsName = JSStringCreateWithUTF8CString("length".toStringz);
-        scope (exit) JSStringRelease(jsName);
         JSValueRef exc = null;
         auto lenVal = JSObjectGetProperty(ctx,
-            cast(JSObjectRef) fromHandle(val), jsName, &exc);
+            cast(JSObjectRef) fromHandle(val), getLengthStr(), &exc);
         if (exc !is null) return 0;
         exc = null;
         auto result = cast(int) JSValueToNumber(ctx, lenVal, &exc);
@@ -495,6 +513,8 @@ class JSCEngine : IJSEngine
             kJSPropertyAttributeNone, &exc);
     }
 
+    private enum JSC_STACK_STRING_SIZE = 512;
+
     private string jscStringToD(JSValueRef val) @trusted
     {
         assert(ctx !is null, "JSC context not initialized");
@@ -507,12 +527,24 @@ class JSCEngine : IJSEngine
         auto maxSize = JSStringGetMaximumUTF8CStringSize(jsStr);
         if (maxSize == 0)
             return "";
+
+        // Stack buffer for short strings (covers ~99% of cases)
+        if (maxSize <= JSC_STACK_STRING_SIZE)
+        {
+            char[JSC_STACK_STRING_SIZE] stackBuf = void;
+            auto written = JSStringGetUTF8CString(jsStr, stackBuf.ptr, maxSize);
+            assert(written <= maxSize, "JSC UTF8 overrun");
+            if (written <= 1) return "";
+            return stackBuf[0 .. written - 1].idup;
+        }
+
+        // Heap fallback for large strings
         auto buf = new char[maxSize];
         auto written = JSStringGetUTF8CString(jsStr, buf.ptr, maxSize);
         assert(written <= maxSize, "JSC UTF8 overrun");
         if (written <= 1)
             return "";
-        return (cast(immutable(char)[]) buf[0 .. written - 1]).idup;
+        return cast(string) buf[0 .. written - 1];
     }
 
     static JSHandle toHandle(void* ptr) pure nothrow @nogc @trusted
@@ -528,6 +560,16 @@ class JSCEngine : IJSEngine
     }
 }
 
+// Cached JSStringRef for __cbSlot__ — created once, reused on every native call
+private __gshared JSStringRef _cachedCbSlotStr;
+
+private JSStringRef getCbSlotStr() nothrow @trusted
+{
+    if (_cachedCbSlotStr is null)
+        _cachedCbSlotStr = JSStringCreateWithUTF8CString("__cbSlot__");
+    return _cachedCbSlotStr;
+}
+
 private extern (C) JSValueRef jscNativeTrampoline(JSContextRef ctx,
     JSObjectRef func, JSObjectRef thisObject,
     size_t argumentCount, const(JSValueRef)* arguments,
@@ -537,11 +579,8 @@ private extern (C) JSValueRef jscNativeTrampoline(JSContextRef ctx,
     import dun.engine.jsc.backend : JSCEngine;
 
     assert(ctx !is null, "Null JSContextRef in jscNativeTrampoline");
-    auto slotName = JSStringCreateWithUTF8CString("__cbSlot__");
-    assert(slotName !is null, "JSStringCreateWithUTF8CString returned null");
-    scope (exit) JSStringRelease(slotName);
     JSValueRef exc = null;
-    auto slotVal = JSObjectGetProperty(ctx, func, slotName, &exc);
+    auto slotVal = JSObjectGetProperty(ctx, func, getCbSlotStr(), &exc);
     int slot = cast(int) JSValueToNumber(ctx, slotVal, &exc);
 
     auto cb = get(slot);
@@ -603,16 +642,22 @@ private extern (C) void jscTypedArrayDeallocator(void* bytes, void* deallocCtx) 
 private JSValueRef _jscPendingThrow;
 
 // JSC doesn't have a context opaque API, so we maintain our own map.
+// Fast path: cache the most-recently-used context (single-context is the common case)
+private __gshared JSGlobalContextRef _cachedCtx;
+private __gshared void* _cachedOpaque;
 private __gshared void*[size_t] jscContextOpaqueMap;
 
 package void jscSetContextOpaque(JSGlobalContextRef ctx, void* ptr) nothrow @trusted
 {
+    _cachedCtx = ctx;
+    _cachedOpaque = ptr;
     try { jscContextOpaqueMap[cast(size_t) cast(void*) ctx] = ptr; }
     catch (Exception) {}
 }
 
 package void* jscGetContextOpaque(JSGlobalContextRef ctx) nothrow @trusted
 {
+    if (ctx is _cachedCtx) return _cachedOpaque;
     if (auto p = cast(size_t) cast(void*) ctx in jscContextOpaqueMap)
         return *p;
     return null;
