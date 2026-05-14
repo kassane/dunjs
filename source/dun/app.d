@@ -136,6 +136,7 @@ int runScript(T)(T config)
         {
             import dun.cli.errors : isColorEnabled, formatUncaughtError;
             writeStderr(formatUncaughtError(result.errorMessage, isColorEnabled()));
+            engine.shutdown();
             return 1;
         }
     }
@@ -146,7 +147,9 @@ int runScript(T)(T config)
 
     state.eventLoop.run();
     state.eventLoop.flushUnhandledRejections();
-    return state.eventLoop.exitCode;
+    auto exitCode = state.eventLoop.exitCode;
+    engine.shutdown();
+    return exitCode;
 }
 
 int runRepl(T)(T config)
@@ -181,6 +184,7 @@ int evalInline(T)(T config)
     {
         import dun.cli.errors : isColorEnabled, formatUncaughtError;
         writeStderr(formatUncaughtError(result.errorMessage, isColorEnabled()));
+        engine.shutdown();
         return 1;
     }
 
@@ -193,7 +197,9 @@ int evalInline(T)(T config)
 
     state.eventLoop.run();
     state.eventLoop.flushUnhandledRejections();
-    return state.eventLoop.exitCode;
+    auto exitCode = state.eventLoop.exitCode;
+    engine.shutdown();
+    return exitCode;
 }
 
 void printVersion()
@@ -438,6 +444,7 @@ int runSingleTest(T)(T config, string filePath) @trusted
     {
         import std.stdio : stderr;
         stderr.writeln("  Error in ", filePath, ": ", result.errorMessage);
+        engine.shutdown();
         return 1;
     }
     else
@@ -463,7 +470,9 @@ int runSingleTest(T)(T config, string filePath) @trusted
         }
     }
 
-    return state.eventLoop.exitCode;
+    auto exitCode = state.eventLoop.exitCode;
+    engine.shutdown();
+    return exitCode;
 }
 
 int runBenchCmd(T)(T config)
@@ -561,6 +570,7 @@ int runSingleBench(T)(T config, string filePath) @trusted
     {
         import std.stdio : stderr;
         stderr.writeln("  Error: ", result.errorMessage);
+        engine.shutdown();
         return 1;
     }
     else
@@ -570,7 +580,9 @@ int runSingleBench(T)(T config, string filePath) @trusted
     if (!postRes.isError) engine.freeValue(postRes.value);
 
     state.eventLoop.run();
-    return state.eventLoop.exitCode;
+    auto exitCode = state.eventLoop.exitCode;
+    engine.shutdown();
+    return exitCode;
 }
 
 int runInit(T)(T config)

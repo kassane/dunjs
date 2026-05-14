@@ -450,11 +450,59 @@ Test pattern: fixtures in `tests/integration/fixtures/*.{js,mjs,ts}`, expected s
 ### Sanitizer Testing
 
 ```sh
+# AddressSanitizer — detects buffer overflows, use-after-free, double-free
 dub build -c quickjs -b asan                          # ASan build via DUB
+dub build -c jsc -b asan                              # ASan + JSC
 ASAN_OPTIONS=detect_leaks=0 bash tests/integration/run.sh  # Run with ASan
+
+# ThreadSanitizer — detects data races in __gshared state
+dub build -c quickjs -b tsan                          # TSan build via DUB
+TSAN_OPTIONS=halt_on_error=0 bash tests/integration/run.sh  # Run with TSan
+
+# Valgrind — deep heap analysis (slow, 10-50x overhead)
+dub build -c quickjs                                  # Debug build
+valgrind --leak-check=full --show-leak-kinds=definite build/dun eval "1+1"
+valgrind --leak-check=full --show-leak-kinds=all build/dun run script.js
 ```
 
-All 51 integration tests pass under AddressSanitizer with zero memory errors.
+All 66 integration tests pass under AddressSanitizer (QuickJS + JSC) with zero memory errors.
+All 66 integration tests pass under ThreadSanitizer (QuickJS) with zero data races.
+Note: V8 ASan requires rebuilding the V8 monolith with ASan (not available in prebuilt).
+Note: TSan uses static D runtime linking (no `--link-defaultlib-shared`) — TSan's interceptors conflict with D shared runtime init.
+
+### Debugging with GDB
+
+**Always use GDB to investigate segfaults** — never guess at the cause.
+
+```sh
+# Run under GDB — break on crash
+gdb --args build/dun run script.js --allow-all
+(gdb) run
+(gdb) bt              # backtrace at crash point
+(gdb) info registers  # check register state
+(gdb) frame N         # switch to frame N
+(gdb) print varName   # inspect variable
+
+# Batch mode — get backtrace non-interactively
+gdb -batch -ex run -ex bt -ex quit --args build/dun run script.js
+
+# Attach to running process
+gdb -p <PID>
+
+# Catch specific signals
+(gdb) handle SIGSEGV stop print
+(gdb) catch throw     # break on D/C++ exceptions
+
+# Debug release builds (need debug info)
+dub build -c quickjs -b release-debug  # Optimized + debug symbols
+```
+
+**Rules:**
+- Any segfault → run under GDB first, get backtrace before making changes
+- Use `bt full` for local variable inspection at each frame
+- For V8 crashes, the shim trampoline (`v8FunctionTrampoline`) frame shows the FFI boundary
+- For JSC crashes, check `JSValueRef` validity — `NULL` or freed values crash silently
+- Build with `-b debug` or add `-g` to `dflags` for debug symbols in release builds
 
 ### Stress Benchmarks
 
@@ -474,24 +522,24 @@ Cross-runtime comparison (feature_bench.js, 25 tests, release builds, ops/sec):
 
 | Runtime | Total Throughput | vs Bun |
 |---------|-----------------|--------|
-| Bun 1.3.11 | 417M | 1.00x |
-| DunJS JSC | 408M | **0.98x** |
-| Node.js v22 | 112M | 0.27x |
-| DunJS V8 | 110M | 0.26x |
-| Deno 2.7.14 | 109M | 0.26x |
+| Bun 1.3.14 | 553M | 1.00x |
+| DunJS JSC | 474M | **0.86x** |
+| Node.js v22 | 158M | 0.29x |
+| DunJS V8 | 133M | 0.24x |
 
-DunJS JSC wins 15 out of 25 individual tests vs Bun (Array +49%, Object +27%, Map/Set +33-55%,
-Promise.resolve +6%, JSON +10-14%, template literal +7%). Gap is in native operations
-(crypto, Buffer, encoding) where Bun uses C++ directly while DunJS uses IJSEngine FFI.
+DunJS JSC wins 11 out of 25 individual tests vs Bun 1.3.14 (Array +19-25%, Object +20-43%,
+Map/Set +24-41%, JSON.parse +14%, template literal +5%, URLSearchParams +6%, array.sort +4%).
+Gap is in native operations (crypto, Buffer, encoding) where Bun uses C++ directly while
+DunJS uses IJSEngine FFI.
 
 Framework benchmarks (framework_bench.js, 39 tests, release builds, ops/sec):
 
 | Runtime | Total Throughput | vs Bun |
 |---------|-----------------|--------|
-| Bun 1.3.11 | 285M | 1.00x |
-| DunJS JSC | 249M | **0.87x** |
-| DunJS V8 | 138M | 0.48x |
-| Node.js v22 | 133M | 0.47x |
+| Bun 1.3.14 | 326M | 1.00x |
+| DunJS JSC | 313M | **0.96x** |
+| DunJS V8 | 133M | 0.41x |
+| Node.js v22 | 133M | 0.41x |
 
 npm compat test (npm_compat_test.js, 145 assertions): **All 6 runtimes: 145/145 pass**
 

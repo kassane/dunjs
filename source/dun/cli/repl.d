@@ -75,6 +75,8 @@ int runReplImpl(T)(T config)
         }
     }
 
+    auto global = engine.getGlobal();
+
     bool color = isColorEnabled();
     bool isTTY = isTtyStdin();
 
@@ -188,7 +190,7 @@ int runReplImpl(T)(T config)
 
         if (result.isError)
         {
-            engine.setProperty(engine.getGlobal(), "_error",
+            engine.setProperty(global, "_error",
                 engine.newString(result.errorMessage));
             try
             {
@@ -201,8 +203,8 @@ int runReplImpl(T)(T config)
         {
             if (!engine.isUndefined(result.value))
             {
-                engine.setProperty(engine.getGlobal(), "_", engine.dupValue(result.value));
-                engine.setProperty(engine.getGlobal(), "__dun_v__", engine.dupValue(result.value));
+                engine.setProperty(global, "_", engine.dupValue(result.value));
+                engine.setProperty(global, "__dun_v__", engine.dupValue(result.value));
                 auto inspR = engine.eval("__dun_repl_inspect__(__dun_v__)", "<repl:inspect>");
                 if (!inspR.isError && !engine.isUndefined(inspR.value))
                 {
@@ -218,6 +220,8 @@ int runReplImpl(T)(T config)
     }
 
     lineEd.saveHistory();
+    engine.freeValue(global);
+    engine.shutdown();
     return 0;
 }
 
@@ -431,9 +435,10 @@ private void doEditor(IJSEngine engine, DunState* state,
     auto result = engine.eval(evalCode, "<repl:editor>");
     state.eventLoop.drainMicrotasks();
 
+    auto edGlobal = engine.getGlobal();
     if (result.isError)
     {
-        engine.setProperty(engine.getGlobal(), "_error",
+        engine.setProperty(edGlobal, "_error",
             engine.newString(result.errorMessage));
         try
         {
@@ -446,8 +451,8 @@ private void doEditor(IJSEngine engine, DunState* state,
     {
         if (!engine.isUndefined(result.value))
         {
-            engine.setProperty(engine.getGlobal(), "_", engine.dupValue(result.value));
-            engine.setProperty(engine.getGlobal(), "__dun_v__", engine.dupValue(result.value));
+            engine.setProperty(edGlobal, "_", engine.dupValue(result.value));
+            engine.setProperty(edGlobal, "__dun_v__", engine.dupValue(result.value));
             auto inspR = engine.eval("__dun_repl_inspect__(__dun_v__)", "<repl:inspect>");
             if (!inspR.isError && !engine.isUndefined(inspR.value))
             {
@@ -458,6 +463,7 @@ private void doEditor(IJSEngine engine, DunState* state,
         }
         engine.freeValue(result.value);
     }
+    engine.freeValue(edGlobal);
     state.eventLoop.flushUnhandledRejections();
 }
 

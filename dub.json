@@ -373,6 +373,12 @@
 				"--fsanitize=address",
 				"--link-defaultlib-shared"
 			]
+		},
+		"tsan": {
+			"dflags": [
+				"-g",
+				"--fsanitize=thread"
+			]
 		}
 	},
 	"importPaths": [
