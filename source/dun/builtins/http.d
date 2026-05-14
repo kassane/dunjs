@@ -369,7 +369,7 @@ JSHandle jsHttpServerListen(void* ctx, JSHandle thisVal, JSHandle[] args) @trust
             pushAgnosticPending(engine, listenCb, noArgs[]);
             engine.freeValue(listenCb);
         }
-        return _httpCachedUndef;
+        return engine.newUndefined();
     }
     else
     {
@@ -403,11 +403,12 @@ JSHandle jsHttpServerClose(void* ctx, JSHandle thisVal, JSHandle[] args) @truste
             srv.active = false;
             _activeServerCount--;
         }
-        return _httpCachedUndef;
+        return engine.newUndefined();
     }
     else
     {
-        return _httpCachedUndef;
+        auto state = cast(DunState*) ctx;
+        return state.engine.newUndefined();
     }
 }
 
@@ -540,12 +541,12 @@ JSHandle jsResSetHeader(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     auto state = cast(DunState*) ctx;
     assert(state !is null, "Null DunState in jsResSetHeader");
     auto engine = state.engine;
-    if (args.length < 2) return _httpCachedUndef;
+    if (args.length < 2) return engine.newUndefined();
 
     auto idProp = engine.getProperty(thisVal, "__cid");
     int connId = engine.extractInt(idProp);
     engine.freeValue(idProp);
-    if (connId < 0 || connId >= cast(int) httpConns.length) return _httpCachedUndef;
+    if (connId < 0 || connId >= cast(int) httpConns.length) return engine.newUndefined();
 
     try
     {
@@ -554,7 +555,7 @@ JSHandle jsResSetHeader(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
         httpConns[connId].respHeaders[name] = val;
     }
     catch (Exception) {}
-    return _httpCachedUndef;
+    return engine.newUndefined();
 }
 
 JSHandle jsResWriteHead(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
@@ -567,7 +568,7 @@ JSHandle jsResWriteHead(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     auto idProp = engine.getProperty(thisVal, "__cid");
     int connId = engine.extractInt(idProp);
     engine.freeValue(idProp);
-    if (connId < 0 || connId >= cast(int) httpConns.length) return _httpCachedUndef;
+    if (connId < 0 || connId >= cast(int) httpConns.length) return engine.newUndefined();
 
     auto conn = &httpConns[connId];
     if (args.length >= 1 && engine.isNumber(args[0]))
@@ -597,7 +598,7 @@ JSHandle jsResWriteHead(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     }
 
     bufferStatusLine(conn);
-    return _httpCachedUndef;
+    return engine.newUndefined();
 }
 
 JSHandle jsResWrite(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
@@ -638,10 +639,10 @@ JSHandle jsResEnd(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
         auto idProp = engine.getProperty(thisVal, "__cid");
         int connId = engine.extractInt(idProp);
         engine.freeValue(idProp);
-        if (connId < 0 || connId >= cast(int) httpConns.length) return _httpCachedUndef;
+        if (connId < 0 || connId >= cast(int) httpConns.length) return engine.newUndefined();
 
         auto conn = &httpConns[connId];
-        if (conn.closed) return _httpCachedUndef;
+        if (conn.closed) return engine.newUndefined();
 
         // Buffer headers if not yet sent
         if (!conn.headersSent) bufferStatusLine(conn);
@@ -703,11 +704,12 @@ JSHandle jsResEnd(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
             }
             freeConnSlot(connId);
         }
-        return _httpCachedUndef;
+        return engine.newUndefined();
     }
     else
     {
-        return _httpCachedUndef;
+        auto state = cast(DunState*) ctx;
+        return state.engine.newUndefined();
     }
 }
 
