@@ -134,6 +134,7 @@ struct HttpConnState
     int statusCode = HTTP_STATUS_OK;
     string[string] respHeaders;
     bool headersSent;
+    bool keepAlive;
 }
 
 HttpServerState[] httpServers;
@@ -450,6 +451,30 @@ JSHandle jsResWriteHead(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     if (args.length >= 1 && engine.isNumber(args[0]))
         conn.statusCode = engine.extractInt(args[0]);
 
+    // Process headers object (second argument)
+    if (args.length >= 2 && engine.isObject(args[1]))
+    {
+        try
+        {
+            // Extract known header names from the JS object
+            static immutable hdrs = [
+                "Content-Type", "Content-Length", "Connection",
+                "Cache-Control", "Location", "Server",
+                "Set-Cookie", "Access-Control-Allow-Origin",
+                "Transfer-Encoding", "X-Powered-By",
+                "content-type", "content-length", "connection",
+            ];
+            foreach (name; hdrs)
+            {
+                auto val = engine.getProperty(args[1], name);
+                if (!engine.isUndefined(val) && !engine.isNull(val))
+                    conn.respHeaders[name] = sanitizeHeaderValue(engine.extractString(val));
+                engine.freeValue(val);
+            }
+        }
+        catch (Exception) {}
+    }
+
     sendStatusLine(conn);
     return engine.newUndefined();
 }
@@ -501,12 +526,48 @@ JSHandle jsResEnd(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
             sendRaw(conn, body_);
         }
 
-        conn.closed = true;
-        if (conn.fd >= 0)
+        if (conn.keepAlive)
         {
-            version (linux) gHttpPoller.unwatch(conn.fd);
-            close(conn.fd);
-            conn.fd = -1;
+            // Reset for next request on same connection
+            size_t consumed = conn.bodyStart;
+            if (conn.contentLength <= MAX_BUF - consumed)
+                consumed += conn.contentLength;
+            else
+                consumed = conn.bufLen;
+            size_t remaining = conn.bufLen > consumed ? conn.bufLen - consumed : 0;
+            if (remaining > 0)
+            {
+                for (size_t i = 0; i < remaining; i++)
+                    conn.buf[i] = conn.buf[consumed + i];
+            }
+            conn.bufLen = remaining;
+            conn.headersDone = false;
+            conn.headersSent = false;
+            conn.bodyStart = 0;
+            conn.contentLength = 0;
+            conn.statusCode = HTTP_STATUS_OK;
+            try
+            {
+                conn.method = "";
+                conn.url = "";
+                conn.headers = null;
+                conn.respHeaders = null;
+            }
+            catch (Throwable) {}
+
+            // If we already have data from next request, try parsing it
+            if (remaining > 0)
+                tryParseHeaders(conn, connId);
+        }
+        else
+        {
+            conn.closed = true;
+            if (conn.fd >= 0)
+            {
+                version (linux) gHttpPoller.unwatch(conn.fd);
+                close(conn.fd);
+                conn.fd = -1;
+            }
         }
         return engine.newUndefined();
     }
@@ -546,7 +607,10 @@ void sendStatusLine(HttpConnState* conn) nothrow @trusted
         string line = "HTTP/1.1 " ~ conn.statusCode.to!string ~ " " ~ statusText ~ "\r\n";
         if ("Content-Type" !in conn.respHeaders)
             conn.respHeaders["Content-Type"] = "text/plain";
-        conn.respHeaders["Connection"] = "close";
+        if (!conn.keepAlive)
+            conn.respHeaders["Connection"] = "close";
+        else if ("Connection" !in conn.respHeaders)
+            conn.respHeaders["Connection"] = "keep-alive";
         foreach (k, v; conn.respHeaders)
             line ~= k ~ ": " ~ v ~ "\r\n";
         line ~= "\r\n";
@@ -701,6 +765,14 @@ void tryParseHeaders(HttpConnState* conn, int cid) nothrow @trusted
     auto headerText = conn.buf[0 .. sepPos].idup;
     parseRequestHeaders(conn, headerText);
 
+    // HTTP/1.1 defaults to keep-alive; HTTP/1.0 defaults to close
+    bool isHttp11 = conn.httpVersion == "HTTP/1.1" || conn.httpVersion == "1.1";
+    auto connHdr = "connection" in conn.headers;
+    if (isHttp11)
+        conn.keepAlive = connHdr is null || (*connHdr) != "close";
+    else
+        conn.keepAlive = connHdr !is null && (*connHdr) == "keep-alive";
+
     bool hasTE = ("transfer-encoding" in conn.headers) !is null;
     bool hasCL = ("content-length" in conn.headers) !is null;
 
@@ -714,6 +786,13 @@ void tryParseHeaders(HttpConnState* conn, int cid) nothrow @trusted
     {
         import std.conv : to;
         try { conn.contentLength = conn.headers["content-length"].to!size_t; } catch (Exception) {}
+    }
+
+    // Reject requests with Content-Length exceeding buffer capacity
+    if (conn.contentLength > MAX_BUF || conn.bodyStart + conn.contentLength > MAX_BUF)
+    {
+        sendError(conn, 413, "Payload Too Large");
+        return;
     }
 
     bool bodyComplete = conn.bufLen >= conn.bodyStart + conn.contentLength;
