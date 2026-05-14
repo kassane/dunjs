@@ -76,6 +76,11 @@ check('crypto.createDecipheriv', typeof crypto.createDecipheriv === 'function');
 check('crypto.timingSafeEqual', typeof crypto.timingSafeEqual === 'function');
 check('crypto.pbkdf2Sync', typeof crypto.pbkdf2Sync === 'function');
 check('crypto.scryptSync', typeof crypto.scryptSync === 'function');
+check('crypto.getHashes', typeof crypto.getHashes === 'function');
+check('crypto.getHashes returns array', Array.isArray(crypto.getHashes()));
+check('crypto.getHashes includes sha256', crypto.getHashes().indexOf('sha256') !== -1);
+check('crypto.getCiphers', typeof crypto.getCiphers === 'function');
+check('crypto.constants', typeof crypto.constants === 'object');
 
 var net = require('net');
 check('net.createServer', typeof net.createServer === 'function');
@@ -230,6 +235,17 @@ check('os.userInfo().homedir', typeof ui.homedir === 'string');
 var la = os.loadavg();
 check('os.loadavg() is array', Array.isArray(la) && la.length === 3);
 check('os.networkInterfaces() is object', typeof os.networkInterfaces() === 'object');
+check('os.constants', typeof os.constants === 'object');
+check('os.constants.signals', typeof os.constants.signals === 'object');
+check('os.constants.signals.SIGTERM', os.constants.signals.SIGTERM === 15);
+check('os.constants.signals.SIGINT', os.constants.signals.SIGINT === 2);
+check('os.constants.signals.SIGKILL', os.constants.signals.SIGKILL === 9);
+check('os.constants.errno', typeof os.constants.errno === 'object');
+check('os.constants.errno.ENOENT', os.constants.errno.ENOENT === 2);
+check('os.constants.errno.EACCES', os.constants.errno.EACCES === 13);
+check('os.constants.errno.EEXIST', os.constants.errno.EEXIST === 17);
+check('os.constants.priority', typeof os.constants.priority === 'object');
+check('os.constants.priority.PRIORITY_NORMAL', os.constants.priority.PRIORITY_NORMAL === 0);
 
 // New: perf_hooks
 var perf_hooks = require('perf_hooks');
@@ -301,6 +317,49 @@ check('assert.match', typeof assert.match === 'function');
 check('assert.doesNotMatch', typeof assert.doesNotMatch === 'function');
 check('assert.fail', typeof assert.fail === 'function');
 check('assert.ifError', typeof assert.ifError === 'function');
+
+// querystring enhancements
+var qs = require('querystring');
+check('querystring.escape', typeof qs.escape === 'function');
+check('querystring.unescape', typeof qs.unescape === 'function');
+check('querystring.encode', typeof qs.encode === 'function');
+check('querystring.decode', typeof qs.decode === 'function');
+check('querystring.encode is stringify', qs.encode === qs.stringify);
+check('querystring.decode is parse', qs.decode === qs.parse);
+check('querystring.escape works', qs.escape('hello world') === 'hello%20world');
+check('querystring.unescape works', qs.unescape('hello%20world') === 'hello world');
+
+// url legacy API
+var url = require('url');
+check('url.parse', typeof url.parse === 'function');
+check('url.format', typeof url.format === 'function');
+check('url.resolve', typeof url.resolve === 'function');
+check('url.fileURLToPath', typeof url.fileURLToPath === 'function');
+check('url.pathToFileURL', typeof url.pathToFileURL === 'function');
+check('url.domainToASCII', typeof url.domainToASCII === 'function');
+check('url.domainToUnicode', typeof url.domainToUnicode === 'function');
+
+// url.parse checks
+var parsed = url.parse('https://user:pass@example.com:8080/path?query=1#hash');
+check('url.parse protocol', parsed.protocol === 'https:');
+check('url.parse hostname', parsed.hostname === 'example.com');
+check('url.parse port', parsed.port === '8080');
+check('url.parse pathname', parsed.pathname === '/path');
+check('url.parse search', parsed.search === '?query=1');
+check('url.parse query', parsed.query === 'query=1');
+check('url.parse hash', parsed.hash === '#hash');
+check('url.parse auth', parsed.auth === 'user:pass');
+check('url.parse host', parsed.host === 'example.com:8080');
+check('url.parse path', parsed.path === '/path?query=1');
+
+// url.format check
+check('url.format works', url.format({ protocol: 'https:', hostname: 'example.com', pathname: '/path' }) === 'https://example.com/path');
+
+// url.resolve check
+check('url.resolve works', url.resolve('https://example.com/a/b', '/c') === 'https://example.com/c');
+
+// url.fileURLToPath check
+check('url.fileURLToPath works', url.fileURLToPath('file:///tmp/test.txt') === '/tmp/test.txt');
 
 // Globals
 check('Buffer', typeof Buffer !== 'undefined');

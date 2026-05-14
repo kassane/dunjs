@@ -58,6 +58,11 @@ PASS: crypto.createDecipheriv
 PASS: crypto.timingSafeEqual
 PASS: crypto.pbkdf2Sync
 PASS: crypto.scryptSync
+PASS: crypto.getHashes
+PASS: crypto.getHashes returns array
+PASS: crypto.getHashes includes sha256
+PASS: crypto.getCiphers
+PASS: crypto.constants
 PASS: net.createServer
 PASS: net.createConnection
 PASS: net.isIP
@@ -162,6 +167,17 @@ PASS: os.userInfo().username
 PASS: os.userInfo().homedir
 PASS: os.loadavg() is array
 PASS: os.networkInterfaces() is object
+PASS: os.constants
+PASS: os.constants.signals
+PASS: os.constants.signals.SIGTERM
+PASS: os.constants.signals.SIGINT
+PASS: os.constants.signals.SIGKILL
+PASS: os.constants.errno
+PASS: os.constants.errno.ENOENT
+PASS: os.constants.errno.EACCES
+PASS: os.constants.errno.EEXIST
+PASS: os.constants.priority
+PASS: os.constants.priority.PRIORITY_NORMAL
 PASS: perf_hooks.performance
 PASS: perf_hooks.performance.mark
 PASS: perf_hooks.performance.measure
@@ -212,6 +228,34 @@ PASS: assert.match
 PASS: assert.doesNotMatch
 PASS: assert.fail
 PASS: assert.ifError
+PASS: querystring.escape
+PASS: querystring.unescape
+PASS: querystring.encode
+PASS: querystring.decode
+PASS: querystring.encode is stringify
+PASS: querystring.decode is parse
+PASS: querystring.escape works
+PASS: querystring.unescape works
+PASS: url.parse
+PASS: url.format
+PASS: url.resolve
+PASS: url.fileURLToPath
+PASS: url.pathToFileURL
+PASS: url.domainToASCII
+PASS: url.domainToUnicode
+PASS: url.parse protocol
+PASS: url.parse hostname
+PASS: url.parse port
+PASS: url.parse pathname
+PASS: url.parse search
+PASS: url.parse query
+PASS: url.parse hash
+PASS: url.parse auth
+PASS: url.parse host
+PASS: url.parse path
+PASS: url.format works
+PASS: url.resolve works
+PASS: url.fileURLToPath works
 PASS: Buffer
 PASS: setTimeout
 PASS: setInterval
@@ -220,4 +264,4 @@ PASS: console.log
 PASS: console.error
 PASS: console.warn
 ---
-Total: 221/221 passed
+Total: 265/265 passed

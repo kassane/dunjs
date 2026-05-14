@@ -37,6 +37,7 @@ struct CliConfig
     size_t stackSize = DEFAULT_MAX_STACK;
     bool verbose;
     string evalFile;
+    string errorMessage;
 
     import dun.modules.npm : AuditMode;
     AuditMode auditMode = AuditMode.warn;
@@ -81,8 +82,15 @@ CliConfig parseArgs(string[] args) @safe
             config.command = Command.help;
             return config;
         }
+        else if (isKnownFlag(args[i]))
+        {
+            break; // Permission/runtime flags handled after command detection
+        }
         else
-            break; // Other flags handled after command detection
+        {
+            config.errorMessage = "unknown flag '" ~ args[i] ~ "'";
+            return config;
+        }
     }
 
     if (i >= args.length)
@@ -194,15 +202,26 @@ CliConfig parseArgs(string[] args) @safe
     }
     else if (args[i].startsWith("-"))
     {
-        // Unrecognized leading flag — default to run, let remaining loop process it
-        config.command = Command.run;
+        if (isKnownFlag(args[i]))
+        {
+            config.command = Command.run;
+        }
+        else
+        {
+            config.errorMessage = "unknown flag '" ~ args[i] ~ "'";
+            return config;
+        }
     }
-    else
+    else if (looksLikeFile(args[i]))
     {
-        // Bare filename — implicit run
         config.command = Command.run;
         config.scriptPath = args[i];
         i++;
+    }
+    else
+    {
+        config.errorMessage = "unknown command '" ~ args[i] ~ "'. Run 'dun help' for usage.";
+        return config;
     }
 
     // Parse remaining arguments
@@ -296,6 +315,13 @@ CliConfig parseArgs(string[] args) @safe
             continue;
         }
 
+        // Unknown flag before script path
+        if (arg.startsWith("-") && config.scriptPath.length == 0)
+        {
+            config.errorMessage = "unknown flag '" ~ arg ~ "'";
+            return config;
+        }
+
         // Script path (if not yet set)
         if (config.command == Command.run && config.scriptPath.length == 0)
         {
@@ -304,10 +330,35 @@ CliConfig parseArgs(string[] args) @safe
             continue;
         }
 
-        // Script arguments
+        // Script arguments (after script path, flags are passed to the script)
         config.scriptArgs ~= arg;
         i++;
     }
 
     return config;
+}
+
+private bool isKnownFlag(string arg) @safe pure nothrow @nogc
+{
+    import std.algorithm : startsWith;
+
+    return arg == "--verbose" || arg == "-V"
+        || arg == "--version" || arg == "-v"
+        || arg == "--help" || arg == "-h"
+        || arg == "-A"
+        || arg.startsWith("--allow-")
+        || arg.startsWith("--deny-")
+        || arg.startsWith("--max-memory=")
+        || arg.startsWith("--max-stack=")
+        || arg.startsWith("--eval-file=")
+        || arg.startsWith("--audit=")
+        || arg.startsWith("--filter=");
+}
+
+private bool looksLikeFile(string arg) @safe pure nothrow @nogc
+{
+    foreach (c; arg)
+        if (c == '.' || c == '/')
+            return true;
+    return false;
 }

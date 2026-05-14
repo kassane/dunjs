@@ -11,6 +11,14 @@ int main(string[] args)
 
     auto config = parseArgs(args);
 
+    if (config.errorMessage.length > 0)
+    {
+        writeStderr("error: ");
+        writeStderr(config.errorMessage);
+        writeStderr("\n");
+        return 1;
+    }
+
     final switch (config.command)
     {
         case Command.run:

@@ -164,8 +164,20 @@ cli_out=$("$DUN" run --allow-run=echo /tmp/dun_meta.js 2>&1 || true)
 echo "$cli_out" | grep -q 'META_BLOCKED' || { echo "FAIL cli_shell_meta"; cli_fails=1; }
 rm -f /tmp/dun_meta.js
 
+# Test: unknown command
+cli_out=$("$DUN" foobar 2>&1 || true)
+echo "$cli_out" | grep -q "unknown command 'foobar'" || { echo "FAIL cli_unknown_cmd"; cli_fails=1; }
+
+# Test: unknown flag
+cli_out=$("$DUN" --foobar 2>&1 || true)
+echo "$cli_out" | grep -q "unknown flag '--foobar'" || { echo "FAIL cli_unknown_flag"; cli_fails=1; }
+
+# Test: unknown flag after run
+cli_out=$("$DUN" run --badopt 2>&1 || true)
+echo "$cli_out" | grep -q "unknown flag '--badopt'" || { echo "FAIL cli_unknown_flag_run"; cli_fails=1; }
+
 if [ "$cli_fails" -eq 0 ]; then
-  echo "PASS cli_features (11 checks)"
+  echo "PASS cli_features (14 checks)"
 else
   fails=$((fails+1))
 fi

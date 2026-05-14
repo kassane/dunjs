@@ -17,6 +17,7 @@ private extern (C) @nogc nothrow
     alias EVP_MD = void;
     const(EVP_MD)* EVP_md5();
     const(EVP_MD)* EVP_sha1();
+    const(EVP_MD)* EVP_sha224();
     const(EVP_MD)* EVP_sha256();
     const(EVP_MD)* EVP_sha384();
     const(EVP_MD)* EVP_sha512();
@@ -142,6 +143,7 @@ private const(EVP_MD)* getEvpMd(string algo) @trusted nothrow @nogc
 {
     if (algo == "md5") return EVP_md5();
     if (algo == "sha1") return EVP_sha1();
+    if (algo == "sha224") return EVP_sha224();
     if (algo == "sha256") return EVP_sha256();
     if (algo == "sha384") return EVP_sha384();
     if (algo == "sha512") return EVP_sha512();
@@ -167,6 +169,7 @@ private string normalizeAlgo(string algo) @safe pure nothrow
     // Match known algorithms
     if (lower == "md5") return "md5";
     if (lower == "sha1") return "sha1";
+    if (lower == "sha224") return "sha224";
     if (lower == "sha256") return "sha256";
     if (lower == "sha384") return "sha384";
     if (lower == "sha512") return "sha512";
@@ -395,7 +398,7 @@ JSHandle jsCryptoCreateHash(void* ctx, JSHandle thisVal, JSHandle[] args) @trust
     auto engine = state.engine;
     if (args.length < 1) return engine.throwTypeError("createHash requires an algorithm argument");
     auto algo = engine.extractString(args[0]);
-    if (algo != "md5" && algo != "sha1" && algo != "sha256" && algo != "sha512")
+    if (algo != "md5" && algo != "sha1" && algo != "sha224" && algo != "sha256" && algo != "sha384" && algo != "sha512")
         return engine.throwTypeError("Unsupported hash algorithm");
 
     if (!_hashFnsCached)
@@ -1303,7 +1306,7 @@ JSHandle jsCryptoGetHashes(void* ctx, JSHandle thisVal, JSHandle[] args) @truste
     auto engine = state.engine;
     auto arr = engine.newArray();
     uint idx = 0;
-    foreach (name; ["md5", "sha1", "sha256", "sha512"])
+    foreach (name; ["md5", "sha1", "sha224", "sha256", "sha384", "sha512"])
         engine.setPropertyIndex(arr, idx++, engine.newString(name));
     return arr;
 }
@@ -1356,7 +1359,9 @@ private string computeHash(string algo, string data) @trusted
     {
         case "md5": { import std.digest.md : MD5, digest; return toHexString!(LetterCase.lower)(digest!MD5(data)).idup; }
         case "sha1": { import std.digest.sha : SHA1, digest; return toHexString!(LetterCase.lower)(digest!SHA1(data)).idup; }
+        case "sha224": { import std.digest.sha : SHA224, digest; return toHexString!(LetterCase.lower)(digest!SHA224(data)).idup; }
         case "sha256": { import std.digest.sha : SHA256, digest; return toHexString!(LetterCase.lower)(digest!SHA256(data)).idup; }
+        case "sha384": { import std.digest.sha : SHA384, digest; return toHexString!(LetterCase.lower)(digest!SHA384(data)).idup; }
         case "sha512": { import std.digest.sha : SHA512, digest; return toHexString!(LetterCase.lower)(digest!SHA512(data)).idup; }
         default: return "";
     }

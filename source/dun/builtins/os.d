@@ -29,6 +29,14 @@ void registerOsModule(IJSEngine engine) @trusted
     engine.setProperty(obj, "EOL", engine.newString(eol()));
     engine.setProperty(obj, "devNull", engine.newString(devNull()));
 
+    auto constRes = engine.eval(osConstantsSource(), "<os-constants>");
+    if (!constRes.isError)
+    {
+        engine.setProperty(obj, "constants", constRes.value);
+    }
+    else
+        engine.freeValue(constRes.value);
+
     auto global = engine.getGlobal();
     engine.setProperty(global, "__dun_cjs_os__", obj);
     engine.freeValue(global);
@@ -46,23 +54,23 @@ version (EngineQuickJS)
         auto ctx = cast(JSContext*) engine.rawContext();
         auto m = JS_NewCModule(ctx, "dun:os", &osModuleInit);
         if (m is null) return;
-        foreach (name; ["platform", "arch", "type", "hostname", "homedir",
-                        "tmpdir", "cpus", "totalmem", "freemem", "uptime",
-                        "release", "endianness", "networkInterfaces",
-                        "userInfo", "loadavg", "version", "machine",
-                        "EOL", "devNull"])
+        foreach (name; osExportNames)
             JS_AddModuleExport(ctx, m, name.ptr);
     }
+
+    private static immutable osExportNames = [
+        "platform", "arch", "type", "hostname", "homedir",
+        "tmpdir", "cpus", "totalmem", "freemem", "uptime",
+        "release", "endianness", "networkInterfaces",
+        "userInfo", "loadavg", "version", "machine",
+        "EOL", "devNull", "constants"
+    ];
 
     private extern (C) int osModuleInit(JSContext* ctx, JSModuleDef* m) nothrow @trusted
     {
         auto global = JS_GetGlobalObject(ctx);
         auto osObj = JS_GetPropertyStr(ctx, global, "__dun_cjs_os__");
-        foreach (name; ["platform", "arch", "type", "hostname", "homedir",
-                        "tmpdir", "cpus", "totalmem", "freemem", "uptime",
-                        "release", "endianness", "networkInterfaces",
-                        "userInfo", "loadavg", "version", "machine",
-                        "EOL", "devNull"])
+        foreach (name; osExportNames)
         {
             auto fn = JS_GetPropertyStr(ctx, osObj, name.ptr);
             JS_SetModuleExport(ctx, m, name.ptr, fn);
@@ -74,6 +82,14 @@ version (EngineQuickJS)
 }
 
 private:
+
+IJSEngine getEngine(void* ctx) @trusted
+{
+    assert(ctx !is null);
+    auto state = cast(DunState*) ctx;
+    assert(state.engine !is null);
+    return state.engine;
+}
 
 string eol() pure @safe nothrow
 {
@@ -107,28 +123,19 @@ string archStr() pure @safe nothrow
 
 JSHandle jsOsPlatform(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsOsPlatform");
-    auto state = cast(DunState*) ctx;
-    assert(state.engine !is null, "Null engine in jsOsPlatform");
-    auto engine = state.engine;
+    auto engine = getEngine(ctx);
     return engine.newString(platformStr());
 }
 
 JSHandle jsOsArch(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsOsArch");
-    auto state = cast(DunState*) ctx;
-    assert(state.engine !is null, "Null engine in jsOsArch");
-    auto engine = state.engine;
+    auto engine = getEngine(ctx);
     return engine.newString(archStr());
 }
 
 JSHandle jsOsType(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsOsType");
-    auto state = cast(DunState*) ctx;
-    assert(state.engine !is null, "Null engine in jsOsType");
-    auto engine = state.engine;
+    auto engine = getEngine(ctx);
     version (linux) return engine.newString("Linux");
     else version (OSX) return engine.newString("Darwin");
     else version (Windows) return engine.newString("Windows_NT");
@@ -137,10 +144,7 @@ JSHandle jsOsType(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
 JSHandle jsOsHostname(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsOsHostname");
-    auto state = cast(DunState*) ctx;
-    assert(state.engine !is null, "Null engine in jsOsHostname");
-    auto engine = state.engine;
+    auto engine = getEngine(ctx);
     try
     {
         import std.process : environment;
@@ -165,10 +169,7 @@ JSHandle jsOsHostname(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
 JSHandle jsOsHomedir(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsOsHomedir");
-    auto state = cast(DunState*) ctx;
-    assert(state.engine !is null, "Null engine in jsOsHomedir");
-    auto engine = state.engine;
+    auto engine = getEngine(ctx);
     try
     {
         import std.process : environment;
@@ -183,10 +184,7 @@ JSHandle jsOsHomedir(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
 JSHandle jsOsTmpdir(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsOsTmpdir");
-    auto state = cast(DunState*) ctx;
-    assert(state.engine !is null, "Null engine in jsOsTmpdir");
-    auto engine = state.engine;
+    auto engine = getEngine(ctx);
     try
     {
         import std.file : tempDir;
@@ -197,10 +195,7 @@ JSHandle jsOsTmpdir(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
 JSHandle jsOsCpus(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsOsCpus");
-    auto state = cast(DunState*) ctx;
-    assert(state.engine !is null, "Null engine in jsOsCpus");
-    auto engine = state.engine;
+    auto engine = getEngine(ctx);
     auto arr = engine.newArray();
     try
     {
@@ -228,10 +223,7 @@ JSHandle jsOsCpus(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
 JSHandle jsOsTotalmem(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsOsTotalmem");
-    auto state = cast(DunState*) ctx;
-    assert(state.engine !is null, "Null engine in jsOsTotalmem");
-    auto engine = state.engine;
+    auto engine = getEngine(ctx);
     version (linux)
     {
         try
@@ -263,10 +255,7 @@ JSHandle jsOsTotalmem(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
 JSHandle jsOsFreemem(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsOsFreemem");
-    auto state = cast(DunState*) ctx;
-    assert(state.engine !is null, "Null engine in jsOsFreemem");
-    auto engine = state.engine;
+    auto engine = getEngine(ctx);
     version (linux)
     {
         try
@@ -297,10 +286,7 @@ JSHandle jsOsFreemem(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
 JSHandle jsOsUptime(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsOsUptime");
-    auto state = cast(DunState*) ctx;
-    assert(state.engine !is null, "Null engine in jsOsUptime");
-    auto engine = state.engine;
+    auto engine = getEngine(ctx);
     version (linux)
     {
         try
@@ -320,10 +306,7 @@ JSHandle jsOsUptime(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
 JSHandle jsOsRelease(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsOsRelease");
-    auto state = cast(DunState*) ctx;
-    assert(state.engine !is null, "Null engine in jsOsRelease");
-    auto engine = state.engine;
+    auto engine = getEngine(ctx);
     version (linux)
     {
         try
@@ -344,10 +327,7 @@ JSHandle jsOsRelease(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
 JSHandle jsOsEndianness(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsOsEndianness");
-    auto state = cast(DunState*) ctx;
-    assert(state.engine !is null, "Null engine in jsOsEndianness");
-    auto engine = state.engine;
+    auto engine = getEngine(ctx);
     version (LittleEndian)
         return engine.newString("LE");
     else
@@ -365,10 +345,7 @@ JSHandle jsOsNetworkInterfaces(void* ctx, JSHandle thisVal, JSHandle[] args) @tr
 
 JSHandle jsOsUserInfo(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsOsUserInfo");
-    auto state = cast(DunState*) ctx;
-    assert(state.engine !is null, "Null engine in jsOsUserInfo");
-    auto engine = state.engine;
+    auto engine = getEngine(ctx);
     auto obj = engine.newObject();
     version (Posix)
     {
@@ -423,10 +400,7 @@ JSHandle jsOsUserInfo(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
 JSHandle jsOsLoadavg(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsOsLoadavg");
-    auto state = cast(DunState*) ctx;
-    assert(state.engine !is null, "Null engine in jsOsLoadavg");
-    auto engine = state.engine;
+    auto engine = getEngine(ctx);
     auto arr = engine.newArray();
     version (linux)
     {
@@ -455,10 +429,7 @@ JSHandle jsOsLoadavg(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
 JSHandle jsOsVersion(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsOsVersion");
-    auto state = cast(DunState*) ctx;
-    assert(state.engine !is null, "Null engine in jsOsVersion");
-    auto engine = state.engine;
+    auto engine = getEngine(ctx);
     version (linux)
     {
         try
@@ -479,10 +450,7 @@ JSHandle jsOsVersion(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
 JSHandle jsOsMachine(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsOsMachine");
-    auto state = cast(DunState*) ctx;
-    assert(state.engine !is null, "Null engine in jsOsMachine");
-    auto engine = state.engine;
+    auto engine = getEngine(ctx);
     version (linux)
     {
         try
@@ -501,4 +469,50 @@ JSHandle jsOsMachine(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     version (X86_64) return engine.newString("x86_64");
     else version (AArch64) return engine.newString("aarch64");
     else return engine.newString("unknown");
+}
+
+string osConstantsSource() pure nothrow @safe
+{
+    return `(function() {
+    return {
+        signals: {
+            SIGHUP: 1, SIGINT: 2, SIGQUIT: 3, SIGILL: 4, SIGTRAP: 5,
+            SIGABRT: 6, SIGBUS: 7, SIGFPE: 8, SIGKILL: 9, SIGUSR1: 10,
+            SIGSEGV: 11, SIGUSR2: 12, SIGPIPE: 13, SIGALRM: 14, SIGTERM: 15,
+            SIGCHLD: 17, SIGCONT: 18, SIGSTOP: 19, SIGTSTP: 20, SIGTTIN: 21,
+            SIGTTOU: 22, SIGURG: 23, SIGXCPU: 24, SIGXFSZ: 25, SIGVTALRM: 26,
+            SIGPROF: 27, SIGWINCH: 28, SIGIO: 29, SIGPWR: 30, SIGSYS: 31
+        },
+        errno: {
+            E2BIG: 7, EACCES: 13, EADDRINUSE: 98, EADDRNOTAVAIL: 99,
+            EAFNOSUPPORT: 97, EAGAIN: 11, EALREADY: 114, EBADF: 9,
+            EBADMSG: 74, EBUSY: 16, ECANCELED: 125, ECHILD: 10,
+            ECONNABORTED: 103, ECONNREFUSED: 111, ECONNRESET: 104,
+            EDEADLK: 35, EDESTADDRREQ: 89, EDOM: 33, EDQUOT: 122,
+            EEXIST: 17, EFAULT: 14, EFBIG: 27, EHOSTUNREACH: 113,
+            EIDRM: 43, EILSEQ: 84, EINPROGRESS: 115, EINTR: 4,
+            EINVAL: 22, EIO: 5, EISCONN: 106, EISDIR: 21,
+            ELOOP: 40, EMFILE: 24, EMLINK: 31, EMSGSIZE: 90,
+            ENAMETOOLONG: 36, ENETDOWN: 100, ENETRESET: 102,
+            ENETUNREACH: 101, ENFILE: 23, ENOBUFS: 105, ENODATA: 61,
+            ENODEV: 19, ENOENT: 2, ENOEXEC: 8, ENOLCK: 37,
+            ENOMEM: 12, ENOMSG: 42, ENOPROTOOPT: 92, ENOSPC: 28,
+            ENOSYS: 38, ENOTCONN: 107, ENOTDIR: 20, ENOTEMPTY: 39,
+            ENOTSOCK: 88, ENOTSUP: 95, ENOTTY: 25, ENXIO: 6,
+            EOPNOTSUPP: 95, EOVERFLOW: 75, EPERM: 1, EPIPE: 32,
+            EPROTO: 71, EPROTONOSUPPORT: 93, EPROTOTYPE: 91,
+            ERANGE: 34, EROFS: 30, ESPIPE: 29, ESRCH: 3,
+            ESTALE: 116, ETIMEDOUT: 110, ETXTBSY: 26, EWOULDBLOCK: 11,
+            EXDEV: 18
+        },
+        priority: {
+            PRIORITY_LOW: 19,
+            PRIORITY_BELOW_NORMAL: 10,
+            PRIORITY_NORMAL: 0,
+            PRIORITY_ABOVE_NORMAL: -7,
+            PRIORITY_HIGH: -14,
+            PRIORITY_HIGHEST: -20
+        }
+    };
+})()`;
 }

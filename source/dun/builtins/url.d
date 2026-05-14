@@ -37,6 +37,14 @@ version (EngineQuickJS)
         if (m is null) return;
         JS_AddModuleExport(ctx, m, "URL");
         JS_AddModuleExport(ctx, m, "URLSearchParams");
+        JS_AddModuleExport(ctx, m, "parse");
+        JS_AddModuleExport(ctx, m, "format");
+        JS_AddModuleExport(ctx, m, "resolve");
+        JS_AddModuleExport(ctx, m, "fileURLToPath");
+        JS_AddModuleExport(ctx, m, "pathToFileURL");
+        JS_AddModuleExport(ctx, m, "domainToASCII");
+        JS_AddModuleExport(ctx, m, "domainToUnicode");
+        JS_AddModuleExport(ctx, m, "default");
     }
 
     private extern (C) int urlModuleInit(JSContext* ctx, JSModuleDef* m) nothrow @trusted
@@ -47,6 +55,14 @@ version (EngineQuickJS)
         auto uspClass = JS_GetPropertyStr(ctx, urlMod, "URLSearchParams");
         JS_SetModuleExport(ctx, m, "URL", urlClass);
         JS_SetModuleExport(ctx, m, "URLSearchParams", uspClass);
+        JS_SetModuleExport(ctx, m, "parse", JS_GetPropertyStr(ctx, urlMod, "parse"));
+        JS_SetModuleExport(ctx, m, "format", JS_GetPropertyStr(ctx, urlMod, "format"));
+        JS_SetModuleExport(ctx, m, "resolve", JS_GetPropertyStr(ctx, urlMod, "resolve"));
+        JS_SetModuleExport(ctx, m, "fileURLToPath", JS_GetPropertyStr(ctx, urlMod, "fileURLToPath"));
+        JS_SetModuleExport(ctx, m, "pathToFileURL", JS_GetPropertyStr(ctx, urlMod, "pathToFileURL"));
+        JS_SetModuleExport(ctx, m, "domainToASCII", JS_GetPropertyStr(ctx, urlMod, "domainToASCII"));
+        JS_SetModuleExport(ctx, m, "domainToUnicode", JS_GetPropertyStr(ctx, urlMod, "domainToUnicode"));
+        JS_SetModuleExport(ctx, m, "default", JS_DupValue(ctx, urlMod));
         JS_FreeValue(ctx, urlMod);
         JS_FreeValue(ctx, global);
         return 0;
@@ -234,7 +250,159 @@ string urlSource() pure @safe nothrow
   URL.prototype.toString = function() { return this.href; };
   URL.prototype.toJSON = function() { return this.href; };
 
-  var mod = { URL: URL, URLSearchParams: URLSearchParams };
+  function urlParse(urlString, parseQueryString, slashesDenoteHost) {
+    if (typeof urlString !== 'string') urlString = String(urlString);
+    var result = {
+      protocol: null, slashes: null, auth: null, host: null,
+      port: null, hostname: null, hash: null, search: null,
+      query: null, pathname: null, path: null, href: urlString
+    };
+    var rest = urlString;
+
+    var protoMatch = rest.match(/^([a-zA-Z][a-zA-Z0-9+\-.]*:)/);
+    if (protoMatch) {
+      result.protocol = protoMatch[1].toLowerCase();
+      rest = rest.substring(protoMatch[1].length);
+    }
+
+    if (result.protocol && rest.substring(0, 2) === '//') {
+      result.slashes = true;
+      rest = rest.substring(2);
+
+      var atIdx = rest.indexOf('@');
+      var slashIdx = rest.indexOf('/');
+      var qIdx = rest.indexOf('?');
+      var hIdx = rest.indexOf('#');
+      var hostEnd = rest.length;
+      if (slashIdx !== -1 && slashIdx < hostEnd) hostEnd = slashIdx;
+      if (qIdx !== -1 && qIdx < hostEnd) hostEnd = qIdx;
+      if (hIdx !== -1 && hIdx < hostEnd) hostEnd = hIdx;
+
+      if (atIdx !== -1 && atIdx < hostEnd) {
+        result.auth = rest.substring(0, atIdx);
+        rest = rest.substring(atIdx + 1);
+        hostEnd = rest.length;
+        slashIdx = rest.indexOf('/');
+        qIdx = rest.indexOf('?');
+        hIdx = rest.indexOf('#');
+        if (slashIdx !== -1 && slashIdx < hostEnd) hostEnd = slashIdx;
+        if (qIdx !== -1 && qIdx < hostEnd) hostEnd = qIdx;
+        if (hIdx !== -1 && hIdx < hostEnd) hostEnd = hIdx;
+      }
+
+      var hostPart = rest.substring(0, hostEnd);
+      rest = rest.substring(hostEnd);
+      result.host = hostPart;
+      var colonIdx = hostPart.lastIndexOf(':');
+      if (colonIdx !== -1) {
+        var portStr = hostPart.substring(colonIdx + 1);
+        if (/^\d+$/.test(portStr)) {
+          result.port = portStr;
+          result.hostname = hostPart.substring(0, colonIdx);
+        } else {
+          result.hostname = hostPart;
+        }
+      } else {
+        result.hostname = hostPart;
+      }
+    }
+
+    var hashIdx = rest.indexOf('#');
+    if (hashIdx !== -1) {
+      result.hash = rest.substring(hashIdx);
+      rest = rest.substring(0, hashIdx);
+    }
+
+    var searchIdx = rest.indexOf('?');
+    if (searchIdx !== -1) {
+      result.search = rest.substring(searchIdx);
+      result.query = rest.substring(searchIdx + 1);
+      rest = rest.substring(0, searchIdx);
+    }
+
+    if (rest) result.pathname = rest;
+    else if (result.slashes) result.pathname = '/';
+
+    if (result.pathname || result.search) {
+      result.path = (result.pathname || '') + (result.search || '');
+    }
+
+    result.href = urlFormat(result);
+    return result;
+  }
+
+  function urlFormat(urlObj) {
+    if (typeof urlObj === 'string') return urlObj;
+    var out = '';
+    if (urlObj.protocol) out += urlObj.protocol;
+    if (urlObj.slashes || (urlObj.protocol && urlObj.protocol.match(/^https?:$/))) out += '//';
+    if (urlObj.auth) out += urlObj.auth + '@';
+    if (urlObj.hostname) out += urlObj.hostname;
+    else if (urlObj.host) out += urlObj.host;
+    if (urlObj.port && urlObj.hostname) out += ':' + urlObj.port;
+    if (urlObj.pathname) out += urlObj.pathname;
+    if (urlObj.search) out += urlObj.search;
+    else if (urlObj.query) {
+      out += '?' + (typeof urlObj.query === 'string' ? urlObj.query : '');
+    }
+    if (urlObj.hash) out += urlObj.hash;
+    return out;
+  }
+
+  function urlResolve(from, to) {
+    var base = urlParse(from);
+    var rel = urlParse(to);
+    if (rel.protocol) return urlFormat(rel);
+    rel.protocol = base.protocol;
+    if (!rel.slashes) {
+      if (!rel.hostname) {
+        rel.hostname = base.hostname;
+        rel.host = base.host;
+        rel.port = base.port;
+        rel.auth = base.auth;
+        rel.slashes = base.slashes;
+        if (!rel.pathname) {
+          rel.pathname = base.pathname;
+        } else if (rel.pathname.charAt(0) !== '/') {
+          var dir = base.pathname ? base.pathname.substring(0, base.pathname.lastIndexOf('/') + 1) : '/';
+          rel.pathname = dir + rel.pathname;
+        }
+      }
+      rel.slashes = base.slashes;
+    }
+    rel.path = (rel.pathname || '') + (rel.search || '');
+    rel.href = urlFormat(rel);
+    return rel.href;
+  }
+
+  function fileURLToPath(url) {
+    var str = typeof url === 'string' ? url : url.href || url.toString();
+    if (str.substring(0, 7) !== 'file://') throw new TypeError('The URL must be of scheme file');
+    var pathname = str.substring(7);
+    if (pathname.charAt(0) === '/') {
+      // Remove host portion for file:///path
+    }
+    return decodeURIComponent(pathname);
+  }
+
+  function pathToFileURL(path) {
+    var encoded = encodeURIComponent(path).replace(/%2F/g, '/').replace(/%3A/g, ':');
+    return new URL('file://' + (path.charAt(0) === '/' ? '' : '/') + encoded);
+  }
+
+  function domainToASCII(domain) {
+    // Simplified: return lowercase domain (full punycode would need ICU)
+    return domain.toLowerCase();
+  }
+
+  function domainToUnicode(domain) {
+    return domain;
+  }
+
+  var mod = { URL: URL, URLSearchParams: URLSearchParams,
+    parse: urlParse, format: urlFormat, resolve: urlResolve,
+    fileURLToPath: fileURLToPath, pathToFileURL: pathToFileURL,
+    domainToASCII: domainToASCII, domainToUnicode: domainToUnicode };
   if (typeof globalThis !== 'undefined') {
     globalThis.__dun_cjs_url__ = mod;
     globalThis.URL = URL;
