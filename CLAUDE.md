@@ -450,59 +450,11 @@ Test pattern: fixtures in `tests/integration/fixtures/*.{js,mjs,ts}`, expected s
 ### Sanitizer Testing
 
 ```sh
-# AddressSanitizer — detects buffer overflows, use-after-free, double-free
 dub build -c quickjs -b asan                          # ASan build via DUB
-dub build -c jsc -b asan                              # ASan + JSC
 ASAN_OPTIONS=detect_leaks=0 bash tests/integration/run.sh  # Run with ASan
-
-# ThreadSanitizer — detects data races in __gshared state
-dub build -c quickjs -b tsan                          # TSan build via DUB
-TSAN_OPTIONS=halt_on_error=0 bash tests/integration/run.sh  # Run with TSan
-
-# Valgrind — deep heap analysis (slow, 10-50x overhead)
-dub build -c quickjs                                  # Debug build
-valgrind --leak-check=full --show-leak-kinds=definite build/dun eval "1+1"
-valgrind --leak-check=full --show-leak-kinds=all build/dun run script.js
 ```
 
-All 66 integration tests pass under AddressSanitizer (QuickJS + JSC) with zero memory errors.
-All 66 integration tests pass under ThreadSanitizer (QuickJS) with zero data races.
-Note: V8 ASan requires rebuilding the V8 monolith with ASan (not available in prebuilt).
-Note: TSan uses static D runtime linking (no `--link-defaultlib-shared`) — TSan's interceptors conflict with D shared runtime init.
-
-### Debugging with GDB
-
-**Always use GDB to investigate segfaults** — never guess at the cause.
-
-```sh
-# Run under GDB — break on crash
-gdb --args build/dun run script.js --allow-all
-(gdb) run
-(gdb) bt              # backtrace at crash point
-(gdb) info registers  # check register state
-(gdb) frame N         # switch to frame N
-(gdb) print varName   # inspect variable
-
-# Batch mode — get backtrace non-interactively
-gdb -batch -ex run -ex bt -ex quit --args build/dun run script.js
-
-# Attach to running process
-gdb -p <PID>
-
-# Catch specific signals
-(gdb) handle SIGSEGV stop print
-(gdb) catch throw     # break on D/C++ exceptions
-
-# Debug release builds (need debug info)
-dub build -c quickjs -b release-debug  # Optimized + debug symbols
-```
-
-**Rules:**
-- Any segfault → run under GDB first, get backtrace before making changes
-- Use `bt full` for local variable inspection at each frame
-- For V8 crashes, the shim trampoline (`v8FunctionTrampoline`) frame shows the FFI boundary
-- For JSC crashes, check `JSValueRef` validity — `NULL` or freed values crash silently
-- Build with `-b debug` or add `-g` to `dflags` for debug symbols in release builds
+All 51 integration tests pass under AddressSanitizer with zero memory errors.
 
 ### Stress Benchmarks
 
@@ -522,50 +474,47 @@ Cross-runtime comparison (feature_bench.js, 25 tests, release builds, ops/sec):
 
 | Runtime | Total Throughput | vs Bun |
 |---------|-----------------|--------|
-| DunJS JSC | 555M | **1.03x** |
-| Bun 1.3.14 | 538M | 1.00x |
-| Node.js v22 | 156M | 0.29x |
-| DunJS V8 | 128M | 0.24x |
+| Bun 1.3.14 | 555M | 1.00x |
+| DunJS JSC | 478M | **0.86x** |
+| Node.js v22 | 156M | 0.28x |
+| Deno 2.7.14 | 151M | 0.27x |
+| DunJS V8 | 148M | 0.27x |
 
-DunJS JSC **beats Bun 1.3.14** consistently. Wins in Array, Object, Map/Set,
-Promise.resolve, JSON, template literal, string operations. Gap narrows to
-native encoding operations (crypto, Buffer, TextEncoder) where Bun uses C++
-directly while DunJS uses IJSEngine FFI.
+DunJS JSC wins 15 out of 25 individual tests vs Bun (Array +34%, Object +23%, Map/Set +39-41%,
+JSON.stringify +11%, template literal +9%, array.filter +17%). Gap is in native operations
+(crypto, Buffer, encoding) where Bun uses C++ directly while DunJS uses IJSEngine FFI.
 
 Framework benchmarks (framework_bench.js, 39 tests, release builds, ops/sec):
 
 | Runtime | Total Throughput | vs Bun |
 |---------|-----------------|--------|
 | Bun 1.3.14 | 301M | 1.00x |
-| DunJS JSC | 276M | **0.92x** |
-| DunJS V8 | 180M | 0.60x |
-| Node.js v22 | 168M | 0.56x |
-
-DunJS JSC at 92% of Bun on framework patterns. DunJS V8 beats Node.js by 7%.
+| DunJS JSC | 294M | **0.98x** |
+| DunJS V8 | 176M | 0.58x |
+| Node.js v22 | 175M | 0.58x |
+| Deno 2.7.14 | 161M | 0.53x |
 
 npm compat test (npm_compat_test.js, 145 assertions): **All 6 runtimes: 145/145 pass**
 
-HTTP stress benchmarks (wrk, 2 threads, 128 connections, 10s per endpoint, release builds):
+HTTP benchmarks (wrk, 2 threads, 128 connections, 5s per endpoint, release builds):
 
-| Endpoint | Node v22 | Bun 1.3.14 | DunJS V8 | DunJS JSC |
-|----------|----------|---------|----------|-----------|
-| /plaintext | 38,120 | 73,693 | **68,866** | 48,846 |
-| /json | 45,950 | 59,680 | **61,447** | 41,318 |
-| /compute | 43,140 | 73,368 | **55,385** | 39,439 |
+| Endpoint | Node v22 | Deno 2.7 | DunJS JSC | DunJS V8 | Bun 1.3 |
+|----------|----------|----------|-----------|----------|---------|
+| /plaintext | 44,704 | 58,882 | 46,634 | **62,907** | **80,322** |
+| /json | 47,976 | 59,627 | 48,038 | **59,600** | **76,653** |
 
-DunJS V8 HTTP: 93% of Bun on /plaintext, **beats Bun on /json** (61K vs 59K, +3%).
-Beats Node.js by **80%** on /plaintext. Uses accept4(SOCK_NONBLOCK|SOCK_CLOEXEC),
-SO_REUSEPORT, TCP_NODELAY, buffered single-write response, CTFE status lines,
-auto Content-Length.
+DunJS V8 HTTP: beats Node by 41% on /plaintext, competitive with Deno.
+All endpoints include TCP_NODELAY, buffered single-write response, CTFE status lines.
 
 Stress test (stress.js, 240 tests, release builds):
 
 | Runtime | Wall Time | Status |
 |---------|-----------|--------|
-| Bun 1.3.14 | 76.8s | 240/240 |
-| DunJS JSC | 79.0s | **240/240** |
-| DunJS V8 | 171s | 240/240 |
-| Node.js v22 | 173s | 240/240 |
+| Bun 1.3.14 | 76s | 240/240 |
+| DunJS JSC | 78s | **240/240** |
+| DunJS V8 | 169s | 240/240 |
+| Node.js v22 | 175s | 240/240 |
+| Deno 2.7.14 | 182s | 240/240 |
 
 ### Concurrency & SIMD Comparison
 
