@@ -38,8 +38,9 @@ void drainAgnosticPending() @trusted
         auto engine = c.engine;
         try
         {
-            auto argSlice = c.args[0 .. c.argc];
-            auto ret = engine.callFunction(c.func, engine.newUndefined(), argSlice.dup);
+            // Use stack buffer to avoid GC allocation from .dup
+            JSHandle[4] argBuf = c.args;
+            auto ret = engine.callFunction(c.func, engine.newUndefined(), argBuf[0 .. c.argc]);
             engine.freeValue(ret);
         }
         catch (Exception) {}

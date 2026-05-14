@@ -52,12 +52,13 @@ struct EventLoop
 
         {
             import dun.builtins.net : pollNetIO;
-            import dun.builtins.http : pollHttpIO;
+            import dun.builtins.http : pollHttpIO, dispatchHttpCallbacks;
             import dun.builtins.http2 : pollHttp2IO;
             import dun.builtins.ws : pollWsIO;
             import dun.loop.async : asyncDrain, asyncHasWork;
             pollNetIO();
             pollHttpIO();
+            dispatchHttpCallbacks();
             pollHttp2IO();
             pollWsIO();
 

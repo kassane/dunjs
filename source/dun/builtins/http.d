@@ -88,6 +88,7 @@ private:
 __gshared JSHandle _httpSrvListen, _httpSrvClose, _httpSrvOn;
 __gshared JSHandle _httpReqOn;
 __gshared JSHandle _httpResSetHeader, _httpResWriteHead, _httpResWrite, _httpResEnd;
+__gshared JSHandle _httpJsDispatchFn;
 __gshared bool _httpFnsCached = false;
 
 void ensureHttpFnsCached(IJSEngine engine) @trusted
@@ -101,6 +102,38 @@ void ensureHttpFnsCached(IJSEngine engine) @trusted
     _httpResWriteHead = engine.newFunction(&jsResWriteHead, "writeHead", 1);
     _httpResWrite = engine.newFunction(&jsResWrite, "write", 1);
     _httpResEnd = engine.newFunction(&jsResEnd, "end", 0);
+
+    // Install JS-level dispatch function — creates req/res objects in JS (JIT-optimized)
+    // instead of through D→engine FFI calls, reducing per-request overhead
+    auto global = engine.getGlobal();
+    engine.setProperty(global, "__httpSetHeader", engine.dupValue(_httpResSetHeader));
+    engine.setProperty(global, "__httpWriteHead", engine.dupValue(_httpResWriteHead));
+    engine.setProperty(global, "__httpWrite", engine.dupValue(_httpResWrite));
+    engine.setProperty(global, "__httpEnd", engine.dupValue(_httpResEnd));
+    engine.setProperty(global, "__httpReqOn", engine.dupValue(_httpReqOn));
+
+    // Native function to lazily retrieve headers for a connection
+    auto getHdrsFn = engine.newFunction(&jsGetConnHeaders, "__httpGetHeaders", 1);
+    engine.setProperty(global, "__httpGetHeaders", getHdrsFn);
+
+    import dun.engine.iface : JSResult;
+    auto dispatchResult = engine.eval(
+        "(function(cb, method, url, cid) {" ~
+        "  var _gh = globalThis.__httpGetHeaders;" ~
+        "  var req = { method: method, url: url, httpVersion: 'HTTP/1.1', __cid: cid," ~
+        "    get headers() { var h = _gh(cid); Object.defineProperty(this, 'headers', {value: h}); return h; }," ~
+        "    on: globalThis.__httpReqOn };" ~
+        "  var res = { __cid: cid, statusCode: 200," ~
+        "    setHeader: globalThis.__httpSetHeader," ~
+        "    writeHead: globalThis.__httpWriteHead," ~
+        "    write: globalThis.__httpWrite," ~
+        "    end: globalThis.__httpEnd };" ~
+        "  cb(req, res);" ~
+        "})", "<http-dispatch>");
+    if (!dispatchResult.isError && engine.isFunction(dispatchResult.value))
+        _httpJsDispatchFn = engine.dupValue(dispatchResult.value);
+    engine.freeValue(dispatchResult.value);
+
     _httpFnsCached = true;
 }
 
@@ -135,12 +168,23 @@ struct HttpConnState
     string[string] respHeaders;
     bool headersSent;
     bool keepAlive;
+    // Buffered response — headers+body combined into single write()
+    char[MAX_BUF] respBuf;
+    size_t respLen;
 }
+
+// fd → connection index for O(1) lookup (avoids O(n) scan in pollHttpIO)
+int[int] fdToConnId;
 
 HttpServerState[] httpServers;
 HttpConnState[] httpConns;
 int nextHttpServerId;
 int nextHttpConnId;
+
+// Direct dispatch queue — bypasses agnostic pending for lower latency
+enum MAX_HTTP_READY = 256;
+int[MAX_HTTP_READY] httpReadyConns;
+int httpReadyCount;
 
 JSHandle jsHttpCreateServer(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
@@ -248,7 +292,7 @@ JSHandle jsHttpServerListen(void* ctx, JSHandle thisVal, JSHandle[] args) @trust
             if (hasCb) engine.freeValue(listenCb);
             return engine.throwTypeError("http server: bind() failed");
         }
-        if (listen(lfd, 128) < 0)
+        if (listen(lfd, 1024) < 0)
         {
             import core.sys.posix.unistd : close;
             close(lfd);
@@ -357,6 +401,26 @@ JSHandle makeReqObj(IJSEngine engine, int connId) @trusted
     ensureHttpFnsCached(engine);
     engine.setProperty(obj, "on", engine.dupValue(_httpReqOn));
     return obj;
+}
+
+JSHandle jsGetConnHeaders(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+{
+    assert(ctx !is null, "Null ctx in jsGetConnHeaders");
+    auto state = cast(DunState*) ctx;
+    assert(state !is null, "Null DunState in jsGetConnHeaders");
+    auto engine = state.engine;
+    if (args.length < 1) return engine.newObject();
+    int connId = engine.extractInt(args[0]);
+    if (connId < 0 || connId >= cast(int) httpConns.length) return engine.newObject();
+    auto conn = &httpConns[connId];
+    auto hdrs = engine.newObject();
+    try
+    {
+        foreach (k, v; conn.headers)
+            engine.setProperty(hdrs, k, engine.newString(v));
+    }
+    catch (Exception) {}
+    return hdrs;
 }
 
 JSHandle jsReqOn(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
@@ -475,7 +539,7 @@ JSHandle jsResWriteHead(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
         catch (Exception) {}
     }
 
-    sendStatusLine(conn);
+    bufferStatusLine(conn);
     return engine.newUndefined();
 }
 
@@ -494,7 +558,9 @@ JSHandle jsResWrite(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     auto conn = &httpConns[connId];
     if (conn.closed || conn.fd < 0) return engine.newBool(false);
 
-    if (!conn.headersSent) sendStatusLine(conn);
+    if (!conn.headersSent) bufferStatusLine(conn);
+    // For streaming writes, flush buffer then send data directly
+    flushResponse(conn);
     auto body_ = engine.extractString(args[0]);
     sendRaw(conn, body_);
     return engine.newBool(true);
@@ -518,13 +584,18 @@ JSHandle jsResEnd(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
         auto conn = &httpConns[connId];
         if (conn.closed) return engine.newUndefined();
 
-        if (!conn.headersSent) sendStatusLine(conn);
+        // Buffer headers if not yet sent
+        if (!conn.headersSent) bufferStatusLine(conn);
 
+        // Buffer body data
         if (args.length >= 1)
         {
             auto body_ = engine.extractString(args[0]);
-            sendRaw(conn, body_);
+            bufferData(conn, body_);
         }
+
+        // Flush everything in ONE write() — avoids Nagle+delayed-ACK latency
+        flushResponse(conn);
 
         if (conn.keepAlive)
         {
@@ -546,6 +617,7 @@ JSHandle jsResEnd(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
             conn.bodyStart = 0;
             conn.contentLength = 0;
             conn.statusCode = HTTP_STATUS_OK;
+            conn.respLen = 0;
             try
             {
                 conn.method = "";
@@ -565,6 +637,7 @@ JSHandle jsResEnd(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
             if (conn.fd >= 0)
             {
                 version (linux) gHttpPoller.unwatch(conn.fd);
+                fdToConnId.remove(conn.fd);
                 close(conn.fd);
                 conn.fd = -1;
             }
@@ -578,9 +651,9 @@ JSHandle jsResEnd(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     }
 }
 
-void sendStatusLine(HttpConnState* conn) nothrow @trusted
+void bufferStatusLine(HttpConnState* conn) nothrow @trusted
 {
-    assert(conn !is null, "Null HttpConnState in sendStatusLine");
+    assert(conn !is null, "Null HttpConnState in bufferStatusLine");
     if (conn.headersSent || conn.fd < 0) return;
     conn.headersSent = true;
 
@@ -604,7 +677,23 @@ void sendStatusLine(HttpConnState* conn) nothrow @trusted
     try
     {
         import std.conv : to;
-        string line = "HTTP/1.1 " ~ conn.statusCode.to!string ~ " " ~ statusText ~ "\r\n";
+
+        // Build status line + headers into response buffer (no write() yet)
+        void bufAppend(const(char)[] s) nothrow @trusted {
+            size_t avail = MAX_BUF - conn.respLen;
+            size_t n = s.length < avail ? s.length : avail;
+            if (n > 0) {
+                conn.respBuf[conn.respLen .. conn.respLen + n] = s[0 .. n];
+                conn.respLen += n;
+            }
+        }
+
+        bufAppend("HTTP/1.1 ");
+        bufAppend(conn.statusCode.to!string);
+        bufAppend(" ");
+        bufAppend(statusText);
+        bufAppend("\r\n");
+
         if ("Content-Type" !in conn.respHeaders)
             conn.respHeaders["Content-Type"] = "text/plain";
         if (!conn.keepAlive)
@@ -612,11 +701,45 @@ void sendStatusLine(HttpConnState* conn) nothrow @trusted
         else if ("Connection" !in conn.respHeaders)
             conn.respHeaders["Connection"] = "keep-alive";
         foreach (k, v; conn.respHeaders)
-            line ~= k ~ ": " ~ v ~ "\r\n";
-        line ~= "\r\n";
-        sendRaw(conn, line);
+        {
+            bufAppend(k);
+            bufAppend(": ");
+            bufAppend(v);
+            bufAppend("\r\n");
+        }
+        bufAppend("\r\n");
     }
     catch (Exception) {}
+}
+
+void bufferData(HttpConnState* conn, const(char)[] data) nothrow @trusted
+{
+    assert(conn !is null, "Null HttpConnState in bufferData");
+    size_t avail = MAX_BUF - conn.respLen;
+    size_t n = data.length < avail ? data.length : avail;
+    if (n > 0)
+    {
+        conn.respBuf[conn.respLen .. conn.respLen + n] = data[0 .. n];
+        conn.respLen += n;
+    }
+}
+
+void flushResponse(HttpConnState* conn) nothrow @trusted
+{
+    assert(conn !is null, "Null HttpConnState in flushResponse");
+    version (Posix)
+    {
+        if (conn.fd < 0 || conn.respLen == 0) return;
+        import core.sys.posix.unistd : write;
+        size_t sent = 0;
+        while (sent < conn.respLen)
+        {
+            auto n = write(conn.fd, conn.respBuf.ptr + sent, conn.respLen - sent);
+            if (n <= 0) break;
+            sent += n;
+        }
+        conn.respLen = 0;
+    }
 }
 
 void sendError(HttpConnState* conn, int status, string text) nothrow @trusted
@@ -625,17 +748,21 @@ void sendError(HttpConnState* conn, int status, string text) nothrow @trusted
     import std.conv : to;
     try
     {
-        sendRaw(conn, "HTTP/1.1 " ~ status.to!string ~ " " ~ text
-            ~ "\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
+        auto errResp = "HTTP/1.1 " ~ status.to!string ~ " " ~ text
+            ~ "\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+        bufferData(conn, errResp);
+        flushResponse(conn);
     }
     catch (Exception) {}
     version (Posix)
     {
         import core.sys.posix.unistd : close;
-        if (conn.fd >= 0) { close(conn.fd); conn.fd = -1; }
+        version (linux) if (conn.fd >= 0) gHttpPoller.unwatch(conn.fd);
+        if (conn.fd >= 0) { fdToConnId.remove(conn.fd); close(conn.fd); conn.fd = -1; }
     }
 }
 
+// Legacy sendRaw for res.write() (streaming case)
 void sendRaw(HttpConnState* conn, string data) nothrow @trusted
 {
     assert(conn !is null, "Null HttpConnState in sendRaw");
@@ -663,12 +790,30 @@ public void pollHttpIO() nothrow @trusted
         auto events = gHttpPoller.poll(0, evBuf[]);
         foreach (ref ev; events)
         {
+            if (!ev.readable) continue;
+
+            // Check listen sockets first (rare — only on new connections)
+            bool isListenFd = false;
             foreach (i, ref srv; httpServers)
-                if (srv.active && srv.listenFd == ev.fd && ev.readable)
+            {
+                if (srv.active && srv.listenFd == ev.fd)
+                {
                     acceptHttpConnection(cast(int) i);
-            foreach (i, ref conn; httpConns)
-                if (!conn.closed && conn.fd == ev.fd && ev.readable)
-                    readHttpData(cast(int) i);
+                    isListenFd = true;
+                    break;
+                }
+            }
+
+            // O(1) lookup for client connections via fd→cid map
+            if (!isListenFd)
+            {
+                try
+                {
+                    if (auto cidp = ev.fd in fdToConnId)
+                        readHttpData(*cidp);
+                }
+                catch (Exception) {}
+            }
         }
     }
 }
@@ -680,11 +825,63 @@ public bool hasActiveHttpIO() @safe nothrow
     return false;
 }
 
+// Direct dispatch — call JS callbacks for ready connections
+public void dispatchHttpCallbacks() @trusted
+{
+    while (httpReadyCount > 0)
+    {
+        int count = httpReadyCount;
+        httpReadyCount = 0;
+
+        foreach (i; 0 .. count)
+        {
+            int cid = httpReadyConns[i];
+            if (cid < 0 || cid >= cast(int) httpConns.length) continue;
+            auto conn = &httpConns[cid];
+            if (conn.closed) continue;
+            auto srv = &httpServers[conn.srvId];
+            if (!srv.cbSet) continue;
+
+            try
+            {
+                auto engine = srv.engine;
+                if (_httpJsDispatchFn != JSHandle.init && !engine.isUndefined(_httpJsDispatchFn))
+                {
+                    // Fast path: JS-level dispatch creates req/res in JIT-optimized JS
+                    // Only passes primitive values across FFI (3 strings + 1 int)
+                    auto jsMethod = engine.newString(conn.method);
+                    auto jsUrl = engine.newString(conn.url);
+                    auto jsCid = engine.newInt(cid);
+                    JSHandle[4] dArgs = [srv.requestCb, jsMethod, jsUrl, jsCid];
+                    auto ret = engine.callFunction(_httpJsDispatchFn, engine.newUndefined(), dArgs[]);
+                    engine.freeValue(ret);
+                    engine.freeValue(jsMethod);
+                    engine.freeValue(jsUrl);
+                    engine.freeValue(jsCid);
+                }
+                else
+                {
+                    // Fallback: D-level object creation
+                    auto reqObj = makeReqObj(engine, cid);
+                    auto resObj = makeResObj(engine, cid);
+                    JSHandle[2] callArgs = [reqObj, resObj];
+                    auto ret = engine.callFunction(srv.requestCb, engine.newUndefined(), callArgs[]);
+                    engine.freeValue(ret);
+                    engine.freeValue(reqObj);
+                    engine.freeValue(resObj);
+                }
+            }
+            catch (Exception) {}
+        }
+    }
+}
+
 void acceptHttpConnection(int srvId) nothrow @trusted
 {
     version (Posix)
     {
-        import core.sys.posix.sys.socket : accept;
+        import core.sys.posix.sys.socket : accept, setsockopt;
+        import core.sys.posix.netinet.in_ : IPPROTO_TCP;
         import core.sys.posix.fcntl : fcntl, F_SETFL, F_GETFL, O_NONBLOCK;
         import core.stdc.errno : errno, EAGAIN, EWOULDBLOCK;
 
@@ -699,6 +896,11 @@ void acceptHttpConnection(int srvId) nothrow @trusted
             int fl = fcntl(fd, F_GETFL, 0);
             fcntl(fd, F_SETFL, fl | O_NONBLOCK);
 
+            // TCP_NODELAY: disable Nagle's algorithm to prevent 40ms delayed-ACK latency
+            enum TCP_NODELAY = 1;
+            int one = 1;
+            setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &one, one.sizeof);
+
             int cid = nextHttpConnId++;
             try
             {
@@ -708,6 +910,7 @@ void acceptHttpConnection(int srvId) nothrow @trusted
                 c.fd = fd;
                 c.statusCode = 200;
                 httpConns ~= c;
+                fdToConnId[fd] = cid;
             }
             catch (Throwable)
             {
@@ -724,17 +927,46 @@ void readHttpData(int cid) nothrow @trusted
 {
     version (Posix)
     {
-        import core.sys.posix.unistd : read;
+        import core.sys.posix.unistd : read, close;
+        import core.stdc.errno : errno, EAGAIN, EWOULDBLOCK;
 
         if (cid < 0 || cid >= cast(int) httpConns.length) return;
         auto conn = &httpConns[cid];
         if (conn.closed || conn.fd < 0) return;
 
+        bool gotData = false;
+        bool gotEof = false;
         while (conn.bufLen < MAX_BUF)
         {
             auto n = read(conn.fd, conn.buf.ptr + conn.bufLen, MAX_BUF - conn.bufLen);
-            if (n <= 0) break;
-            conn.bufLen += n;
+            if (n > 0)
+            {
+                conn.bufLen += n;
+                gotData = true;
+            }
+            else if (n == 0)
+            {
+                gotEof = true;
+                break;
+            }
+            else
+            {
+                if (errno == EAGAIN || errno == EWOULDBLOCK)
+                    break;
+                gotEof = true;
+                break;
+            }
+        }
+
+        // Client closed the connection
+        if (gotEof && !gotData)
+        {
+            conn.closed = true;
+            version (linux) gHttpPoller.unwatch(conn.fd);
+            try { fdToConnId.remove(conn.fd); } catch (Exception) {}
+            close(conn.fd);
+            conn.fd = -1;
+            return;
         }
 
         if (!conn.headersDone)
@@ -762,8 +994,7 @@ void tryParseHeaders(HttpConnState* conn, int cid) nothrow @trusted
     conn.headersDone = true;
     conn.bodyStart = sepPos + 4;
 
-    auto headerText = conn.buf[0 .. sepPos].idup;
-    parseRequestHeaders(conn, headerText);
+    parseRequestHeaders(conn, conn.buf[0 .. sepPos]);
 
     // HTTP/1.1 defaults to keep-alive; HTTP/1.0 defaults to close
     bool isHttp11 = conn.httpVersion == "HTTP/1.1" || conn.httpVersion == "1.1";
@@ -799,18 +1030,9 @@ void tryParseHeaders(HttpConnState* conn, int cid) nothrow @trusted
     if (!bodyComplete) return;
 
     auto srv = &httpServers[conn.srvId];
-    if (srv.cbSet)
+    if (srv.cbSet && httpReadyCount < MAX_HTTP_READY)
     {
-        try
-        {
-            auto reqObj = makeReqObj(srv.engine, cid);
-            auto resObj = makeResObj(srv.engine, cid);
-            JSHandle[2] callArgs = [reqObj, resObj];
-            pushAgnosticPending(srv.engine, srv.requestCb, callArgs[]);
-            srv.engine.freeValue(reqObj);
-            srv.engine.freeValue(resObj);
-        }
-        catch (Throwable) {}
+        httpReadyConns[httpReadyCount++] = cid;
     }
 }
 
@@ -819,38 +1041,55 @@ void parseRequestHeaders(HttpConnState* conn, const(char)[] text) nothrow @trust
     assert(conn !is null, "Null HttpConnState in parseRequestHeaders");
     try
     {
-        import std.string : toLower, strip;
         size_t lineStart = 0;
         int lineNo = 0;
+
+        // Fast inline lowercase (avoids std.string.toLower GC allocation)
+        static char toLowerChar(char c) pure nothrow @nogc @safe
+        {
+            return c >= 'A' && c <= 'Z' ? cast(char)(c + 32) : c;
+        }
+
         for (size_t i = 0; i <= text.length; i++)
         {
             if (i == text.length || text[i] == '\n')
             {
                 size_t end = i;
                 if (end > lineStart && text[end-1] == '\r') end--;
-                auto line = cast(string) text[lineStart .. end].idup;
+                auto lineSlice = text[lineStart .. end];
                 lineStart = i + 1;
 
                 if (lineNo == 0)
                 {
+                    // Request line: METHOD URL HTTP/1.1
                     size_t sp1 = 0;
-                    while (sp1 < line.length && line[sp1] != ' ') sp1++;
-                    conn.method = line[0 .. sp1];
+                    while (sp1 < lineSlice.length && lineSlice[sp1] != ' ') sp1++;
+                    conn.method = cast(string) lineSlice[0 .. sp1].idup;
                     size_t sp2 = sp1 + 1;
-                    while (sp2 < line.length && line[sp2] != ' ') sp2++;
-                    if (sp1 < line.length)
-                        conn.url = line[sp1 + 1 .. sp2];
-                    if (sp2 + 1 < line.length)
-                        conn.httpVersion = line[sp2 + 1 .. $];
+                    while (sp2 < lineSlice.length && lineSlice[sp2] != ' ') sp2++;
+                    if (sp1 < lineSlice.length)
+                        conn.url = cast(string) lineSlice[sp1 + 1 .. sp2].idup;
+                    if (sp2 + 1 < lineSlice.length)
+                        conn.httpVersion = cast(string) lineSlice[sp2 + 1 .. $].idup;
                 }
-                else
+                else if (lineSlice.length > 0)
                 {
+                    // Header: Name: Value
                     size_t col = 0;
-                    while (col < line.length && line[col] != ':') col++;
-                    if (col < line.length)
+                    while (col < lineSlice.length && lineSlice[col] != ':') col++;
+                    if (col < lineSlice.length)
                     {
-                        string name = line[0 .. col].toLower;
-                        string val = line[col + 1 .. $].strip;
+                        // Lowercase header name in-place via stack buffer
+                        char[128] nameBuf = void;
+                        size_t nameLen = col < 128 ? col : 128;
+                        foreach (j; 0 .. nameLen)
+                            nameBuf[j] = toLowerChar(lineSlice[j]);
+                        string name = cast(string) nameBuf[0 .. nameLen].idup;
+
+                        // Trim leading whitespace from value
+                        size_t valStart = col + 1;
+                        while (valStart < lineSlice.length && lineSlice[valStart] == ' ') valStart++;
+                        string val = cast(string) lineSlice[valStart .. $].idup;
                         conn.headers[name] = val;
                     }
                 }
