@@ -1,8 +1,12 @@
 module dun.cli.repl;
 
-import dun.engine.iface : IJSEngine, EngineConfig;
+import dun.engine.iface : IJSEngine, EngineConfig, createEngine;
 import dun.runtime.globals : DunState, installGlobals;
 import dun.cli.errors : isColorEnabled, formatUncaughtError;
+import dun.ts.strip : stripTypes;
+import std.array : join;
+import std.stdio : write, writeln, writef, readln, stdout, stderr;
+import std.string : endsWith, startsWith, strip;
 
 private enum INSPECTOR_INIT = `
 globalThis.__dun_repl_inspect__ = function(v) {
@@ -28,9 +32,6 @@ private enum : size_t {
 
 int runReplImpl(T)(T config)
 {
-    import std.stdio : write, writeln, writef, stdout, stderr;
-    import dun.engine.iface : createEngine;
-
     auto engine = createEngine();
     engine.initialize(EngineConfig(config.memoryLimit, config.stackSize));
 
@@ -52,10 +53,8 @@ int runReplImpl(T)(T config)
             auto src = readText(config.evalFile);
 
             // Strip types if .ts file
-            import std.string : endsWith;
             if (config.evalFile.endsWith(".ts") || config.evalFile.endsWith(".mts"))
             {
-                import dun.ts.strip : stripTypes;
                 src = stripTypes(src);
             }
 
@@ -101,7 +100,6 @@ int runReplImpl(T)(T config)
             line = lineEd.readLine(prompt);
         else
         {
-            import std.stdio : readln;
             write(prompt);
             try { stdout.flush(); } catch (Exception) {}
             line = readln();
@@ -114,7 +112,6 @@ int runReplImpl(T)(T config)
 
         // .break cancels multi-line accumulation from any state
         {
-            import std.string : strip;
             if (line.strip() == ".break")
             {
                 accumulator = "";
@@ -124,7 +121,6 @@ int runReplImpl(T)(T config)
 
         if (accumulator.length == 0)
         {
-            import std.string : strip, startsWith;
             auto cmd = line.strip();
             if (cmd == ".exit" || cmd == ".quit") break;
 
@@ -180,7 +176,6 @@ int runReplImpl(T)(T config)
         sessionLines ~= code;
 
         // TypeScript type stripping
-        import dun.ts.strip : stripTypes;
         string evalCode;
         try { evalCode = stripTypes(code); }
         catch (Exception) { evalCode = code; }
@@ -227,7 +222,6 @@ int runReplImpl(T)(T config)
 
 private void printHelp(bool color) @trusted
 {
-    import std.stdio : writeln;
     writeln("REPL Commands:");
     writeln("  .help        Print this help message");
     writeln("  .exit        Exit the REPL (also .quit or Ctrl-D)");
@@ -260,16 +254,13 @@ private void printHelp(bool color) @trusted
 
 private void doLoad(IJSEngine engine, DunState* state, string path, bool color) @trusted
 {
-    import std.stdio : writeln, stderr;
     try
     {
         import std.file : readText;
         auto src = readText(path);
 
-        import std.string : endsWith;
         if (path.endsWith(".ts") || path.endsWith(".mts"))
         {
-            import dun.ts.strip : stripTypes;
             src = stripTypes(src);
         }
 
@@ -295,11 +286,9 @@ private void doLoad(IJSEngine engine, DunState* state, string path, bool color) 
 
 private void doSave(string[] sessionLines, string path, bool color) @trusted
 {
-    import std.stdio : writeln, stderr;
     try
     {
         import std.file : write;
-        import std.array : join;
         write(path, sessionLines.join("\n") ~ "\n");
         writeln(color ? "\x1b[90mSession saved to " ~ path ~ "\x1b[0m"
                       : "Session saved to " ~ path);
@@ -312,7 +301,6 @@ private void doSave(string[] sessionLines, string path, bool color) @trusted
 
 private void doCopy(IJSEngine engine, string expr, bool color) @trusted
 {
-    import std.stdio : writeln, stderr;
     string text;
     if (expr.length > 0)
     {
@@ -397,7 +385,6 @@ private string[] split(string s, string delim) @safe pure
 private void doEditor(IJSEngine engine, DunState* state,
     LineEditor* lineEd, ref string[] sessionLines, bool color) @trusted
 {
-    import std.stdio : write, writeln, readln, stdout, stderr;
     writeln(color ? "\x1b[90m// Entering editor mode (Ctrl-D to execute, .break to cancel)\x1b[0m"
                   : "// Entering editor mode (Ctrl-D to execute, .break to cancel)");
 
@@ -411,7 +398,6 @@ private void doEditor(IJSEngine engine, DunState* state,
         while (line.length > 0 && (line[$ - 1] == '\n' || line[$ - 1] == '\r'))
             line = line[0 .. $ - 1];
 
-        import std.string : strip;
         if (line.strip() == ".break")
         {
             writeln(color ? "\x1b[90m// Editor cancelled\x1b[0m" : "// Editor cancelled");
@@ -422,12 +408,10 @@ private void doEditor(IJSEngine engine, DunState* state,
 
     if (lines.length == 0) return;
 
-    import std.array : join;
     auto code = lines.join("\n");
     sessionLines ~= code;
     lineEd.addHistory(code);
 
-    import dun.ts.strip : stripTypes;
     string evalCode;
     try { evalCode = stripTypes(code); }
     catch (Exception) { evalCode = code; }
@@ -822,7 +806,6 @@ struct LineEditor
             import std.path : dirName;
             auto dir = dirName(historyPath);
             if (dir.length > 0) mkdirRecurse(dir);
-            import std.array : join;
             write(historyPath, _history.join("\n") ~ "\n");
         }
         catch (Exception) {}
@@ -867,7 +850,6 @@ struct LineEditor
         {
             // Show completions
             writeStr("\r\n");
-            import std.stdio : writef, writeln;
             foreach (c; completions)
                 writef("  %s", c);
             writeln();
@@ -1024,7 +1006,6 @@ struct LineEditor
 
     private string readFallback(string prompt) @trusted
     {
-        import std.stdio : write, readln, stdout;
         write(prompt);
         try { stdout.flush(); } catch (Exception) {}
         auto line = readln();
@@ -1073,7 +1054,6 @@ else
 
         string readLine(string prompt) @trusted
         {
-            import std.stdio : write, readln, stdout;
             write(prompt);
             try { stdout.flush(); } catch (Exception) {}
             auto line = readln();

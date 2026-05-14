@@ -23,7 +23,7 @@ private size_t MiB(size_t n) @safe pure nothrow @nogc
     return n * 1024 * 1024;
 }
 
-enum DEFAULT_MEMORY_LIMIT = MiB(256);
+enum DEFAULT_MEMORY_LIMIT = MiB(512);
 enum DEFAULT_MAX_STACK = MiB(8);
 enum TEST_MEMORY_LIMIT = MiB(64);
 enum TEST_MAX_STACK = MiB(4);
