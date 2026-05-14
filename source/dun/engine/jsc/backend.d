@@ -335,7 +335,7 @@ class JSCEngine : IJSEngine
         return toHandle(cast(void*) JSContextGetGlobalObject(ctx));
     }
 
-    JSHandle callFunction(JSHandle func, JSHandle thisVal, JSHandle[] args) @trusted
+    JSHandle callFunction(JSHandle func, JSHandle thisVal, scope JSHandle[] args) @trusted
     {
         assert(ctx !is null, "JSC context not initialized");
         auto jsFunc = cast(JSObjectRef) fromHandle(func);

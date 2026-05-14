@@ -293,7 +293,7 @@ string computeAcceptKey(string clientKey) @trusted
 
 // --- Server ---
 
-JSHandle jsWsCreateServer(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsWsCreateServer(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsWsCreateServer");
     auto state = cast(DunState*) ctx;
@@ -335,7 +335,7 @@ JSHandle makeWsServerObj(IJSEngine engine, int id) @trusted
     return obj;
 }
 
-JSHandle jsWsServerListen(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsWsServerListen(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsWsServerListen");
     version (Posix)
@@ -437,7 +437,7 @@ JSHandle jsWsServerListen(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     }
 }
 
-JSHandle jsWsServerOn(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsWsServerOn(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsWsServerOn");
     auto state = cast(DunState*) ctx;
@@ -461,7 +461,7 @@ JSHandle jsWsServerOn(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     return thisVal;
 }
 
-JSHandle jsWsServerClose(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsWsServerClose(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsWsServerClose");
     version (Posix)
@@ -496,7 +496,7 @@ JSHandle jsWsServerClose(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
 // --- Client ---
 
-JSHandle jsWsConnect(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsWsConnect(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsWsConnect");
     version (Posix)
@@ -596,7 +596,7 @@ JSHandle makeWsClientObj(IJSEngine engine, int cid) @trusted
     return obj;
 }
 
-JSHandle jsWsClientOn(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsWsClientOn(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsWsClientOn");
     auto state = cast(DunState*) ctx;
@@ -639,7 +639,7 @@ JSHandle jsWsClientOn(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     return thisVal;
 }
 
-JSHandle jsWsClientSend(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsWsClientSend(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsWsClientSend");
     version (Posix)
@@ -672,7 +672,7 @@ JSHandle jsWsClientSend(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     }
 }
 
-JSHandle jsWsClientClose(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsWsClientClose(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsWsClientClose");
     version (Posix)

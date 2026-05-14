@@ -82,7 +82,7 @@ sqlite3* getDbHandle(IJSEngine engine, JSHandle thisVal) @trusted
 
 // ── JS API Functions ─────────────────────────────────────────────────
 
-JSHandle jsSqliteOpen(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsSqliteOpen(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsSqliteOpen");
     auto state = cast(DunState*) ctx;
@@ -130,7 +130,7 @@ JSHandle jsSqliteOpen(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     return dbObj;
 }
 
-JSHandle jsSqliteExec(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsSqliteExec(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsSqliteExec");
     auto state = cast(DunState*) ctx;
@@ -159,7 +159,7 @@ JSHandle jsSqliteExec(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     return engine.newUndefined();
 }
 
-JSHandle jsSqliteRun(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsSqliteRun(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsSqliteRun");
     auto state = cast(DunState*) ctx;
@@ -197,7 +197,7 @@ JSHandle jsSqliteRun(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     return result;
 }
 
-JSHandle jsSqliteGet(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsSqliteGet(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsSqliteGet");
     auto state = cast(DunState*) ctx;
@@ -236,7 +236,7 @@ JSHandle jsSqliteGet(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     return engine.newNull();
 }
 
-JSHandle jsSqliteAll(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsSqliteAll(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsSqliteAll");
     auto state = cast(DunState*) ctx;
@@ -275,7 +275,7 @@ JSHandle jsSqliteAll(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     return results;
 }
 
-JSHandle jsSqliteClose(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsSqliteClose(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsSqliteClose");
     auto state = cast(DunState*) ctx;
@@ -294,7 +294,7 @@ JSHandle jsSqliteClose(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     return engine.newUndefined();
 }
 
-JSHandle jsSqliteVersion(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsSqliteVersion(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsSqliteVersion");
     auto state = cast(DunState*) ctx;
@@ -310,7 +310,7 @@ JSHandle jsSqliteVersion(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
-void bindArgs(IJSEngine engine, sqlite3_stmt* stmt, JSHandle[] args) @trusted
+void bindArgs(IJSEngine engine, sqlite3_stmt* stmt, scope JSHandle[] args) @trusted
 {
     assert(engine !is null, "Null engine in bindArgs");
     assert(stmt !is null, "Null stmt in bindArgs");

@@ -128,7 +128,7 @@ version (Posix)
     }
 }
 
-JSHandle jsLookupSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsLookupSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsLookupSync");
     auto state = cast(DunState*) ctx;
@@ -161,7 +161,7 @@ JSHandle jsLookupSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     }
 }
 
-JSHandle jsLookup(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsLookup(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsLookup");
     auto state = cast(DunState*) ctx;
@@ -211,7 +211,7 @@ JSHandle jsLookup(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     return engine.newUndefined();
 }
 
-JSHandle jsResolve4(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsResolve4(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsResolve4");
     auto state = cast(DunState*) ctx;
@@ -259,7 +259,7 @@ JSHandle jsResolve4(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     return engine.newUndefined();
 }
 
-JSHandle jsResolve6(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsResolve6(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsResolve6");
     auto state = cast(DunState*) ctx;
@@ -307,7 +307,7 @@ JSHandle jsResolve6(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     return engine.newUndefined();
 }
 
-JSHandle jsResolve(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsResolve(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsResolve");
     auto state = cast(DunState*) ctx;
@@ -420,7 +420,7 @@ JSHandle jsResolve(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     return engine.newUndefined();
 }
 
-JSHandle jsGetServers(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsGetServers(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsGetServers");
     auto state = cast(DunState*) ctx;

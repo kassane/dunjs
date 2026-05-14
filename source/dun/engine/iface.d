@@ -36,7 +36,7 @@ struct EngineConfig
 }
 
 alias NativeCallback = JSHandle function(
-    void* engineCtx, JSHandle thisVal, JSHandle[] args);
+    void* engineCtx, JSHandle thisVal, scope JSHandle[] args);
 
 alias NativeCCallback = extern (C) JSHandle function(
     void* ctx, JSHandle thisVal, int argc, JSHandle* argv) nothrow;

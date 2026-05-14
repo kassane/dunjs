@@ -363,7 +363,7 @@ void freeTlsCallbacks(TlsConnState* conn) nothrow @trusted
 
 // --- Native callback: tls.connect ---
 
-JSHandle jsTlsConnect(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsTlsConnect(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsTlsConnect");
     auto state = cast(DunState*) ctx;
@@ -609,7 +609,7 @@ JSHandle jsTlsConnect(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
 // --- Native callback: __dun_tls_write__ ---
 
-JSHandle jsTlsWrite(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsTlsWrite(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsTlsWrite");
     auto state = cast(DunState*) ctx;
@@ -646,7 +646,7 @@ JSHandle jsTlsWrite(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
 // --- Native callback: __dun_tls_end__ ---
 
-JSHandle jsTlsEnd(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsTlsEnd(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsTlsEnd");
     auto state = cast(DunState*) ctx;
@@ -662,7 +662,7 @@ JSHandle jsTlsEnd(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
 // --- Native callback: __dun_tls_destroy__ ---
 
-JSHandle jsTlsDestroy(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsTlsDestroy(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsTlsDestroy");
     auto state = cast(DunState*) ctx;
@@ -697,7 +697,7 @@ JSHandle jsTlsDestroy(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
 // --- Native callback: __dun_tls_on__ ---
 
-JSHandle jsTlsOn(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsTlsOn(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsTlsOn");
     auto state = cast(DunState*) ctx;
@@ -730,7 +730,7 @@ JSHandle jsTlsOn(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
 // --- Native callback: tls.getCiphers ---
 
-JSHandle jsTlsGetCiphers(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsTlsGetCiphers(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsTlsGetCiphers");
     auto state = cast(DunState*) ctx;

@@ -127,19 +127,19 @@ string archStr() pure @safe nothrow
     else return "unknown";
 }
 
-JSHandle jsOsPlatform(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsOsPlatform(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     auto engine = getEngine(ctx);
     return engine.newString(platformStr());
 }
 
-JSHandle jsOsArch(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsOsArch(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     auto engine = getEngine(ctx);
     return engine.newString(archStr());
 }
 
-JSHandle jsOsType(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsOsType(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     auto engine = getEngine(ctx);
     version (linux) return engine.newString("Linux");
@@ -148,7 +148,7 @@ JSHandle jsOsType(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     else return engine.newString("Unknown");
 }
 
-JSHandle jsOsHostname(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsOsHostname(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     auto engine = getEngine(ctx);
     try
@@ -173,7 +173,7 @@ JSHandle jsOsHostname(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     catch (Exception) { return engine.newString(""); }
 }
 
-JSHandle jsOsHomedir(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsOsHomedir(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     auto engine = getEngine(ctx);
     try
@@ -188,7 +188,7 @@ JSHandle jsOsHomedir(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     catch (Exception) { return engine.newString(""); }
 }
 
-JSHandle jsOsTmpdir(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsOsTmpdir(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     auto engine = getEngine(ctx);
     try
@@ -199,7 +199,7 @@ JSHandle jsOsTmpdir(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     catch (Exception) { return engine.newString("/tmp"); }
 }
 
-JSHandle jsOsCpus(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsOsCpus(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     auto engine = getEngine(ctx);
     auto arr = engine.newArray();
@@ -227,7 +227,7 @@ JSHandle jsOsCpus(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     return arr;
 }
 
-JSHandle jsOsTotalmem(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsOsTotalmem(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     auto engine = getEngine(ctx);
     version (linux)
@@ -259,7 +259,7 @@ JSHandle jsOsTotalmem(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     return engine.newFloat(0);
 }
 
-JSHandle jsOsFreemem(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsOsFreemem(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     auto engine = getEngine(ctx);
     version (linux)
@@ -290,7 +290,7 @@ JSHandle jsOsFreemem(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     return engine.newFloat(0);
 }
 
-JSHandle jsOsUptime(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsOsUptime(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     auto engine = getEngine(ctx);
     version (linux)
@@ -310,7 +310,7 @@ JSHandle jsOsUptime(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     return engine.newFloat(0);
 }
 
-JSHandle jsOsRelease(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsOsRelease(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     auto engine = getEngine(ctx);
     version (linux)
@@ -331,7 +331,7 @@ JSHandle jsOsRelease(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     return engine.newString("");
 }
 
-JSHandle jsOsEndianness(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsOsEndianness(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     auto engine = getEngine(ctx);
     version (LittleEndian)
@@ -340,7 +340,7 @@ JSHandle jsOsEndianness(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
         return engine.newString("BE");
 }
 
-JSHandle jsOsNetworkInterfaces(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsOsNetworkInterfaces(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsOsNetworkInterfaces");
     auto state = cast(DunState*) ctx;
@@ -349,7 +349,7 @@ JSHandle jsOsNetworkInterfaces(void* ctx, JSHandle thisVal, JSHandle[] args) @tr
     return state.engine.newObject();
 }
 
-JSHandle jsOsUserInfo(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsOsUserInfo(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     auto engine = getEngine(ctx);
     auto obj = engine.newObject();
@@ -404,7 +404,7 @@ JSHandle jsOsUserInfo(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     return obj;
 }
 
-JSHandle jsOsLoadavg(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsOsLoadavg(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     auto engine = getEngine(ctx);
     auto arr = engine.newArray();
@@ -433,7 +433,7 @@ JSHandle jsOsLoadavg(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     return arr;
 }
 
-JSHandle jsOsVersion(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsOsVersion(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     auto engine = getEngine(ctx);
     version (linux)
@@ -454,7 +454,7 @@ JSHandle jsOsVersion(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     return engine.newString("");
 }
 
-JSHandle jsOsMachine(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsOsMachine(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     auto engine = getEngine(ctx);
     version (linux)
@@ -477,7 +477,7 @@ JSHandle jsOsMachine(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     else return engine.newString("unknown");
 }
 
-JSHandle jsOsAvailableParallelism(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsOsAvailableParallelism(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     auto engine = getEngine(ctx);
     try
@@ -488,7 +488,7 @@ JSHandle jsOsAvailableParallelism(void* ctx, JSHandle thisVal, JSHandle[] args) 
     catch (Exception) { return engine.newInt(1); }
 }
 
-JSHandle jsOsSetPriority(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsOsSetPriority(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     auto engine = getEngine(ctx);
     version (Posix)
@@ -518,7 +518,7 @@ JSHandle jsOsSetPriority(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
         return engine.throwTypeError("os.setPriority not supported on this platform");
 }
 
-JSHandle jsOsGetPriority(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsOsGetPriority(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     auto engine = getEngine(ctx);
     version (Posix)

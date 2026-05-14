@@ -17,7 +17,7 @@ check('http module', typeof require('http') === 'object');
 check('https module', typeof require('https') === 'object');
 check('os module', typeof require('os') === 'object');
 check('buffer module', typeof require('buffer') === 'object');
-check('events module', typeof require('events') === 'object');
+check('events module', typeof require('events') === 'function');
 check('EventEmitter.listenerCount', typeof EventEmitter.listenerCount === 'function');
 check('url module', typeof require('url') === 'object');
 check('stream module', typeof require('stream') === 'object');

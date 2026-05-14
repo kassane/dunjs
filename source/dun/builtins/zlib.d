@@ -195,32 +195,32 @@ JSHandle doDecompress(void* ctx, JSHandle[] args, int windowBits) @trusted
     catch (Exception) { return engine.throwTypeError("Decompression failed"); }
 }
 
-JSHandle jsDeflateSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsDeflateSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     return doCompress(ctx, args, ZLIB_DEFLATE_WINDOW);
 }
 
-JSHandle jsInflateSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsInflateSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     return doDecompress(ctx, args, ZLIB_DEFLATE_WINDOW);
 }
 
-JSHandle jsGzipSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsGzipSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     return doCompress(ctx, args, ZLIB_GZIP_WINDOW);
 }
 
-JSHandle jsGunzipSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsGunzipSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     return doDecompress(ctx, args, ZLIB_GZIP_WINDOW);
 }
 
-JSHandle jsDeflateRawSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsDeflateRawSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     return doCompress(ctx, args, ZLIB_RAW_WINDOW);
 }
 
-JSHandle jsInflateRawSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsInflateRawSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     return doDecompress(ctx, args, ZLIB_RAW_WINDOW);
 }

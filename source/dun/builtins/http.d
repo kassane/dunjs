@@ -378,7 +378,7 @@ package JSHandle createServerWithTls(IJSEngine engine, JSHandle cb, bool hasCb,
     return makeHttpServerObj(engine, id);
 }
 
-JSHandle jsHttpCreateServer(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsHttpCreateServer(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsHttpCreateServer");
     auto state = cast(DunState*) ctx;
@@ -417,7 +417,7 @@ JSHandle makeHttpServerObj(IJSEngine engine, int id) @trusted
     return obj;
 }
 
-JSHandle jsHttpServerSetTimeout(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsHttpServerSetTimeout(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null);
     auto state = cast(DunState*) ctx;
@@ -428,7 +428,7 @@ JSHandle jsHttpServerSetTimeout(void* ctx, JSHandle thisVal, JSHandle[] args) @t
     return engine.dupValue(thisVal);
 }
 
-JSHandle jsHttpServerListen(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsHttpServerListen(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsHttpServerListen");
     version (Posix)
@@ -528,7 +528,7 @@ JSHandle jsHttpServerListen(void* ctx, JSHandle thisVal, JSHandle[] args) @trust
     }
 }
 
-JSHandle jsHttpServerClose(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsHttpServerClose(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsHttpServerClose");
     version (Posix)
@@ -568,7 +568,7 @@ JSHandle jsHttpServerClose(void* ctx, JSHandle thisVal, JSHandle[] args) @truste
     }
 }
 
-JSHandle jsHttpServerAddress(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsHttpServerAddress(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsHttpServerAddress");
     auto state = cast(DunState*) ctx;
@@ -594,7 +594,7 @@ JSHandle jsHttpServerAddress(void* ctx, JSHandle thisVal, JSHandle[] args) @trus
     return engine.newNull();
 }
 
-JSHandle jsHttpServerOn(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsHttpServerOn(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsHttpServerOn");
     auto state = cast(DunState*) ctx;
@@ -641,7 +641,7 @@ JSHandle makeReqObj(IJSEngine engine, int connId) @trusted
     return obj;
 }
 
-JSHandle jsGetConnHeaders(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsGetConnHeaders(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsGetConnHeaders");
     auto state = cast(DunState*) ctx;
@@ -661,7 +661,7 @@ JSHandle jsGetConnHeaders(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     return hdrs;
 }
 
-JSHandle jsReqOn(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsReqOn(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsReqOn");
     auto state = cast(DunState*) ctx;
@@ -726,7 +726,7 @@ JSHandle makeResObj(IJSEngine engine, int connId) @trusted
     return obj;
 }
 
-JSHandle jsResSetHeader(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsResSetHeader(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsResSetHeader");
     auto state = cast(DunState*) ctx;
@@ -749,7 +749,7 @@ JSHandle jsResSetHeader(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     return engine.dupValue(thisVal);
 }
 
-JSHandle jsResGetHeader(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsResGetHeader(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsResGetHeader");
     auto state = cast(DunState*) ctx;
@@ -774,7 +774,7 @@ JSHandle jsResGetHeader(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     return engine.newUndefined();
 }
 
-JSHandle jsResGetHeaders(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsResGetHeaders(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsResGetHeaders");
     auto state = cast(DunState*) ctx;
@@ -793,7 +793,7 @@ JSHandle jsResGetHeaders(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     return obj;
 }
 
-JSHandle jsResHasHeader(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsResHasHeader(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsResHasHeader");
     auto state = cast(DunState*) ctx;
@@ -816,7 +816,7 @@ JSHandle jsResHasHeader(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     return engine.newBool(false);
 }
 
-JSHandle jsResRemoveHeader(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsResRemoveHeader(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsResRemoveHeader");
     auto state = cast(DunState*) ctx;
@@ -854,7 +854,7 @@ private string toLowerSimple(string s) @trusted pure nothrow
     try { return result.idup; } catch (Exception) { return s; }
 }
 
-JSHandle jsResWriteHead(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsResWriteHead(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsResWriteHead");
     auto state = cast(DunState*) ctx;
@@ -901,7 +901,7 @@ JSHandle jsResWriteHead(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     return engine.newUndefined();
 }
 
-JSHandle jsResWrite(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsResWrite(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsResWrite");
     auto state = cast(DunState*) ctx;
@@ -925,7 +925,7 @@ JSHandle jsResWrite(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     return engine.newBool(true);
 }
 
-JSHandle jsResEnd(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsResEnd(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsResEnd");
     version (Posix)

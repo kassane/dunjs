@@ -243,7 +243,7 @@ class QuickJSEngine : IJSEngine
         return toHandle(JS_GetGlobalObject(ctx));
     }
 
-    JSHandle callFunction(JSHandle func, JSHandle thisVal, JSHandle[] args) @trusted
+    JSHandle callFunction(JSHandle func, JSHandle thisVal, scope JSHandle[] args) @trusted
     {
         assert(ctx !is null, "Engine not initialized");
         JSValue[NATIVE_CALL_STACK_ARGS] argv = void;

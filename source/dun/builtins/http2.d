@@ -1879,7 +1879,7 @@ JSHandle makeHttp2Constants(IJSEngine engine) @trusted
 
 // ── JS API: createServer (cleartext h2c) ─────────────────────────
 
-JSHandle jsHttp2CreateServer(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsHttp2CreateServer(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null);
     auto state = cast(DunState*) ctx;
@@ -1912,7 +1912,7 @@ JSHandle jsHttp2CreateServer(void* ctx, JSHandle thisVal, JSHandle[] args) @trus
 
 // ── JS API: createSecureServer (h2 over TLS) ────────────────────
 
-JSHandle jsHttp2CreateSecureServer(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsHttp2CreateSecureServer(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null);
     version (Posix)
@@ -2085,7 +2085,7 @@ void parseH2Url(string url, out string host, out ushort port, out bool useTls) n
     if (host.length == 0) host = "localhost";
 }
 
-JSHandle jsHttp2Connect(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsHttp2Connect(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null);
     auto state = cast(DunState*) ctx;
@@ -2253,7 +2253,7 @@ JSHandle jsHttp2Connect(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     }
 }
 
-JSHandle jsH2ClientSessionOn(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsH2ClientSessionOn(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null);
     auto state = cast(DunState*) ctx;
@@ -2285,7 +2285,7 @@ JSHandle jsH2ClientSessionOn(void* ctx, JSHandle thisVal, JSHandle[] args) @trus
     return thisVal;
 }
 
-JSHandle jsH2ClientRequest(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsH2ClientRequest(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null);
     auto state = cast(DunState*) ctx;
@@ -2379,7 +2379,7 @@ JSHandle jsH2ClientRequest(void* ctx, JSHandle thisVal, JSHandle[] args) @truste
     return streamObj;
 }
 
-JSHandle jsH2ClientClose(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsH2ClientClose(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null);
     auto state = cast(DunState*) ctx;
@@ -2406,7 +2406,7 @@ JSHandle jsH2ClientClose(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
 // ── Client Stream event handlers ────────────────────────────────
 
-JSHandle jsH2StreamOn(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsH2StreamOn(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null);
     auto state = cast(DunState*) ctx;
@@ -2450,7 +2450,7 @@ JSHandle jsH2StreamOn(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     return thisVal;
 }
 
-JSHandle jsH2StreamEnd(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsH2StreamEnd(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null);
     auto state = cast(DunState*) ctx;
@@ -2484,7 +2484,7 @@ JSHandle jsH2StreamEnd(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     return engine.newUndefined();
 }
 
-JSHandle jsH2StreamWrite(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsH2StreamWrite(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null);
     auto state = cast(DunState*) ctx;
@@ -2523,7 +2523,7 @@ JSHandle makeH2ServerObj(IJSEngine engine, int id) @trusted
     return obj;
 }
 
-JSHandle jsH2ServerListen(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsH2ServerListen(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null);
     version (Posix)
@@ -2614,7 +2614,7 @@ JSHandle jsH2ServerListen(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     }
 }
 
-JSHandle jsH2ServerClose(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsH2ServerClose(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null);
     version (Posix)
@@ -2646,7 +2646,7 @@ JSHandle jsH2ServerClose(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     }
 }
 
-JSHandle jsH2ServerOn(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsH2ServerOn(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null);
     auto state = cast(DunState*) ctx;
@@ -2709,7 +2709,7 @@ int findOrCreateResponseState(uint streamId) nothrow @trusted
     catch (Throwable) { return -1; }
 }
 
-JSHandle jsH2ResWriteHead(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsH2ResWriteHead(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null);
     auto state = cast(DunState*) ctx;
@@ -2728,7 +2728,7 @@ JSHandle jsH2ResWriteHead(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     return engine.newUndefined();
 }
 
-JSHandle jsH2ResSetHeader(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsH2ResSetHeader(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null);
     auto state = cast(DunState*) ctx;
@@ -2751,7 +2751,7 @@ JSHandle jsH2ResSetHeader(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     return engine.newUndefined();
 }
 
-JSHandle jsH2ResWrite(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsH2ResWrite(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null);
     auto state = cast(DunState*) ctx;
@@ -2783,7 +2783,7 @@ JSHandle jsH2ResWrite(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     return engine.newBool(true);
 }
 
-JSHandle jsH2ResEnd(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsH2ResEnd(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null);
     auto state = cast(DunState*) ctx;

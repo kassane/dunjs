@@ -64,7 +64,7 @@ version (EngineQuickJS)
 
 private:
 
-JSHandle jsHttpsCreateServer(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsHttpsCreateServer(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsHttpsCreateServer");
     auto state = cast(DunState*) ctx;

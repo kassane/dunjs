@@ -11,8 +11,9 @@ void installWebCompat(IJSEngine engine) @trusted
     // globalThis.global = globalThis — Node.js legacy compat (npm packages check typeof global)
     engine.setProperty(global, "global", engine.dupValue(global));
 
-    engine.setProperty(global, "structuredClone",
-        engine.newFunction(&jsStructuredClone, "structuredClone", 1));
+    auto scRes = engine.eval(structuredClonePolyfill(), "<structuredClone>");
+    if (!scRes.isError)
+        engine.freeValue(scRes.value);
 
     engine.setProperty(global, "btoa",
         engine.newFunction(&jsNativeBtoa, "btoa", 1));
@@ -65,7 +66,7 @@ enum ubyte[128] B64_DECODE = () {
     return t;
 }();
 
-JSHandle jsNativeBtoa(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsNativeBtoa(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in btoa");
     auto state = cast(DunState*) ctx;
@@ -123,7 +124,7 @@ JSHandle jsNativeBtoa(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     return engine.newString(cast(string) buf[0 .. pos]);
 }
 
-JSHandle jsNativeAtob(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsNativeAtob(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in atob");
     auto state = cast(DunState*) ctx;
@@ -175,7 +176,7 @@ JSHandle jsNativeAtob(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     return engine.newString(cast(string) buf[0 .. pos]);
 }
 
-JSHandle jsNativeTextEncoderEncode(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsNativeTextEncoderEncode(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in TextEncoder.encode");
     auto state = cast(DunState*) ctx;
@@ -191,7 +192,7 @@ JSHandle jsNativeTextEncoderEncode(void* ctx, JSHandle thisVal, JSHandle[] args)
     return engine.newUint8Array(cast(const(ubyte)[]) input);
 }
 
-JSHandle jsNativeTextEncoderEncodeInto(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsNativeTextEncoderEncodeInto(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in TextEncoder.encodeInto");
     auto state = cast(DunState*) ctx;
@@ -218,7 +219,7 @@ JSHandle jsNativeTextEncoderEncodeInto(void* ctx, JSHandle thisVal, JSHandle[] a
     return result;
 }
 
-JSHandle jsNativeTextDecoderDecode(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsNativeTextDecoderDecode(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in TextDecoder.decode");
     auto state = cast(DunState*) ctx;
@@ -258,57 +259,82 @@ JSHandle jsNativeTextDecoderDecode(void* ctx, JSHandle thisVal, JSHandle[] args)
     return engine.newString("");
 }
 
-JSHandle jsStructuredClone(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+string structuredClonePolyfill() @safe pure nothrow @nogc
 {
-    assert(ctx !is null, "Null ctx in structuredClone");
-    auto state = cast(DunState*) ctx;
-    auto engine = state.engine;
-    assert(engine !is null, "Null engine in structuredClone");
+    return `(function() {
+  globalThis.structuredClone = function structuredClone(value, options) {
+    if (value === null || value === undefined) return value;
+    var t = typeof value;
+    if (t === 'number' || t === 'string' || t === 'boolean' || t === 'bigint') return value;
 
-    if (args.length < 1)
-        return engine.newUndefined();
+    var seen = new Map();
+    function clone(v) {
+      if (v === null || v === undefined) return v;
+      var tv = typeof v;
+      if (tv === 'number' || tv === 'string' || tv === 'boolean' || tv === 'bigint') return v;
+      if (tv === 'symbol' || tv === 'function')
+        throw new DOMException('structuredClone: not cloneable', 'DataCloneError');
 
-    return deepClone(engine, args[0]);
-}
+      if (seen.has(v)) return seen.get(v);
 
-// Cached JSON.stringify/parse handles for structuredClone hot path
-__gshared JSHandle _cloneJsonObj, _cloneStringify, _cloneParse;
-__gshared bool _cloneCached = false;
+      if (v instanceof Date) {
+        var d = new Date(v.getTime());
+        seen.set(v, d);
+        return d;
+      }
+      if (v instanceof RegExp) {
+        var r = new RegExp(v.source, v.flags);
+        seen.set(v, r);
+        return r;
+      }
+      if (v instanceof ArrayBuffer) {
+        var ab = v.slice(0);
+        seen.set(v, ab);
+        return ab;
+      }
+      if (ArrayBuffer.isView(v)) {
+        var buf = v.buffer.slice(v.byteOffset, v.byteOffset + v.byteLength);
+        var ctor = v.constructor;
+        var ta = new ctor(buf);
+        seen.set(v, ta);
+        return ta;
+      }
+      if (v instanceof Map) {
+        var m = new Map();
+        seen.set(v, m);
+        v.forEach(function(val, key) { m.set(clone(key), clone(val)); });
+        return m;
+      }
+      if (v instanceof Set) {
+        var s = new Set();
+        seen.set(v, s);
+        v.forEach(function(val) { s.add(clone(val)); });
+        return s;
+      }
+      if (v instanceof Error) {
+        var e = new (v.constructor || Error)(v.message);
+        seen.set(v, e);
+        if (v.name !== undefined) e.name = v.name;
+        if (v.stack !== undefined) e.stack = v.stack;
+        if (v.cause !== undefined) e.cause = clone(v.cause);
+        return e;
+      }
+      if (Array.isArray(v)) {
+        var a = [];
+        seen.set(v, a);
+        for (var i = 0; i < v.length; i++) a[i] = clone(v[i]);
+        return a;
+      }
 
-void ensureCloneCache(IJSEngine engine) @trusted
-{
-    if (_cloneCached) return;
-    auto global = engine.getGlobal();
-    _cloneJsonObj = engine.getProperty(global, "JSON");
-    _cloneStringify = engine.getProperty(_cloneJsonObj, "stringify");
-    _cloneParse = engine.getProperty(_cloneJsonObj, "parse");
-    engine.freeValue(global);
-    _cloneCached = true;
-}
-
-JSHandle deepClone(IJSEngine engine, JSHandle val) @trusted
-{
-    assert(engine !is null, "Null engine in deepClone");
-    if (engine.isNull(val) || engine.isUndefined(val))
-        return val;
-    if (engine.isString(val))
-        return engine.newString(engine.extractString(val));
-    if (engine.isNumber(val))
-        return engine.newFloat(engine.extractFloat(val));
-    if (engine.isBool(val))
-        return engine.newBool(engine.extractBool(val));
-
-    ensureCloneCache(engine);
-
-    auto jsonStr = engine.callFunction(_cloneStringify, _cloneJsonObj, [val]);
-    if (engine.isException(jsonStr))
-        return engine.throwTypeError("structuredClone: not serializable");
-
-    auto result = engine.callFunction(_cloneParse, _cloneJsonObj, [jsonStr]);
-    engine.freeValue(jsonStr);
-
-    if (engine.isException(result))
-        return engine.throwTypeError("structuredClone: not serializable");
-
-    return result;
+      var o = {};
+      seen.set(v, o);
+      var keys = Object.keys(v);
+      for (var k = 0; k < keys.length; k++) {
+        o[keys[k]] = clone(v[keys[k]]);
+      }
+      return o;
+    }
+    return clone(value);
+  };
+})();`;
 }

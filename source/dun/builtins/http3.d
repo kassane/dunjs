@@ -223,7 +223,7 @@ ubyte[] encodeH3Settings() pure @safe
 
 // ── JS API stubs (wire to lsquic when linked) ───────────────────────
 
-JSHandle jsH3CreateServer(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsH3CreateServer(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in http3.createServer");
     auto state = cast(DunState*) ctx;
@@ -240,7 +240,7 @@ JSHandle jsH3CreateServer(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     return server;
 }
 
-JSHandle jsH3ServerListen(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsH3ServerListen(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in http3.server.listen");
     auto state = cast(DunState*) ctx;
@@ -250,7 +250,7 @@ JSHandle jsH3ServerListen(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     return engine.newUndefined();
 }
 
-JSHandle jsH3ServerClose(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsH3ServerClose(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in http3.server.close");
     auto state = cast(DunState*) ctx;
@@ -258,7 +258,7 @@ JSHandle jsH3ServerClose(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     return state.engine.newUndefined();
 }
 
-JSHandle jsH3ServerOn(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsH3ServerOn(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in http3.server.on");
     auto state = cast(DunState*) ctx;
@@ -266,7 +266,7 @@ JSHandle jsH3ServerOn(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     return thisVal;
 }
 
-JSHandle jsH3Connect(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsH3Connect(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in http3.connect");
     auto state = cast(DunState*) ctx;
@@ -282,7 +282,7 @@ JSHandle jsH3Connect(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     return session;
 }
 
-JSHandle jsH3SessionClose(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsH3SessionClose(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null);
     auto state = cast(DunState*) ctx;
@@ -290,7 +290,7 @@ JSHandle jsH3SessionClose(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     return state.engine.newUndefined();
 }
 
-JSHandle jsH3SessionRequest(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsH3SessionRequest(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null);
     auto state = cast(DunState*) ctx;
@@ -306,7 +306,7 @@ JSHandle jsH3SessionRequest(void* ctx, JSHandle thisVal, JSHandle[] args) @trust
     return stream;
 }
 
-JSHandle jsH3StreamWrite(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsH3StreamWrite(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null);
     auto state = cast(DunState*) ctx;
@@ -314,7 +314,7 @@ JSHandle jsH3StreamWrite(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     return state.engine.newBool(true);
 }
 
-JSHandle jsH3StreamEnd(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsH3StreamEnd(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null);
     auto state = cast(DunState*) ctx;

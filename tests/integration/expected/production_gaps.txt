@@ -1,0 +1,224 @@
+PASS WeakRef deref returns target
+PASS WeakRef deref has data
+PASS FinalizationRegistry register+unregister
+PASS structuredClone deep copy
+PASS structuredClone not same ref
+PASS structuredClone Date
+PASS structuredClone Map
+PASS structuredClone Set
+PASS structuredClone ArrayBuffer
+PASS performance.now returns number
+PASS performance.now monotonic
+PASS performance.now sub-millisecond capable
+PASS queueMicrotask exists
+PASS globalThis is object
+PASS globalThis.globalThis is self
+PASS globalThis has Object
+PASS globalThis has Array
+PASS TextEncoder/Decoder emoji round-trip
+PASS TextEncoder/Decoder CJK round-trip
+PASS TextEncoder/Decoder mixed round-trip
+PASS JSON.parse reviver
+PASS JSON.stringify replacer fn
+PASS JSON.stringify toJSON
+PASS JSON.stringify indent
+PASS Proxy get trap
+PASS Proxy get passthrough
+PASS Proxy set trap
+PASS Proxy has trap
+PASS Proxy ownKeys trap
+PASS Reflect.apply
+PASS Reflect.construct
+PASS Reflect.defineProperty
+PASS Reflect.getPrototypeOf
+PASS Reflect.setPrototypeOf
+PASS Proxy.revocable access
+PASS Proxy.revocable revoke
+PASS Symbol.for same key same symbol
+PASS Symbol.keyFor
+PASS Symbol.keyFor unique returns undefined
+PASS Symbol.description
+PASS Symbol.toPrimitive number
+PASS Symbol.toPrimitive string
+PASS Promise.allSettled exists
+PASS Promise.any exists
+PASS Object.groupBy exists
+PASS Object.groupBy result
+PASS Object.groupBy values
+PASS Map.groupBy exists
+PASS Map.groupBy returns Map
+PASS Map.groupBy result
+PASS String.isWellFormed exists
+PASS String.isWellFormed valid
+PASS String.isWellFormed lone surrogate
+PASS String.toWellFormed exists
+PASS String.toWellFormed valid passthrough
+PASS String.toWellFormed replaces surrogate
+PASS Array.fromAsync exists
+PASS RegExp v flag creates
+FAIL RegExp v flag ASCII letter match
+PASS RegExp v flag digit no match
+PASS Set.union exists
+PASS Set.union result
+PASS Set.intersection result
+PASS Set.difference result
+PASS Set.symmetricDifference result
+PASS Set.isSubsetOf
+PASS Set.isSupersetOf
+PASS Set.isDisjointFrom
+PASS Iterator.prototype.map exists
+PASS Iterator.map result
+PASS Iterator.filter result
+PASS Iterator.take result
+PASS Iterator.drop result
+PASS Iterator.forEach result
+PASS Iterator.reduce result
+PASS Iterator.toArray result
+PASS Iterator.some result
+PASS Iterator.every result
+PASS Iterator.find result
+PASS Iterator.flatMap result
+PASS Iterator.from exists
+PASS Iterator.from works
+PASS async generator function creates
+PASS Atomics.store+load
+PASS Atomics.add
+PASS Atomics.sub
+PASS Atomics.exchange
+PASS Atomics.compareExchange
+PASS Atomics.waitAsync exists
+PASS URL percent decode search
+PASS URL multiple values getAll
+PASS URL hash
+PASS URLSearchParams append
+PASS URLSearchParams delete
+PASS URLSearchParams has
+PASS URL unicode path
+PASS URL toString round-trip
+PASS URLSearchParams keys iteration
+PASS URLSearchParams values iteration
+PASS URLSearchParams entries iteration
+PASS URLSearchParams size
+PASS URLSearchParams sort
+PASS Int8Array
+PASS Uint8Array
+PASS Uint8ClampedArray
+PASS Int16Array
+PASS Uint16Array
+PASS Int32Array
+PASS Uint32Array
+PASS Float32Array
+PASS Float64Array
+PASS BigInt64Array
+PASS BigUint64Array
+PASS DataView
+PASS TypedArray.sort
+PASS TypedArray.find
+PASS TypedArray.findIndex
+PASS TypedArray.includes
+PASS TypedArray.slice
+PASS TypedArray.subarray
+PASS TypedArray.from
+PASS TypedArray.of
+PASS RangeError
+PASS TypeError
+PASS ReferenceError
+PASS SyntaxError
+PASS URIError
+PASS EvalError
+PASS AggregateError
+PASS AggregateError message
+PASS AggregateError errors
+PASS Error.cause
+PASS Error.stack exists
+PASS BigInt exists
+PASS BigInt literal
+PASS BigInt arithmetic
+PASS BigInt comparison
+PASS BigInt toString
+PASS BigInt from number
+PASS for-await-of parses
+PASS optional chaining deep
+PASS optional chaining null
+PASS optional chaining method
+PASS nullish coalescing 0
+PASS nullish coalescing empty string
+PASS nullish coalescing null
+PASS nullish coalescing undefined
+PASS nullish assignment ??=
+PASS logical OR assignment ||=
+PASS logical AND assignment &&=
+PASS Symbol.iterator
+PASS Symbol.asyncIterator
+PASS Symbol.hasInstance
+PASS Symbol.toPrimitive
+PASS Symbol.toStringTag
+PASS Symbol.species
+PASS Symbol.isConcatSpreadable
+PASS Symbol.match
+PASS Symbol.replace
+PASS Symbol.search
+PASS Symbol.split
+PASS Symbol.unscopables
+PASS Array.at positive
+PASS Array.at negative
+PASS String.at positive
+PASS String.at negative
+PASS Object.hasOwn exists
+PASS Object.hasOwn true
+PASS Object.hasOwn false
+PASS Object.hasOwn no prototype
+PASS Array.toSorted
+PASS Array.toReversed
+PASS Array.toSpliced
+PASS Array.with
+PASS Function constructor
+PASS Promise.withResolvers exists
+PASS Promise.withResolvers promise
+PASS Promise.withResolvers resolve fn
+PASS Promise.withResolvers reject fn
+PASS SuppressedError exists
+PASS SuppressedError message
+PASS Generator next value
+PASS Generator next second
+PASS Generator done
+PASS Generator iterable
+PASS Generator yield* delegation
+PASS Private class fields
+PASS Static private fields
+PASS NaN !== NaN
+PASS Number.isNaN
+PASS Number.isFinite
+PASS Number.isInteger
+PASS Number.isSafeInteger
+PASS Number.EPSILON
+PASS Number.MAX_SAFE_INTEGER
+PASS Object.is NaN
+PASS Object.is +0/-0
+PASS Map insertion order
+PASS Map forEach
+PASS Set insertion order
+PASS Map object keys distinct
+PASS Array rest destructuring
+PASS Object destructuring alias+default
+PASS Nested destructuring
+PASS Computed property destructuring
+PASS Tagged template literal
+PASS String.raw
+PASS RegExp named groups
+PASS RegExp lookbehind
+PASS RegExp dotAll flag
+PASS String.matchAll
+PASS AbortController exists
+PASS AbortController.signal
+PASS AbortSignal.aborted initial false
+PASS AbortController.abort works
+PASS AbortSignal.reason
+PASS AbortSignal.timeout exists
+PASS AbortSignal.timeout returns signal
+PASS AbortSignal.any exists
+PASS AbortSignal.any returns signal
+PASS AbortSignal.any not aborted initially
+PASS AbortSignal.any aborted when child aborts
+
+Production gaps: 221/222 passed

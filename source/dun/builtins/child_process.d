@@ -137,7 +137,7 @@ string truncateToMaxBuffer(string s, int maxBuffer) @safe pure nothrow
     return s;
 }
 
-JSHandle jsExecSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsExecSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsExecSync");
     auto state = cast(DunState*) ctx;
@@ -204,7 +204,7 @@ JSHandle jsExecSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     }
 }
 
-JSHandle jsSpawnSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsSpawnSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsSpawnSync");
     auto state = cast(DunState*) ctx;
@@ -317,7 +317,7 @@ JSHandle jsSpawnSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     }
 }
 
-JSHandle jsExec(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsExec(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     import dun.engine.iface : PromiseHandles;
 
@@ -443,7 +443,7 @@ private immutable string childProcessHelperSource = `(function() {
   return new ChildProcess();
 })()`;
 
-JSHandle jsSpawn(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsSpawn(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     import dun.loop.agnostic_pending : pushAgnosticPending;
 
@@ -637,7 +637,7 @@ JSHandle jsSpawn(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     }
 }
 
-JSHandle jsExecFile(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsExecFile(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     import dun.engine.iface : PromiseHandles;
 
@@ -820,7 +820,7 @@ JSHandle jsExecFile(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     }
 }
 
-JSHandle jsExecFileSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsExecFileSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null);
     auto state = cast(DunState*) ctx;
@@ -867,7 +867,7 @@ JSHandle jsExecFileSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
         return engine.throwTypeError("execFileSync not available on this platform");
 }
 
-JSHandle jsFork(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsFork(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null);
     auto state = cast(DunState*) ctx;

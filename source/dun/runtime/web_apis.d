@@ -44,7 +44,7 @@ private void bindNativeCryptoOnGlobal(IJSEngine engine) @trusted
     installSubtleOnGlobalCrypto(engine);
 }
 
-private JSHandle jsNativeGetRandomValues(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+private JSHandle jsNativeGetRandomValues(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in getRandomValues");
     auto state = cast(DunState*) ctx;

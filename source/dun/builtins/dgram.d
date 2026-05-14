@@ -105,7 +105,7 @@ int allocUdpSocket() nothrow @trusted
     return -1;
 }
 
-JSHandle jsCreateSocket(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsCreateSocket(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsCreateSocket");
     auto state = cast(DunState*) ctx;
@@ -206,7 +206,7 @@ int getSocketId(IJSEngine engine, JSHandle thisVal) @trusted
     return -1;
 }
 
-JSHandle jsUdpBind(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsUdpBind(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsUdpBind");
     auto state = cast(DunState*) ctx;
@@ -292,7 +292,7 @@ JSHandle jsUdpBind(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     }
 }
 
-JSHandle jsUdpSend(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsUdpSend(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsUdpSend");
     auto state = cast(DunState*) ctx;
@@ -399,7 +399,7 @@ JSHandle jsUdpSend(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     }
 }
 
-JSHandle jsUdpClose(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsUdpClose(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsUdpClose");
     auto state = cast(DunState*) ctx;
@@ -443,7 +443,7 @@ JSHandle jsUdpClose(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     return engine.newUndefined();
 }
 
-JSHandle jsUdpAddress(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsUdpAddress(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsUdpAddress");
     auto state = cast(DunState*) ctx;
@@ -512,7 +512,7 @@ JSHandle jsUdpAddress(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     }
 }
 
-JSHandle jsUdpSetBroadcast(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsUdpSetBroadcast(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsUdpSetBroadcast");
     auto state = cast(DunState*) ctx;
@@ -534,7 +534,7 @@ JSHandle jsUdpSetBroadcast(void* ctx, JSHandle thisVal, JSHandle[] args) @truste
     return engine.newUndefined();
 }
 
-JSHandle jsUdpSetTTL(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsUdpSetTTL(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsUdpSetTTL");
     auto state = cast(DunState*) ctx;
@@ -560,7 +560,7 @@ JSHandle jsUdpSetTTL(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     return engine.newUndefined();
 }
 
-JSHandle jsUdpAddMembership(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsUdpAddMembership(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsUdpAddMembership");
     auto state = cast(DunState*) ctx;
@@ -574,7 +574,7 @@ JSHandle jsUdpAddMembership(void* ctx, JSHandle thisVal, JSHandle[] args) @trust
     return engine.newUndefined();
 }
 
-JSHandle jsUdpDropMembership(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsUdpDropMembership(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsUdpDropMembership");
     auto state = cast(DunState*) ctx;
@@ -582,7 +582,7 @@ JSHandle jsUdpDropMembership(void* ctx, JSHandle thisVal, JSHandle[] args) @trus
     return state.engine.newUndefined();
 }
 
-JSHandle jsUdpOn(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsUdpOn(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsUdpOn");
     auto state = cast(DunState*) ctx;
@@ -627,7 +627,7 @@ JSHandle jsUdpOn(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     return engine.dupValue(thisVal);
 }
 
-JSHandle jsUdpRemoveListeners(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsUdpRemoveListeners(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsUdpRemoveListeners");
     auto state = cast(DunState*) ctx;
@@ -647,7 +647,7 @@ JSHandle jsUdpRemoveListeners(void* ctx, JSHandle thisVal, JSHandle[] args) @tru
     return engine.dupValue(thisVal);
 }
 
-JSHandle jsUdpRef(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsUdpRef(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsUdpRef");
     auto state = cast(DunState*) ctx;
@@ -655,7 +655,7 @@ JSHandle jsUdpRef(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     return state.engine.dupValue(thisVal);
 }
 
-JSHandle jsUdpUnref(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsUdpUnref(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsUdpUnref");
     auto state = cast(DunState*) ctx;

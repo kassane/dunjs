@@ -177,7 +177,7 @@ bool checkRunPerm(DunState* state) nothrow @trusted
     catch (Exception) { return false; }
 }
 
-JSHandle jsClusterFork(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsClusterFork(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsClusterFork");
     auto state = cast(DunState*) ctx;
@@ -266,7 +266,7 @@ JSHandle jsClusterFork(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     }
 }
 
-JSHandle jsClusterOn(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsClusterOn(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsClusterOn");
     auto state = cast(DunState*) ctx;
@@ -302,7 +302,7 @@ JSHandle jsClusterOn(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     return clusterObj;
 }
 
-JSHandle jsClusterSetupPrimary(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsClusterSetupPrimary(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null);
     auto state = cast(DunState*) ctx;
@@ -316,7 +316,7 @@ JSHandle jsClusterSetupPrimary(void* ctx, JSHandle thisVal, JSHandle[] args) @tr
     return engine.newUndefined();
 }
 
-JSHandle jsClusterDisconnect(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsClusterDisconnect(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null);
     auto state = cast(DunState*) ctx;
@@ -341,42 +341,42 @@ JSHandle makeWorkerSelf(IJSEngine engine) @trusted
     return w;
 }
 
-JSHandle jsWorkerSend(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsWorkerSend(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null);
     auto state = cast(DunState*) ctx;
     return state.engine.newBool(true);
 }
 
-JSHandle jsWorkerOn(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsWorkerOn(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null);
     auto state = cast(DunState*) ctx;
     return thisVal;
 }
 
-JSHandle jsWorkerDisconnect(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsWorkerDisconnect(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null);
     auto state = cast(DunState*) ctx;
     return state.engine.newUndefined();
 }
 
-JSHandle jsWorkerKill(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsWorkerKill(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null);
     auto state = cast(DunState*) ctx;
     return state.engine.newUndefined();
 }
 
-JSHandle jsWorkerIsConnected(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsWorkerIsConnected(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null);
     auto state = cast(DunState*) ctx;
     return state.engine.newBool(true);
 }
 
-JSHandle jsWorkerIsDead(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsWorkerIsDead(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null);
     auto state = cast(DunState*) ctx;

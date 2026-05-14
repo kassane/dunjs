@@ -160,7 +160,7 @@ int parseFsOpenFlags(string flags) nothrow @trusted
     return O_RDONLY;
 }
 
-JSHandle jsFspReadFile(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsFspReadFile(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in fs.promises.readFile");
     auto state = cast(DunState*) ctx;
@@ -194,7 +194,7 @@ JSHandle jsFspReadFile(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     return ph.promise;
 }
 
-JSHandle jsFspWriteFile(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsFspWriteFile(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in fs.promises.writeFile");
     auto state = cast(DunState*) ctx;
@@ -228,7 +228,7 @@ JSHandle jsFspWriteFile(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     return ph.promise;
 }
 
-JSHandle jsFspAppendFile(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsFspAppendFile(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in fs.promises.appendFile");
     auto state = cast(DunState*) ctx;
@@ -262,7 +262,7 @@ JSHandle jsFspAppendFile(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     return ph.promise;
 }
 
-JSHandle jsFspCopyFile(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsFspCopyFile(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in fs.promises.copyFile");
     auto state = cast(DunState*) ctx;
@@ -298,7 +298,7 @@ JSHandle jsFspCopyFile(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     return ph.promise;
 }
 
-JSHandle jsFspRename(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsFspRename(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in fs.promises.rename");
     auto state = cast(DunState*) ctx;
@@ -334,7 +334,7 @@ JSHandle jsFspRename(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     return ph.promise;
 }
 
-JSHandle jsFspUnlink(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsFspUnlink(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in fs.promises.unlink");
     auto state = cast(DunState*) ctx;
@@ -367,7 +367,7 @@ JSHandle jsFspUnlink(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     return ph.promise;
 }
 
-JSHandle jsFspRmdir(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsFspRmdir(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in fs.promises.rmdir");
     auto state = cast(DunState*) ctx;
@@ -400,7 +400,7 @@ JSHandle jsFspRmdir(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     return ph.promise;
 }
 
-JSHandle jsFspRm(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsFspRm(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in fs.promises.rm");
     auto state = cast(DunState*) ctx;
@@ -451,7 +451,7 @@ JSHandle jsFspRm(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     return ph.promise;
 }
 
-JSHandle jsFspMkdir(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsFspMkdir(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in fs.promises.mkdir");
     auto state = cast(DunState*) ctx;
@@ -499,7 +499,7 @@ JSHandle jsFspMkdir(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     return ph.promise;
 }
 
-JSHandle jsFspReaddir(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsFspReaddir(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in fs.promises.readdir");
     auto state = cast(DunState*) ctx;
@@ -554,7 +554,7 @@ JSHandle jsFspReaddir(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     return ph.promise;
 }
 
-JSHandle jsFspStat(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsFspStat(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in fs.promises.stat");
     auto state = cast(DunState*) ctx;
@@ -576,7 +576,7 @@ JSHandle jsFspStat(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     return ph.promise;
 }
 
-JSHandle jsFspLstat(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsFspLstat(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in fs.promises.lstat");
     auto state = cast(DunState*) ctx;
@@ -598,7 +598,7 @@ JSHandle jsFspLstat(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     return ph.promise;
 }
 
-JSHandle jsFspAccess(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsFspAccess(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in fs.promises.access");
     auto state = cast(DunState*) ctx;
@@ -636,7 +636,7 @@ JSHandle jsFspAccess(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     return ph.promise;
 }
 
-JSHandle jsFspRealpath(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsFspRealpath(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in fs.promises.realpath");
     auto state = cast(DunState*) ctx;
@@ -687,7 +687,7 @@ JSHandle jsFspRealpath(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     return ph.promise;
 }
 
-JSHandle jsFspChmod(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsFspChmod(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in fs.promises.chmod");
     auto state = cast(DunState*) ctx;
@@ -721,7 +721,7 @@ JSHandle jsFspChmod(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     return ph.promise;
 }
 
-JSHandle jsFspChown(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsFspChown(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in fs.promises.chown");
     auto state = cast(DunState*) ctx;
@@ -761,7 +761,7 @@ JSHandle jsFspChown(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     return ph.promise;
 }
 
-JSHandle jsFspTruncate(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsFspTruncate(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in fs.promises.truncate");
     auto state = cast(DunState*) ctx;
@@ -816,7 +816,7 @@ JSHandle jsFspTruncate(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
 // ── symlink ─────────────────────────────────────────────────────
 
-JSHandle jsFspSymlink(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsFspSymlink(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in fs.promises.symlink");
     auto state = cast(DunState*) ctx;
@@ -861,7 +861,7 @@ JSHandle jsFspSymlink(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
 // ── open (returns FileHandle) ───────────────────────────────────
 
-JSHandle jsFspOpen(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsFspOpen(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in fs.promises.open");
     auto state = cast(DunState*) ctx;

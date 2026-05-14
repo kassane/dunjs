@@ -22,7 +22,7 @@ void installConsole(IJSEngine engine) @trusted
 
 private:
 
-JSHandle consoleLog(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle consoleLog(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in console.log");
     auto state = cast(DunState*) ctx;
@@ -31,7 +31,7 @@ JSHandle consoleLog(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     return state.engine.newUndefined();
 }
 
-JSHandle consoleWarn(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle consoleWarn(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in console.warn");
     auto state = cast(DunState*) ctx;
@@ -39,7 +39,7 @@ JSHandle consoleWarn(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     return state.engine.newUndefined();
 }
 
-JSHandle consoleError(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle consoleError(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in console.error");
     auto state = cast(DunState*) ctx;
@@ -47,7 +47,7 @@ JSHandle consoleError(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     return state.engine.newUndefined();
 }
 
-JSHandle consoleAssert(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle consoleAssert(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in console.assert");
     auto state = cast(DunState*) ctx;

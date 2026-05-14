@@ -283,7 +283,7 @@ ubyte[] extractBytes(IJSEngine engine, JSHandle obj) @trusted
 }
 
 // Buffer.from(input, [encoding])
-JSHandle jsBufferFrom(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsBufferFrom(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsBufferFrom");
     auto state = cast(DunState*) ctx;
@@ -357,7 +357,7 @@ JSHandle jsBufferFrom(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 }
 
 // Buffer.alloc(size, [fill], [encoding])
-JSHandle jsBufferAlloc(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsBufferAlloc(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsBufferAlloc");
     auto state = cast(DunState*) ctx;
@@ -383,7 +383,7 @@ JSHandle jsBufferAlloc(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 }
 
 // Buffer.allocUnsafe(size)
-JSHandle jsBufferAllocUnsafe(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsBufferAllocUnsafe(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsBufferAllocUnsafe");
     auto state = cast(DunState*) ctx;
@@ -399,7 +399,7 @@ JSHandle jsBufferAllocUnsafe(void* ctx, JSHandle thisVal, JSHandle[] args) @trus
 }
 
 // Buffer.isBuffer(obj)
-JSHandle jsBufferIsBuffer(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsBufferIsBuffer(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsBufferIsBuffer");
     auto state = cast(DunState*) ctx;
@@ -414,7 +414,7 @@ JSHandle jsBufferIsBuffer(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 }
 
 // Buffer.concat(list, [totalLength])
-JSHandle jsBufferConcat(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsBufferConcat(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     import core.stdc.string : memcpy;
 
@@ -486,7 +486,7 @@ JSHandle jsBufferConcat(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 }
 
 // Buffer.byteLength(string, [encoding])
-JSHandle jsBufferByteLength(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsBufferByteLength(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsBufferByteLength");
     auto state = cast(DunState*) ctx;
@@ -508,7 +508,7 @@ JSHandle jsBufferByteLength(void* ctx, JSHandle thisVal, JSHandle[] args) @trust
 }
 
 // buf.toString([encoding], [start], [end])
-JSHandle jsBufferToString(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsBufferToString(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsBufferToString");
     auto state = cast(DunState*) ctx;
@@ -552,7 +552,7 @@ JSHandle jsBufferToString(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 }
 
 // buf.toJSON()
-JSHandle jsBufferToJSON(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsBufferToJSON(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsBufferToJSON");
     auto state = cast(DunState*) ctx;
@@ -569,7 +569,7 @@ JSHandle jsBufferToJSON(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 }
 
 // buf.slice([start], [end])
-JSHandle jsBufferSlice(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsBufferSlice(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsBufferSlice");
     auto state = cast(DunState*) ctx;
@@ -593,7 +593,7 @@ JSHandle jsBufferSlice(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 }
 
 // buf.copy(target)
-JSHandle jsBufferCopy(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsBufferCopy(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsBufferCopy");
     auto state = cast(DunState*) ctx;
@@ -604,7 +604,7 @@ JSHandle jsBufferCopy(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 }
 
 // buf.equals(other)
-JSHandle jsBufferEquals(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsBufferEquals(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsBufferEquals");
     auto state = cast(DunState*) ctx;
@@ -618,7 +618,7 @@ JSHandle jsBufferEquals(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 }
 
 // buf.indexOf(value)
-JSHandle jsBufferIndexOf(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsBufferIndexOf(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsBufferIndexOf");
     auto state = cast(DunState*) ctx;
@@ -648,7 +648,7 @@ JSHandle jsBufferIndexOf(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 }
 
 // buf.fill(value)
-JSHandle jsBufferFill(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsBufferFill(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsBufferFill");
     auto state = cast(DunState*) ctx;
@@ -671,7 +671,7 @@ JSHandle jsBufferFill(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 }
 
 // buf.write(string, [offset])
-JSHandle jsBufferWrite(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsBufferWrite(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsBufferWrite");
     auto state = cast(DunState*) ctx;
@@ -698,7 +698,7 @@ JSHandle jsBufferWrite(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 }
 
 // buf.readUInt8([offset])
-JSHandle jsBufferReadUInt8(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsBufferReadUInt8(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsBufferReadUInt8");
     auto state = cast(DunState*) ctx;
@@ -714,7 +714,7 @@ JSHandle jsBufferReadUInt8(void* ctx, JSHandle thisVal, JSHandle[] args) @truste
 }
 
 // buf.writeUInt8(value, [offset])
-JSHandle jsBufferWriteUInt8(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsBufferWriteUInt8(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsBufferWriteUInt8");
     auto state = cast(DunState*) ctx;
@@ -736,7 +736,7 @@ JSHandle jsBufferWriteUInt8(void* ctx, JSHandle thisVal, JSHandle[] args) @trust
 }
 
 // Buffer.isEncoding(encoding)
-JSHandle jsBufferIsEncoding(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsBufferIsEncoding(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsBufferIsEncoding");
     auto state = cast(DunState*) ctx;
@@ -752,7 +752,7 @@ JSHandle jsBufferIsEncoding(void* ctx, JSHandle thisVal, JSHandle[] args) @trust
 }
 
 // Buffer.compare(a, b)
-JSHandle jsBufferStaticCompare(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsBufferStaticCompare(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsBufferStaticCompare");
     auto state = cast(DunState*) ctx;
@@ -773,7 +773,7 @@ JSHandle jsBufferStaticCompare(void* ctx, JSHandle thisVal, JSHandle[] args) @tr
 }
 
 // buf.readUInt16LE([offset])
-JSHandle jsBufferReadUInt16LE(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsBufferReadUInt16LE(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsBufferReadUInt16LE");
     auto state = cast(DunState*) ctx;
@@ -787,7 +787,7 @@ JSHandle jsBufferReadUInt16LE(void* ctx, JSHandle thisVal, JSHandle[] args) @tru
     return engine.newInt(val);
 }
 
-JSHandle jsBufferReadUInt16BE(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsBufferReadUInt16BE(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     import dun.platform.simd : bswap16;
     assert(ctx !is null, "Null ctx in jsBufferReadUInt16BE");
@@ -802,7 +802,7 @@ JSHandle jsBufferReadUInt16BE(void* ctx, JSHandle thisVal, JSHandle[] args) @tru
     return engine.newInt(cast(int) bswap16(le));
 }
 
-JSHandle jsBufferReadUInt32LE(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsBufferReadUInt32LE(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsBufferReadUInt32LE");
     auto state = cast(DunState*) ctx;
@@ -816,7 +816,7 @@ JSHandle jsBufferReadUInt32LE(void* ctx, JSHandle thisVal, JSHandle[] args) @tru
     return engine.newFloat(cast(double) val);
 }
 
-JSHandle jsBufferReadUInt32BE(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsBufferReadUInt32BE(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     import dun.platform.simd : bswap32;
     assert(ctx !is null, "Null ctx in jsBufferReadUInt32BE");
@@ -831,7 +831,7 @@ JSHandle jsBufferReadUInt32BE(void* ctx, JSHandle thisVal, JSHandle[] args) @tru
     return engine.newFloat(cast(double) bswap32(le));
 }
 
-JSHandle jsBufferReadInt8(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsBufferReadInt8(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsBufferReadInt8");
     auto state = cast(DunState*) ctx;
@@ -844,7 +844,7 @@ JSHandle jsBufferReadInt8(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     return engine.newInt(cast(int) cast(byte) bytes[offset]);
 }
 
-JSHandle jsBufferReadInt16LE(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsBufferReadInt16LE(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsBufferReadInt16LE");
     auto state = cast(DunState*) ctx;
@@ -858,7 +858,7 @@ JSHandle jsBufferReadInt16LE(void* ctx, JSHandle thisVal, JSHandle[] args) @trus
     return engine.newInt(cast(int) val);
 }
 
-JSHandle jsBufferReadInt16BE(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsBufferReadInt16BE(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     import dun.platform.simd : bswap16;
     assert(ctx !is null, "Null ctx in jsBufferReadInt16BE");
@@ -873,7 +873,7 @@ JSHandle jsBufferReadInt16BE(void* ctx, JSHandle thisVal, JSHandle[] args) @trus
     return engine.newInt(cast(int) cast(short) bswap16(le));
 }
 
-JSHandle jsBufferReadInt32LE(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsBufferReadInt32LE(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsBufferReadInt32LE");
     auto state = cast(DunState*) ctx;
@@ -887,7 +887,7 @@ JSHandle jsBufferReadInt32LE(void* ctx, JSHandle thisVal, JSHandle[] args) @trus
     return engine.newInt(val);
 }
 
-JSHandle jsBufferReadInt32BE(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsBufferReadInt32BE(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     import dun.platform.simd : bswap32;
     assert(ctx !is null, "Null ctx in jsBufferReadInt32BE");
@@ -902,7 +902,7 @@ JSHandle jsBufferReadInt32BE(void* ctx, JSHandle thisVal, JSHandle[] args) @trus
     return engine.newInt(cast(int) bswap32(le));
 }
 
-JSHandle jsBufferReadFloatLE(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsBufferReadFloatLE(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsBufferReadFloatLE");
     auto state = cast(DunState*) ctx;
@@ -917,7 +917,7 @@ JSHandle jsBufferReadFloatLE(void* ctx, JSHandle thisVal, JSHandle[] args) @trus
     return engine.newFloat(cast(double) val);
 }
 
-JSHandle jsBufferReadFloatBE(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsBufferReadFloatBE(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     import dun.platform.simd : bswap32;
     assert(ctx !is null, "Null ctx in jsBufferReadFloatBE");
@@ -934,7 +934,7 @@ JSHandle jsBufferReadFloatBE(void* ctx, JSHandle thisVal, JSHandle[] args) @trus
     return engine.newFloat(cast(double) val);
 }
 
-JSHandle jsBufferReadDoubleLE(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsBufferReadDoubleLE(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsBufferReadDoubleLE");
     auto state = cast(DunState*) ctx;
@@ -950,7 +950,7 @@ JSHandle jsBufferReadDoubleLE(void* ctx, JSHandle thisVal, JSHandle[] args) @tru
     return engine.newFloat(val);
 }
 
-JSHandle jsBufferReadDoubleBE(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsBufferReadDoubleBE(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     import dun.platform.simd : bswap64;
     assert(ctx !is null, "Null ctx in jsBufferReadDoubleBE");
@@ -967,7 +967,7 @@ JSHandle jsBufferReadDoubleBE(void* ctx, JSHandle thisVal, JSHandle[] args) @tru
     return engine.newFloat(val);
 }
 
-JSHandle jsBufferWriteUInt16LE(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsBufferWriteUInt16LE(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsBufferWriteUInt16LE");
     auto state = cast(DunState*) ctx;
@@ -984,7 +984,7 @@ JSHandle jsBufferWriteUInt16LE(void* ctx, JSHandle thisVal, JSHandle[] args) @tr
     return engine.newInt(offset + 2);
 }
 
-JSHandle jsBufferWriteUInt16BE(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsBufferWriteUInt16BE(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     import dun.platform.simd : bswap16;
     assert(ctx !is null, "Null ctx in jsBufferWriteUInt16BE");
@@ -1001,7 +1001,7 @@ JSHandle jsBufferWriteUInt16BE(void* ctx, JSHandle thisVal, JSHandle[] args) @tr
     return engine.newInt(offset + 2);
 }
 
-JSHandle jsBufferWriteUInt32LE(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsBufferWriteUInt32LE(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsBufferWriteUInt32LE");
     auto state = cast(DunState*) ctx;
@@ -1020,7 +1020,7 @@ JSHandle jsBufferWriteUInt32LE(void* ctx, JSHandle thisVal, JSHandle[] args) @tr
     return engine.newInt(offset + 4);
 }
 
-JSHandle jsBufferWriteUInt32BE(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsBufferWriteUInt32BE(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     import dun.platform.simd : bswap32;
     assert(ctx !is null, "Null ctx in jsBufferWriteUInt32BE");
@@ -1037,7 +1037,7 @@ JSHandle jsBufferWriteUInt32BE(void* ctx, JSHandle thisVal, JSHandle[] args) @tr
     return engine.newInt(offset + 4);
 }
 
-JSHandle jsBufferWriteInt16LE(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsBufferWriteInt16LE(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsBufferWriteInt16LE");
     auto state = cast(DunState*) ctx;
@@ -1054,7 +1054,7 @@ JSHandle jsBufferWriteInt16LE(void* ctx, JSHandle thisVal, JSHandle[] args) @tru
     return engine.newInt(offset + 2);
 }
 
-JSHandle jsBufferWriteInt16BE(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsBufferWriteInt16BE(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     import dun.platform.simd : bswap16;
     assert(ctx !is null, "Null ctx in jsBufferWriteInt16BE");
@@ -1071,7 +1071,7 @@ JSHandle jsBufferWriteInt16BE(void* ctx, JSHandle thisVal, JSHandle[] args) @tru
     return engine.newInt(offset + 2);
 }
 
-JSHandle jsBufferWriteInt32LE(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsBufferWriteInt32LE(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsBufferWriteInt32LE");
     auto state = cast(DunState*) ctx;
@@ -1090,7 +1090,7 @@ JSHandle jsBufferWriteInt32LE(void* ctx, JSHandle thisVal, JSHandle[] args) @tru
     return engine.newInt(offset + 4);
 }
 
-JSHandle jsBufferWriteInt32BE(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsBufferWriteInt32BE(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     import dun.platform.simd : bswap32;
     assert(ctx !is null, "Null ctx in jsBufferWriteInt32BE");
@@ -1107,7 +1107,7 @@ JSHandle jsBufferWriteInt32BE(void* ctx, JSHandle thisVal, JSHandle[] args) @tru
     return engine.newInt(offset + 4);
 }
 
-JSHandle jsBufferWriteFloatLE(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsBufferWriteFloatLE(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsBufferWriteFloatLE");
     auto state = cast(DunState*) ctx;
@@ -1124,7 +1124,7 @@ JSHandle jsBufferWriteFloatLE(void* ctx, JSHandle thisVal, JSHandle[] args) @tru
     return engine.newInt(offset + 4);
 }
 
-JSHandle jsBufferWriteFloatBE(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsBufferWriteFloatBE(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     import dun.platform.simd : bswap32;
     assert(ctx !is null, "Null ctx in jsBufferWriteFloatBE");
@@ -1142,7 +1142,7 @@ JSHandle jsBufferWriteFloatBE(void* ctx, JSHandle thisVal, JSHandle[] args) @tru
     return engine.newInt(offset + 4);
 }
 
-JSHandle jsBufferWriteDoubleLE(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsBufferWriteDoubleLE(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsBufferWriteDoubleLE");
     auto state = cast(DunState*) ctx;
@@ -1159,7 +1159,7 @@ JSHandle jsBufferWriteDoubleLE(void* ctx, JSHandle thisVal, JSHandle[] args) @tr
     return engine.newInt(offset + 8);
 }
 
-JSHandle jsBufferWriteDoubleBE(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsBufferWriteDoubleBE(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     import dun.platform.simd : bswap64;
     assert(ctx !is null, "Null ctx in jsBufferWriteDoubleBE");
@@ -1177,7 +1177,7 @@ JSHandle jsBufferWriteDoubleBE(void* ctx, JSHandle thisVal, JSHandle[] args) @tr
     return engine.newInt(offset + 8);
 }
 
-JSHandle jsBufferCompare(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsBufferCompare(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsBufferCompare");
     auto state = cast(DunState*) ctx;
@@ -1197,7 +1197,7 @@ JSHandle jsBufferCompare(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     return engine.newInt(0);
 }
 
-JSHandle jsBufferIncludes(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsBufferIncludes(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsBufferIncludes");
     auto state = cast(DunState*) ctx;
@@ -1223,7 +1223,7 @@ JSHandle jsBufferIncludes(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     return engine.newBool(false);
 }
 
-JSHandle jsBufferSubarray(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsBufferSubarray(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsBufferSubarray");
     auto state = cast(DunState*) ctx;

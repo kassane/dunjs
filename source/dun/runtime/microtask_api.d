@@ -14,7 +14,7 @@ void installMicrotask(IJSEngine engine) @trusted
 
 private:
 
-JSHandle jsQueueMicrotask(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsQueueMicrotask(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in queueMicrotask");
     auto state = cast(DunState*) ctx;

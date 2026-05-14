@@ -264,7 +264,7 @@ private void registerStubModules(IJSEngine engine) @trusted
     engine.freeValue(result.value);
 }
 
-private JSHandle jsGlobalGC(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+private JSHandle jsGlobalGC(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsGlobalGC");
     auto state = cast(DunState*) ctx;

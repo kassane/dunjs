@@ -233,7 +233,7 @@ class V8Engine : IJSEngine
         return toHandle(dun_v8_global(ctx));
     }
 
-    JSHandle callFunction(JSHandle func, JSHandle thisVal, JSHandle[] args) @trusted
+    JSHandle callFunction(JSHandle func, JSHandle thisVal, scope JSHandle[] args) @trusted
     {
         assert(ctx !is null, "V8 context not initialized");
         auto jsFunc = fromHandle(func);

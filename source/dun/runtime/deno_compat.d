@@ -193,7 +193,7 @@ bool checkPerm(DunState* state, Permission perm, string resource = "") @trusted 
 
 // ── Deno.env ──
 
-JSHandle denoEnvGet(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle denoEnvGet(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in denoEnvGet");
     auto state = cast(DunState*) ctx;
@@ -217,7 +217,7 @@ JSHandle denoEnvGet(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     catch (Exception) { return engine.newUndefined(); }
 }
 
-JSHandle denoEnvSet(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle denoEnvSet(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in denoEnvSet");
     auto state = cast(DunState*) ctx;
@@ -239,7 +239,7 @@ JSHandle denoEnvSet(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     catch (Exception e) { return engine.throwTypeError("env.set: " ~ e.msg); }
 }
 
-JSHandle denoEnvDelete(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle denoEnvDelete(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in denoEnvDelete");
     auto state = cast(DunState*) ctx;
@@ -261,7 +261,7 @@ JSHandle denoEnvDelete(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     catch (Exception e) { return engine.throwTypeError("env.delete: " ~ e.msg); }
 }
 
-JSHandle denoEnvHas(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle denoEnvHas(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in denoEnvHas");
     auto state = cast(DunState*) ctx;
@@ -282,7 +282,7 @@ JSHandle denoEnvHas(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     catch (Exception) { return engine.newBool(false); }
 }
 
-JSHandle denoEnvToObject(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle denoEnvToObject(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in denoEnvToObject");
     auto state = cast(DunState*) ctx;
@@ -305,7 +305,7 @@ JSHandle denoEnvToObject(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
 // ── Deno.readTextFileSync / readTextFile ──
 
-JSHandle denoReadTextFileSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle denoReadTextFileSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in denoReadTextFileSync");
     auto state = cast(DunState*) ctx;
@@ -330,7 +330,7 @@ JSHandle denoReadTextFileSync(void* ctx, JSHandle thisVal, JSHandle[] args) @tru
     }
 }
 
-JSHandle denoReadTextFile(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle denoReadTextFile(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     import dun.loop.async : asyncSubmit;
 
@@ -360,7 +360,7 @@ JSHandle denoReadTextFile(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
 // ── Deno.writeTextFileSync / writeTextFile ──
 
-JSHandle denoWriteTextFileSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle denoWriteTextFileSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in denoWriteTextFileSync");
     auto state = cast(DunState*) ctx;
@@ -388,7 +388,7 @@ JSHandle denoWriteTextFileSync(void* ctx, JSHandle thisVal, JSHandle[] args) @tr
     }
 }
 
-JSHandle denoWriteTextFile(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle denoWriteTextFile(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     import dun.loop.async : asyncSubmit;
 
@@ -421,7 +421,7 @@ JSHandle denoWriteTextFile(void* ctx, JSHandle thisVal, JSHandle[] args) @truste
 
 // ── Deno.statSync ──
 
-JSHandle denoStatSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle denoStatSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in denoStatSync");
     auto state = cast(DunState*) ctx;
@@ -481,7 +481,7 @@ JSHandle denoStatSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
 // ── Deno.mkdirSync ──
 
-JSHandle denoMkdirSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle denoMkdirSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in denoMkdirSync");
     auto state = cast(DunState*) ctx;
@@ -518,7 +518,7 @@ JSHandle denoMkdirSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
 // ── Deno.removeSync ──
 
-JSHandle denoRemoveSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle denoRemoveSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in denoRemoveSync");
     auto state = cast(DunState*) ctx;
@@ -558,7 +558,7 @@ JSHandle denoRemoveSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
 // ── Deno.renameSync ──
 
-JSHandle denoRenameSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle denoRenameSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in denoRenameSync");
     auto state = cast(DunState*) ctx;
@@ -590,7 +590,7 @@ JSHandle denoRenameSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
 // ── Deno.copyFileSync ──
 
-JSHandle denoCopyFileSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle denoCopyFileSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in denoCopyFileSync");
     auto state = cast(DunState*) ctx;
@@ -622,7 +622,7 @@ JSHandle denoCopyFileSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
 // ── Deno.readDirSync ──
 
-JSHandle denoReadDirSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle denoReadDirSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in denoReadDirSync");
     auto state = cast(DunState*) ctx;
@@ -667,7 +667,7 @@ JSHandle denoReadDirSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
 // ── Deno.realPathSync ──
 
-JSHandle denoRealPathSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle denoRealPathSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in denoRealPathSync");
     auto state = cast(DunState*) ctx;
@@ -695,7 +695,7 @@ JSHandle denoRealPathSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
 // ── Deno.truncateSync ──
 
-JSHandle denoTruncateSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle denoTruncateSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in denoTruncateSync");
     auto state = cast(DunState*) ctx;
@@ -723,7 +723,7 @@ JSHandle denoTruncateSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
 // ── Deno.cwd / Deno.chdir ──
 
-JSHandle denoCwd(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle denoCwd(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in denoCwd");
     auto state = cast(DunState*) ctx;
@@ -738,7 +738,7 @@ JSHandle denoCwd(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     catch (Exception) { return engine.newString("."); }
 }
 
-JSHandle denoChdir(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle denoChdir(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in denoChdir");
     auto state = cast(DunState*) ctx;
@@ -766,7 +766,7 @@ JSHandle denoChdir(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
 // ── Deno.exit ──
 
-JSHandle denoExit(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle denoExit(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in denoExit");
     auto state = cast(DunState*) ctx;
@@ -784,7 +784,7 @@ JSHandle denoExit(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
 // ── Deno.hostname ──
 
-JSHandle denoHostname(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle denoHostname(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in denoHostname");
     auto state = cast(DunState*) ctx;
@@ -816,7 +816,7 @@ JSHandle denoHostname(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
 // ── Deno.permissions.query ──
 
-JSHandle denoPermissionsQuery(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle denoPermissionsQuery(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in denoPermissionsQuery");
     auto state = cast(DunState*) ctx;
@@ -865,7 +865,7 @@ makeResult:
 
 // ── Deno.inspect ──
 
-JSHandle denoInspect(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle denoInspect(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in denoInspect");
     auto state = cast(DunState*) ctx;

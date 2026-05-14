@@ -20,7 +20,7 @@ void registerFetchGlobal(IJSEngine engine) @trusted
     engine.freeValue(global);
 }
 
-private JSHandle jsFetch(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+private JSHandle jsFetch(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     import dun.engine.iface : PromiseHandles;
     import dun.loop.async : asyncSubmit;
@@ -643,7 +643,7 @@ JSHandle makeResponseFallback(IJSEngine engine, FetchResult r) @trusted
     return obj;
 }
 
-JSHandle responseText(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle responseText(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in responseText");
     auto state = cast(DunState*) ctx;
@@ -653,7 +653,7 @@ JSHandle responseText(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     return body_;
 }
 
-JSHandle responseJson(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle responseJson(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in responseJson");
     auto state = cast(DunState*) ctx;

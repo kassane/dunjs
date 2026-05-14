@@ -115,7 +115,7 @@ string asyncHooksSource() pure @safe nothrow
 }
 
 /// als.run(store, callback): push store, call callback, pop store
-JSHandle jsAlsRun(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsAlsRun(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsAlsRun");
     auto state = cast(DunState*) ctx;
@@ -168,7 +168,7 @@ JSHandle jsAlsRun(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 }
 
 /// als.getStore(): return top of stack (or undefined if empty)
-JSHandle jsAlsGetStore(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsAlsGetStore(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsAlsGetStore");
     auto state = cast(DunState*) ctx;
@@ -183,7 +183,7 @@ JSHandle jsAlsGetStore(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 }
 
 /// als.enterWith(store): push store (doesn't auto-pop)
-JSHandle jsAlsEnterWith(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsAlsEnterWith(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsAlsEnterWith");
     auto state = cast(DunState*) ctx;
@@ -202,7 +202,7 @@ JSHandle jsAlsEnterWith(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 }
 
 /// als.disable(): clear entire stack
-JSHandle jsAlsDisable(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsAlsDisable(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsAlsDisable");
     auto state = cast(DunState*) ctx;

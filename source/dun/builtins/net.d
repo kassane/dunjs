@@ -176,7 +176,7 @@ SocketState[] sockets;
 int nextServerId = 0;
 int nextSocketId = 0;
 
-JSHandle jsCreateServer(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsCreateServer(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsCreateServer");
     auto state = cast(DunState*) ctx;
@@ -213,7 +213,7 @@ JSHandle jsCreateServer(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     return makeServerObject(engine, id);
 }
 
-JSHandle jsCreateConnection(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsCreateConnection(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsCreateConnection");
     version (Posix)
@@ -380,7 +380,7 @@ JSHandle makeSocketObject(IJSEngine engine, int id) @trusted
     return obj;
 }
 
-JSHandle jsServerListen(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsServerListen(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsServerListen");
     version (Posix)
@@ -475,7 +475,7 @@ JSHandle jsServerListen(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     }
 }
 
-JSHandle jsServerClose(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsServerClose(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsServerClose");
     version (Posix)
@@ -508,7 +508,7 @@ JSHandle jsServerClose(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     }
 }
 
-JSHandle jsServerOn(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsServerOn(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsServerOn");
     auto state = cast(DunState*) ctx;
@@ -533,7 +533,7 @@ JSHandle jsServerOn(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     return thisVal;
 }
 
-JSHandle jsSocketOn(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsSocketOn(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsSocketOn");
     auto state = cast(DunState*) ctx;
@@ -564,7 +564,7 @@ JSHandle jsSocketOn(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     return thisVal;
 }
 
-JSHandle jsSocketWrite(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsSocketWrite(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsSocketWrite");
     version (Posix)
@@ -604,7 +604,7 @@ JSHandle jsSocketWrite(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     }
 }
 
-JSHandle jsSocketEnd(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsSocketEnd(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsSocketEnd");
     version (Posix)
@@ -840,7 +840,7 @@ void readSocketData(int sockId) nothrow @trusted
     }
 }
 
-JSHandle jsNetIsIP(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsNetIsIP(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in net.isIP");
     auto state = cast(DunState*) ctx;
@@ -853,7 +853,7 @@ JSHandle jsNetIsIP(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     return engine.newInt(0);
 }
 
-JSHandle jsNetIsIPv4(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsNetIsIPv4(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in net.isIPv4");
     auto state = cast(DunState*) ctx;
@@ -863,7 +863,7 @@ JSHandle jsNetIsIPv4(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     return engine.newBool(isIPv4(engine.extractString(args[0])));
 }
 
-JSHandle jsNetIsIPv6(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsNetIsIPv6(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in net.isIPv6");
     auto state = cast(DunState*) ctx;

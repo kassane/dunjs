@@ -23,7 +23,7 @@ void installTimers(IJSEngine engine) @trusted
 
 private:
 
-JSHandle jsSetTimeout(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsSetTimeout(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in setTimeout");
     auto state = cast(DunState*) ctx;
@@ -49,7 +49,7 @@ JSHandle jsSetTimeout(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     return engine.newInt(cast(int) id);
 }
 
-JSHandle jsSetInterval(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsSetInterval(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in setInterval");
     auto state = cast(DunState*) ctx;
@@ -76,7 +76,7 @@ JSHandle jsSetInterval(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     return engine.newInt(cast(int) id);
 }
 
-JSHandle jsClearTimer(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsClearTimer(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in clearTimer");
     auto state = cast(DunState*) ctx;

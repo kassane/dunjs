@@ -512,7 +512,7 @@ JSHandle throwPermError(IJSEngine engine, string perm, string path = "") @truste
         "Requires --allow-" ~ perm ~ " permission", "", path);
 }
 
-JSHandle jsReadFileSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsReadFileSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsReadFileSync");
     auto state = cast(DunState*) ctx;
@@ -529,7 +529,7 @@ JSHandle jsReadFileSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     return engine.newString(content);
 }
 
-JSHandle jsWriteFileSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsWriteFileSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsWriteFileSync");
     auto state = cast(DunState*) ctx;
@@ -546,7 +546,7 @@ JSHandle jsWriteFileSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     return engine.newUndefined();
 }
 
-JSHandle jsExistsSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsExistsSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsExistsSync");
     auto state = cast(DunState*) ctx;
@@ -559,7 +559,7 @@ JSHandle jsExistsSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     return engine.newBool(safeExists(path));
 }
 
-JSHandle jsReaddirSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsReaddirSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsReaddirSync");
     auto state = cast(DunState*) ctx;
@@ -606,7 +606,7 @@ JSHandle jsReaddirSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     }
 }
 
-JSHandle jsStatSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsStatSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsStatSync");
     auto state = cast(DunState*) ctx;
@@ -624,7 +624,7 @@ JSHandle jsStatSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     return buildStatObject(engine, sr);
 }
 
-JSHandle jsStatIsFile(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsStatIsFile(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsStatIsFile");
     auto state = cast(DunState*) ctx;
@@ -635,7 +635,7 @@ JSHandle jsStatIsFile(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     return engine.newBool(engine.extractInt(typeVal) == 1);
 }
 
-JSHandle jsStatIsDirectory(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsStatIsDirectory(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsStatIsDirectory");
     auto state = cast(DunState*) ctx;
@@ -646,7 +646,7 @@ JSHandle jsStatIsDirectory(void* ctx, JSHandle thisVal, JSHandle[] args) @truste
     return engine.newBool(engine.extractInt(typeVal) == 2);
 }
 
-JSHandle jsMkdirSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsMkdirSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsMkdirSync");
     auto state = cast(DunState*) ctx;
@@ -702,7 +702,7 @@ JSHandle jsMkdirSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     }
 }
 
-JSHandle jsUnlinkSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsUnlinkSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsUnlinkSync");
     auto state = cast(DunState*) ctx;
@@ -726,7 +726,7 @@ JSHandle jsUnlinkSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     return engine.newUndefined();
 }
 
-JSHandle jsReadFileAsync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsReadFileAsync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     import dun.engine.iface : PromiseHandles;
     import dun.loop.async : asyncSubmitSafe, AsyncResult;
@@ -761,7 +761,7 @@ JSHandle jsReadFileAsync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     return ph.promise;
 }
 
-JSHandle jsWriteFileAsync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsWriteFileAsync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     import dun.engine.iface : PromiseHandles;
     import dun.loop.async : asyncSubmitSafe, AsyncResult;
@@ -798,7 +798,7 @@ JSHandle jsWriteFileAsync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     return ph.promise;
 }
 
-JSHandle jsAppendFileSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsAppendFileSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsAppendFileSync");
     auto state = cast(DunState*) ctx;
@@ -818,7 +818,7 @@ JSHandle jsAppendFileSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     catch (Exception e) { return throwSystemError(engine, "open", path, e); }
 }
 
-JSHandle jsCopyFileSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsCopyFileSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsCopyFileSync");
     auto state = cast(DunState*) ctx;
@@ -840,7 +840,7 @@ JSHandle jsCopyFileSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     catch (Exception e) { return throwSystemError(engine, "copyfile", src, e); }
 }
 
-JSHandle jsRenameSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsRenameSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsRenameSync");
     auto state = cast(DunState*) ctx;
@@ -862,7 +862,7 @@ JSHandle jsRenameSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     catch (Exception e) { return throwSystemError(engine, "rename", oldPath, e); }
 }
 
-JSHandle jsRmdirSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsRmdirSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsRmdirSync");
     auto state = cast(DunState*) ctx;
@@ -881,7 +881,7 @@ JSHandle jsRmdirSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     catch (Exception e) { return throwSystemError(engine, "rmdir", path, e); }
 }
 
-JSHandle jsRmSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsRmSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsRmSync");
     auto state = cast(DunState*) ctx;
@@ -910,7 +910,7 @@ JSHandle jsRmSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     catch (Exception e) { return throwSystemError(engine, "rm", path, e); }
 }
 
-JSHandle jsAccessSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsAccessSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsAccessSync");
     auto state = cast(DunState*) ctx;
@@ -930,7 +930,7 @@ JSHandle jsAccessSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     catch (Exception e) { return throwSystemError(engine, "access", path, e); }
 }
 
-JSHandle jsRealpathSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsRealpathSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsRealpathSync");
     auto state = cast(DunState*) ctx;
@@ -966,7 +966,7 @@ JSHandle jsRealpathSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     catch (Exception e) { return throwSystemError(engine, "realpath", path, e); }
 }
 
-JSHandle jsChmodSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsChmodSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsChmodSync");
     auto state = cast(DunState*) ctx;
@@ -986,7 +986,7 @@ JSHandle jsChmodSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     catch (Exception e) { return throwSystemError(engine, "chmod", path, e); }
 }
 
-JSHandle jsStatIsSymbolicLink(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsStatIsSymbolicLink(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsStatIsSymbolicLink");
     auto state = cast(DunState*) ctx;
@@ -999,7 +999,7 @@ JSHandle jsStatIsSymbolicLink(void* ctx, JSHandle thisVal, JSHandle[] args) @tru
 
 // ── lstatSync ───────────────────────────────────────────────────
 
-JSHandle jsLstatSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsLstatSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsLstatSync");
     auto state = cast(DunState*) ctx;
@@ -1022,7 +1022,7 @@ JSHandle jsLstatSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
 // ── linkSync ────────────────────────────────────────────────────
 
-JSHandle jsLinkSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsLinkSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsLinkSync");
     auto state = cast(DunState*) ctx;
@@ -1061,7 +1061,7 @@ JSHandle jsLinkSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
 // ── symlinkSync ─────────────────────────────────────────────────
 
-JSHandle jsSymlinkSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsSymlinkSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsSymlinkSync");
     auto state = cast(DunState*) ctx;
@@ -1098,7 +1098,7 @@ JSHandle jsSymlinkSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
 // ── readlinkSync ────────────────────────────────────────────────
 
-JSHandle jsReadlinkSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsReadlinkSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsReadlinkSync");
     auto state = cast(DunState*) ctx;
@@ -1130,7 +1130,7 @@ JSHandle jsReadlinkSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
 // ── truncateSync ────────────────────────────────────────────────
 
-JSHandle jsTruncateSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsTruncateSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsTruncateSync");
     auto state = cast(DunState*) ctx;
@@ -1177,7 +1177,7 @@ JSHandle jsTruncateSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
 // ── chownSync ───────────────────────────────────────────────────
 
-JSHandle jsChownSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsChownSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsChownSync");
     auto state = cast(DunState*) ctx;
@@ -1236,7 +1236,7 @@ int parseFsFlags(string flags) nothrow @trusted
     return O_RDONLY;
 }
 
-JSHandle jsOpenSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsOpenSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsOpenSync");
     auto state = cast(DunState*) ctx;
@@ -1282,7 +1282,7 @@ JSHandle jsOpenSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     catch (Exception e) { return throwSystemError(engine, "open", path, e); }
 }
 
-JSHandle jsCloseSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsCloseSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsCloseSync");
     auto state = cast(DunState*) ctx;
@@ -1302,7 +1302,7 @@ JSHandle jsCloseSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     return engine.newUndefined();
 }
 
-JSHandle jsReadSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsReadSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsReadSync");
     auto state = cast(DunState*) ctx;
@@ -1394,7 +1394,7 @@ JSHandle jsReadSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     }
 }
 
-JSHandle jsWriteSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsWriteSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsWriteSync");
     auto state = cast(DunState*) ctx;
@@ -1433,7 +1433,7 @@ JSHandle jsWriteSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
 // ── fstatSync / fsyncSync / fdatasyncSync ───────────────────────
 
-JSHandle jsFstatSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsFstatSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsFstatSync");
     auto state = cast(DunState*) ctx;
@@ -1460,7 +1460,7 @@ JSHandle jsFstatSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     }
 }
 
-JSHandle jsFsyncSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsFsyncSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsFsyncSync");
     auto state = cast(DunState*) ctx;
@@ -1489,7 +1489,7 @@ JSHandle jsFsyncSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     return engine.newUndefined();
 }
 
-JSHandle jsFdatasyncSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsFdatasyncSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsFdatasyncSync");
     auto state = cast(DunState*) ctx;
@@ -1519,7 +1519,7 @@ JSHandle jsFdatasyncSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
 // ── createReadStream ────────────────────────────────────────────
 
-JSHandle jsCreateReadStream(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsCreateReadStream(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsCreateReadStream");
     auto state = cast(DunState*) ctx;
@@ -1551,7 +1551,7 @@ JSHandle jsCreateReadStream(void* ctx, JSHandle thisVal, JSHandle[] args) @trust
 
 // ── createWriteStream ───────────────────────────────────────────
 
-JSHandle jsCreateWriteStream(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsCreateWriteStream(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsCreateWriteStream");
     auto state = cast(DunState*) ctx;
@@ -1577,7 +1577,7 @@ JSHandle jsCreateWriteStream(void* ctx, JSHandle thisVal, JSHandle[] args) @trus
 
 // ── Stream helpers (shared by createReadStream/createWriteStream) ──
 
-JSHandle jsStreamOn(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsStreamOn(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsStreamOn");
     auto state = cast(DunState*) ctx;
@@ -1591,14 +1591,14 @@ JSHandle jsStreamOn(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     return thisVal;
 }
 
-JSHandle jsStreamDestroy(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsStreamDestroy(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsStreamDestroy");
     auto state = cast(DunState*) ctx;
     return state.engine.newUndefined();
 }
 
-JSHandle jsReadStreamRead(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsReadStreamRead(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsReadStreamRead");
     auto state = cast(DunState*) ctx;
@@ -1612,7 +1612,7 @@ JSHandle jsReadStreamRead(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     return engine.getProperty(thisVal, "_data");
 }
 
-JSHandle jsReadStreamPipe(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsReadStreamPipe(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsReadStreamPipe");
     auto state = cast(DunState*) ctx;
@@ -1632,7 +1632,7 @@ JSHandle jsReadStreamPipe(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     return args[0];
 }
 
-JSHandle jsWriteStreamWrite(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsWriteStreamWrite(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsWriteStreamWrite");
     auto state = cast(DunState*) ctx;
@@ -1649,7 +1649,7 @@ JSHandle jsWriteStreamWrite(void* ctx, JSHandle thisVal, JSHandle[] args) @trust
     return engine.newBool(true);
 }
 
-JSHandle jsWriteStreamEnd(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsWriteStreamEnd(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsWriteStreamEnd");
     auto state = cast(DunState*) ctx;
@@ -1698,7 +1698,7 @@ JSHandle jsWriteStreamEnd(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
 // ── watch ───────────────────────────────────────────────────────
 
-JSHandle jsWatch(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsWatch(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsWatch");
     auto state = cast(DunState*) ctx;
@@ -1807,7 +1807,7 @@ JSHandle jsWatch(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     return watcher;
 }
 
-JSHandle jsWatcherPoll(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsWatcherPoll(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsWatcherPoll");
     auto state = cast(DunState*) ctx;
@@ -1889,7 +1889,7 @@ JSHandle jsWatcherPoll(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     return engine.newUndefined();
 }
 
-JSHandle jsWatcherClose(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsWatcherClose(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsWatcherClose");
     auto state = cast(DunState*) ctx;
@@ -1910,7 +1910,7 @@ JSHandle jsWatcherClose(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     return engine.newUndefined();
 }
 
-JSHandle jsWatcherOn(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsWatcherOn(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsWatcherOn");
     auto state = cast(DunState*) ctx;
@@ -1925,7 +1925,7 @@ JSHandle jsWatcherOn(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     return thisVal;
 }
 
-JSHandle jsWatcherRef(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsWatcherRef(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsWatcherRef");
     auto state = cast(DunState*) ctx;
@@ -1933,7 +1933,7 @@ JSHandle jsWatcherRef(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     return thisVal;
 }
 
-JSHandle jsWatcherUnref(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsWatcherUnref(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsWatcherUnref");
     auto state = cast(DunState*) ctx;
@@ -1943,7 +1943,7 @@ JSHandle jsWatcherUnref(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
 // ── mkdtempSync ─────────────────────────────────────────────────
 
-JSHandle jsMkdtempSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsMkdtempSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsMkdtempSync");
     auto state = cast(DunState*) ctx;
@@ -1972,7 +1972,7 @@ JSHandle jsMkdtempSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
 // ── cpSync ──────────────────────────────────────────────────────
 
-JSHandle jsCpSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsCpSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsCpSync");
     auto state = cast(DunState*) ctx;
@@ -2028,7 +2028,7 @@ JSHandle jsCpSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
 // ── utimesSync ──────────────────────────────────────────────────
 
-JSHandle jsUtimesSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsUtimesSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsUtimesSync");
     auto state = cast(DunState*) ctx;

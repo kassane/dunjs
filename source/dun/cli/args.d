@@ -79,11 +79,23 @@ CliConfig parseArgs(string[] args) @safe
         else if (args[i] == "--version" || args[i] == "-v")
         {
             config.command = Command.version_;
+            i++;
+            if (i < args.length)
+            {
+                config.errorMessage = "unexpected argument '" ~ args[i] ~ "' after '" ~ args[i-1] ~ "'";
+                return config;
+            }
             return config;
         }
         else if (args[i] == "--help" || args[i] == "-h")
         {
             config.command = Command.help;
+            i++;
+            if (i < args.length)
+            {
+                config.errorMessage = "unexpected argument '" ~ args[i] ~ "' after '" ~ args[i-1] ~ "'";
+                return config;
+            }
             return config;
         }
         else if (isKnownFlag(args[i]))
@@ -133,6 +145,23 @@ CliConfig parseArgs(string[] args) @safe
     {
         config.command = Command.audit;
         i++;
+        while (i < args.length)
+        {
+            if (args[i].startsWith("--audit="))
+            {
+                i++;
+            }
+            else if (args[i].startsWith("-"))
+            {
+                config.permissions.parseFlag(args[i]);
+                i++;
+            }
+            else
+            {
+                config.errorMessage = "unexpected argument '" ~ args[i] ~ "' after 'audit'";
+                return config;
+            }
+        }
     }
     else if (args[i] == "test")
     {
@@ -192,16 +221,34 @@ CliConfig parseArgs(string[] args) @safe
     else if (args[i] == "clean")
     {
         config.command = Command.clean;
+        i++;
+        if (i < args.length)
+        {
+            config.errorMessage = "unexpected argument '" ~ args[i] ~ "' after 'clean'";
+            return config;
+        }
         return config;
     }
     else if (args[i] == "version")
     {
         config.command = Command.version_;
+        i++;
+        if (i < args.length)
+        {
+            config.errorMessage = "unexpected argument '" ~ args[i] ~ "' after 'version'";
+            return config;
+        }
         return config;
     }
     else if (args[i] == "help")
     {
         config.command = Command.help;
+        i++;
+        if (i < args.length)
+        {
+            config.errorMessage = "unexpected argument '" ~ args[i] ~ "' after 'help'";
+            return config;
+        }
         return config;
     }
     else if (args[i].startsWith("-"))

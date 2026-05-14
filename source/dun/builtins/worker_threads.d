@@ -57,7 +57,7 @@ version (EngineQuickJS)
 
 private:
 
-JSHandle jsWorkerThreadsWorker(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsWorkerThreadsWorker(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in worker_threads.Worker");
     auto state = cast(DunState*) ctx;

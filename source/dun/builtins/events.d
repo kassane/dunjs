@@ -311,16 +311,11 @@ string eventEmitterSource() pure @safe nothrow
   EventEmitter.captureRejections = false;
   EventEmitter.errorMonitor = Symbol.for('events.errorMonitor');
 
-  var mod = { EventEmitter: EventEmitter, once: once, on: on,
-              getEventListeners: EventEmitter.getEventListeners,
-              getMaxListeners: EventEmitter.getMaxListeners,
-              setMaxListeners: EventEmitter.setMaxListeners,
-              addAbortListener: EventEmitter.addAbortListener,
-              captureRejectionSymbol: EventEmitter.captureRejectionSymbol,
-              captureRejections: EventEmitter.captureRejections,
-              errorMonitor: EventEmitter.errorMonitor };
+  EventEmitter.EventEmitter = EventEmitter;
+  EventEmitter.once = once;
+  EventEmitter.on = on;
   if (typeof globalThis !== 'undefined') {
-    globalThis.__dun_cjs_events__ = mod;
+    globalThis.__dun_cjs_events__ = EventEmitter;
     globalThis.EventEmitter = EventEmitter;
   }
 })();`;

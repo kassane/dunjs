@@ -25,7 +25,7 @@ void installRequire(IJSEngine engine) @trusted
 
 private:
 
-JSHandle jsRequireResolve(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsRequireResolve(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     import std.algorithm : startsWith, endsWith;
     import std.path : buildNormalizedPath, isAbsolute, dirName, absolutePath;
@@ -99,7 +99,7 @@ JSHandle jsRequireResolve(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     }
 }
 
-JSHandle jsRequire(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsRequire(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     import std.algorithm : startsWith, endsWith;
     import std.path : buildNormalizedPath, isAbsolute, dirName;
