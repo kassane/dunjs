@@ -1,0 +1,8 @@
+1: env is object: true
+2: set works: true
+3: delete works: true
+4: in operator: true
+5: keys includes CHECK_VAR: true
+6: NODE_ENV set: true
+7: cleanup done: true
+8: multiple vars: true

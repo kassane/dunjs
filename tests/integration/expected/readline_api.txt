@@ -1,0 +1,18 @@
+1: createInterface exists: true
+2: Interface exists: true
+3: rl created: true
+4: on method: true
+5: close method: true
+6: setPrompt: true
+7: prompt: true
+8: pause: true
+9: resume: true
+10: write: true
+11: line event fired: true
+12: close event fired: true
+13: punycode loaded: true
+14: punycode.toASCII: true
+15: domain loaded: true
+16: domain.create: true
+17: diagnostics_channel loaded: true
+18: dc.channel: true

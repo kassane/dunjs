@@ -54,6 +54,7 @@ void installGlobals(IJSEngine engine, DunState* state) @trusted
     import dun.builtins.async_hooks : registerAsyncHooksModule;
     import dun.builtins.cluster : registerClusterModule;
     import dun.builtins.worker_threads : registerWorkerThreadsModule;
+    import dun.builtins.readline : registerReadlineModule;
     import dun.modules.require : installRequire;
 
     installConsole(engine);
@@ -88,6 +89,7 @@ void installGlobals(IJSEngine engine, DunState* state) @trusted
     registerAsyncHooksModule(engine);
     registerClusterModule(engine);
     registerWorkerThreadsModule(engine);
+    registerReadlineModule(engine);
     registerStubModules(engine);
 
     version (Posix)
@@ -127,10 +129,38 @@ private void registerStubModules(IJSEngine engine) @trusted
     performance: typeof performance !== 'undefined' ? performance : { now: function() { return Date.now(); } },
     PerformanceObserver: function() { this.observe = function(){}; this.disconnect = function(){}; }
   };
+  var punycode = {
+    encode: function(s) { return s; },
+    decode: function(s) { return s; },
+    toASCII: function(s) { return s; },
+    toUnicode: function(s) { return s; },
+    ucs2: { decode: function(s) { var r=[]; for(var i=0;i<s.length;i++) r.push(s.charCodeAt(i)); return r; },
+             encode: function(a) { var r=''; for(var i=0;i<a.length;i++) r+=String.fromCharCode(a[i]); return r; } },
+    version: '2.1.0'
+  };
+  var diagnostics_channel = {
+    channel: function(name) { return { subscribe: function(){}, unsubscribe: function(){}, hasSubscribers: false, name: name }; },
+    hasSubscribers: function() { return false; },
+    subscribe: function() {},
+    unsubscribe: function() {},
+    Channel: function(name) { this.name = name; this.hasSubscribers = false;
+      this.subscribe = function(){}; this.unsubscribe = function(){}; this.publish = function(){}; }
+  };
+  var domain = {
+    create: function() {
+      return { run: function(fn) { fn(); }, on: function(){}, add: function(){},
+        remove: function(){}, bind: function(fn) { return fn; },
+        intercept: function(fn) { return fn; }, enter: function(){}, exit: function(){} };
+    },
+    active: null
+  };
   if (typeof globalThis !== 'undefined') {
     globalThis.__dun_cjs_tls__ = tls;
     globalThis.__dun_cjs_dgram__ = dgram;
     globalThis.__dun_cjs_perf_hooks__ = perf_hooks;
+    globalThis.__dun_cjs_punycode__ = punycode;
+    globalThis.__dun_cjs_diagnostics_channel__ = diagnostics_channel;
+    globalThis.__dun_cjs_domain__ = domain;
   }
 })()`, "<stubs>");
     engine.freeValue(result.value);

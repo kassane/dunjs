@@ -46,12 +46,12 @@ JSHandle jsRequireResolve(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     if (specifier.startsWith("node:") || specifier.startsWith("dun:"))
         return engine.newString(specifier);
 
-    string[31] builtins = ["fs", "path", "crypto", "net", "http", "https",
+    string[35] builtins = ["fs", "path", "crypto", "net", "http", "https",
         "http2", "http3", "os", "buffer", "events", "url", "child_process",
         "stream", "zlib", "dns", "ws", "sqlite", "util", "assert",
         "querystring", "string_decoder", "timers/promises", "tls", "dgram",
         "vm", "cluster", "async_hooks", "worker_threads", "perf_hooks",
-        "fs/promises"];
+        "fs/promises", "readline", "punycode", "diagnostics_channel", "domain"];
     foreach (b; builtins)
         if (specifier == b) return engine.newString(specifier);
 
@@ -150,6 +150,10 @@ JSHandle jsRequire(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     else if (specifier == "tls") specifier = "dun:tls";
     else if (specifier == "dgram") specifier = "dun:dgram";
     else if (specifier == "perf_hooks") specifier = "dun:perf_hooks";
+    else if (specifier == "readline") specifier = "dun:readline";
+    else if (specifier == "punycode") specifier = "dun:punycode";
+    else if (specifier == "diagnostics_channel") specifier = "dun:diagnostics_channel";
+    else if (specifier == "domain") specifier = "dun:domain";
 
     auto global = engine.getGlobal();
 
@@ -187,6 +191,10 @@ JSHandle jsRequire(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
         else if (specifier == "dun:tls") propName = "__dun_cjs_tls__";
         else if (specifier == "dun:dgram") propName = "__dun_cjs_dgram__";
         else if (specifier == "dun:perf_hooks") propName = "__dun_cjs_perf_hooks__";
+        else if (specifier == "dun:readline") propName = "__dun_cjs_readline__";
+        else if (specifier == "dun:punycode") propName = "__dun_cjs_punycode__";
+        else if (specifier == "dun:diagnostics_channel") propName = "__dun_cjs_diagnostics_channel__";
+        else if (specifier == "dun:domain") propName = "__dun_cjs_domain__";
 
         if (propName.length > 0)
         {

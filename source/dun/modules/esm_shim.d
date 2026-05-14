@@ -367,6 +367,10 @@ private string builtinGlobalProp(string specifier) @safe pure nothrow
     if (specifier == "dun:tls" || specifier == "node:tls" || specifier == "tls") return "__dun_cjs_tls__";
     if (specifier == "dun:dgram" || specifier == "node:dgram" || specifier == "dgram") return "__dun_cjs_dgram__";
     if (specifier == "dun:perf_hooks" || specifier == "node:perf_hooks" || specifier == "perf_hooks") return "__dun_cjs_perf_hooks__";
+    if (specifier == "dun:readline" || specifier == "node:readline" || specifier == "readline") return "__dun_cjs_readline__";
+    if (specifier == "dun:punycode" || specifier == "node:punycode" || specifier == "punycode") return "__dun_cjs_punycode__";
+    if (specifier == "dun:diagnostics_channel" || specifier == "node:diagnostics_channel" || specifier == "diagnostics_channel") return "__dun_cjs_diagnostics_channel__";
+    if (specifier == "dun:domain" || specifier == "node:domain" || specifier == "domain") return "__dun_cjs_domain__";
     return "";
 }
 

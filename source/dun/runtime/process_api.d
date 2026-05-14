@@ -95,20 +95,61 @@ void installProcess(IJSEngine engine) @trusted
     engine.setProperty(process, "on",
         engine.newFunction(&jsProcessOn, "on", 2));
 
-    auto envObj = engine.newObject();
     bool envAllowed = state !is null && state.permissions !is null &&
         state.permissions.check(Permission.env);
     if (envAllowed)
     {
-        try
-        {
-            import std.process : environment;
-            foreach (key, val; environment.toAA())
-                engine.setProperty(envObj, key, engine.newString(val));
-        }
-        catch (Exception) {}
+        auto envSrc = `(function() {
+  var _env = {};
+  return new Proxy(_env, {
+    get: function(target, prop) {
+      if (typeof prop !== 'string') return undefined;
+      return target[prop];
+    },
+    set: function(target, prop, value) {
+      target[prop] = String(value);
+      return true;
+    },
+    deleteProperty: function(target, prop) {
+      delete target[prop];
+      return true;
+    },
+    has: function(target, prop) {
+      return prop in target;
+    },
+    ownKeys: function(target) {
+      return Object.keys(target);
+    },
+    getOwnPropertyDescriptor: function(target, prop) {
+      if (prop in target) return { value: target[prop], writable: true, enumerable: true, configurable: true };
+      return undefined;
     }
-    engine.setProperty(process, "env", envObj);
+  });
+})()`;
+        auto envResult = engine.eval(envSrc, "<env-proxy>");
+        if (!envResult.isError)
+        {
+            try
+            {
+                import std.process : environment;
+                foreach (key, val; environment.toAA())
+                    engine.setProperty(envResult.value, key, engine.newString(val));
+            }
+            catch (Exception) {}
+            engine.setProperty(process, "env", envResult.value);
+        }
+        else
+        {
+            engine.freeValue(envResult.value);
+            auto envObj = engine.newObject();
+            engine.setProperty(process, "env", envObj);
+        }
+    }
+    else
+    {
+        auto envObj = engine.newObject();
+        engine.setProperty(process, "env", envObj);
+    }
 
     // process.argv
     auto argvArr = engine.newArray();
