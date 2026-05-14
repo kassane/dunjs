@@ -72,7 +72,7 @@ JSHandle consoleAssert(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     return engine.newUndefined();
 }
 
-void writeArgs(IJSEngine engine, JSHandle[] args, bool useStderr) @trusted
+void writeArgs(IJSEngine engine, scope JSHandle[] args, bool useStderr) @trusted
 {
     try
     {

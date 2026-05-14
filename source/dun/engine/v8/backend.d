@@ -40,7 +40,7 @@ class V8Engine : IJSEngine
         }
     }
 
-    JSResult eval(const(char)[] source, string filename) @trusted
+    JSResult eval(scope const(char)[] source, string filename) @trusted
     {
         import std.string : toStringz;
 
@@ -70,7 +70,7 @@ class V8Engine : IJSEngine
         return toHandle(dun_v8_new_null(ctx));
     }
 
-    JSHandle newString(const(char)[] s) @trusted
+    JSHandle newString(scope const(char)[] s) @trusted
     {
         assert(ctx !is null, "V8 context not initialized");
         if (s.length == 0)
@@ -108,7 +108,7 @@ class V8Engine : IJSEngine
         return toHandle(dun_v8_new_array(ctx, 0));
     }
 
-    JSHandle newUint8Array(const(ubyte)[] data) @trusted
+    JSHandle newUint8Array(scope const(ubyte)[] data) @trusted
     {
         assert(ctx !is null, "V8 context not initialized");
         return toHandle(dun_v8_new_uint8array(ctx, data.ptr, data.length));
@@ -184,7 +184,7 @@ class V8Engine : IJSEngine
         return dun_v8_value_to_bool(ctx, fromHandle(val)) != 0;
     }
 
-    JSHandle getProperty(JSHandle obj, const(char)[] name) @trusted
+    JSHandle getProperty(JSHandle obj, scope const(char)[] name) @trusted
     {
         assert(ctx !is null, "V8 context not initialized");
         char[V8_STACK_STRING_SIZE] buf = void;
@@ -192,7 +192,7 @@ class V8Engine : IJSEngine
             stackTerminate(name, buf)));
     }
 
-    void setProperty(JSHandle obj, const(char)[] name, JSHandle val) @trusted
+    void setProperty(JSHandle obj, scope const(char)[] name, JSHandle val) @trusted
     {
         assert(ctx !is null, "V8 context not initialized");
         char[V8_STACK_STRING_SIZE] buf = void;
@@ -318,14 +318,14 @@ class V8Engine : IJSEngine
         return result;
     }
 
-    JSHandle throwTypeError(const(char)[] msg) @trusted
+    JSHandle throwTypeError(scope const(char)[] msg) @trusted
     {
         assert(ctx !is null, "V8 context not initialized");
         char[V8_STACK_STRING_SIZE] buf = void;
         return toHandle(dun_v8_throw_type_error(ctx, stackTerminate(msg, buf)));
     }
 
-    JSHandle throwRangeError(const(char)[] msg) @trusted
+    JSHandle throwRangeError(scope const(char)[] msg) @trusted
     {
         assert(ctx !is null, "V8 context not initialized");
         char[V8_STACK_STRING_SIZE] buf = void;
@@ -392,7 +392,7 @@ class V8Engine : IJSEngine
 
     void setModuleLoader(ModuleLoaderCallback loader) {}
 
-    JSResult evalModule(const(char)[] source, string filename) @trusted
+    JSResult evalModule(scope const(char)[] source, string filename) @trusted
     {
         import dun.modules.esm_shim : transpileESM;
         try

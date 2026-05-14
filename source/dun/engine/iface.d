@@ -58,12 +58,12 @@ interface IJSEngine
     void shutdown();
 
     // --- Evaluation ---
-    JSResult eval(const(char)[] source, string filename);
+    JSResult eval(scope const(char)[] source, string filename);
 
     // --- Value creation ---
     JSHandle newUndefined();
     JSHandle newNull();
-    JSHandle newString(const(char)[] s);
+    JSHandle newString(scope const(char)[] s);
     JSHandle newInt(int v);
     JSHandle newFloat(double v);
     JSHandle newBool(bool v);
@@ -78,8 +78,8 @@ interface IJSEngine
     bool extractBool(JSHandle val);
 
     // --- Properties ---
-    JSHandle getProperty(JSHandle obj, const(char)[] name);
-    void setProperty(JSHandle obj, const(char)[] name, JSHandle val);
+    JSHandle getProperty(JSHandle obj, scope const(char)[] name);
+    void setProperty(JSHandle obj, scope const(char)[] name, JSHandle val);
     JSHandle getGlobal();
 
     // --- Reference management ---
@@ -87,7 +87,7 @@ interface IJSEngine
     void freeValue(JSHandle val);
 
     // --- Typed arrays ---
-    JSHandle newUint8Array(const(ubyte)[] data);
+    JSHandle newUint8Array(scope const(ubyte)[] data);
     JSHandle newUint8ArrayZeroed(size_t length);
     ubyte[] getTypedArrayBytes(JSHandle val) @trusted;
 
@@ -114,8 +114,8 @@ interface IJSEngine
 
     // --- Exceptions ---
     string getException();
-    JSHandle throwTypeError(const(char)[] msg);
-    JSHandle throwRangeError(const(char)[] msg);
+    JSHandle throwTypeError(scope const(char)[] msg);
+    JSHandle throwRangeError(scope const(char)[] msg);
     JSHandle throwValue(JSHandle val);
 
     // --- Promises ---
@@ -132,7 +132,7 @@ interface IJSEngine
 
     // --- Modules ---
     void setModuleLoader(ModuleLoaderCallback loader);
-    JSResult evalModule(const(char)[] source, string filename) @trusted;
+    JSResult evalModule(scope const(char)[] source, string filename) @trusted;
     void registerNativeModule(string name, void* initFunc) @trusted;
 
     // --- Limits ---

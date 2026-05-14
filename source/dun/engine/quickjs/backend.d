@@ -39,7 +39,7 @@ class QuickJSEngine : IJSEngine
         }
     }
 
-    JSResult eval(const(char)[] source, string filename) @trusted
+    JSResult eval(scope const(char)[] source, string filename) @trusted
     {
         assert(ctx !is null, "Engine not initialized");
         assert(source.ptr !is null, "Null source pointer");
@@ -68,7 +68,7 @@ class QuickJSEngine : IJSEngine
         return toHandle(JS_NULL());
     }
 
-    JSHandle newString(const(char)[] s) @trusted
+    JSHandle newString(scope const(char)[] s) @trusted
     {
         assert(ctx !is null, "Engine not initialized");
         return toHandle(JS_NewStringLen(ctx, s.ptr, s.length));
@@ -104,7 +104,7 @@ class QuickJSEngine : IJSEngine
         return toHandle(JS_NewArray(ctx));
     }
 
-    JSHandle newUint8Array(const(ubyte)[] data) @trusted
+    JSHandle newUint8Array(scope const(ubyte)[] data) @trusted
     {
         assert(ctx !is null, "Engine not initialized");
         auto ab = JS_NewArrayBufferCopy(ctx, data.ptr, data.length);
@@ -196,7 +196,7 @@ class QuickJSEngine : IJSEngine
         return JS_ToBool(ctx, fromHandle(val)) != 0;
     }
 
-    JSHandle getProperty(JSHandle obj, const(char)[] name) @trusted
+    JSHandle getProperty(JSHandle obj, scope const(char)[] name) @trusted
     {
         assert(ctx !is null, "Engine not initialized");
         char[QJS_STACK_STRING_SIZE] buf = void;
@@ -204,7 +204,7 @@ class QuickJSEngine : IJSEngine
             stackTerminate(name, buf)));
     }
 
-    void setProperty(JSHandle obj, const(char)[] name, JSHandle val) @trusted
+    void setProperty(JSHandle obj, scope const(char)[] name, JSHandle val) @trusted
     {
         assert(ctx !is null, "Engine not initialized");
         char[QJS_STACK_STRING_SIZE] buf = void;
@@ -296,14 +296,14 @@ class QuickJSEngine : IJSEngine
         return extractExceptionWithStack(ctx);
     }
 
-    JSHandle throwTypeError(const(char)[] msg) @trusted
+    JSHandle throwTypeError(scope const(char)[] msg) @trusted
     {
         assert(ctx !is null, "Engine not initialized");
         import std.string : toStringz;
         return toHandle(JS_ThrowTypeError(ctx, "%s", (cast(string) msg).toStringz));
     }
 
-    JSHandle throwRangeError(const(char)[] msg) @trusted
+    JSHandle throwRangeError(scope const(char)[] msg) @trusted
     {
         assert(ctx !is null, "Engine not initialized");
         import std.string : toStringz;
@@ -368,7 +368,7 @@ class QuickJSEngine : IJSEngine
 
     void setModuleLoader(ModuleLoaderCallback loader) {}
 
-    JSResult evalModule(const(char)[] source, string filename) @trusted
+    JSResult evalModule(scope const(char)[] source, string filename) @trusted
     {
         assert(ctx !is null, "Engine not initialized");
         assert(source.ptr !is null, "Null source pointer");

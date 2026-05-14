@@ -38,7 +38,7 @@ class JSCEngine : IJSEngine
         }
     }
 
-    JSResult eval(const(char)[] source, string filename) @trusted
+    JSResult eval(scope const(char)[] source, string filename) @trusted
     {
         import std.string : toStringz;
 
@@ -86,7 +86,7 @@ class JSCEngine : IJSEngine
 
     private enum STACK_TERM_SIZE = 512;
 
-    JSHandle newString(const(char)[] s) @trusted
+    JSHandle newString(scope const(char)[] s) @trusted
     {
         assert(ctx !is null, "JSC context not initialized");
         // Stack-terminate for short strings to avoid GC allocation from toStringz
@@ -140,7 +140,7 @@ class JSCEngine : IJSEngine
         return toHandle(cast(void*) JSObjectMakeArray(ctx, 0, null, null));
     }
 
-    JSHandle newUint8Array(const(ubyte)[] data) @trusted
+    JSHandle newUint8Array(scope const(ubyte)[] data) @trusted
     {
         import core.stdc.string : memcpy;
 
@@ -259,7 +259,7 @@ class JSCEngine : IJSEngine
         return (cast(string) name).toStringz;
     }
 
-    JSHandle getProperty(JSHandle obj, const(char)[] name) @trusted
+    JSHandle getProperty(JSHandle obj, scope const(char)[] name) @trusted
     {
         assert(ctx !is null, "JSC context not initialized");
         char[STACK_TERM_SIZE] termBuf = void;
@@ -272,7 +272,7 @@ class JSCEngine : IJSEngine
         return toHandle(cast(void*) val);
     }
 
-    void setProperty(JSHandle obj, const(char)[] name, JSHandle val) @trusted
+    void setProperty(JSHandle obj, scope const(char)[] name, JSHandle val) @trusted
     {
         assert(ctx !is null, "JSC context not initialized");
         char[STACK_TERM_SIZE] termBuf = void;
@@ -424,7 +424,7 @@ class JSCEngine : IJSEngine
         return "";
     }
 
-    JSHandle throwTypeError(const(char)[] msg) @trusted
+    JSHandle throwTypeError(scope const(char)[] msg) @trusted
     {
         assert(ctx !is null, "JSC context not initialized");
         auto jsMsg = newString(msg);
@@ -435,7 +435,7 @@ class JSCEngine : IJSEngine
         return toHandle(cast(void*) err);
     }
 
-    JSHandle throwRangeError(const(char)[] msg) @trusted
+    JSHandle throwRangeError(scope const(char)[] msg) @trusted
     {
         assert(ctx !is null, "JSC context not initialized");
         auto jsMsg = newString(msg);
@@ -501,7 +501,7 @@ class JSCEngine : IJSEngine
 
     void setModuleLoader(ModuleLoaderCallback loader) {}
 
-    JSResult evalModule(const(char)[] source, string filename) @trusted
+    JSResult evalModule(scope const(char)[] source, string filename) @trusted
     {
         assert(ctx !is null, "JSC context not initialized");
         import dun.modules.esm_shim : transpileESM;
