@@ -249,6 +249,32 @@ void installProcess(IJSEngine engine) @trusted
     // process.channel (undefined — no IPC by default)
     engine.setProperty(process, "channel", engine.newUndefined());
 
+    // process.emitWarning(msg, type)
+    engine.setProperty(process, "emitWarning",
+        engine.newFunction(&jsEmitWarning, "emitWarning", 2));
+
+    // process.kill(pid, signal)
+    engine.setProperty(process, "kill",
+        engine.newFunction(&jsProcessKill, "kill", 2));
+
+    // process.ppid
+    version (Posix)
+    {
+        import core.sys.posix.unistd : getppid;
+        engine.setProperty(process, "ppid", engine.newInt(getppid()));
+    }
+
+    // process.exitCode (writable — defaults to undefined)
+    engine.setProperty(process, "exitCode", engine.newUndefined());
+
+    // process.abort()
+    engine.setProperty(process, "abort",
+        engine.newFunction(&jsProcessAbort, "abort", 0));
+
+    // process.umask()
+    engine.setProperty(process, "umask",
+        engine.newFunction(&jsProcessUmask, "umask", 1));
+
     engine.setProperty(global, "process", process);
     engine.freeValue(global);
 }
@@ -341,7 +367,34 @@ JSHandle jsNextTick(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     if (args.length < 1 || !engine.isFunction(args[0]))
         return engine.throwTypeError("process.nextTick requires a function");
 
-    state.eventLoop.nextTicks.enqueue(engine, args[0]);
+    if (args.length > 1)
+    {
+        auto boundArgs = args[1 .. $];
+        auto global = engine.getGlobal();
+        auto bindFn = engine.getProperty(args[0], "bind");
+        if (engine.isFunction(bindFn))
+        {
+            JSHandle[16] bindArgs = void;
+            bindArgs[0] = global;
+            auto nExtra = args.length - 1;
+            if (nExtra > 15) nExtra = 15;
+            foreach (i; 0 .. nExtra)
+                bindArgs[1 + i] = args[1 + i];
+            auto bound = engine.callFunction(bindFn, args[0], bindArgs[0 .. 1 + nExtra]);
+            state.eventLoop.nextTicks.enqueue(engine, bound);
+            engine.freeValue(bound);
+        }
+        else
+        {
+            state.eventLoop.nextTicks.enqueue(engine, args[0]);
+        }
+        engine.freeValue(bindFn);
+        engine.freeValue(global);
+    }
+    else
+    {
+        state.eventLoop.nextTicks.enqueue(engine, args[0]);
+    }
     return engine.newUndefined();
 }
 
@@ -512,6 +565,105 @@ JSHandle jsChdir(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     {
         return engine.throwTypeError("ENOENT: no such file or directory, chdir '" ~ dir ~ "'");
     }
+}
+
+JSHandle jsEmitWarning(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+{
+    assert(ctx !is null, "Null ctx in process.emitWarning");
+    auto state = cast(DunState*) ctx;
+    auto engine = state.engine;
+    if (args.length < 1) return engine.newUndefined();
+    try
+    {
+        string msg;
+        string wtype = "Warning";
+        if (engine.isString(args[0]))
+            msg = engine.extractString(args[0]);
+        else if (engine.isObject(args[0]))
+        {
+            auto msgProp = engine.getProperty(args[0], "message");
+            msg = engine.isString(msgProp) ? engine.extractString(msgProp) : "Unknown warning";
+            engine.freeValue(msgProp);
+        }
+        if (args.length >= 2 && engine.isString(args[1]))
+            wtype = engine.extractString(args[1]);
+        import core.stdc.stdio : fprintf, stderr, fflush;
+        fprintf(stderr, "(%.*s) %.*s\n",
+            cast(int) wtype.length, wtype.ptr,
+            cast(int) msg.length, msg.ptr);
+        fflush(stderr);
+    }
+    catch (Exception) {}
+    return engine.newUndefined();
+}
+
+JSHandle jsProcessKill(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+{
+    assert(ctx !is null, "Null ctx in process.kill");
+    auto state = cast(DunState*) ctx;
+    auto engine = state.engine;
+    if (args.length < 1 || !engine.isNumber(args[0]))
+        return engine.throwTypeError("process.kill requires a pid");
+    version (Posix)
+    {
+        import core.sys.posix.signal : kill, SIGTERM;
+        int pid = engine.extractInt(args[0]);
+        int sig = SIGTERM;
+        if (args.length >= 2 && engine.isNumber(args[1]))
+            sig = engine.extractInt(args[1]);
+        else if (args.length >= 2 && engine.isString(args[1]))
+        {
+            auto sigName = engine.extractString(args[1]);
+            sig = sigNameToNum(sigName);
+        }
+        auto ret = kill(pid, sig);
+        if (ret != 0)
+            return engine.throwTypeError("kill failed");
+        return engine.newBool(true);
+    }
+    else
+        return engine.throwTypeError("process.kill not supported on this platform");
+}
+
+JSHandle jsProcessAbort(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+{
+    assert(ctx !is null, "Null ctx in process.abort");
+    import core.stdc.stdlib : abort;
+    abort();
+    assert(0);
+}
+
+JSHandle jsProcessUmask(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+{
+    assert(ctx !is null, "Null ctx in process.umask");
+    auto state = cast(DunState*) ctx;
+    auto engine = state.engine;
+    version (Posix)
+    {
+        import core.sys.posix.sys.stat : umask, mode_t;
+        if (args.length >= 1 && engine.isNumber(args[0]))
+        {
+            auto newMask = cast(mode_t) engine.extractInt(args[0]);
+            auto old = umask(newMask);
+            return engine.newInt(cast(int) old);
+        }
+        auto cur = umask(0);
+        umask(cur);
+        return engine.newInt(cast(int) cur);
+    }
+    else
+        return engine.newInt(0);
+}
+
+private int sigNameToNum(string name) @safe nothrow
+{
+    if (name == "SIGTERM") return 15;
+    if (name == "SIGINT") return 2;
+    if (name == "SIGKILL") return 9;
+    if (name == "SIGHUP") return 1;
+    if (name == "SIGUSR1") return 10;
+    if (name == "SIGUSR2") return 12;
+    return 15;
 }
 
 JSHandle jsStdinRead(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted

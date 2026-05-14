@@ -1,0 +1,18 @@
+2: emitWarning exists: true
+3: kill exists: true
+4: ppid is number: true
+5: abort exists: true
+6: umask is number: true
+7: exitCode default: true
+8: hrtime is array: true
+9: hrtime has 2 elements: true
+10: hrtime diff works: true
+11: uptime is number: true
+12: memoryUsage has rss: true
+13: memoryUsage has external: true
+14: memoryUsage has arrayBuffers: true
+15: cpuUsage has user: true
+16: release.name: dun
+17: features.tls: true
+18: title is string: true
+1: nextTick args: hello-world-42

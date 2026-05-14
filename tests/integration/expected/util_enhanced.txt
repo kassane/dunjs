@@ -1,0 +1,27 @@
+1: types exists: true
+2: isPromise: true
+3: isDate: true
+4: isRegExp: true
+5: isMap: true
+6: isSet: true
+7: isWeakMap: true
+8: isWeakSet: true
+9: isTypedArray: true
+10: isArrayBuffer: true
+11: isDataView: true
+12: isNativeError: true
+13: isAsyncFunction: true
+14: isGeneratorFunction: true
+15: debuglog exists: true
+16: debuglog returns fn: true
+17: _extend works: true
+18: format %s: hello world
+19: format %d: count: 42
+20: inherits works: true
+23: toUSVString: hello
+24: deprecate works: true
+25: isUint8Array: true
+26: isFloat64Array: true
+27: not isDate string: false
+21: promisify result: 10
+22: callbackify result: 15

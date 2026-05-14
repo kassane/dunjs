@@ -142,6 +142,7 @@ private:
 __gshared JSHandle _httpSrvListen, _httpSrvClose, _httpSrvOn;
 __gshared JSHandle _httpReqOn;
 __gshared JSHandle _httpResSetHeader, _httpResWriteHead, _httpResWrite, _httpResEnd;
+__gshared JSHandle _httpResGetHeader, _httpResGetHeaders, _httpResHasHeader, _httpResRemoveHeader;
 __gshared JSHandle _httpJsDispatchFn;
 __gshared JSHandle _httpCachedUndef;
 __gshared bool _httpFnsCached = false;
@@ -157,15 +158,21 @@ void ensureHttpFnsCached(IJSEngine engine) @trusted
     _httpResWriteHead = engine.newFunction(&jsResWriteHead, "writeHead", 1);
     _httpResWrite = engine.newFunction(&jsResWrite, "write", 1);
     _httpResEnd = engine.newFunction(&jsResEnd, "end", 0);
+    _httpResGetHeader = engine.newFunction(&jsResGetHeader, "getHeader", 1);
+    _httpResGetHeaders = engine.newFunction(&jsResGetHeaders, "getHeaders", 0);
+    _httpResHasHeader = engine.newFunction(&jsResHasHeader, "hasHeader", 1);
+    _httpResRemoveHeader = engine.newFunction(&jsResRemoveHeader, "removeHeader", 1);
 
-    // Install JS-level dispatch function — creates req/res objects in JS (JIT-optimized)
-    // instead of through D→engine FFI calls, reducing per-request overhead
     auto global = engine.getGlobal();
     engine.setProperty(global, "__httpSetHeader", engine.dupValue(_httpResSetHeader));
     engine.setProperty(global, "__httpWriteHead", engine.dupValue(_httpResWriteHead));
     engine.setProperty(global, "__httpWrite", engine.dupValue(_httpResWrite));
     engine.setProperty(global, "__httpEnd", engine.dupValue(_httpResEnd));
     engine.setProperty(global, "__httpReqOn", engine.dupValue(_httpReqOn));
+    engine.setProperty(global, "__httpGetHeader", engine.dupValue(_httpResGetHeader));
+    engine.setProperty(global, "__httpGetHeaders", engine.dupValue(_httpResGetHeaders));
+    engine.setProperty(global, "__httpHasHeader", engine.dupValue(_httpResHasHeader));
+    engine.setProperty(global, "__httpRemoveHeader", engine.dupValue(_httpResRemoveHeader));
 
     // Native function to lazily retrieve headers for a connection
     auto getHdrsFn = engine.newFunction(&jsGetConnHeaders, "__httpGetHeaders", 1);
@@ -179,8 +186,12 @@ void ensureHttpFnsCached(IJSEngine engine) @trusted
         "  var req = { method: method, url: url, httpVersion: 'HTTP/1.1', __cid: cid," ~
         "    get headers() { var h = _gh(cid); Object.defineProperty(this, 'headers', {value: h}); return h; }," ~
         "    on: globalThis.__httpReqOn };" ~
-        "  var res = { __cid: cid, statusCode: 200," ~
+        "  var res = { __cid: cid, statusCode: 200, headersSent: false," ~
         "    setHeader: globalThis.__httpSetHeader," ~
+        "    getHeader: globalThis.__httpGetHeader," ~
+        "    getHeaders: globalThis.__httpGetHeaders," ~
+        "    hasHeader: globalThis.__httpHasHeader," ~
+        "    removeHeader: globalThis.__httpRemoveHeader," ~
         "    writeHead: globalThis.__httpWriteHead," ~
         "    write: globalThis.__httpWrite," ~
         "    end: globalThis.__httpEnd };" ~
@@ -594,8 +605,13 @@ JSHandle makeResObj(IJSEngine engine, int connId) @trusted
     auto obj = engine.newObject();
     engine.setProperty(obj, "__cid", engine.newInt(connId));
     engine.setProperty(obj, "statusCode", engine.newInt(200));
+    engine.setProperty(obj, "headersSent", engine.newBool(false));
     ensureHttpFnsCached(engine);
     engine.setProperty(obj, "setHeader", engine.dupValue(_httpResSetHeader));
+    engine.setProperty(obj, "getHeader", engine.dupValue(_httpResGetHeader));
+    engine.setProperty(obj, "getHeaders", engine.dupValue(_httpResGetHeaders));
+    engine.setProperty(obj, "hasHeader", engine.dupValue(_httpResHasHeader));
+    engine.setProperty(obj, "removeHeader", engine.dupValue(_httpResRemoveHeader));
     engine.setProperty(obj, "writeHead", engine.dupValue(_httpResWriteHead));
     engine.setProperty(obj, "write", engine.dupValue(_httpResWrite));
     engine.setProperty(obj, "end", engine.dupValue(_httpResEnd));
@@ -622,7 +638,102 @@ JSHandle jsResSetHeader(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
         httpConns[connId].respHeaders[name] = val;
     }
     catch (Exception) {}
+    return engine.dupValue(thisVal);
+}
+
+JSHandle jsResGetHeader(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+{
+    assert(ctx !is null, "Null ctx in jsResGetHeader");
+    auto state = cast(DunState*) ctx;
+    auto engine = state.engine;
+    if (args.length < 1) return engine.newUndefined();
+    auto idProp = engine.getProperty(thisVal, "__cid");
+    int connId = engine.extractInt(idProp);
+    engine.freeValue(idProp);
+    if (connId < 0 || connId >= cast(int) httpConns.length) return engine.newUndefined();
+    try
+    {
+        string name = engine.extractString(args[0]);
+        if (auto val = name in httpConns[connId].respHeaders)
+            return engine.newString(*val);
+        foreach (k, v; httpConns[connId].respHeaders)
+        {
+            if (toLowerSimple(k) == toLowerSimple(name))
+                return engine.newString(v);
+        }
+    }
+    catch (Exception) {}
     return engine.newUndefined();
+}
+
+JSHandle jsResGetHeaders(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+{
+    assert(ctx !is null, "Null ctx in jsResGetHeaders");
+    auto state = cast(DunState*) ctx;
+    auto engine = state.engine;
+    auto idProp = engine.getProperty(thisVal, "__cid");
+    int connId = engine.extractInt(idProp);
+    engine.freeValue(idProp);
+    auto obj = engine.newObject();
+    if (connId < 0 || connId >= cast(int) httpConns.length) return obj;
+    try
+    {
+        foreach (k, v; httpConns[connId].respHeaders)
+            engine.setProperty(obj, k, engine.newString(v));
+    }
+    catch (Exception) {}
+    return obj;
+}
+
+JSHandle jsResHasHeader(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+{
+    assert(ctx !is null, "Null ctx in jsResHasHeader");
+    auto state = cast(DunState*) ctx;
+    auto engine = state.engine;
+    if (args.length < 1) return engine.newBool(false);
+    auto idProp = engine.getProperty(thisVal, "__cid");
+    int connId = engine.extractInt(idProp);
+    engine.freeValue(idProp);
+    if (connId < 0 || connId >= cast(int) httpConns.length) return engine.newBool(false);
+    try
+    {
+        string name = engine.extractString(args[0]);
+        if (name in httpConns[connId].respHeaders)
+            return engine.newBool(true);
+        foreach (k; httpConns[connId].respHeaders.byKey())
+            if (toLowerSimple(k) == toLowerSimple(name))
+                return engine.newBool(true);
+    }
+    catch (Exception) {}
+    return engine.newBool(false);
+}
+
+JSHandle jsResRemoveHeader(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+{
+    assert(ctx !is null, "Null ctx in jsResRemoveHeader");
+    auto state = cast(DunState*) ctx;
+    auto engine = state.engine;
+    if (args.length < 1) return engine.newUndefined();
+    auto idProp = engine.getProperty(thisVal, "__cid");
+    int connId = engine.extractInt(idProp);
+    engine.freeValue(idProp);
+    if (connId < 0 || connId >= cast(int) httpConns.length) return engine.newUndefined();
+    try
+    {
+        string name = engine.extractString(args[0]);
+        httpConns[connId].respHeaders.remove(name);
+    }
+    catch (Exception) {}
+    return engine.newUndefined();
+}
+
+private string toLowerSimple(string s) @safe pure nothrow
+{
+    char[] result;
+    try { result.reserve(s.length); } catch (Exception) {}
+    foreach (c; s)
+        result ~= (c >= 'A' && c <= 'Z') ? cast(char)(c + 32) : c;
+    try { return result.idup; } catch (Exception) { return s; }
 }
 
 JSHandle jsResWriteHead(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted

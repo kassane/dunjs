@@ -37,16 +37,12 @@ version (EngineQuickJS)
         assert(ctx !is null, "Null context in util registerQuickJSModule");
         auto m = JS_NewCModule(ctx, "dun:util", &utilModuleInit);
         if (m is null) return;
-        JS_AddModuleExport(ctx, m, "format");
-        JS_AddModuleExport(ctx, m, "inspect");
-        JS_AddModuleExport(ctx, m, "inherits");
-        JS_AddModuleExport(ctx, m, "promisify");
-        JS_AddModuleExport(ctx, m, "callbackify");
-        JS_AddModuleExport(ctx, m, "deprecate");
-        JS_AddModuleExport(ctx, m, "isDeepStrictEqual");
-        JS_AddModuleExport(ctx, m, "types");
-        JS_AddModuleExport(ctx, m, "TextEncoder");
-        JS_AddModuleExport(ctx, m, "TextDecoder");
+        foreach (name; ["format", "inspect", "inherits", "promisify",
+                        "callbackify", "deprecate", "debuglog",
+                        "isDeepStrictEqual", "types", "_extend",
+                        "toUSVString", "stripVTControlCharacters",
+                        "TextEncoder", "TextDecoder"])
+            JS_AddModuleExport(ctx, m, name.ptr);
         JS_AddModuleExport(ctx, m, "default");
     }
 
@@ -55,27 +51,15 @@ version (EngineQuickJS)
         auto global = JS_GetGlobalObject(ctx);
         auto mod = JS_GetPropertyStr(ctx, global, "__dun_cjs_util__");
 
-        auto format = JS_GetPropertyStr(ctx, mod, "format");
-        auto inspect = JS_GetPropertyStr(ctx, mod, "inspect");
-        auto inherits = JS_GetPropertyStr(ctx, mod, "inherits");
-        auto promisify = JS_GetPropertyStr(ctx, mod, "promisify");
-        auto callbackify = JS_GetPropertyStr(ctx, mod, "callbackify");
-        auto deprecate = JS_GetPropertyStr(ctx, mod, "deprecate");
-        auto isDeepStrictEqual = JS_GetPropertyStr(ctx, mod, "isDeepStrictEqual");
-        auto types = JS_GetPropertyStr(ctx, mod, "types");
-        auto te = JS_GetPropertyStr(ctx, mod, "TextEncoder");
-        auto td = JS_GetPropertyStr(ctx, mod, "TextDecoder");
-
-        JS_SetModuleExport(ctx, m, "format", format);
-        JS_SetModuleExport(ctx, m, "inspect", inspect);
-        JS_SetModuleExport(ctx, m, "inherits", inherits);
-        JS_SetModuleExport(ctx, m, "promisify", promisify);
-        JS_SetModuleExport(ctx, m, "callbackify", callbackify);
-        JS_SetModuleExport(ctx, m, "deprecate", deprecate);
-        JS_SetModuleExport(ctx, m, "isDeepStrictEqual", isDeepStrictEqual);
-        JS_SetModuleExport(ctx, m, "types", types);
-        JS_SetModuleExport(ctx, m, "TextEncoder", te);
-        JS_SetModuleExport(ctx, m, "TextDecoder", td);
+        foreach (name; ["format", "inspect", "inherits", "promisify",
+                        "callbackify", "deprecate", "debuglog",
+                        "isDeepStrictEqual", "types", "_extend",
+                        "toUSVString", "stripVTControlCharacters",
+                        "TextEncoder", "TextDecoder"])
+        {
+            auto val = JS_GetPropertyStr(ctx, mod, name.ptr);
+            JS_SetModuleExport(ctx, m, name.ptr, val);
+        }
         JS_SetModuleExport(ctx, m, "default", mod);
         JS_FreeValue(ctx, global);
         return 0;
@@ -160,7 +144,58 @@ string utilSource() pure @safe nothrow
              (typeof BigUint64Array !== 'undefined' && v instanceof BigUint64Array);
     },
     isMap: function(v) { return v instanceof Map; },
-    isSet: function(v) { return v instanceof Set; }
+    isSet: function(v) { return v instanceof Set; },
+    isAsyncFunction: function(v) {
+      return typeof v === 'function' && v.constructor && v.constructor.name === 'AsyncFunction';
+    },
+    isGeneratorFunction: function(v) {
+      return typeof v === 'function' && v.constructor && v.constructor.name === 'GeneratorFunction';
+    },
+    isGeneratorObject: function(v) {
+      if (!v || typeof v !== 'object') return false;
+      var proto = Object.getPrototypeOf(v);
+      if (!proto) return false;
+      return typeof proto.next === 'function' && typeof proto.throw === 'function';
+    },
+    isMapIterator: function(v) {
+      try { return Object.prototype.toString.call(v) === '[object Map Iterator]'; }
+      catch(e) { return false; }
+    },
+    isSetIterator: function(v) {
+      try { return Object.prototype.toString.call(v) === '[object Set Iterator]'; }
+      catch(e) { return false; }
+    },
+    isWeakMap: function(v) { return v instanceof WeakMap; },
+    isWeakSet: function(v) { return v instanceof WeakSet; },
+    isDataView: function(v) { return v instanceof DataView; },
+    isUint8Array: function(v) { return v instanceof Uint8Array; },
+    isUint16Array: function(v) { return v instanceof Uint16Array; },
+    isUint32Array: function(v) { return v instanceof Uint32Array; },
+    isInt8Array: function(v) { return v instanceof Int8Array; },
+    isInt16Array: function(v) { return v instanceof Int16Array; },
+    isInt32Array: function(v) { return v instanceof Int32Array; },
+    isFloat32Array: function(v) { return v instanceof Float32Array; },
+    isFloat64Array: function(v) { return v instanceof Float64Array; },
+    isSharedArrayBuffer: function(v) {
+      return typeof SharedArrayBuffer !== 'undefined' && v instanceof SharedArrayBuffer;
+    },
+    isNumberObject: function(v) {
+      return typeof v === 'object' && v !== null && Object.prototype.toString.call(v) === '[object Number]';
+    },
+    isStringObject: function(v) {
+      return typeof v === 'object' && v !== null && Object.prototype.toString.call(v) === '[object String]';
+    },
+    isBooleanObject: function(v) {
+      return typeof v === 'object' && v !== null && Object.prototype.toString.call(v) === '[object Boolean]';
+    },
+    isSymbolObject: function(v) {
+      return typeof v === 'object' && v !== null && Object.prototype.toString.call(v) === '[object Symbol]';
+    },
+    isProxy: function(v) { return false; },
+    isExternal: function(v) { return false; },
+    isAnyArrayBuffer: function(v) {
+      return v instanceof ArrayBuffer || (typeof SharedArrayBuffer !== 'undefined' && v instanceof SharedArrayBuffer);
+    }
   };
 
   // --- util.format ---
@@ -285,6 +320,41 @@ string utilSource() pure @safe nothrow
     return callbackified;
   }
 
+  // --- util.debuglog ---
+  function debuglog(section) {
+    var enabled = false;
+    try {
+      var envDebug = typeof process !== 'undefined' && process.env && process.env.NODE_DEBUG;
+      if (envDebug) {
+        var pat = new RegExp('\\b' + section + '\\b', 'i');
+        enabled = pat.test(envDebug);
+      }
+    } catch(e) {}
+    if (enabled) {
+      return function() {
+        var args = Array.prototype.slice.call(arguments);
+        console.error(section.toUpperCase() + ' ' + format.apply(null, args));
+      };
+    }
+    return function() {};
+  }
+
+  // --- util._extend (deprecated but widely used) ---
+  function _extend(target, source) {
+    if (source === null || source === undefined) return target;
+    var keys = Object.keys(source);
+    for (var i = 0; i < keys.length; i++) target[keys[i]] = source[keys[i]];
+    return target;
+  }
+
+  // --- util.toUSVString ---
+  function toUSVString(val) { return String(val); }
+
+  // --- util.stripVTControlCharacters ---
+  function stripVTControlCharacters(str) {
+    return String(str).replace(/[\x1b\x9b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]/g, '');
+  }
+
   var mod = {
     format: format,
     inspect: inspect,
@@ -292,8 +362,12 @@ string utilSource() pure @safe nothrow
     promisify: promisify,
     callbackify: callbackify,
     deprecate: deprecate,
+    debuglog: debuglog,
     isDeepStrictEqual: isDeepStrictEqual,
     types: types,
+    _extend: _extend,
+    toUSVString: toUSVString,
+    stripVTControlCharacters: stripVTControlCharacters,
     TextEncoder: typeof TextEncoder !== 'undefined' ? TextEncoder : undefined,
     TextDecoder: typeof TextDecoder !== 'undefined' ? TextDecoder : undefined
   };
