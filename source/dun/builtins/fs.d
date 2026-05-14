@@ -175,6 +175,20 @@ void registerFsModule(IJSEngine engine) @trusted
     engine.setProperty(global, "__dun_cjs_fs__", obj);
     engine.freeValue(global);
 
+    // Install JS-level fs.watchFile / fs.unwatchFile (stat-polling)
+    auto watchRes = engine.eval(fsWatchSource(), "<fs-watch>");
+    if (watchRes.isError)
+    {
+        try
+        {
+            import std.stdio : stderr;
+            stderr.writeln("[fs-watch] eval error: ", engine.getException());
+            stderr.flush();
+        }
+        catch (Exception) {}
+    }
+    engine.freeValue(watchRes.value);
+
     version (EngineQuickJS)
         registerQuickJSModule(engine);
 }
@@ -192,7 +206,8 @@ version (EngineQuickJS)
         "lstatSync", "linkSync", "symlinkSync", "readlinkSync",
         "truncateSync", "chownSync", "openSync", "closeSync",
         "readSync", "writeSync", "fstatSync", "fsyncSync",
-        "fdatasyncSync", "createReadStream", "createWriteStream", "watch"
+        "fdatasyncSync", "createReadStream", "createWriteStream", "watch",
+        "watchFile", "unwatchFile"
     ];
 
     private void registerQuickJSModule(IJSEngine engine) @trusted
@@ -1644,17 +1659,189 @@ JSHandle jsWatch(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     auto state = cast(DunState*) ctx;
     assert(state !is null, "Null DunState in jsWatch");
     auto engine = state.engine;
+    assert(engine !is null, "Null engine in jsWatch");
     if (args.length < 1) return engine.throwTypeError("watch requires a filename argument");
     auto filename = engine.extractString(args[0]);
     if (!checkPerm(state, Permission.read, filename))
         return throwPermError(engine, "read", filename);
+
+    // Parse options and listener from flexible argument order:
+    //   watch(filename, listener)
+    //   watch(filename, options, listener)
+    //   watch(filename, options)
+    //   watch(filename)
+    int pollInterval = 1000;
+    bool hasListener = false;
+    JSHandle listenerFn;
+
+    if (args.length >= 3 && engine.isObject(args[1]) && engine.isFunction(args[2]))
+    {
+        // watch(filename, options, listener)
+        auto intervalProp = engine.getProperty(args[1], "interval");
+        if (!engine.isUndefined(intervalProp))
+        {
+            auto iv = engine.extractInt(intervalProp);
+            if (iv > 0) pollInterval = iv;
+        }
+        engine.freeValue(intervalProp);
+        hasListener = true;
+        listenerFn = args[2];
+    }
+    else if (args.length >= 2 && engine.isFunction(args[1]))
+    {
+        // watch(filename, listener)
+        hasListener = true;
+        listenerFn = args[1];
+    }
+    else if (args.length >= 2 && engine.isObject(args[1]))
+    {
+        // watch(filename, options)
+        auto intervalProp = engine.getProperty(args[1], "interval");
+        if (!engine.isUndefined(intervalProp))
+        {
+            auto iv = engine.extractInt(intervalProp);
+            if (iv > 0) pollInterval = iv;
+        }
+        engine.freeValue(intervalProp);
+    }
+
     auto watcher = engine.newObject();
     engine.setProperty(watcher, "filename", engine.newString(filename));
     engine.setProperty(watcher, "_closed", engine.newBool(false));
-    engine.setProperty(watcher, "close", engine.newFunction(&jsWatcherClose, "close", 0));
-    engine.setProperty(watcher, "on", engine.newFunction(&jsStreamOn, "on", 2));
     engine.setProperty(watcher, "_listeners", engine.newObject());
+    engine.setProperty(watcher, "close", engine.newFunction(&jsWatcherClose, "close", 0));
+    engine.setProperty(watcher, "on", engine.newFunction(&jsWatcherOn, "on", 2));
+    engine.setProperty(watcher, "ref", engine.newFunction(&jsWatcherRef, "ref", 0));
+    engine.setProperty(watcher, "unref", engine.newFunction(&jsWatcherUnref, "unref", 0));
+
+    // If listener provided, register as 'change' listener
+    if (hasListener)
+    {
+        auto listeners = engine.getProperty(watcher, "_listeners");
+        engine.setProperty(listeners, "change", listenerFn);
+        engine.freeValue(listeners);
+    }
+
+    // Get initial stat for comparison
+    auto cpath = (filename ~ '\0');
+    SafeStatResult sr;
+    bool hadStat = safeStat(cpath.ptr, sr) == 0;
+    engine.setProperty(watcher, "_hadStat", engine.newBool(hadStat));
+    if (hadStat)
+    {
+        engine.setProperty(watcher, "_prevMtimeMs", engine.newFloat(sr.mtimeMs));
+        engine.setProperty(watcher, "_prevSize", engine.newFloat(cast(double) sr.size));
+    }
+    else
+    {
+        engine.setProperty(watcher, "_prevMtimeMs", engine.newFloat(0.0));
+        engine.setProperty(watcher, "_prevSize", engine.newFloat(0.0));
+    }
+
+    // Store watcher in global registry for polling from JS timer
+    engine.setProperty(watcher, "_pollInterval", engine.newInt(pollInterval));
+    engine.setProperty(watcher, "_pollFn", engine.newFunction(&jsWatcherPoll, "_poll", 0));
+
+    // Start polling via JS setInterval
+    auto startPollSrc = "(function(w) {"
+        ~ "w._timer = setInterval(function() {"
+        ~ "  if (w._closed) { clearInterval(w._timer); return; }"
+        ~ "  w._pollFn.call(w);"
+        ~ "}, w._pollInterval);"
+        ~ "return w;"
+        ~ "})";
+    auto evalRes = engine.eval(startPollSrc, "<fs-watch-start>");
+    if (!evalRes.isError)
+    {
+        auto global = engine.getGlobal();
+        engine.callFunction(evalRes.value, global, [watcher]);
+        engine.freeValue(global);
+    }
+    engine.freeValue(evalRes.value);
+
     return watcher;
+}
+
+JSHandle jsWatcherPoll(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+{
+    assert(ctx !is null, "Null ctx in jsWatcherPoll");
+    auto state = cast(DunState*) ctx;
+    assert(state !is null, "Null DunState in jsWatcherPoll");
+    auto engine = state.engine;
+    assert(engine !is null, "Null engine in jsWatcherPoll");
+
+    auto closedProp = engine.getProperty(thisVal, "_closed");
+    auto closed = engine.extractBool(closedProp);
+    engine.freeValue(closedProp);
+    if (closed) return engine.newUndefined();
+
+    auto filenameProp = engine.getProperty(thisVal, "filename");
+    auto filename = engine.extractString(filenameProp);
+    engine.freeValue(filenameProp);
+
+    auto prevMtimeProp = engine.getProperty(thisVal, "_prevMtimeMs");
+    auto prevMtime = engine.extractFloat(prevMtimeProp);
+    engine.freeValue(prevMtimeProp);
+
+    auto prevSizeProp = engine.getProperty(thisVal, "_prevSize");
+    auto prevSize = engine.extractFloat(prevSizeProp);
+    engine.freeValue(prevSizeProp);
+
+    auto hadStatProp = engine.getProperty(thisVal, "_hadStat");
+    auto hadStat = engine.extractBool(hadStatProp);
+    engine.freeValue(hadStatProp);
+
+    auto cpath = (filename ~ '\0');
+    SafeStatResult sr;
+    bool hasStat = safeStat(cpath.ptr, sr) == 0;
+
+    string eventType = null;
+    if (hadStat && !hasStat)
+    {
+        // File was removed
+        eventType = "rename";
+        engine.setProperty(thisVal, "_hadStat", engine.newBool(false));
+        engine.setProperty(thisVal, "_prevMtimeMs", engine.newFloat(0.0));
+        engine.setProperty(thisVal, "_prevSize", engine.newFloat(0.0));
+    }
+    else if (!hadStat && hasStat)
+    {
+        // File was created
+        eventType = "rename";
+        engine.setProperty(thisVal, "_hadStat", engine.newBool(true));
+        engine.setProperty(thisVal, "_prevMtimeMs", engine.newFloat(sr.mtimeMs));
+        engine.setProperty(thisVal, "_prevSize", engine.newFloat(cast(double) sr.size));
+    }
+    else if (hasStat)
+    {
+        // File exists, check for changes
+        if (sr.mtimeMs != prevMtime || cast(double) sr.size != prevSize)
+        {
+            eventType = "change";
+            engine.setProperty(thisVal, "_prevMtimeMs", engine.newFloat(sr.mtimeMs));
+            engine.setProperty(thisVal, "_prevSize", engine.newFloat(cast(double) sr.size));
+        }
+    }
+
+    if (eventType !is null)
+    {
+        auto listeners = engine.getProperty(thisVal, "_listeners");
+        auto changeCb = engine.getProperty(listeners, "change");
+        if (engine.isFunction(changeCb))
+        {
+            auto evtArg = engine.newString(eventType);
+            auto fnArg = engine.newString(filename);
+            auto global = engine.getGlobal();
+            engine.callFunction(changeCb, global, [evtArg, fnArg]);
+            engine.freeValue(global);
+            engine.freeValue(evtArg);
+            engine.freeValue(fnArg);
+        }
+        engine.freeValue(changeCb);
+        engine.freeValue(listeners);
+    }
+
+    return engine.newUndefined();
 }
 
 JSHandle jsWatcherClose(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
@@ -1663,6 +1850,162 @@ JSHandle jsWatcherClose(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     auto state = cast(DunState*) ctx;
     assert(state !is null, "Null DunState in jsWatcherClose");
     auto engine = state.engine;
+    assert(engine !is null, "Null engine in jsWatcherClose");
     engine.setProperty(thisVal, "_closed", engine.newBool(true));
+    // Clear the interval timer via JS
+    auto clearSrc = "(function(w) { if (w._timer) { clearInterval(w._timer); w._timer = null; } })";
+    auto evalRes = engine.eval(clearSrc, "<fs-watch-close>");
+    if (!evalRes.isError)
+    {
+        auto global = engine.getGlobal();
+        engine.callFunction(evalRes.value, global, [thisVal]);
+        engine.freeValue(global);
+    }
+    engine.freeValue(evalRes.value);
     return engine.newUndefined();
 }
+
+JSHandle jsWatcherOn(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+{
+    assert(ctx !is null, "Null ctx in jsWatcherOn");
+    auto state = cast(DunState*) ctx;
+    assert(state !is null, "Null DunState in jsWatcherOn");
+    auto engine = state.engine;
+    assert(engine !is null, "Null engine in jsWatcherOn");
+    if (args.length < 2) return thisVal;
+    auto eventName = engine.extractString(args[0]);
+    auto listeners = engine.getProperty(thisVal, "_listeners");
+    engine.setProperty(listeners, eventName, args[1]);
+    engine.freeValue(listeners);
+    return thisVal;
+}
+
+JSHandle jsWatcherRef(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+{
+    assert(ctx !is null, "Null ctx in jsWatcherRef");
+    auto state = cast(DunState*) ctx;
+    assert(state !is null, "Null DunState in jsWatcherRef");
+    return thisVal;
+}
+
+JSHandle jsWatcherUnref(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+{
+    assert(ctx !is null, "Null ctx in jsWatcherUnref");
+    auto state = cast(DunState*) ctx;
+    assert(state !is null, "Null DunState in jsWatcherUnref");
+    return thisVal;
+}
+
+// ── watchFile / unwatchFile (JS-level stat polling) ─────────────
+
+string fsWatchSource() pure @safe nothrow
+{
+    return `(function() {
+  var fs = globalThis.__dun_cjs_fs__;
+  if (!fs) return;
+
+  var _statWatchers = {};
+
+  function StatWatcher(filename, options, listener) {
+    this._filename = filename;
+    this._closed = false;
+    this._persistent = options ? options.persistent !== false : true;
+    this._interval = (options && typeof options.interval === 'number' && options.interval > 0)
+      ? options.interval : 5007;
+    this._listeners = [];
+    this._prevStat = null;
+    this._timer = null;
+
+    try { this._prevStat = fs.statSync(filename); } catch(e) {
+      this._prevStat = { dev: 0, mode: 0, nlink: 0, uid: 0, gid: 0, size: 0,
+        atimeMs: 0, mtimeMs: 0, ctimeMs: 0, ino: 0,
+        isFile: function(){return false;}, isDirectory: function(){return false;},
+        isSymbolicLink: function(){return false;} };
+    }
+
+    if (typeof listener === 'function') {
+      this._listeners.push(listener);
+    }
+
+    var self = this;
+    this._timer = setInterval(function() {
+      if (self._closed) return;
+      var curr;
+      try { curr = fs.statSync(self._filename); } catch(e) {
+        curr = { dev: 0, mode: 0, nlink: 0, uid: 0, gid: 0, size: 0,
+          atimeMs: 0, mtimeMs: 0, ctimeMs: 0, ino: 0,
+          isFile: function(){return false;}, isDirectory: function(){return false;},
+          isSymbolicLink: function(){return false;} };
+      }
+      var prev = self._prevStat;
+      if (curr.mtimeMs !== prev.mtimeMs || curr.size !== prev.size) {
+        self._prevStat = curr;
+        for (var i = 0; i < self._listeners.length; i++) {
+          try { self._listeners[i](curr, prev); } catch(e) {}
+        }
+      }
+    }, self._interval);
+  }
+
+  StatWatcher.prototype.close = function() {
+    this._closed = true;
+    if (this._timer) { clearInterval(this._timer); this._timer = null; }
+  };
+
+  StatWatcher.prototype.ref = function() { return this; };
+  StatWatcher.prototype.unref = function() { return this; };
+
+  StatWatcher.prototype.on = function(ev, cb) {
+    if (ev === 'change' && typeof cb === 'function') {
+      this._listeners.push(cb);
+    }
+    return this;
+  };
+
+  StatWatcher.prototype.removeListener = function(ev, cb) {
+    if (ev === 'change') {
+      var idx = this._listeners.indexOf(cb);
+      if (idx !== -1) this._listeners.splice(idx, 1);
+    }
+    return this;
+  };
+
+  fs.watchFile = function(filename, options, listener) {
+    if (typeof options === 'function') {
+      listener = options;
+      options = {};
+    }
+    if (typeof listener !== 'function') {
+      throw new TypeError('"listener" argument must be a function');
+    }
+    var key = '' + filename;
+    if (_statWatchers[key]) {
+      _statWatchers[key]._listeners.push(listener);
+      return _statWatchers[key];
+    }
+    var watcher = new StatWatcher(filename, options || {}, listener);
+    _statWatchers[key] = watcher;
+    return watcher;
+  };
+
+  fs.unwatchFile = function(filename, listener) {
+    var key = '' + filename;
+    var watcher = _statWatchers[key];
+    if (!watcher) return;
+    if (typeof listener === 'function') {
+      var idx = watcher._listeners.indexOf(listener);
+      if (idx !== -1) watcher._listeners.splice(idx, 1);
+      if (watcher._listeners.length === 0) {
+        watcher.close();
+        delete _statWatchers[key];
+      }
+    } else {
+      watcher.close();
+      delete _statWatchers[key];
+    }
+  };
+
+  globalThis.__dun_cjs_fs__ = fs;
+})()`;
+}
+

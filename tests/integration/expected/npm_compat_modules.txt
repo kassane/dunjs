@@ -110,6 +110,22 @@ PASS: tty.WriteStream
 PASS: module.builtinModules
 PASS: module.isBuiltin
 PASS: module.createRequire
+PASS: child_process.spawn
+PASS: child_process.execFile
+PASS: dgram.createSocket
+PASS: tls.connect
+PASS: tls.getCiphers
+PASS: tls.TLSSocket
+PASS: tls.DEFAULT_MIN_VERSION
+PASS: dns.resolve
+PASS: dns.getServers
+PASS: dns.promises
+PASS: dns.promises.lookup
+PASS: stream.Stream
+PASS: stream.addAbortSignal
+PASS: stream.promises
+PASS: stream.promises.pipeline
+PASS: Readable.toWeb
 PASS: Buffer
 PASS: setTimeout
 PASS: setInterval
@@ -118,4 +134,4 @@ PASS: console.log
 PASS: console.error
 PASS: console.warn
 ---
-Total: 119/119 passed
+Total: 135/135 passed

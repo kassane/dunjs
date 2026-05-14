@@ -33,3 +33,4 @@ public import dun.builtins.cluster;
 public import dun.builtins.async_hooks;
 public import dun.builtins.worker_threads;
 public import dun.builtins.dgram;
+public import dun.builtins.perf_hooks;

@@ -147,6 +147,37 @@ check('module.builtinModules', Array.isArray(mod.builtinModules));
 check('module.isBuiltin', typeof mod.isBuiltin === 'function');
 check('module.createRequire', typeof mod.createRequire === 'function');
 
+// New: spawn/execFile
+var cp = require('child_process');
+check('child_process.spawn', typeof cp.spawn === 'function');
+check('child_process.execFile', typeof cp.execFile === 'function');
+
+// New: dgram
+var dgram = require('dgram');
+check('dgram.createSocket', typeof dgram.createSocket === 'function');
+
+// New: tls connect/getCiphers
+var tls = require('tls');
+check('tls.connect', typeof tls.connect === 'function');
+check('tls.getCiphers', typeof tls.getCiphers === 'function');
+check('tls.TLSSocket', typeof tls.TLSSocket === 'function');
+check('tls.DEFAULT_MIN_VERSION', tls.DEFAULT_MIN_VERSION === 'TLSv1.2');
+
+// New: dns enhancements
+var dns = require('dns');
+check('dns.resolve', typeof dns.resolve === 'function');
+check('dns.getServers', typeof dns.getServers === 'function');
+check('dns.promises', typeof dns.promises === 'object');
+check('dns.promises.lookup', typeof dns.promises.lookup === 'function');
+
+// New: stream enhancements
+var stream = require('stream');
+check('stream.Stream', typeof stream.Stream === 'function');
+check('stream.addAbortSignal', typeof stream.addAbortSignal === 'function');
+check('stream.promises', typeof stream.promises === 'object');
+check('stream.promises.pipeline', typeof stream.promises.pipeline === 'function');
+check('Readable.toWeb', typeof stream.Readable.toWeb === 'function');
+
 // Globals
 check('Buffer', typeof Buffer !== 'undefined');
 check('setTimeout', typeof setTimeout === 'function');

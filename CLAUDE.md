@@ -150,7 +150,7 @@ All runtime globals are **engine-agnostic** (use `IJSEngine` + `NativeCallback`)
 | `readline` | `registerReadlineModule(engine)` | `require('readline')`, ESM `import from 'dun:readline'` |
 | `tls` | `registerTlsModule(engine)` | `require('tls')`, ESM `import from 'dun:tls'` — connect, getCiphers, TLSSocket, constants |
 | `dgram` | `registerDgramModule(engine)` | `require('dgram')`, ESM `import from 'dun:dgram'` — createSocket, bind, send, close |
-| `perf_hooks` | stub (globalThis) | `require('perf_hooks')`, ESM `import from 'dun:perf_hooks'` |
+| `perf_hooks` | `registerPerfHooksModule(engine)` | `require('perf_hooks')`, ESM `import from 'dun:perf_hooks'` — mark/measure/getEntries, PerformanceObserver, timerify |
 | `punycode` | stub (globalThis) | `require('punycode')`, ESM `import from 'dun:punycode'` |
 | `domain` | stub (globalThis) | `require('domain')`, ESM `import from 'dun:domain'` |
 | `diagnostics_channel` | stub (globalThis) | `require('diagnostics_channel')`, ESM `import from 'dun:diagnostics_channel'` |
@@ -429,7 +429,7 @@ dub test -c unittest    # All unit tests
 | V8 TMP bridge | `source/dun/engine/v8/cppbindings.d` | compile-time | V8TypeName coverage, tag->name mapping |
 | JSC TMP bridge | `source/dun/engine/jsc/cppbindings.d` | compile-time | JSCTypeName coverage, kJSType* alignment |
 
-### Integration Tests (81 tests)
+### Integration Tests (81 tests, 135 npm compat checks)
 
 ```sh
 # Run against a specific backend
@@ -467,7 +467,7 @@ dub build -c v8  && BACKEND=v8  ./tests/integration/run.sh
 | Util | `util_enhanced` | 27 checks: types (20+), debuglog, _extend, format, inherits, promisify, callbackify |
 | Readline | `readline_api` | 18 checks: createInterface, events, write/line, punycode, domain, diagnostics_channel |
 | Env Proxy | `process_env_proxy` | 8 checks: set/delete/in/keys, NODE_ENV pattern |
-| npm compat | `npm_compat_modules` | 119 checks: 35 modules, key API surface, globals, http/https client |
+| npm compat | `npm_compat_modules` | 135 checks: 35 modules, key API surface, globals, http/https, stream/tls/dns/dgram/spawn |
 | UDP/dgram | `dgram_api` | 25 checks: createSocket, bind, address, setBroadcast, setTTL, on/close, Socket alias |
 | spawn/execFile | `spawn_api` | 19 checks: spawn pid/stdout/stderr/stdin/on/kill, execFile with callback |
 | TLS module | `tls_api` | 24 checks: connect, getCiphers, TLSSocket constructor/methods, constants |
@@ -770,3 +770,6 @@ Benchmark impact (25 benchmarks, feature_bench.js):
 | 16c | dgram (UDP) | dgram.createSocket with bind/send/close/address/setBroadcast/setTTL, IPv4/IPv6, event callbacks | **Done** |
 | 16d | TLS module | tls.connect with OpenSSL, TLSSocket class, getCiphers, event loop integration, SNI/hostname verify | **Done** |
 | 16e | DNS enhanced | dns.resolve with rrtype, dns.getServers (/etc/resolv.conf), dns.promises (lookup/resolve4/resolve6) | **Done** |
+| 16f | perf_hooks | performance.mark/measure/getEntries/clearMarks, PerformanceObserver, timerify, monitorEventLoopDelay, constants | **Done** |
+| 16g | stream enhanced | Stream base class, addAbortSignal, promises.pipeline/finished, Readable.toWeb, Writable.toWeb | **Done** |
+| 16h | fs.watchFile | fs.watchFile/unwatchFile (stat-polling), fs.watch enhanced (options, FSWatcher events) | **Done** |

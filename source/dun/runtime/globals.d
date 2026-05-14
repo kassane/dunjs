@@ -57,6 +57,7 @@ void installGlobals(IJSEngine engine, DunState* state) @trusted
     import dun.builtins.readline : registerReadlineModule;
     import dun.builtins.tty : registerTtyModule;
     import dun.builtins.dgram : registerDgramModule;
+    import dun.builtins.perf_hooks : registerPerfHooksModule;
     import dun.modules.require : installRequire;
 
     version (Posix)
@@ -112,6 +113,9 @@ void installGlobals(IJSEngine engine, DunState* state) @trusted
     import dun.runtime.web_apis : installWebAPIs;
     installWebAPIs(engine);
 
+    // perf_hooks must come after installWebAPIs so global performance object exists
+    registerPerfHooksModule(engine);
+
     import dun.runtime.deno_compat : installDenoCompat;
     installDenoCompat(engine);
 
@@ -131,10 +135,6 @@ void installGlobals(IJSEngine engine, DunState* state) @trusted
 private void registerStubModules(IJSEngine engine) @trusted
 {
     auto result = engine.eval(`(function() {
-  var perf_hooks = {
-    performance: typeof performance !== 'undefined' ? performance : { now: function() { return Date.now(); } },
-    PerformanceObserver: function() { this.observe = function(){}; this.disconnect = function(){}; }
-  };
   var punycode = {
     encode: function(s) { return s; },
     decode: function(s) { return s; },
@@ -192,7 +192,6 @@ private void registerStubModules(IJSEngine engine) @trusted
   var consoleMod = typeof console !== 'undefined' ? console : {};
 
   if (typeof globalThis !== 'undefined') {
-    globalThis.__dun_cjs_perf_hooks__ = perf_hooks;
     globalThis.__dun_cjs_punycode__ = punycode;
     globalThis.__dun_cjs_diagnostics_channel__ = diagnostics_channel;
     globalThis.__dun_cjs_domain__ = domain;
