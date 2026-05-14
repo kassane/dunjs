@@ -52,6 +52,7 @@ version (EngineQuickJS)
         JS_AddModuleExport(ctx, m, "fail");
         JS_AddModuleExport(ctx, m, "ifError");
         JS_AddModuleExport(ctx, m, "AssertionError");
+        JS_AddModuleExport(ctx, m, "strict");
     }
 
     private extern(C) int assertModuleInit(JSContext* ctx, JSModuleDef* m) nothrow @trusted
@@ -66,7 +67,7 @@ version (EngineQuickJS)
             "ok", "equal", "notEqual", "strictEqual", "notStrictEqual",
             "deepEqual", "deepStrictEqual", "notDeepEqual", "notDeepStrictEqual",
             "throws", "doesNotThrow", "rejects", "doesNotReject",
-            "match", "doesNotMatch", "fail", "ifError", "AssertionError"
+            "match", "doesNotMatch", "fail", "ifError", "AssertionError", "strict"
         ];
         foreach (name; names)
         {
@@ -278,6 +279,11 @@ private string assertSource() pure nothrow @safe
     };
 
     assertFn.AssertionError = AssertionError;
+
+    // assert.strict is a reference to itself (all methods are strict in our impl)
+    assertFn.strict = assertFn;
+    assertFn.strict.strict = assertFn;
+
     globalThis.__dun_cjs_assert__ = assertFn;
 })();`;
 }

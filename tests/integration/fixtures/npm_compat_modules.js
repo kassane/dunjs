@@ -377,6 +377,8 @@ check('util.TextDecoder is global', util.TextDecoder === TextDecoder);
 
 // events.on (async iterator)
 var events = require('events');
+var zlib = require('zlib');
+var readline = require('readline');
 check('events.on', typeof events.on === 'function');
 check('EventEmitter.on', typeof EventEmitter.on === 'function');
 var ee = new EventEmitter();
@@ -566,6 +568,27 @@ check('net.SocketAddress.port', sa.port === 8080);
 check('path.matchesGlob', typeof path.matchesGlob === 'function');
 check('path.matchesGlob works', path.matchesGlob('foo.js', '*.js') === true);
 check('path.matchesGlob negative', path.matchesGlob('foo.ts', '*.js') === false);
+
+// zlib extended APIs
+check('zlib.brotliCompressSync', typeof zlib.brotliCompressSync === 'function');
+check('zlib.brotliDecompressSync', typeof zlib.brotliDecompressSync === 'function');
+check('zlib.unzipSync', typeof zlib.unzipSync === 'function');
+check('zlib.createBrotliCompress', typeof zlib.createBrotliCompress === 'function');
+check('zlib.createBrotliDecompress', typeof zlib.createBrotliDecompress === 'function');
+
+// readline extended APIs
+check('readline.promises', typeof readline.promises === 'object');
+check('readline.promises.createInterface', typeof readline.promises.createInterface === 'function');
+
+// stream.Readable static methods
+check('stream.Readable.isReadable', typeof stream.Readable.isReadable === 'function');
+check('stream.Readable.isDisturbed', typeof stream.Readable.isDisturbed === 'function');
+check('stream.Readable.fromWeb', typeof stream.Readable.fromWeb === 'function');
+
+// assert extended APIs
+check('assert.strict', typeof assert.strict === 'function');
+check('assert.strict.ok', typeof assert.strict.ok === 'function');
+check('assert.strict.deepStrictEqual', typeof assert.strict.deepStrictEqual === 'function');
 
 console.log('---');
 console.log('Total: ' + passed + '/' + checks + ' passed');

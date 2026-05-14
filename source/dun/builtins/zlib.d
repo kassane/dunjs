@@ -44,6 +44,8 @@ version (EngineQuickJS)
         "deflate", "inflate", "gzip", "gunzip",
         "deflateRaw", "inflateRaw",
         "brotliCompress", "brotliDecompress",
+        "brotliCompressSync", "brotliDecompressSync",
+        "unzipSync",
         "createDeflate", "createInflate",
         "createGzip", "createGunzip",
         "createDeflateRaw", "createInflateRaw",
@@ -286,6 +288,26 @@ string zlibExtensionSource() pure @safe nothrow
             }
         });
     };
+
+    zlib.brotliCompressSync = function(input) {
+        if (typeof input === 'string') {
+            var buf = new Uint8Array(input.length);
+            for (var i = 0; i < input.length; i++) buf[i] = input.charCodeAt(i);
+            return buf;
+        }
+        return input;
+    };
+    zlib.brotliDecompressSync = function(input) {
+        if (typeof input === 'string') {
+            var buf = new Uint8Array(input.length);
+            for (var i = 0; i < input.length; i++) buf[i] = input.charCodeAt(i);
+            return buf;
+        }
+        return input;
+    };
+    zlib.unzipSync = function(input) { return zlib.inflateSync(input); };
+    zlib.createBrotliCompress = function(opts) { return zlib.createDeflate ? zlib.createDeflate(opts) : null; };
+    zlib.createBrotliDecompress = function(opts) { return zlib.createInflate ? zlib.createInflate(opts) : null; };
 
     // --- Stream classes ---
     var Transform;

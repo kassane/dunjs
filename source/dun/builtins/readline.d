@@ -35,7 +35,7 @@ version (EngineQuickJS)
         assert(ctx !is null, "Null context in readline registerQuickJSModule");
         auto m = JS_NewCModule(ctx, "dun:readline", &readlineModuleInit);
         if (m is null) return;
-        foreach (name; ["createInterface", "Interface", "default"])
+        foreach (name; ["createInterface", "Interface", "promises", "default"])
             JS_AddModuleExport(ctx, m, name.ptr);
     }
 
@@ -43,7 +43,7 @@ version (EngineQuickJS)
     {
         auto global = JS_GetGlobalObject(ctx);
         auto mod = JS_GetPropertyStr(ctx, global, "__dun_cjs_readline__");
-        foreach (name; ["createInterface", "Interface"])
+        foreach (name; ["createInterface", "Interface", "promises"])
         {
             auto val = JS_GetPropertyStr(ctx, mod, name.ptr);
             JS_SetModuleExport(ctx, m, name.ptr, val);
@@ -192,7 +192,14 @@ string readlineSource() pure @safe nothrow
 
   var mod = {
     createInterface: createInterface,
-    Interface: Interface
+    Interface: Interface,
+    promises: {
+      createInterface: function(opts) {
+        var rl = createInterface(opts);
+        rl[Symbol.asyncIterator] = function() { return rl[Symbol.asyncIterator](); };
+        return rl;
+      }
+    }
   };
 
   if (typeof globalThis !== 'undefined') {

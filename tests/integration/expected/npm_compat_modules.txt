@@ -403,5 +403,18 @@ PASS: net.SocketAddress.port
 PASS: path.matchesGlob
 PASS: path.matchesGlob works
 PASS: path.matchesGlob negative
+PASS: zlib.brotliCompressSync
+PASS: zlib.brotliDecompressSync
+PASS: zlib.unzipSync
+PASS: zlib.createBrotliCompress
+PASS: zlib.createBrotliDecompress
+PASS: readline.promises
+PASS: readline.promises.createInterface
+PASS: stream.Readable.isReadable
+PASS: stream.Readable.isDisturbed
+PASS: stream.Readable.fromWeb
+PASS: assert.strict
+PASS: assert.strict.ok
+PASS: assert.strict.deepStrictEqual
 ---
-Total: 405/405 passed
+Total: 418/418 passed

@@ -488,6 +488,27 @@ string streamSource() pure @safe nothrow
     }
   };
 
+  // --- Static utility methods on Readable ---
+  Readable.isReadable = function(stream) { return stream && typeof stream.read === 'function' && stream.destroyed !== true; };
+  Readable.isDisturbed = function(stream) { return stream && stream._readableState && stream._readableState.dataEmitted === true; };
+  Readable.fromWeb = function(readableStream, opts) {
+    var r = new Readable(opts);
+    var reader = readableStream.getReader();
+    function pump() {
+      reader.read().then(function(result) {
+        if (result.done) { r.push(null); return; }
+        r.push(result.value);
+        pump();
+      }).catch(function(err) { r.destroy(err); });
+    }
+    pump();
+    return r;
+  };
+  Writable.fromWeb = function(writableStream, opts) {
+    var w = new Writable(opts);
+    return w;
+  };
+
   // --- Readable.toWeb / Writable.toWeb stubs ---
   Readable.toWeb = function(readable) {
     return new ReadableStream({
