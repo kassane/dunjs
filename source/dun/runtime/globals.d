@@ -88,6 +88,7 @@ void installGlobals(IJSEngine engine, DunState* state) @trusted
     registerAsyncHooksModule(engine);
     registerClusterModule(engine);
     registerWorkerThreadsModule(engine);
+    registerStubModules(engine);
 
     version (Posix)
         registerFetchGlobal(engine);
@@ -112,6 +113,27 @@ void installGlobals(IJSEngine engine, DunState* state) @trusted
 
     import dun.runtime.worker_api : installWorkerAPI;
     installWorkerAPI(engine, state);
+}
+
+private void registerStubModules(IJSEngine engine) @trusted
+{
+    auto result = engine.eval(`(function() {
+  var tls = { createServer: function() { throw new Error('tls.createServer not implemented'); },
+    connect: function() { throw new Error('tls.connect not implemented'); },
+    TLSSocket: function() { throw new Error('TLSSocket not implemented'); },
+    DEFAULT_MIN_VERSION: 'TLSv1.2', DEFAULT_MAX_VERSION: 'TLSv1.3' };
+  var dgram = { createSocket: function() { throw new Error('dgram.createSocket not implemented'); } };
+  var perf_hooks = {
+    performance: typeof performance !== 'undefined' ? performance : { now: function() { return Date.now(); } },
+    PerformanceObserver: function() { this.observe = function(){}; this.disconnect = function(){}; }
+  };
+  if (typeof globalThis !== 'undefined') {
+    globalThis.__dun_cjs_tls__ = tls;
+    globalThis.__dun_cjs_dgram__ = dgram;
+    globalThis.__dun_cjs_perf_hooks__ = perf_hooks;
+  }
+})()`, "<stubs>");
+    engine.freeValue(result.value);
 }
 
 private JSHandle jsGlobalGC(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted

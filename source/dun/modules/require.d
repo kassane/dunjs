@@ -147,6 +147,9 @@ JSHandle jsRequire(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     else if (specifier == "cluster") specifier = "dun:cluster";
     else if (specifier == "async_hooks") specifier = "dun:async_hooks";
     else if (specifier == "worker_threads") specifier = "dun:worker_threads";
+    else if (specifier == "tls") specifier = "dun:tls";
+    else if (specifier == "dgram") specifier = "dun:dgram";
+    else if (specifier == "perf_hooks") specifier = "dun:perf_hooks";
 
     auto global = engine.getGlobal();
 
@@ -181,6 +184,9 @@ JSHandle jsRequire(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
         else if (specifier == "dun:cluster") propName = "__dun_cjs_cluster__";
         else if (specifier == "dun:async_hooks") propName = "__dun_cjs_async_hooks__";
         else if (specifier == "dun:worker_threads") propName = "__dun_cjs_worker_threads__";
+        else if (specifier == "dun:tls") propName = "__dun_cjs_tls__";
+        else if (specifier == "dun:dgram") propName = "__dun_cjs_dgram__";
+        else if (specifier == "dun:perf_hooks") propName = "__dun_cjs_perf_hooks__";
 
         if (propName.length > 0)
         {
