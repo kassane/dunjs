@@ -170,19 +170,30 @@ void ensureBufferFnsCached(IJSEngine engine) @trusted
         "<buffer-factory>");
     assert(!factoryRes.isError, "Failed to create buffer factory");
     _bufFactory = factoryRes.value;
+    _bufFactoryThis = engine.newUndefined();
 
     _bufFnsCached = true;
 }
 
 __gshared JSHandle _bufFactory;
+__gshared JSHandle _bufFactoryThis;
 
 JSHandle makeBufferObj(IJSEngine engine, const(ubyte)[] data) @trusted
 {
     ensureBufferFnsCached(engine);
     auto u8 = engine.newUint8Array(data);
     auto lenVal = engine.newInt(cast(int) data.length);
-    JSHandle[] factoryArgs = [u8, lenVal];
-    return engine.callFunction(_bufFactory, engine.newUndefined(), factoryArgs);
+    JSHandle[2] factoryArgs = [u8, lenVal];
+    return engine.callFunction(_bufFactory, _bufFactoryThis, factoryArgs[]);
+}
+
+JSHandle makeBufferObjZeroed(IJSEngine engine, int size) @trusted
+{
+    ensureBufferFnsCached(engine);
+    auto u8 = engine.newUint8ArrayZeroed(size);
+    auto lenVal = engine.newInt(size);
+    JSHandle[2] factoryArgs = [u8, lenVal];
+    return engine.callFunction(_bufFactory, _bufFactoryThis, factoryArgs[]);
 }
 
 private immutable char[512] hexLUT = () {
@@ -236,6 +247,7 @@ ubyte[] extractBytes(IJSEngine engine, JSHandle obj) @trusted
 {
     auto u8 = engine.getProperty(obj, "__u8");
     auto bytes = engine.getTypedArrayBytes(u8);
+    engine.freeValue(u8);
     if (bytes !is null) return bytes;
     return null;
 }
@@ -323,10 +335,14 @@ JSHandle jsBufferAlloc(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     if (size < 0 || size > BUFFER_MAX_SIZE)
         return engine.throwRangeError("Invalid buffer size");
 
-    ubyte fillByte = 0;
-    if (args.length >= 2 && engine.isNumber(args[1]))
-        fillByte = cast(ubyte) engine.extractInt(args[1]);
-
+    bool hasFill = args.length >= 2 && engine.isNumber(args[1]);
+    if (!hasFill)
+    {
+        return makeBufferObjZeroed(engine, size);
+    }
+    ubyte fillByte = cast(ubyte) engine.extractInt(args[1]);
+    if (fillByte == 0)
+        return makeBufferObjZeroed(engine, size);
     auto bytes = new ubyte[size];
     bytes[] = fillByte;
     return makeBufferObj(engine, bytes);
@@ -345,8 +361,7 @@ JSHandle jsBufferAllocUnsafe(void* ctx, JSHandle thisVal, JSHandle[] args) @trus
     if (size < 0 || size > BUFFER_MAX_SIZE)
         return engine.throwRangeError("Invalid buffer size");
 
-    auto bytes = new ubyte[size];
-    return makeBufferObj(engine, bytes);
+    return makeBufferObjZeroed(engine, size);
 }
 
 // Buffer.isBuffer(obj)
@@ -367,6 +382,8 @@ JSHandle jsBufferIsBuffer(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 // Buffer.concat(list, [totalLength])
 JSHandle jsBufferConcat(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
+    import core.stdc.string : memcpy;
+
     assert(ctx !is null, "Null ctx in jsBufferConcat");
     auto state = cast(DunState*) ctx;
     assert(state.engine !is null, "Null engine in jsBufferConcat");
@@ -381,21 +398,57 @@ JSHandle jsBufferConcat(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     }
     int count = engine.extractInt(lenVal);
     engine.freeValue(lenVal);
+    if (count == 0) return makeBufferObj(engine, cast(ubyte[]) []);
 
-    import std.array : Appender;
-    Appender!(ubyte[]) combined;
+    // Stack-allocate handles for small arrays, heap for large
+    enum STACK_MAX = 16;
+    JSHandle[STACK_MAX] stackHandles = void;
+    ubyte[][STACK_MAX] stackSlices = void;
+    JSHandle[] elemHandles;
+    ubyte[][] slices;
+    if (count <= STACK_MAX)
+    {
+        elemHandles = stackHandles[0 .. count];
+        slices = stackSlices[0 .. count];
+    }
+    else
+    {
+        elemHandles = new JSHandle[count];
+        slices = new ubyte[][count];
+    }
 
+    // First pass: extract all byte slices and compute total length
+    size_t totalLen = 0;
     for (int i = 0; i < count; i++)
     {
-        auto elem = engine.getPropertyIndex(args[0], cast(uint) i);
-        if (engine.isObject(elem))
+        elemHandles[i] = engine.getPropertyIndex(args[0], cast(uint) i);
+        slices[i] = null;
+        if (engine.isObject(elemHandles[i]))
         {
-            auto bytes = extractBytes(engine, elem);
-            combined ~= bytes;
+            slices[i] = extractBytes(engine, elemHandles[i]);
+            if (slices[i] !is null)
+                totalLen += slices[i].length;
         }
-        engine.freeValue(elem);
     }
-    return makeBufferObj(engine, combined[]);
+
+    // Create result typed array directly and memcpy segments into it
+    ensureBufferFnsCached(engine);
+    auto u8 = engine.newUint8ArrayZeroed(totalLen);
+    auto destBytes = engine.getTypedArrayBytes(u8);
+    size_t pos = 0;
+    for (int i = 0; i < count; i++)
+    {
+        if (slices[i] !is null && slices[i].length > 0 && destBytes !is null)
+        {
+            memcpy(destBytes.ptr + pos, slices[i].ptr, slices[i].length);
+            pos += slices[i].length;
+        }
+        engine.freeValue(elemHandles[i]);
+    }
+
+    auto totalLenVal = engine.newInt(cast(int) totalLen);
+    JSHandle[2] factoryArgs = [u8, totalLenVal];
+    return engine.callFunction(_bufFactory, _bufFactoryThis, factoryArgs[]);
 }
 
 // Buffer.byteLength(string, [encoding])

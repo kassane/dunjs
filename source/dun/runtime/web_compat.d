@@ -272,6 +272,21 @@ JSHandle jsStructuredClone(void* ctx, JSHandle thisVal, JSHandle[] args) @truste
     return deepClone(engine, args[0]);
 }
 
+// Cached JSON.stringify/parse handles for structuredClone hot path
+__gshared JSHandle _cloneJsonObj, _cloneStringify, _cloneParse;
+__gshared bool _cloneCached = false;
+
+void ensureCloneCache(IJSEngine engine) @trusted
+{
+    if (_cloneCached) return;
+    auto global = engine.getGlobal();
+    _cloneJsonObj = engine.getProperty(global, "JSON");
+    _cloneStringify = engine.getProperty(_cloneJsonObj, "stringify");
+    _cloneParse = engine.getProperty(_cloneJsonObj, "parse");
+    engine.freeValue(global);
+    _cloneCached = true;
+}
+
 JSHandle deepClone(IJSEngine engine, JSHandle val) @trusted
 {
     assert(engine !is null, "Null engine in deepClone");
@@ -284,27 +299,14 @@ JSHandle deepClone(IJSEngine engine, JSHandle val) @trusted
     if (engine.isBool(val))
         return engine.newBool(engine.extractBool(val));
 
-    auto global = engine.getGlobal();
-    auto jsonObj = engine.getProperty(global, "JSON");
-    auto stringify = engine.getProperty(jsonObj, "stringify");
-    auto parse = engine.getProperty(jsonObj, "parse");
+    ensureCloneCache(engine);
 
-    auto jsonStr = engine.callFunction(stringify, jsonObj, [val]);
+    auto jsonStr = engine.callFunction(_cloneStringify, _cloneJsonObj, [val]);
     if (engine.isException(jsonStr))
-    {
-        engine.freeValue(parse);
-        engine.freeValue(stringify);
-        engine.freeValue(jsonObj);
-        engine.freeValue(global);
         return engine.throwTypeError("structuredClone: not serializable");
-    }
 
-    auto result = engine.callFunction(parse, jsonObj, [jsonStr]);
+    auto result = engine.callFunction(_cloneParse, _cloneJsonObj, [jsonStr]);
     engine.freeValue(jsonStr);
-    engine.freeValue(parse);
-    engine.freeValue(stringify);
-    engine.freeValue(jsonObj);
-    engine.freeValue(global);
 
     if (engine.isException(result))
         return engine.throwTypeError("structuredClone: not serializable");

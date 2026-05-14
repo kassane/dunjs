@@ -170,6 +170,28 @@ class JSCEngine : IJSEngine
         return toHandle(cast(void*) cast(JSValueRef) ta);
     }
 
+    JSHandle newUint8ArrayZeroed(size_t length) @trusted
+    {
+        assert(ctx !is null, "JSC context not initialized");
+        if (uint8ArrayCtor is null)
+        {
+            auto global = JSContextGetGlobalObject(ctx);
+            auto name = JSStringCreateWithUTF8CString("Uint8Array");
+            scope(exit) JSStringRelease(name);
+            JSValueRef exc = null;
+            auto ctorVal = JSObjectGetProperty(ctx, global, name, &exc);
+            uint8ArrayCtor = cast(JSObjectRef) ctorVal;
+            assert(uint8ArrayCtor !is null, "Uint8Array constructor not found");
+            JSValueProtect(ctx, cast(JSValueRef) uint8ArrayCtor);
+        }
+        JSValueRef exc = null;
+        JSValueRef[1] ctorArgs = [JSValueMakeNumber(ctx, cast(double) length)];
+        auto ta = JSObjectCallAsConstructor(ctx, uint8ArrayCtor, 1, ctorArgs.ptr, &exc);
+        if (exc !is null || ta is null)
+            return toHandle(cast(void*) JSValueMakeUndefined(ctx));
+        return toHandle(cast(void*) cast(JSValueRef) ta);
+    }
+
     ubyte[] getTypedArrayBytes(JSHandle val) @trusted
     {
         assert(ctx !is null, "JSC context not initialized");
