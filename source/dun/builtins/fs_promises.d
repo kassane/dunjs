@@ -785,7 +785,7 @@ AsyncResult serializeStatSafe(string path, bool useLstat) nothrow @trusted
         int typeVal = isFile ? 1 : isDir ? 2 : isLink ? 3 : 0;
 
         double atimeMs, mtimeMs, ctimeMs;
-        version (linux)
+        static if (__traits(hasMember, typeof(st), "st_atim"))
         {
             atimeMs = cast(double)(st.st_atim.tv_sec * 1000L + st.st_atim.tv_nsec / 1_000_000L);
             mtimeMs = cast(double)(st.st_mtim.tv_sec * 1000L + st.st_mtim.tv_nsec / 1_000_000L);

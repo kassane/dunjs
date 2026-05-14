@@ -1,40 +1,65 @@
-# DunJS Container — hardened, multi-backend
+# DunJS Container — hardened, multi-backend, multi-platform
 # Usage:
 #   docker build --build-arg BACKEND=quickjs -t dunjs:quickjs .
 #   docker build --build-arg BACKEND=jsc -t dunjs:jsc .
 #   docker build --build-arg BACKEND=v8 -t dunjs:v8 .
 #   docker run --rm dunjs:quickjs run script.js
 #   docker run --rm dunjs:quickjs eval "1+1"
+#
+# Multi-platform:
+#   docker buildx build --platform linux/amd64,linux/arm64 --build-arg BACKEND=quickjs -t dunjs:quickjs .
 
 # ─── Stage 1: Build ───────────────────────────────────────────
 FROM debian:bookworm-slim AS build
 
 ARG BACKEND=quickjs
 ARG LDC_VERSION=1.42.0
+# TARGETARCH is set automatically by buildx: "amd64" or "arm64"
+ARG TARGETARCH
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates curl xz-utils tar gcc g++ cmake make pkg-config git bash \
-    libxml2-dev libssl-dev linux-headers-amd64 \
+    libxml2-dev libssl-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Install LDC
-RUN curl -sLO --fail https://github.com/ldc-developers/ldc/releases/download/v${LDC_VERSION}/ldc2-${LDC_VERSION}-linux-x86_64.tar.xz \
-    && tar -xJf ldc2-${LDC_VERSION}-linux-x86_64.tar.xz --directory /opt \
-    && ln -s /opt/ldc2-${LDC_VERSION}-linux-x86_64/bin/ldc2 /usr/bin/ldc2 \
-    && ln -s /opt/ldc2-${LDC_VERSION}-linux-x86_64/bin/ldmd2 /usr/bin/ldmd2 \
-    && ln -s /opt/ldc2-${LDC_VERSION}-linux-x86_64/bin/dub /usr/bin/dub \
-    && ln -s /opt/ldc2-${LDC_VERSION}-linux-x86_64/bin/ldc-build-plugin /usr/bin/ldc-build-plugin \
-    && ln -s /opt/ldc2-${LDC_VERSION}-linux-x86_64/bin/ldc-build-runtime /usr/bin/ldc-build-runtime
+# Install LDC (arch-aware: amd64→x86_64, arm64→aarch64)
+RUN case "${TARGETARCH}" in \
+      arm64) LDC_ARCH=aarch64 ;; \
+      *)     LDC_ARCH=x86_64  ;; \
+    esac \
+    && curl -sLO --fail https://github.com/ldc-developers/ldc/releases/download/v${LDC_VERSION}/ldc2-${LDC_VERSION}-linux-${LDC_ARCH}.tar.xz \
+    && tar -xJf ldc2-${LDC_VERSION}-linux-${LDC_ARCH}.tar.xz --directory /opt \
+    && ln -s /opt/ldc2-${LDC_VERSION}-linux-${LDC_ARCH}/bin/ldc2             /usr/bin/ldc2 \
+    && ln -s /opt/ldc2-${LDC_VERSION}-linux-${LDC_ARCH}/bin/ldmd2            /usr/bin/ldmd2 \
+    && ln -s /opt/ldc2-${LDC_VERSION}-linux-${LDC_ARCH}/bin/dub              /usr/bin/dub \
+    && ln -s /opt/ldc2-${LDC_VERSION}-linux-${LDC_ARCH}/bin/ldc-build-plugin /usr/bin/ldc-build-plugin \
+    && ln -s /opt/ldc2-${LDC_VERSION}-linux-${LDC_ARCH}/bin/ldc-build-runtime /usr/bin/ldc-build-runtime
 
 WORKDIR /src
 COPY . .
 RUN mkdir -p vendor/sqlite vendor/v8/lib vendor/v8/include
 
-# Download and compile vendor deps (SQLite, QuickJS, JSC, V8)
-RUN ldc2 -run build.d --backend=${BACKEND} --force
+# Download and compile vendor deps
+# V8 prebuilt is x86_64-only; fall back to quickjs on arm64 if v8 requested
+RUN case "${TARGETARCH}" in \
+      arm64) \
+        case "${BACKEND}" in \
+          v8) echo "V8 not available on arm64, building quickjs instead" \
+              && ldc2 -run build.d --backend=quickjs --force ;; \
+          *)  ldc2 -run build.d --backend=${BACKEND} --force ;; \
+        esac ;; \
+      *) ldc2 -run build.d --backend=${BACKEND} --force ;; \
+    esac
 
-# Build the selected backend
-RUN dub build -c ${BACKEND} -b release 2>&1 \
+# Build the selected backend (fall back to quickjs on arm64 for v8)
+RUN case "${TARGETARCH}" in \
+      arm64) \
+        case "${BACKEND}" in \
+          v8) dub build -c quickjs -b release ;; \
+          *)  dub build -c ${BACKEND} -b release ;; \
+        esac ;; \
+      *) dub build -c ${BACKEND} -b release ;; \
+    esac \
     && strip build/dun \
     && ls -la build/dun
 
@@ -63,7 +88,8 @@ LABEL org.opencontainers.image.title="DunJS" \
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libstdc++6 libgcc-s1 libssl3 \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && groupadd -r dun && useradd -r -g dun -u 1001 -m -d /app dun
 
 COPY --from=build /src/build/dun /usr/local/bin/dun
 COPY --from=build /deps/lib/ /usr/local/lib/
@@ -71,5 +97,7 @@ COPY --from=build /deps/lib/ /usr/local/lib/
 RUN ldconfig
 
 WORKDIR /app
+RUN chown dun:dun /app
+USER dun
 
 ENTRYPOINT ["/usr/local/bin/dun"]

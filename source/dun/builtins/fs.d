@@ -267,7 +267,7 @@ version(Posix)
         r.dev = buf.st_dev;
         r.ino = buf.st_ino;
         r.nlink = cast(int) buf.st_nlink;
-        version (linux)
+        static if (__traits(hasMember, typeof(buf), "st_atim"))
         {
             r.atimeMs = cast(double)(buf.st_atim.tv_sec * 1000L + buf.st_atim.tv_nsec / 1_000_000L);
             r.mtimeMs = cast(double)(buf.st_mtim.tv_sec * 1000L + buf.st_mtim.tv_nsec / 1_000_000L);
