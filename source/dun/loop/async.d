@@ -5,6 +5,15 @@ import core.atomic : atomicStore, atomicLoad, MemoryOrder;
 
 alias ResultTransform = JSHandle delegate(IJSEngine engine, string result) @trusted;
 
+struct AsyncResult
+{
+    string value;
+    string error;
+
+    static AsyncResult ok(string v) nothrow @safe { return AsyncResult(v, ""); }
+    static AsyncResult fail(string e) nothrow @safe { return AsyncResult("", e); }
+}
+
 private struct AsyncTask
 {
     IJSEngine engine;
@@ -22,6 +31,23 @@ void asyncSubmit(IJSEngine engine, JSHandle resolve, JSHandle reject,
     string delegate() @trusted work,
     ResultTransform transform = null) @trusted
 {
+    asyncSubmitSafe(engine, resolve, reject, () @trusted nothrow {
+        try
+        {
+            return AsyncResult.ok(work());
+        }
+        catch (Exception e)
+        {
+            try { return AsyncResult.fail(e.msg); }
+            catch (Exception) { return AsyncResult.fail("async operation failed"); }
+        }
+    }, transform);
+}
+
+void asyncSubmitSafe(IJSEngine engine, JSHandle resolve, JSHandle reject,
+    AsyncResult delegate() @trusted nothrow work,
+    ResultTransform transform = null) @trusted
+{
     auto task = new AsyncTask();
     task.engine = engine;
     task.resolve = resolve;
@@ -33,15 +59,9 @@ void asyncSubmit(IJSEngine engine, JSHandle resolve, JSHandle reject,
 
     import core.thread : Thread;
     auto t = new Thread({
-        try
-        {
-            task.result = work();
-        }
-        catch (Exception e)
-        {
-            try { task.error = e.msg; }
-            catch (Exception) { task.error = "async operation failed"; }
-        }
+        auto r = work();
+        task.result = r.value;
+        task.error = r.error;
         atomicStore!(MemoryOrder.rel)(task.completed, true);
     });
     t.isDaemon = true;
@@ -51,10 +71,16 @@ void asyncSubmit(IJSEngine engine, JSHandle resolve, JSHandle reject,
 int asyncDrain() @trusted
 {
     int drained = 0;
-    AsyncTask*[] remaining;
 
-    foreach (task; tasks)
+    // Snapshot the current length — resolving a task may submit new tasks
+    // via .then() handlers, appending to `tasks`. Process only the snapshot;
+    // newly added tasks are picked up on the next drain cycle.
+    auto snapshot = tasks.length;
+    size_t writeIdx = 0;
+
+    foreach (i; 0 .. snapshot)
     {
+        auto task = tasks[i];
         if (atomicLoad!(MemoryOrder.acq)(task.completed))
         {
             auto engine = task.engine;
@@ -85,10 +111,24 @@ int asyncDrain() @trusted
         }
         else
         {
-            remaining ~= task;
+            tasks[writeIdx++] = task;
         }
     }
-    tasks = remaining;
+
+    // Compact: keep incomplete tasks from snapshot + any newly appended tasks
+    if (tasks.length > snapshot)
+    {
+        auto newTasks = tasks[snapshot .. $];
+        foreach (j, t; newTasks)
+            tasks[writeIdx + j] = t;
+        tasks.length = writeIdx + newTasks.length;
+    }
+    else
+    {
+        tasks.length = writeIdx;
+    }
+    tasks.assumeSafeAppend();
+
     return drained;
 }
 

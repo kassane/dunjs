@@ -238,7 +238,7 @@ void ensureStatFnsCached(IJSEngine engine) @trusted
     }
 }
 
-private struct SafeStatResult
+package struct SafeStatResult
 {
     long size;
     uint mode;
@@ -345,7 +345,7 @@ else version(Windows)
     }
 }
 
-JSHandle buildStatObject(IJSEngine engine, ref SafeStatResult r) @trusted
+package JSHandle buildStatObject(IJSEngine engine, ref SafeStatResult r) @trusted
 {
     auto obj = engine.newObject();
     engine.setProperty(obj, "_type", engine.newInt(r.isFile ? 1 : r.isDir ? 2 : r.isLink ? 3 : 0));
@@ -602,7 +602,7 @@ JSHandle jsUnlinkSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 JSHandle jsReadFileAsync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
     import dun.engine.iface : PromiseHandles;
-    import dun.loop.async : asyncSubmit;
+    import dun.loop.async : asyncSubmitSafe, AsyncResult;
 
     assert(ctx !is null, "Null ctx in jsReadFileAsync");
     auto state = cast(DunState*) ctx;
@@ -617,9 +617,18 @@ JSHandle jsReadFileAsync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     engine.dupValue(ph.resolve);
     engine.dupValue(ph.reject);
 
-    asyncSubmit(engine, ph.resolve, ph.reject, () @trusted {
-        import std.file : readText;
-        return readText(path);
+    asyncSubmitSafe(engine, ph.resolve, ph.reject, () @trusted nothrow {
+        try
+        {
+            import std.file : readText;
+            return AsyncResult.ok(readText(path));
+        }
+        catch (Exception e)
+        {
+            string msg;
+            try { msg = e.msg; } catch (Exception) { msg = "read error"; }
+            return AsyncResult.fail(msg);
+        }
     });
 
     return ph.promise;
@@ -628,7 +637,7 @@ JSHandle jsReadFileAsync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 JSHandle jsWriteFileAsync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
     import dun.engine.iface : PromiseHandles;
-    import dun.loop.async : asyncSubmit;
+    import dun.loop.async : asyncSubmitSafe, AsyncResult;
 
     assert(ctx !is null, "Null ctx in jsWriteFileAsync");
     auto state = cast(DunState*) ctx;
@@ -644,10 +653,19 @@ JSHandle jsWriteFileAsync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     engine.dupValue(ph.resolve);
     engine.dupValue(ph.reject);
 
-    asyncSubmit(engine, ph.resolve, ph.reject, () @trusted {
-        import std.file : write;
-        write(path, data);
-        return "ok";
+    asyncSubmitSafe(engine, ph.resolve, ph.reject, () @trusted nothrow {
+        try
+        {
+            import std.file : write;
+            write(path, data);
+            return AsyncResult.ok("ok");
+        }
+        catch (Exception e)
+        {
+            string msg;
+            try { msg = e.msg; } catch (Exception) { msg = "write error"; }
+            return AsyncResult.fail(msg);
+        }
     });
 
     return ph.promise;

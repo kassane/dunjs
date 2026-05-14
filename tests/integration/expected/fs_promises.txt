@@ -1,0 +1,22 @@
+PASS: require fs/promises: true
+PASS: fs.promises: true
+PASS: mkdir created dir
+PASS: writeFile completed
+PASS: readFile: true
+PASS: appendFile: true
+PASS: stat isFile: true
+PASS: stat size: true
+PASS: copyFile: true
+PASS: readdir: copy.txt,test.txt
+PASS: rename: true
+PASS: access ok
+PASS: access throws for missing: true
+PASS: realpath: true
+PASS: chmod ok
+PASS: lstat isFile: true
+PASS: truncate: true
+PASS: unlink ok
+PASS: rmdir ok
+PASS: mkdir recursive: true
+PASS: rm recursive ok
+All fs/promises tests passed
