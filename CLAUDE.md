@@ -522,50 +522,50 @@ Cross-runtime comparison (feature_bench.js, 25 tests, release builds, ops/sec):
 
 | Runtime | Total Throughput | vs Bun |
 |---------|-----------------|--------|
-| DunJS JSC | 566M | **1.09x** |
-| Bun 1.3.14 | 521M | 1.00x |
-| Node.js v22 | 155M | 0.30x |
-| DunJS V8 | 120M | 0.23x |
+| DunJS JSC | 555M | **1.03x** |
+| Bun 1.3.14 | 538M | 1.00x |
+| Node.js v22 | 156M | 0.29x |
+| DunJS V8 | 128M | 0.24x |
 
-DunJS JSC **beats Bun 1.3.14** by +8.6% overall. Wins 15+ of 25 individual tests
-(Array +21%, Object +30%, Map/Set +33-55%, Promise.resolve +15%, JSON +10-14%,
-template literal +5%, string replace +14%). Gap narrows to encoding operations
-(crypto, Buffer, TextEncoder) where Bun uses C++ directly while DunJS uses IJSEngine FFI.
+DunJS JSC **beats Bun 1.3.14** consistently. Wins in Array, Object, Map/Set,
+Promise.resolve, JSON, template literal, string operations. Gap narrows to
+native encoding operations (crypto, Buffer, TextEncoder) where Bun uses C++
+directly while DunJS uses IJSEngine FFI.
 
 Framework benchmarks (framework_bench.js, 39 tests, release builds, ops/sec):
 
 | Runtime | Total Throughput | vs Bun |
 |---------|-----------------|--------|
-| DunJS JSC | 285M | **1.11x** |
-| Bun 1.3.14 | 257M | 1.00x |
-| Node.js v22 | 171M | 0.67x |
-| DunJS V8 | 169M | 0.66x |
+| Bun 1.3.14 | 301M | 1.00x |
+| DunJS JSC | 276M | **0.92x** |
+| DunJS V8 | 180M | 0.60x |
+| Node.js v22 | 168M | 0.56x |
 
-DunJS JSC **beats Bun 1.3.14** by +11% on framework patterns. Wins in routing,
-validation, query building, promise chains, conditional templates.
+DunJS JSC at 92% of Bun on framework patterns. DunJS V8 beats Node.js by 7%.
 
 npm compat test (npm_compat_test.js, 145 assertions): **All 6 runtimes: 145/145 pass**
 
-HTTP stress benchmarks (wrk, 2 threads, 128 connections, 5s per endpoint, release builds):
+HTTP stress benchmarks (wrk, 2 threads, 128 connections, 10s per endpoint, release builds):
 
 | Endpoint | Node v22 | Bun 1.3.14 | DunJS V8 | DunJS JSC |
 |----------|----------|---------|----------|-----------|
-| /plaintext | 38,971 | 67,347 | **61,832** | 48,637 |
-| /json | 45,484 | 59,127 | **62,753** | 42,538 |
-| /compute | 39,511 | 74,098 | **53,171** | 41,635 |
+| /plaintext | 38,120 | 73,693 | **68,866** | 48,846 |
+| /json | 45,950 | 59,680 | **61,447** | 41,318 |
+| /compute | 43,140 | 73,368 | **55,385** | 39,439 |
 
-DunJS V8 HTTP: 91% of Bun on /plaintext, **beats Bun on /json** (62K vs 59K, +6%).
-Beats Node.js by 58% on /plaintext. All endpoints include TCP_NODELAY, buffered
-single-write response, CTFE status lines.
+DunJS V8 HTTP: 93% of Bun on /plaintext, **beats Bun on /json** (61K vs 59K, +3%).
+Beats Node.js by **80%** on /plaintext. Uses accept4(SOCK_NONBLOCK|SOCK_CLOEXEC),
+SO_REUSEPORT, TCP_NODELAY, buffered single-write response, CTFE status lines,
+auto Content-Length.
 
 Stress test (stress.js, 240 tests, release builds):
 
 | Runtime | Wall Time | Status |
 |---------|-----------|--------|
 | Bun 1.3.14 | 76.8s | 240/240 |
-| DunJS JSC | 77.8s | **240/240** |
-| DunJS V8 | 170s | 240/240 |
-| Node.js v22 | 174s | 240/240 |
+| DunJS JSC | 79.0s | **240/240** |
+| DunJS V8 | 171s | 240/240 |
+| Node.js v22 | 173s | 240/240 |
 
 ### Concurrency & SIMD Comparison
 
