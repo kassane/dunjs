@@ -71,14 +71,16 @@ string extractExceptionWithStack(JSContext* ctx) @trusted
         scope (exit)
             JS_FreeValue(ctx, stackVal);
 
-        if (!JS_IsUndefined(stackVal))
+        if (!JS_IsUndefined(stackVal) && JS_IsString(stackVal))
         {
             size_t len;
             const(char)* cstr = JS_ToCStringLen2(ctx, &len, stackVal, 0);
             if (cstr !is null)
             {
-                result ~= "\n" ~ cstr[0 .. len].idup;
+                auto stackStr = cstr[0 .. len].idup;
                 JS_FreeCString(ctx, cstr);
+                if (stackStr.length > 0)
+                    result ~= "\n" ~ stackStr;
             }
         }
     }
