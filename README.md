@@ -197,6 +197,7 @@ Feature benchmarks (25 tests, ops/sec — higher is better):
 | Bun 1.3.11 | 399M | 1.00x |
 | DunJS JSC | 373M | 0.94x |
 | Node.js v22 | 118M | 0.30x |
+| Deno 2.7.14 | 108M | 0.27x |
 | DunJS V8 | 103M | 0.26x |
 
 Framework benchmarks (39 tests, ops/sec):
@@ -205,6 +206,7 @@ Framework benchmarks (39 tests, ops/sec):
 |---------|-----------------|----------|
 | Bun 1.3.11 | 275M | 1.00x |
 | DunJS JSC | 260M | 0.95x |
+| Deno 2.7.14 | 143M | 0.52x |
 | DunJS V8 | 138M | 0.50x |
 | Node.js v22 | 125M | 0.45x |
 
