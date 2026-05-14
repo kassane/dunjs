@@ -132,7 +132,7 @@ async function main() {
   console.log('PASS: FileHandle has read: ' + (typeof fh.read === 'function'));
 
   // 23. FileHandle readFile
-  const fhContent = await fh.readFile();
+  const fhContent = await fh.readFile('utf8');
   console.log('PASS: FileHandle readFile: ' + (fhContent === 'filehandle content'));
 
   // 24. FileHandle stat

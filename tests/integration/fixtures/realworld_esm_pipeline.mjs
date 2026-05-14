@@ -16,7 +16,7 @@ const tmpFile = '/tmp/dun_esm_pipeline_' + Date.now() + '.csv';
 writeFileSync(tmpFile, csvData);
 
 // Step 2: Read and parse
-const raw = readFileSync(tmpFile);
+const raw = readFileSync(tmpFile, 'utf8');
 const lines = raw.split('\n');
 const headers = lines[0].split(',');
 const rows = lines.slice(1).map(line => {

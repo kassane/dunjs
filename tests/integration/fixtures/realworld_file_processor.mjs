@@ -7,7 +7,7 @@ const INPUT = 'tests/integration/fixtures/data/sample.json';
 const OUTPUT = '/tmp/dun_realworld_' + randomUUID() + '.json';
 
 // Step 1: Read and parse input
-const raw = readFileSync(INPUT);
+const raw = readFileSync(INPUT, 'utf8');
 const data = JSON.parse(raw);
 console.log('read bytes: ' + (raw.length > 0));
 
@@ -41,7 +41,7 @@ console.log('output is file: ' + stat.isFile());
 console.log('output size > 0: ' + (stat.size > 0));
 
 // Step 6: Read back and verify round-trip
-const readBack = JSON.parse(readFileSync(OUTPUT));
+const readBack = JSON.parse(readFileSync(OUTPUT, 'utf8'));
 console.log('round-trip items: ' + readBack.items.length);
 console.log('first item: ' + readBack.items[0].name);
 console.log('source: ' + readBack.source);

@@ -190,7 +190,11 @@ void ensureBufferFnsCached(IJSEngine engine) @trusted
         "(function(){" ~
         "var p=__dunBufProto__,c=Object.create;" ~
         "return function __dunMkBuf(u8,len){" ~
-        "var o=c(p);o.__isBuffer=true;o.length=len;o.__u8=u8;return o;};})()",
+        "var o=c(p);o.__isBuffer=true;o.length=len;o.__u8=u8;" ~
+        "return new Proxy(o,{" ~
+        "get:function(t,k,r){if(typeof k==='string'){var n=+k;if(n===(n|0)&&n>=0&&n<t.length)return t.__u8[n];}return Reflect.get(t,k,r);}," ~
+        "set:function(t,k,v,r){if(typeof k==='string'){var n=+k;if(n===(n|0)&&n>=0&&n<t.length){t.__u8[n]=v;return true;}}return Reflect.set(t,k,v,r);}" ~
+        "});};})()",
         "<buffer-factory>");
     assert(!factoryRes.isError, "Failed to create buffer factory");
     _bufFactory = factoryRes.value;

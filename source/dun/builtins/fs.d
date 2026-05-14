@@ -82,6 +82,45 @@ private string safeReadFile(string path, out string errMsg) @trusted nothrow
     return result;
 }
 
+private ubyte[] safeReadFileBytes(string path, out string errMsg) @trusted nothrow
+{
+    import core.stdc.stdio : FILE, fopen, fread, fclose, fseek, ftell, SEEK_END, SEEK_SET;
+    import core.stdc.errno : errno;
+    import core.stdc.string : strerror;
+    import std.string : fromStringz;
+
+    auto cpath = (path ~ '\0');
+    auto fp = fopen(cpath.ptr, "rb");
+    if (fp is null)
+    {
+        auto e = errno;
+        try { errMsg = cast(string) fromStringz(strerror(e)); } catch (Exception) { errMsg = "I/O error"; }
+        return null;
+    }
+    scope(exit) fclose(fp);
+
+    fseek(fp, 0, SEEK_END);
+    auto size = ftell(fp);
+    if (size < 0 || size > MAX_READ_LENGTH)
+    {
+        errMsg = size < 0 ? "failed to determine file size" : "file too large";
+        return null;
+    }
+    fseek(fp, 0, SEEK_SET);
+
+    ubyte[] buf;
+    try { buf = new ubyte[cast(size_t) size]; }
+    catch (Exception) { errMsg = "out of memory"; return null; }
+
+    auto nread = fread(buf.ptr, 1, buf.length, fp);
+    if (nread != buf.length)
+    {
+        try { errMsg = cast(string) fromStringz(strerror(errno)); } catch (Exception) { errMsg = "read error"; }
+        return null;
+    }
+    return buf[0 .. nread];
+}
+
 /// File write using C stdio — portable across all platforms.
 private bool safeWriteFile(string path, string data, out string errMsg) @trusted nothrow
 {
@@ -512,6 +551,53 @@ JSHandle throwPermError(IJSEngine engine, string perm, string path = "") @truste
         "Requires --allow-" ~ perm ~ " permission", "", path);
 }
 
+string extractEncoding(IJSEngine engine, scope JSHandle[] args) @trusted
+{
+    if (args.length < 2) return null;
+    if (engine.isString(args[1]))
+        return engine.extractString(args[1]);
+    if (engine.isObject(args[1]))
+    {
+        auto enc = engine.getProperty(args[1], "encoding");
+        scope(exit) engine.freeValue(enc);
+        if (engine.isString(enc))
+            return engine.extractString(enc);
+    }
+    return null;
+}
+
+__gshared JSHandle _bufFromFn;
+__gshared bool _bufFromCached = false;
+
+void ensureBufFromCached(IJSEngine engine) @trusted
+{
+    if (_bufFromCached) return;
+    auto global = engine.getGlobal();
+    auto bufCtor = engine.getProperty(global, "Buffer");
+    _bufFromFn = engine.getProperty(bufCtor, "from");
+    engine.freeValue(bufCtor);
+    engine.freeValue(global);
+    _bufFromCached = true;
+}
+
+JSHandle createBufferFromBytes(IJSEngine engine, const(ubyte)[] data) @trusted
+{
+    assert(engine !is null, "Null engine in createBufferFromBytes");
+    ensureBufFromCached(engine);
+
+    if (engine.isUndefined(_bufFromFn) || !engine.isFunction(_bufFromFn))
+        return engine.newUint8Array(data);
+
+    auto uint8 = engine.newUint8Array(data);
+    auto global = engine.getGlobal();
+    auto bufCtor = engine.getProperty(global, "Buffer");
+    auto result = engine.callFunction(_bufFromFn, bufCtor, [uint8]);
+    engine.freeValue(bufCtor);
+    engine.freeValue(global);
+    engine.freeValue(uint8);
+    return result;
+}
+
 JSHandle jsReadFileSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsReadFileSync");
@@ -522,11 +608,23 @@ JSHandle jsReadFileSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @tru
     auto path = engine.extractString(args[0]);
     if (!checkPerm(state, Permission.read, path))
         return throwPermError(engine, "read", path);
+
+    string encoding = extractEncoding(engine, args);
+
+    if (encoding.length > 0)
+    {
+        string errMsg;
+        auto content = safeReadFile(path, errMsg);
+        if (content is null)
+            return throwNodeError(engine, "ENOENT", errMsg, "open", path);
+        return engine.newString(content);
+    }
+
     string errMsg;
-    auto content = safeReadFile(path, errMsg);
-    if (content is null)
+    auto bytes = safeReadFileBytes(path, errMsg);
+    if (bytes is null)
         return throwNodeError(engine, "ENOENT", errMsg, "open", path);
-    return engine.newString(content);
+    return createBufferFromBytes(engine, bytes);
 }
 
 JSHandle jsWriteFileSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
