@@ -416,5 +416,19 @@ PASS: stream.Readable.fromWeb
 PASS: assert.strict
 PASS: assert.strict.ok
 PASS: assert.strict.deepStrictEqual
+PASS: process.binding
+PASS: process._linkedBinding
+PASS: process.hasUncaughtExceptionCaptureCallback
+PASS: process.setUncaughtExceptionCaptureCallback
+PASS: process.hasUncaughtExceptionCaptureCallback returns false
+PASS: process.config
+PASS: process.features
+PASS: process.release
+PASS: process.release.name
+PASS: http.Server.setTimeout
+PASS: http.Server.setTimeout returns server
+PASS: URL.canParse
+PASS: URL.canParse valid
+PASS: URL.canParse invalid
 ---
-Total: 418/418 passed
+Total: 432/432 passed

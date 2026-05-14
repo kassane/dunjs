@@ -405,7 +405,19 @@ JSHandle makeHttpServerObj(IJSEngine engine, int id) @trusted
     engine.setProperty(obj, "headersTimeout", engine.newInt(60000));
     engine.setProperty(obj, "requestTimeout", engine.newInt(300000));
     engine.setProperty(obj, "maxHeadersCount", engine.newInt(2000));
+    engine.setProperty(obj, "setTimeout", engine.newFunction(&jsHttpServerSetTimeout, "setTimeout", 2));
     return obj;
+}
+
+JSHandle jsHttpServerSetTimeout(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+{
+    assert(ctx !is null);
+    auto state = cast(DunState*) ctx;
+    assert(state.engine !is null);
+    auto engine = state.engine;
+    if (args.length >= 1 && engine.isNumber(args[0]))
+        engine.setProperty(thisVal, "timeout", args[0]);
+    return engine.dupValue(thisVal);
 }
 
 JSHandle jsHttpServerListen(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted

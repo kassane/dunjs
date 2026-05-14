@@ -1018,5 +1018,13 @@ string processEnhanceSource() pure @safe nothrow
     filename: ''
   };
   p.allowedNodeEnvironmentFlags = new Set();
+  p.binding = function(name) { throw new Error('process.binding is deprecated and not supported'); };
+  p._linkedBinding = function(name) { throw new Error('process._linkedBinding is not supported'); };
+  var _uncaughtCb = null;
+  p.hasUncaughtExceptionCaptureCallback = function() { return _uncaughtCb !== null; };
+  p.setUncaughtExceptionCaptureCallback = function(fn) { _uncaughtCb = fn || null; };
+  if (!p.config) p.config = { variables: {} };
+  if (!p.features) p.features = { inspector: false, debug: false, uv: false, ipv6: true, tls_alpn: true, tls_sni: true, tls_ocsp: false, tls: true };
+  if (!p.release) p.release = { name: 'dun' };
 })()`;
 }

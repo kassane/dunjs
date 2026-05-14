@@ -590,5 +590,27 @@ check('assert.strict', typeof assert.strict === 'function');
 check('assert.strict.ok', typeof assert.strict.ok === 'function');
 check('assert.strict.deepStrictEqual', typeof assert.strict.deepStrictEqual === 'function');
 
+// process extended APIs
+check('process.binding', typeof process.binding === 'function');
+check('process._linkedBinding', typeof process._linkedBinding === 'function');
+check('process.hasUncaughtExceptionCaptureCallback', typeof process.hasUncaughtExceptionCaptureCallback === 'function');
+check('process.setUncaughtExceptionCaptureCallback', typeof process.setUncaughtExceptionCaptureCallback === 'function');
+check('process.hasUncaughtExceptionCaptureCallback returns false', process.hasUncaughtExceptionCaptureCallback() === false);
+check('process.config', typeof process.config === 'object');
+check('process.features', typeof process.features === 'object');
+check('process.release', typeof process.release === 'object');
+check('process.release.name', process.release.name === 'dun');
+
+// http.Server.setTimeout
+var testSrv = http.createServer(function(){});
+check('http.Server.setTimeout', typeof testSrv.setTimeout === 'function');
+var retSrv = testSrv.setTimeout(30000);
+check('http.Server.setTimeout returns server', retSrv === testSrv);
+
+// URL.canParse
+check('URL.canParse', typeof URL.canParse === 'function');
+check('URL.canParse valid', URL.canParse('https://example.com') === true);
+check('URL.canParse invalid', URL.canParse('not a url') === false);
+
 console.log('---');
 console.log('Total: ' + passed + '/' + checks + ' passed');

@@ -403,6 +403,12 @@ string urlSource() pure @safe nothrow
     parse: urlParse, format: urlFormat, resolve: urlResolve,
     fileURLToPath: fileURLToPath, pathToFileURL: pathToFileURL,
     domainToASCII: domainToASCII, domainToUnicode: domainToUnicode };
+  URL.canParse = function(url, base) {
+    try { new URL(url, base); return true; }
+    catch(e) { return false; }
+  };
+  URL.createObjectURL = function() { throw new Error('URL.createObjectURL is not supported in server-side JS'); };
+  URL.revokeObjectURL = function() {};
   if (typeof globalThis !== 'undefined') {
     globalThis.__dun_cjs_url__ = mod;
     globalThis.URL = URL;
