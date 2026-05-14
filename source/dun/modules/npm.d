@@ -238,8 +238,12 @@ PackageMeta fetchPackageMeta(string name) @trusted
     PackageMeta meta;
     try
     {
+        import std.algorithm : startsWith;
+        auto registryUrl = name.startsWith("@jsr/")
+            ? "https://npm.jsr.io/"
+            : "https://registry.npmjs.org/";
         auto result = doFetch(
-            "https://registry.npmjs.org/" ~ name, "GET", "", false, null);
+            registryUrl ~ name, "GET", "", false, null);
         if (!result.ok)
             return meta;
 
