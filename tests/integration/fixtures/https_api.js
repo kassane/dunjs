@@ -27,4 +27,23 @@ try {
   console.log("bad cert error:", e.message.indexOf('certificate') >= 0);
 }
 
+// Test 6: request function exists
+console.log("https.request:", typeof https.request === 'function');
+
+// Test 7: get function exists
+console.log("https.get:", typeof https.get === 'function');
+
+// Test 8: Agent class
+console.log("https.Agent:", typeof https.Agent === 'function');
+
+// Test 9: globalAgent
+console.log("https.globalAgent:", typeof https.globalAgent === 'object');
+
+// Test 10: METHODS array
+console.log("https.METHODS:", Array.isArray(https.METHODS));
+
+// Test 11: STATUS_CODES
+console.log("https.STATUS_CODES:", typeof https.STATUS_CODES === 'object');
+console.log("STATUS_CODES 200:", https.STATUS_CODES[200] === 'OK');
+
 console.log("All HTTPS checks passed");

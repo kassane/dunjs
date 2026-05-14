@@ -3,4 +3,11 @@ createServer: true
 no opts error: true
 bad opts error: true
 bad cert error: true
+https.request: true
+https.get: true
+https.Agent: true
+https.globalAgent: true
+https.METHODS: true
+https.STATUS_CODES: true
+STATUS_CODES 200: true
 All HTTPS checks passed

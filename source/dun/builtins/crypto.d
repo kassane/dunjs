@@ -98,6 +98,19 @@ void registerCryptoModule(IJSEngine engine) @trusted
 
     auto global = engine.getGlobal();
     engine.setProperty(global, "__dun_cjs_crypto__", obj);
+
+    auto cryptoExtResult = engine.eval(cryptoExtensionSource(), "<crypto-ext>");
+    if (!cryptoExtResult.isError)
+    {
+        foreach (name; ["pbkdf2", "scrypt", "randomFillSync", "randomFill",
+                        "createSign", "createVerify", "generateKeyPairSync",
+                        "createDiffieHellman", "constants"])
+        {
+            auto prop = engine.getProperty(cryptoExtResult.value, name);
+            engine.setProperty(obj, name, prop);
+        }
+    }
+    engine.freeValue(cryptoExtResult.value);
     engine.freeValue(global);
 
     version (EngineQuickJS)
@@ -116,7 +129,10 @@ version (EngineQuickJS)
         foreach (name; ["randomBytes", "randomUUID", "createHash", "createHmac",
                         "timingSafeEqual", "randomInt", "pbkdf2Sync", "scryptSync",
                         "createCipheriv", "createDecipheriv",
-                        "getHashes", "getCiphers"])
+                        "getHashes", "getCiphers",
+                        "pbkdf2", "scrypt", "randomFillSync", "randomFill",
+                        "createSign", "createVerify", "generateKeyPairSync",
+                        "createDiffieHellman", "constants"])
             JS_AddModuleExport(ctx, m, name.ptr);
     }
 
@@ -129,7 +145,10 @@ version (EngineQuickJS)
         foreach (name; ["randomBytes", "randomUUID", "createHash", "createHmac",
                         "timingSafeEqual", "randomInt", "pbkdf2Sync", "scryptSync",
                         "createCipheriv", "createDecipheriv",
-                        "getHashes", "getCiphers"])
+                        "getHashes", "getCiphers",
+                        "pbkdf2", "scrypt", "randomFillSync", "randomFill",
+                        "createSign", "createVerify", "generateKeyPairSync",
+                        "createDiffieHellman", "constants"])
         {
             auto fn = JS_GetPropertyStr(ctx, cryptoObj, name.ptr);
             JS_SetModuleExport(ctx, m, name.ptr, fn);
@@ -955,4 +974,118 @@ private string computeHmac(string algo, string key, string data) @trusted
 
     import std.digest : toHexString, LetterCase;
     return toHexString!(LetterCase.lower)(outBuf[0 .. outLen]).idup;
+}
+
+string cryptoExtensionSource() pure @safe nothrow
+{
+    return `(function() {
+  var crypto = globalThis.__dun_cjs_crypto__;
+
+  function pbkdf2(password, salt, iterations, keylen, digest, callback) {
+    if (typeof digest === 'function') { callback = digest; digest = 'sha1'; }
+    Promise.resolve().then(function() {
+      try {
+        var result = crypto.pbkdf2Sync(password, salt, iterations, keylen, digest);
+        callback(null, result);
+      } catch(e) {
+        callback(e);
+      }
+    });
+  }
+
+  function scrypt(password, salt, keylen, options, callback) {
+    if (typeof options === 'function') { callback = options; options = {}; }
+    Promise.resolve().then(function() {
+      try {
+        var result = crypto.scryptSync(password, salt, keylen);
+        callback(null, result);
+      } catch(e) {
+        callback(e);
+      }
+    });
+  }
+
+  function randomFillSync(buf, offset, size) {
+    offset = offset || 0;
+    size = size || (buf.length - offset);
+    var rnd = crypto.randomBytes(size);
+    if (typeof rnd === 'string') {
+      for (var i = 0; i < size && i < rnd.length; i++) {
+        buf[offset + i] = rnd.charCodeAt(i);
+      }
+    } else if (rnd && rnd.length) {
+      for (var i = 0; i < size && i < rnd.length; i++) {
+        buf[offset + i] = rnd[i];
+      }
+    }
+    return buf;
+  }
+
+  function randomFill(buf, offset, size, callback) {
+    if (typeof offset === 'function') { callback = offset; offset = 0; size = buf.length; }
+    if (typeof size === 'function') { callback = size; size = buf.length - offset; }
+    Promise.resolve().then(function() {
+      try {
+        callback(null, randomFillSync(buf, offset, size));
+      } catch(e) {
+        callback(e);
+      }
+    });
+  }
+
+  function createSign(algorithm) {
+    return {
+      _algo: algorithm,
+      _data: '',
+      update: function(data) { this._data += data; return this; },
+      sign: function(key, outputEncoding) {
+        throw new Error('crypto.createSign requires OpenSSL key operations (not yet implemented)');
+      }
+    };
+  }
+
+  function createVerify(algorithm) {
+    return {
+      _algo: algorithm,
+      _data: '',
+      update: function(data) { this._data += data; return this; },
+      verify: function(key, signature, inputEncoding) {
+        throw new Error('crypto.createVerify requires OpenSSL key operations (not yet implemented)');
+      }
+    };
+  }
+
+  function generateKeyPairSync(type, options) {
+    throw new Error('crypto.generateKeyPairSync requires OpenSSL key generation (not yet implemented)');
+  }
+
+  function createDiffieHellman(primeLength) {
+    throw new Error('crypto.createDiffieHellman requires OpenSSL DH (not yet implemented)');
+  }
+
+  var constants = {
+    SSL_OP_ALL: 0,
+    ENGINE_METHOD_RSA: 1,
+    DH_CHECK_P_NOT_SAFE_PRIME: 2,
+    RSA_PKCS1_PADDING: 1,
+    RSA_PKCS1_OAEP_PADDING: 4,
+    RSA_NO_PADDING: 3,
+    POINT_CONVERSION_COMPRESSED: 2,
+    POINT_CONVERSION_UNCOMPRESSED: 4,
+    defaultCoreCipherList: 'TLS_AES_256_GCM_SHA384:TLS_AES_128_GCM_SHA256',
+    defaultCipherList: 'TLS_AES_256_GCM_SHA384:TLS_AES_128_GCM_SHA256'
+  };
+
+  return {
+    pbkdf2: pbkdf2,
+    scrypt: scrypt,
+    randomFillSync: randomFillSync,
+    randomFill: randomFill,
+    createSign: createSign,
+    createVerify: createVerify,
+    generateKeyPairSync: generateKeyPairSync,
+    createDiffieHellman: createDiffieHellman,
+    constants: constants
+  };
+})();`;
 }

@@ -74,6 +74,22 @@ version (linux)
 
 private:
 
+string formatIPv4(uint ip) nothrow @trusted
+{
+    char[15] buf;
+    int pos = 0;
+    foreach (i; 0 .. 4)
+    {
+        uint octet = (ip >> (24 - i * 8)) & 0xFF;
+        if (octet >= 100) { buf[pos++] = cast(char)('0' + octet / 100); octet %= 100; buf[pos++] = cast(char)('0' + octet / 10); buf[pos++] = cast(char)('0' + octet % 10); }
+        else if (octet >= 10) { buf[pos++] = cast(char)('0' + octet / 10); buf[pos++] = cast(char)('0' + octet % 10); }
+        else buf[pos++] = cast(char)('0' + octet);
+        if (i < 3) buf[pos++] = '.';
+    }
+    try return buf[0 .. pos].idup;
+    catch (Exception) return "0.0.0.0";
+}
+
 // Cached function handles for server/socket objects
 __gshared JSHandle _srvListen, _srvClose, _srvOn;
 __gshared JSHandle _sockOn, _sockWrite, _sockEnd, _sockDestroy;
@@ -90,6 +106,10 @@ struct SocketState
     bool closed;
     bool eventsSet;
     ubyte[SOCKET_READ_BUF_SIZE] readBuf;
+    string remoteAddress;
+    ushort remotePort;
+    string localAddress;
+    ushort localPort;
 }
 
 struct ServerState
@@ -291,6 +311,23 @@ JSHandle makeSocketObject(IJSEngine engine, int id) @trusted
     engine.setProperty(obj, "write", engine.dupValue(_sockWrite));
     engine.setProperty(obj, "end", engine.dupValue(_sockEnd));
     engine.setProperty(obj, "destroy", engine.dupValue(_sockDestroy));
+
+    if (id >= 0 && id < cast(int) sockets.length)
+    {
+        auto sock = &sockets[id];
+        if (sock.remoteAddress.length > 0)
+        {
+            engine.setProperty(obj, "remoteAddress", engine.newString(sock.remoteAddress));
+            engine.setProperty(obj, "remotePort", engine.newInt(cast(int) sock.remotePort));
+            engine.setProperty(obj, "remoteFamily", engine.newString("IPv4"));
+        }
+        if (sock.localAddress.length > 0)
+        {
+            engine.setProperty(obj, "localAddress", engine.newString(sock.localAddress));
+            engine.setProperty(obj, "localPort", engine.newInt(cast(int) sock.localPort));
+        }
+    }
+
     return obj;
 }
 
@@ -635,7 +672,8 @@ void acceptPendingConnections(int srvId) nothrow @trusted
 {
     version (Posix)
     {
-        import core.sys.posix.sys.socket : accept;
+        import core.sys.posix.sys.socket : accept, getsockname, sockaddr, socklen_t;
+        import core.sys.posix.netinet.in_ : sockaddr_in, ntohs, ntohl;
         import core.sys.posix.fcntl : fcntl, F_SETFL, F_GETFL, O_NONBLOCK;
         import core.stdc.errno : errno, EAGAIN, EWOULDBLOCK;
 
@@ -645,7 +683,9 @@ void acceptPendingConnections(int srvId) nothrow @trusted
 
         while (true)
         {
-            int connFd = accept(srv.listenFd, null, null);
+            sockaddr_in peerAddr;
+            socklen_t peerLen = cast(socklen_t) sockaddr_in.sizeof;
+            int connFd = accept(srv.listenFd, cast(sockaddr*) &peerAddr, &peerLen);
             if (connFd < 0)
             {
                 if (errno == EAGAIN || errno == EWOULDBLOCK) break;
@@ -661,6 +701,20 @@ void acceptPendingConnections(int srvId) nothrow @trusted
                 SocketState s;
                 s.engine = srv.engine;
                 s.fd = connFd;
+
+                uint ip = ntohl(peerAddr.sin_addr.s_addr);
+                s.remotePort = ntohs(peerAddr.sin_port);
+                s.remoteAddress = formatIPv4(ip);
+
+                sockaddr_in localAddr;
+                socklen_t localLen = cast(socklen_t) sockaddr_in.sizeof;
+                if (getsockname(connFd, cast(sockaddr*) &localAddr, &localLen) == 0)
+                {
+                    uint localIp = ntohl(localAddr.sin_addr.s_addr);
+                    s.localPort = ntohs(localAddr.sin_port);
+                    s.localAddress = formatIPv4(localIp);
+                }
+
                 sockets ~= s;
             }
             catch (Throwable)

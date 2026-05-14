@@ -10,6 +10,17 @@ void registerHttpsModule(IJSEngine engine) @trusted
     engine.setProperty(obj, "createServer",
         engine.newFunction(&jsHttpsCreateServer, "createServer", 2));
 
+    auto httpsExtResult = engine.eval(httpsExtensionSource(), "<https-ext>");
+    if (!httpsExtResult.isError)
+    {
+        foreach (name; ["request", "get", "METHODS", "STATUS_CODES", "Agent", "globalAgent"])
+        {
+            auto prop = engine.getProperty(httpsExtResult.value, name);
+            engine.setProperty(obj, name, prop);
+        }
+    }
+    engine.freeValue(httpsExtResult.value);
+
     auto global = engine.getGlobal();
     engine.setProperty(global, "__dun_cjs_https__", obj);
     engine.freeValue(global);
@@ -27,7 +38,9 @@ version (EngineQuickJS)
         auto ctx = cast(JSContext*) engine.rawContext();
         auto m = JS_NewCModule(ctx, "dun:https", &httpsModuleInit);
         if (m is null) return;
-        JS_AddModuleExport(ctx, m, "createServer");
+        foreach (name; ["createServer", "request", "get", "METHODS",
+                        "STATUS_CODES", "Agent", "globalAgent"])
+            JS_AddModuleExport(ctx, m, name.ptr);
     }
 
     private extern (C) int httpsModuleInit(JSContext* ctx, JSModuleDef* m) nothrow @trusted
@@ -36,8 +49,12 @@ version (EngineQuickJS)
         assert(m !is null, "Null JSModuleDef in httpsModuleInit");
         auto global = JS_GetGlobalObject(ctx);
         auto httpsObj = JS_GetPropertyStr(ctx, global, "__dun_cjs_https__");
-        auto fn = JS_GetPropertyStr(ctx, httpsObj, "createServer");
-        JS_SetModuleExport(ctx, m, "createServer", fn);
+        foreach (name; ["createServer", "request", "get", "METHODS",
+                        "STATUS_CODES", "Agent", "globalAgent"])
+        {
+            auto fn = JS_GetPropertyStr(ctx, httpsObj, name.ptr);
+            JS_SetModuleExport(ctx, m, name.ptr, fn);
+        }
         JS_FreeValue(ctx, httpsObj);
         JS_FreeValue(ctx, global);
         return 0;
@@ -126,4 +143,56 @@ version (Posix)
             OPENSSL_INIT_LOAD_SSL_STRINGS | OPENSSL_INIT_LOAD_CRYPTO_STRINGS, null);
         gServerInitDone = true;
     }
+}
+
+string httpsExtensionSource() pure @safe nothrow
+{
+    return `(function() {
+  var httpMod = globalThis.__dun_cjs_http__;
+  var result = {
+    METHODS: httpMod ? httpMod.METHODS : [],
+    STATUS_CODES: httpMod ? httpMod.STATUS_CODES : {},
+    Agent: httpMod ? httpMod.Agent : function(){},
+    globalAgent: httpMod ? httpMod.globalAgent : {}
+  };
+
+  function request(urlOrOptions, optionsOrCallback, callback) {
+    var options;
+    if (typeof urlOrOptions === 'string') {
+      try {
+        var parsed = new URL(urlOrOptions);
+        options = {
+          protocol: parsed.protocol,
+          hostname: parsed.hostname,
+          port: parsed.port || 443,
+          path: parsed.pathname + parsed.search
+        };
+      } catch(e) {
+        options = { path: urlOrOptions, protocol: 'https:', port: 443 };
+      }
+      if (typeof optionsOrCallback === 'function') {
+        callback = optionsOrCallback;
+      } else if (typeof optionsOrCallback === 'object' && optionsOrCallback !== null) {
+        var keys = Object.keys(optionsOrCallback);
+        for (var i = 0; i < keys.length; i++) options[keys[i]] = optionsOrCallback[keys[i]];
+      }
+    } else {
+      options = Object.assign({}, urlOrOptions || {});
+      callback = typeof optionsOrCallback === 'function' ? optionsOrCallback : callback;
+    }
+    if (!options.protocol) options.protocol = 'https:';
+    if (!options.port) options.port = 443;
+    return httpMod.request(options, callback);
+  }
+
+  function get(urlOrOptions, optionsOrCallback, callback) {
+    var req = request(urlOrOptions, optionsOrCallback, callback);
+    req.end();
+    return req;
+  }
+
+  result.request = request;
+  result.get = get;
+  return result;
+})();`;
 }
