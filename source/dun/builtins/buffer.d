@@ -162,6 +162,26 @@ void ensureBufferFnsCached(IJSEngine engine) @trusted
     engine.setProperty(global, "__dunBufProto__", engine.dupValue(_bufProto));
     engine.freeValue(global);
 
+    // Add iterator methods (keys, values, entries, Symbol.iterator) via JS
+    // since Symbol.iterator requires JS-level access
+    auto iterRes = engine.eval(
+        "(function(){" ~
+        "var p=__dunBufProto__;" ~
+        "p.keys=function(){var b=this,i=0;return{next:function(){" ~
+        "return i<b.length?{value:i++,done:false}:{value:undefined,done:true};" ~
+        "},__proto__:{[Symbol.iterator]:function(){return this;}}};};" ~
+        "p.values=function(){var b=this,i=0;return{next:function(){" ~
+        "return i<b.length?{value:b.__u8[i++],done:false}:{value:undefined,done:true};" ~
+        "},__proto__:{[Symbol.iterator]:function(){return this;}}};};" ~
+        "p.entries=function(){var b=this,i=0;return{next:function(){" ~
+        "return i<b.length?{value:[i,b.__u8[i++]],done:false}:{value:undefined,done:true};" ~
+        "},__proto__:{[Symbol.iterator]:function(){return this;}}};};" ~
+        "p[Symbol.iterator]=p.values;" ~
+        "})()",
+        "<buffer-iter>");
+    if (!iterRes.isError)
+        engine.freeValue(iterRes.value);
+
     auto factoryRes = engine.eval(
         "(function(){" ~
         "var p=__dunBufProto__,c=Object.create;" ~

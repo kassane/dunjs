@@ -19,4 +19,15 @@ PASS: unlink ok
 PASS: rmdir ok
 PASS: mkdir recursive: true
 PASS: rm recursive ok
+PASS: symlink: true
+PASS: symlink isSymbolicLink: true
+PASS: rm force no throw: true
+PASS: open returns FileHandle: true
+PASS: FileHandle has close: true
+PASS: FileHandle has stat: true
+PASS: FileHandle has read: true
+PASS: FileHandle readFile: true
+PASS: FileHandle stat isFile: true
+PASS: FileHandle close ok
+PASS: FileHandle writeFile: true
 All fs/promises tests passed

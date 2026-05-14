@@ -170,6 +170,9 @@ void registerFsModule(IJSEngine engine) @trusted
     engine.setProperty(obj, "createReadStream", engine.newFunction(&jsCreateReadStream, "createReadStream", 1));
     engine.setProperty(obj, "createWriteStream", engine.newFunction(&jsCreateWriteStream, "createWriteStream", 1));
     engine.setProperty(obj, "watch", engine.newFunction(&jsWatch, "watch", 2));
+    engine.setProperty(obj, "mkdtempSync", engine.newFunction(&jsMkdtempSync, "mkdtempSync", 1));
+    engine.setProperty(obj, "cpSync", engine.newFunction(&jsCpSync, "cpSync", 2));
+    engine.setProperty(obj, "utimesSync", engine.newFunction(&jsUtimesSync, "utimesSync", 3));
 
     auto global = engine.getGlobal();
     engine.setProperty(global, "__dun_cjs_fs__", obj);
@@ -207,7 +210,7 @@ version (EngineQuickJS)
         "truncateSync", "chownSync", "openSync", "closeSync",
         "readSync", "writeSync", "fstatSync", "fsyncSync",
         "fdatasyncSync", "createReadStream", "createWriteStream", "watch",
-        "watchFile", "unwatchFile"
+        "watchFile", "unwatchFile", "mkdtempSync", "cpSync", "utimesSync"
     ];
 
     private void registerQuickJSModule(IJSEngine engine) @trusted
@@ -1894,6 +1897,121 @@ JSHandle jsWatcherUnref(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     auto state = cast(DunState*) ctx;
     assert(state !is null, "Null DunState in jsWatcherUnref");
     return thisVal;
+}
+
+// ── mkdtempSync ─────────────────────────────────────────────────
+
+JSHandle jsMkdtempSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+{
+    assert(ctx !is null, "Null ctx in jsMkdtempSync");
+    auto state = cast(DunState*) ctx;
+    assert(state !is null, "Null DunState in jsMkdtempSync");
+    auto engine = state.engine;
+    if (args.length < 1)
+        return engine.throwTypeError("mkdtempSync requires a prefix argument");
+    auto prefix = engine.extractString(args[0]);
+    if (!state.permissions.check(Permission.write, prefix))
+        return engine.throwTypeError("Requires --allow-write permission");
+    version (Posix)
+    {
+        import core.sys.posix.stdlib : mkdtemp;
+        auto tmpl = prefix ~ "XXXXXX";
+        char[] buf = tmpl.dup;
+        buf ~= '\0';
+        auto result = mkdtemp(buf.ptr);
+        if (result is null)
+            return engine.throwTypeError("ENOENT: mkdtempSync failed");
+        import core.stdc.string : strlen;
+        return engine.newString(cast(string) buf[0 .. strlen(result)]);
+    }
+    else
+        return engine.throwTypeError("mkdtempSync not supported on this platform");
+}
+
+// ── cpSync ──────────────────────────────────────────────────────
+
+JSHandle jsCpSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+{
+    assert(ctx !is null, "Null ctx in jsCpSync");
+    auto state = cast(DunState*) ctx;
+    assert(state !is null, "Null DunState in jsCpSync");
+    auto engine = state.engine;
+    if (args.length < 2)
+        return engine.throwTypeError("cpSync requires source and destination arguments");
+    auto src = engine.extractString(args[0]);
+    auto dst = engine.extractString(args[1]);
+    if (!state.permissions.check(Permission.read, src))
+        return engine.throwTypeError("Requires --allow-read permission");
+    if (!state.permissions.check(Permission.write, dst))
+        return engine.throwTypeError("Requires --allow-write permission");
+
+    bool recursive = false;
+    if (args.length >= 3 && engine.isObject(args[2]))
+    {
+        auto recProp = engine.getProperty(args[2], "recursive");
+        scope(exit) engine.freeValue(recProp);
+        if (!engine.isUndefined(recProp) && !engine.isNull(recProp))
+            recursive = engine.extractBool(recProp);
+    }
+
+    try
+    {
+        import std.file : isDir, copy, dirEntries, SpanMode, mkdirRecurse;
+        if (isDir(src))
+        {
+            if (!recursive)
+                return engine.throwTypeError(
+                    "ERR_FS_CP_DIR_TO_NON_DIR: source is a directory, use {recursive: true}");
+            mkdirRecurse(dst);
+            foreach (entry; dirEntries(src, SpanMode.breadth))
+            {
+                import std.path : relativePath, buildPath;
+                auto rel = relativePath(entry.name, src);
+                auto target = buildPath(dst, rel);
+                if (entry.isDir)
+                    mkdirRecurse(target);
+                else
+                    copy(entry.name, target);
+            }
+        }
+        else
+            copy(src, dst);
+        return engine.newUndefined();
+    }
+    catch (Exception e)
+    {
+        return engine.throwTypeError("cpSync failed: " ~ e.msg);
+    }
+}
+
+// ── utimesSync ──────────────────────────────────────────────────
+
+JSHandle jsUtimesSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+{
+    assert(ctx !is null, "Null ctx in jsUtimesSync");
+    auto state = cast(DunState*) ctx;
+    assert(state !is null, "Null DunState in jsUtimesSync");
+    auto engine = state.engine;
+    if (args.length < 3)
+        return engine.throwTypeError("utimesSync requires path, atime, and mtime");
+    auto filePath = engine.extractString(args[0]);
+    if (!state.permissions.check(Permission.write, filePath))
+        return engine.throwTypeError("Requires --allow-write permission");
+    version (Posix)
+    {
+        import core.sys.posix.utime : utimbuf, utime;
+        import std.string : toStringz;
+        auto atime = cast(long) engine.extractFloat(args[1]);
+        auto mtime = cast(long) engine.extractFloat(args[2]);
+        utimbuf times;
+        times.actime = atime;
+        times.modtime = mtime;
+        if (utime(toStringz(filePath), &times) != 0)
+            return engine.throwTypeError("ENOENT: utimesSync failed for '" ~ filePath ~ "'");
+        return engine.newUndefined();
+    }
+    else
+        return engine.throwTypeError("utimesSync not supported on this platform");
 }
 
 // ── watchFile / unwatchFile (JS-level stat polling) ─────────────

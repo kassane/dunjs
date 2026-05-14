@@ -208,9 +208,48 @@ check('perf_hooks.performance.measure', typeof perf_hooks.performance.measure ==
 check('perf_hooks.PerformanceObserver', typeof perf_hooks.PerformanceObserver === 'function');
 check('perf_hooks.constants', typeof perf_hooks.constants === 'object');
 
-// New: fs.watchFile/unwatchFile
+// New: fs.watchFile/unwatchFile/mkdtempSync/cpSync/utimesSync
 check('fs.watchFile', typeof fs.watchFile === 'function');
 check('fs.unwatchFile', typeof fs.unwatchFile === 'function');
+check('fs.mkdtempSync', typeof fs.mkdtempSync === 'function');
+check('fs.cpSync', typeof fs.cpSync === 'function');
+check('fs.utimesSync', typeof fs.utimesSync === 'function');
+
+// Buffer iteration methods
+var buf = Buffer.from([1, 2, 3]);
+check('Buffer.keys', typeof buf.keys === 'function');
+check('Buffer.values', typeof buf.values === 'function');
+check('Buffer.entries', typeof buf.entries === 'function');
+check('Buffer[Symbol.iterator]', typeof buf[Symbol.iterator] === 'function');
+var keys = [];
+for (var k of buf.keys()) keys.push(k);
+check('Buffer.keys() iteration', keys.length === 3 && keys[0] === 0 && keys[1] === 1 && keys[2] === 2);
+var vals = [];
+for (var v of buf.values()) vals.push(v);
+check('Buffer.values() iteration', vals.length === 3 && vals[0] === 1 && vals[1] === 2 && vals[2] === 3);
+var entries = [];
+for (var e of buf.entries()) entries.push(e);
+check('Buffer.entries() iteration', entries.length === 3 && entries[0][0] === 0 && entries[0][1] === 1 && entries[2][0] === 2 && entries[2][1] === 3);
+var iterVals = [];
+for (var iv of buf) iterVals.push(iv);
+check('Buffer for-of iteration', iterVals.length === 3 && iterVals[0] === 1 && iterVals[1] === 2 && iterVals[2] === 3);
+
+// util.types checks
+check('util.types.isPromise', util.types.isPromise(Promise.resolve(1)) === true);
+check('util.types.isDate', util.types.isDate(new Date()) === true);
+check('util.types.isRegExp', util.types.isRegExp(/abc/) === true);
+check('util.types.isMap', util.types.isMap(new Map()) === true);
+check('util.types.isSet', util.types.isSet(new Set()) === true);
+check('util.types.isTypedArray', util.types.isTypedArray(new Uint8Array(1)) === true);
+check('util.types.isArrayBuffer', util.types.isArrayBuffer(new ArrayBuffer(1)) === true);
+check('util.types.isDataView', util.types.isDataView(new DataView(new ArrayBuffer(1))) === true);
+check('util.types.isWeakMap', util.types.isWeakMap(new WeakMap()) === true);
+check('util.types.isWeakSet', util.types.isWeakSet(new WeakSet()) === true);
+check('util.types.isGeneratorFunction', util.types.isGeneratorFunction(function*(){}) === true);
+check('util.types.isAsyncFunction', util.types.isAsyncFunction(async function(){}) === true);
+check('util.types.isNumberObject', util.types.isNumberObject(new Number(1)) === true);
+check('util.types.isStringObject', util.types.isStringObject(new String('a')) === true);
+check('util.types.isBooleanObject', util.types.isBooleanObject(new Boolean(true)) === true);
 
 // Globals
 check('Buffer', typeof Buffer !== 'undefined');

@@ -98,6 +98,62 @@ async function main() {
   await fsp.rm(baseDeep, { recursive: true });
   console.log('PASS: rm recursive ok');
 
+  // 20. symlink
+  const symlinkDir = '/tmp/dun_fsp_sym_' + Date.now();
+  await fsp.mkdir(symlinkDir);
+  const symlinkTarget = symlinkDir + '/target.txt';
+  const symlinkPath = symlinkDir + '/link.txt';
+  await fsp.writeFile(symlinkTarget, 'symlink content');
+  await fsp.symlink(symlinkTarget, symlinkPath);
+  const symlinkContent = await fsp.readFile(symlinkPath);
+  console.log('PASS: symlink: ' + (symlinkContent === 'symlink content'));
+  const symlinkStat = await fsp.lstat(symlinkPath);
+  console.log('PASS: symlink isSymbolicLink: ' + symlinkStat.isSymbolicLink());
+  await fsp.rm(symlinkDir, { recursive: true });
+
+  // 21. rm with force (should not throw for missing file)
+  try {
+    await fsp.rm('/tmp/dun_nonexistent_' + Date.now(), { force: true });
+    console.log('PASS: rm force no throw: true');
+  } catch (e) {
+    console.log('FAIL: rm force should not throw');
+  }
+
+  // 22. open returns FileHandle
+  const openDir = '/tmp/dun_fsp_open_' + Date.now();
+  await fsp.mkdir(openDir);
+  const openFile = openDir + '/fh_test.txt';
+  await fsp.writeFile(openFile, 'filehandle content');
+
+  const fh = await fsp.open(openFile, 'r');
+  console.log('PASS: open returns FileHandle: ' + (typeof fh.fd === 'number'));
+  console.log('PASS: FileHandle has close: ' + (typeof fh.close === 'function'));
+  console.log('PASS: FileHandle has stat: ' + (typeof fh.stat === 'function'));
+  console.log('PASS: FileHandle has read: ' + (typeof fh.read === 'function'));
+
+  // 23. FileHandle readFile
+  const fhContent = await fh.readFile();
+  console.log('PASS: FileHandle readFile: ' + (fhContent === 'filehandle content'));
+
+  // 24. FileHandle stat
+  const fhStat = await fh.stat();
+  console.log('PASS: FileHandle stat isFile: ' + fhStat.isFile());
+
+  // 25. FileHandle close
+  await fh.close();
+  console.log('PASS: FileHandle close ok');
+
+  // 26. FileHandle write mode
+  const writeFile = openDir + '/fh_write.txt';
+  const fhw = await fsp.open(writeFile, 'w');
+  await fhw.writeFile('written via fh');
+  await fhw.close();
+  const writtenContent = await fsp.readFile(writeFile);
+  console.log('PASS: FileHandle writeFile: ' + (writtenContent === 'written via fh'));
+
+  // cleanup
+  await fsp.rm(openDir, { recursive: true, force: true });
+
   console.log('All fs/promises tests passed');
 }
 

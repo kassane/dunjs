@@ -1,6 +1,6 @@
 module dun.builtins.fs_promises;
 
-import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
+import dun.engine.iface : IJSEngine, JSHandle, JSResult, NativeCallback;
 import dun.runtime.globals : DunState;
 import dun.security.permissions : Permission;
 
@@ -27,6 +27,8 @@ void registerFsPromisesModule(IJSEngine engine) @trusted
     engine.setProperty(obj, "chmod", engine.newFunction(&jsFspChmod, "chmod", 2));
     engine.setProperty(obj, "chown", engine.newFunction(&jsFspChown, "chown", 3));
     engine.setProperty(obj, "truncate", engine.newFunction(&jsFspTruncate, "truncate", 2));
+    engine.setProperty(obj, "symlink", engine.newFunction(&jsFspSymlink, "symlink", 2));
+    engine.setProperty(obj, "open", engine.newFunction(&jsFspOpen, "open", 1));
 
     auto global = engine.getGlobal();
     engine.setProperty(global, "__dun_cjs_fs_promises__", obj);
@@ -51,7 +53,8 @@ version (EngineQuickJS)
     private enum fspExports = [
         "readFile", "writeFile", "appendFile", "copyFile", "rename",
         "unlink", "rmdir", "rm", "mkdir", "readdir", "stat", "lstat",
-        "access", "realpath", "chmod", "chown", "truncate"
+        "access", "realpath", "chmod", "chown", "truncate", "symlink",
+        "open"
     ];
 
     private void registerQuickJSModule(IJSEngine engine) @trusted
@@ -116,6 +119,29 @@ string safeExMsg(string delegate() op) nothrow @trusted
         try { return e.msg; }
         catch (Exception) { return "I/O error"; }
     }
+}
+
+// ── Flag parsing for open() ─────────────────────────────────────
+
+int parseFsOpenFlags(string flags) nothrow @trusted
+{
+    version(Posix)
+    {
+        import core.sys.posix.fcntl : O_RDONLY, O_WRONLY, O_RDWR, O_CREAT, O_TRUNC, O_APPEND;
+    }
+    else
+    {
+        enum O_RDONLY = 0x0000, O_WRONLY = 0x0001, O_RDWR = 0x0002,
+             O_CREAT = 0x0100, O_TRUNC = 0x0200, O_APPEND = 0x0008;
+    }
+    if (flags == "r") return O_RDONLY;
+    if (flags == "r+") return O_RDWR;
+    if (flags == "w") return O_WRONLY | O_CREAT | O_TRUNC;
+    if (flags == "w+") return O_RDWR | O_CREAT | O_TRUNC;
+    if (flags == "a") return O_WRONLY | O_CREAT | O_APPEND;
+    if (flags == "a+") return O_RDWR | O_CREAT | O_APPEND;
+    if (flags == "wx") return O_WRONLY | O_CREAT | O_TRUNC;
+    return O_RDONLY;
 }
 
 JSHandle jsFspReadFile(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
@@ -367,11 +393,15 @@ JSHandle jsFspRm(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     if (args.length < 1) return engine.throwTypeError("rm requires a path argument");
     auto path = engine.extractString(args[0]);
     bool recursive = false;
+    bool force = false;
     if (args.length >= 2 && engine.isObject(args[1]))
     {
         auto rv = engine.getProperty(args[1], "recursive");
         recursive = engine.extractBool(rv);
         engine.freeValue(rv);
+        auto fv = engine.getProperty(args[1], "force");
+        force = engine.extractBool(fv);
+        engine.freeValue(fv);
     }
     if (!checkPerm(state, Permission.write, path))
         return throwPermError(engine, "write", path);
@@ -383,7 +413,9 @@ JSHandle jsFspRm(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     asyncSubmitSafe(engine, ph.resolve, ph.reject, () @trusted nothrow {
         try
         {
-            import std.file : remove, rmdirRecurse, isDir;
+            import std.file : remove, rmdirRecurse, isDir, exists;
+            if (force && !exists(path))
+                return AsyncResult.ok("");
             if (recursive && isDir(path))
                 rmdirRecurse(path);
             else
@@ -392,6 +424,8 @@ JSHandle jsFspRm(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
         }
         catch (Exception e)
         {
+            if (force)
+                return AsyncResult.ok("");
             string msg;
             try { msg = e.msg; } catch (Exception) { msg = "rm error"; }
             return AsyncResult.fail(msg);
@@ -763,6 +797,218 @@ JSHandle jsFspTruncate(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
     return ph.promise;
 }
+
+// ── symlink ─────────────────────────────────────────────────────
+
+JSHandle jsFspSymlink(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+{
+    assert(ctx !is null, "Null ctx in fs.promises.symlink");
+    auto state = cast(DunState*) ctx;
+    assert(state.engine !is null, "Null engine in fs.promises.symlink");
+    auto engine = state.engine;
+    if (args.length < 2) return engine.throwTypeError("symlink requires target and path");
+    auto target = engine.extractString(args[0]);
+    auto path = engine.extractString(args[1]);
+    if (!checkPerm(state, Permission.write, path))
+        return throwPermError(engine, "write", path);
+
+    auto ph = engine.newPromise();
+    engine.dupValue(ph.resolve);
+    engine.dupValue(ph.reject);
+
+    asyncSubmitSafe(engine, ph.resolve, ph.reject, () @trusted nothrow {
+        version(Posix)
+        {
+            import core.sys.posix.unistd : symlink;
+            auto ctarget = (target ~ '\0');
+            auto cpath = (path ~ '\0');
+            if (symlink(ctarget.ptr, cpath.ptr) != 0)
+            {
+                import core.stdc.errno : errno;
+                import core.stdc.string : strerror;
+                import std.string : fromStringz;
+                string msg;
+                try { msg = fromStringz(strerror(errno)).idup; }
+                catch (Exception) { msg = "symlink error"; }
+                return AsyncResult.fail("ESYMLINK: " ~ msg ~ ", symlink '" ~ target ~ "' -> '" ~ path ~ "'");
+            }
+            return AsyncResult.ok("");
+        }
+        else
+        {
+            return AsyncResult.fail("ENOSYS: symlink is not supported on this platform");
+        }
+    }, (IJSEngine e, string _) @trusted => e.newUndefined());
+
+    return ph.promise;
+}
+
+// ── open (returns FileHandle) ───────────────────────────────────
+
+JSHandle jsFspOpen(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+{
+    assert(ctx !is null, "Null ctx in fs.promises.open");
+    auto state = cast(DunState*) ctx;
+    assert(state.engine !is null, "Null engine in fs.promises.open");
+    auto engine = state.engine;
+    if (args.length < 1) return engine.throwTypeError("open requires a path argument");
+    auto path = engine.extractString(args[0]);
+    string flags = "r";
+    if (args.length >= 2 && engine.isString(args[1]))
+        flags = engine.extractString(args[1]);
+    int mode = 0x1A4; // 0644
+    if (args.length >= 3 && engine.isNumber(args[2]))
+        mode = engine.extractInt(args[2]);
+
+    bool needsRead = (flags == "r" || flags == "r+" || flags == "w+" || flags == "a+");
+    bool needsWrite = (flags != "r");
+    if (needsRead && !checkPerm(state, Permission.read, path))
+        return throwPermError(engine, "read", path);
+    if (needsWrite && !checkPerm(state, Permission.write, path))
+        return throwPermError(engine, "write", path);
+
+    auto ph = engine.newPromise();
+    engine.dupValue(ph.resolve);
+    engine.dupValue(ph.reject);
+
+    asyncSubmitSafe(engine, ph.resolve, ph.reject, () @trusted nothrow {
+        version(Posix)
+        {
+            import core.sys.posix.fcntl : open;
+            int fd = open((path ~ '\0').ptr, parseFsOpenFlags(flags), mode);
+            if (fd < 0)
+            {
+                import core.stdc.errno : errno;
+                import core.stdc.string : strerror;
+                import std.string : fromStringz;
+                string msg;
+                try { msg = fromStringz(strerror(errno)).idup; }
+                catch (Exception) { msg = "open error"; }
+                return AsyncResult.fail("ENOENT: " ~ msg ~ ", open '" ~ path ~ "'");
+            }
+            try
+            {
+                import std.conv : to;
+                return AsyncResult.ok(to!string(fd));
+            }
+            catch (Exception)
+            {
+                return AsyncResult.fail("open: conversion error");
+            }
+        }
+        else
+        {
+            return AsyncResult.fail("ENOSYS: open is not supported on this platform");
+        }
+    }, (IJSEngine e, string fdStr) @trusted => buildFileHandle(e, fdStr, path));
+
+    return ph.promise;
+}
+
+JSHandle buildFileHandle(IJSEngine engine, string fdStr, string path) @trusted
+{
+    assert(engine !is null, "Null engine in buildFileHandle");
+    import std.conv : to;
+    int fd;
+    try { fd = to!int(fdStr); }
+    catch (Exception) { return engine.throwTypeError("Invalid fd in FileHandle"); }
+
+    // Build FileHandle as a JS object with fd property and read/write/close/stat methods
+    // Uses sync fs operations wrapped in Promises for the FileHandle API
+    auto code =
+        "(function(fd, path) {"
+        ~ "var fs = globalThis.__dun_cjs_fs__;"
+        ~ "var fh = { fd: fd, path: path, _closed: false };"
+        ~ "fh.read = function(buffer, offset, length, position) {"
+        ~   "var self = this;"
+        ~   "return new Promise(function(resolve, reject) {"
+        ~     "try {"
+        ~       "if (self._closed) throw new Error('FileHandle is closed');"
+        ~       "var bytesRead = fs.readSync(self.fd, buffer, offset, length, position);"
+        ~       "resolve({ bytesRead: bytesRead, buffer: buffer });"
+        ~     "} catch(e) { reject(e); }"
+        ~   "});"
+        ~ "};"
+        ~ "fh.readFile = function(opts) {"
+        ~   "var self = this;"
+        ~   "return new Promise(function(resolve, reject) {"
+        ~     "try {"
+        ~       "if (self._closed) throw new Error('FileHandle is closed');"
+        ~       "var content = fs.readFileSync(self.path, opts);"
+        ~       "resolve(content);"
+        ~     "} catch(e) { reject(e); }"
+        ~   "});"
+        ~ "};"
+        ~ "fh.writeFile = function(data, opts) {"
+        ~   "var self = this;"
+        ~   "return new Promise(function(resolve, reject) {"
+        ~     "try {"
+        ~       "if (self._closed) throw new Error('FileHandle is closed');"
+        ~       "fs.writeFileSync(self.path, data, opts);"
+        ~       "resolve();"
+        ~     "} catch(e) { reject(e); }"
+        ~   "});"
+        ~ "};"
+        ~ "fh.write = function(data) {"
+        ~   "var self = this;"
+        ~   "return new Promise(function(resolve, reject) {"
+        ~     "try {"
+        ~       "if (self._closed) throw new Error('FileHandle is closed');"
+        ~       "var written = fs.writeSync(self.fd, data);"
+        ~       "resolve({ bytesWritten: written });"
+        ~     "} catch(e) { reject(e); }"
+        ~   "});"
+        ~ "};"
+        ~ "fh.close = function() {"
+        ~   "var self = this;"
+        ~   "return new Promise(function(resolve, reject) {"
+        ~     "try {"
+        ~       "if (!self._closed) { fs.closeSync(self.fd); self._closed = true; }"
+        ~       "resolve();"
+        ~     "} catch(e) { reject(e); }"
+        ~   "});"
+        ~ "};"
+        ~ "fh.stat = function() {"
+        ~   "var self = this;"
+        ~   "return new Promise(function(resolve, reject) {"
+        ~     "try {"
+        ~       "if (self._closed) throw new Error('FileHandle is closed');"
+        ~       "var st = fs.statSync(self.path);"
+        ~       "resolve(st);"
+        ~     "} catch(e) { reject(e); }"
+        ~   "});"
+        ~ "};"
+        ~ "fh.truncate = function(len) {"
+        ~   "var self = this;"
+        ~   "return new Promise(function(resolve, reject) {"
+        ~     "try {"
+        ~       "if (self._closed) throw new Error('FileHandle is closed');"
+        ~       "fs.truncateSync(self.path, len || 0);"
+        ~       "resolve();"
+        ~     "} catch(e) { reject(e); }"
+        ~   "});"
+        ~ "};"
+        ~ "return fh;"
+        ~ "})";
+
+    auto factoryResult = engine.eval(code, "<fs_promises_filehandle>");
+    if (factoryResult.isError)
+        return factoryResult.value;
+
+    // Call the factory with the fd and path
+    JSHandle[2] callArgs;
+    callArgs[0] = engine.newInt(fd);
+    callArgs[1] = engine.newString(path);
+    auto thisArg = engine.newUndefined();
+    auto result = engine.callFunction(factoryResult.value, thisArg, callArgs[0 .. 2]);
+    engine.freeValue(callArgs[0]);
+    engine.freeValue(callArgs[1]);
+    engine.freeValue(thisArg);
+    engine.freeValue(factoryResult.value);
+    return result;
+}
+
+// ── Stat helpers ────────────────────────────────────────────────
 
 AsyncResult serializeStatSafe(string path, bool useLstat) nothrow @trusted
 {

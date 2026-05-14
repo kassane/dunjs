@@ -147,6 +147,32 @@ PASS: perf_hooks.PerformanceObserver
 PASS: perf_hooks.constants
 PASS: fs.watchFile
 PASS: fs.unwatchFile
+PASS: fs.mkdtempSync
+PASS: fs.cpSync
+PASS: fs.utimesSync
+PASS: Buffer.keys
+PASS: Buffer.values
+PASS: Buffer.entries
+PASS: Buffer[Symbol.iterator]
+PASS: Buffer.keys() iteration
+PASS: Buffer.values() iteration
+PASS: Buffer.entries() iteration
+PASS: Buffer for-of iteration
+PASS: util.types.isPromise
+PASS: util.types.isDate
+PASS: util.types.isRegExp
+PASS: util.types.isMap
+PASS: util.types.isSet
+PASS: util.types.isTypedArray
+PASS: util.types.isArrayBuffer
+PASS: util.types.isDataView
+PASS: util.types.isWeakMap
+PASS: util.types.isWeakSet
+PASS: util.types.isGeneratorFunction
+PASS: util.types.isAsyncFunction
+PASS: util.types.isNumberObject
+PASS: util.types.isStringObject
+PASS: util.types.isBooleanObject
 PASS: Buffer
 PASS: setTimeout
 PASS: setInterval
@@ -155,4 +181,4 @@ PASS: console.log
 PASS: console.error
 PASS: console.warn
 ---
-Total: 156/156 passed
+Total: 182/182 passed
