@@ -147,6 +147,13 @@ All runtime globals are **engine-agnostic** (use `IJSEngine` + `NativeCallback`)
 | `worker_threads` | `registerWorkerThreadsModule(engine)` | `require('worker_threads')`, ESM `import from 'dun:worker_threads'` |
 | `https` | `registerHttpsModule(engine)` | `require('https')`, ESM `import from 'dun:https'` |
 | `fs/promises` | `registerFsPromisesModule(engine)` | `require('fs/promises')`, ESM `import from 'dun:fs/promises'` |
+| `readline` | `registerReadlineModule(engine)` | `require('readline')`, ESM `import from 'dun:readline'` |
+| `tls` | stub (globalThis) | `require('tls')`, ESM `import from 'dun:tls'` |
+| `dgram` | stub (globalThis) | `require('dgram')`, ESM `import from 'dun:dgram'` |
+| `perf_hooks` | stub (globalThis) | `require('perf_hooks')`, ESM `import from 'dun:perf_hooks'` |
+| `punycode` | stub (globalThis) | `require('punycode')`, ESM `import from 'dun:punycode'` |
+| `domain` | stub (globalThis) | `require('domain')`, ESM `import from 'dun:domain'` |
+| `diagnostics_channel` | stub (globalThis) | `require('diagnostics_channel')`, ESM `import from 'dun:diagnostics_channel'` |
 | `fetch` | `registerFetchGlobal(engine)` | Global `fetch()` (Posix, HTTPS via OpenSSL) |
 | Web globals | `installWebCompat(engine)` | `atob`, `btoa`, `structuredClone`, `TextEncoder`, `TextDecoder`, native Uint8Array creation |
 | Web APIs | `installWebAPIs(engine)` | `performance`, `EventTarget`, `Event`, `CustomEvent`, `AbortController`, `AbortSignal`, `DOMException`, `navigator`, `Blob`, `File`, `FormData`, `Headers`, `Request`, `Response`, `MessageChannel`, `MessagePort`, `BroadcastChannel`, `ReadableStream`, `WritableStream`, `TransformStream`, `setImmediate`, `clearImmediate`, `Promise.withResolvers`, `crypto.getRandomValues`, `crypto.randomUUID`, `console.time/timeEnd/timeLog/count/countReset/table/dir/trace` |
@@ -416,7 +423,7 @@ dub test -c unittest    # All unit tests
 | V8 TMP bridge | `source/dun/engine/v8/cppbindings.d` | compile-time | V8TypeName coverage, tag->name mapping |
 | JSC TMP bridge | `source/dun/engine/jsc/cppbindings.d` | compile-time | JSCTypeName coverage, kJSType* alignment |
 
-### Integration Tests (66 tests)
+### Integration Tests (75 tests)
 
 ```sh
 # Run against a specific backend
@@ -447,8 +454,14 @@ dub build -c v8  && BACKEND=v8  ./tests/integration/run.sh
 | fs promises | `fs_promises` | 20 checks: readFile, writeFile, appendFile, copyFile, rename, unlink, mkdir, readdir, stat, access, realpath |
 | HTTPS | `https_api` | https.createServer, options validation, cert/key loading |
 | Real-world | 7 end-to-end scenarios | Config loading, task runner, file processing, events, promise pool, nested require, ESM pipeline |
+| Process | `process_enhanced` | 18 checks: nextTick args, emitWarning, kill, umask, hrtime, memoryUsage, cpuUsage |
+| Crypto | `crypto_cipher` | 12 checks: AES-256-CBC/AES-128-CBC round-trip, getCiphers, getHashes, timingSafeEqual, HMAC |
+| Util | `util_enhanced` | 27 checks: types (20+), debuglog, _extend, format, inherits, promisify, callbackify |
+| Readline | `readline_api` | 18 checks: createInterface, events, write/line, punycode, domain, diagnostics_channel |
+| Env Proxy | `process_env_proxy` | 8 checks: set/delete/in/keys, NODE_ENV pattern |
+| npm compat | `npm_compat_modules` | 97 checks: 29 modules, key API surface, globals |
 
-Backend test scores: **QuickJS 69/69**, **JSC 69/69**, **V8 69/69** (full parity across all 3 backends).
+Backend test scores: **QuickJS 75/75**, **JSC 75/75**, **V8 75/75** (full parity across all 3 backends).
 
 Test pattern: fixtures in `tests/integration/fixtures/*.{js,mjs,ts}`, expected stdout in `tests/integration/expected/*.txt`.
 
@@ -723,3 +736,14 @@ Benchmark impact (25 benchmarks, feature_bench.js):
 | 15b | fs/promises | Full fs.promises module (17 async operations) using asyncSubmitSafe nothrow pattern | **Done** |
 | 15c | HTTPS server | https.createServer with OpenSSL TLS, cert/key loading, TLS-aware read/write/accept | **Done** |
 | 15d | Stream finished | stream.finished() utility, util.callbackify, process.stdout/stderr stream compat | **Done** |
+| 15e | Stub modules | tls, dgram, perf_hooks registered as JS stubs on globalThis for npm compat | **Done** |
+| 15f | Process enhanced | process.nextTick args, emitWarning, kill, abort, umask, ppid, exitCode | **Done** |
+| 15g | HTTP response | getHeader, getHeaders, hasHeader, removeHeader, headersSent | **Done** |
+| 15h | util.types | 20+ type checkers (isAsyncFunction, isGeneratorFunction, isWeakMap, isDataView, etc.) | **Done** |
+| 15i | Crypto ciphers | createCipheriv/createDecipheriv, AES-CBC/GCM with OpenSSL EVP API | **Done** |
+| 15j | readline | readline module with createInterface, on/once/question/close, Symbol.asyncIterator | **Done** |
+| 15k | process.env Proxy | Live Proxy with set/delete/in/ownKeys for runtime env manipulation | **Done** |
+| 15l | Module stubs | punycode, domain, diagnostics_channel stubs for npm ecosystem | **Done** |
+| 15m | net.isIP | net.isIP/isIPv4/isIPv6 with pure D validators | **Done** |
+| 15n | stream.Readable | Readable.from(iterable), Readable[Symbol.asyncIterator] | **Done** |
+| 15o | npm compat test | 97-check test covering 29 modules + key API surface (75/75 integration) | **Done** |
