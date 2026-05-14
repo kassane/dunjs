@@ -101,6 +101,10 @@ PASS: http.METHODS
 PASS: http.STATUS_CODES
 PASS: http.Agent
 PASS: http.globalAgent
+PASS: server.address
+PASS: server.listening
+PASS: server.timeout
+PASS: server.keepAliveTimeout
 PASS: https.createServer
 PASS: https.request
 PASS: https.get
@@ -151,4 +155,4 @@ PASS: console.log
 PASS: console.error
 PASS: console.warn
 ---
-Total: 152/152 passed
+Total: 156/156 passed

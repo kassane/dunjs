@@ -136,13 +136,35 @@ private void registerStubModules(IJSEngine engine) @trusted
 {
     auto result = engine.eval(`(function() {
   var punycode = {
-    encode: function(s) { return s; },
+    encode: function(input) {
+      var output = [];
+      for (var i = 0; i < input.length; i++) {
+        var c = input.charCodeAt(i);
+        if (c < 0x80) output.push(String.fromCharCode(c));
+      }
+      return output.join('');
+    },
     decode: function(s) { return s; },
-    toASCII: function(s) { return s; },
-    toUnicode: function(s) { return s; },
-    ucs2: { decode: function(s) { var r=[]; for(var i=0;i<s.length;i++) r.push(s.charCodeAt(i)); return r; },
-             encode: function(a) { var r=''; for(var i=0;i<a.length;i++) r+=String.fromCharCode(a[i]); return r; } },
-    version: '2.1.0'
+    toASCII: function(domain) {
+      return domain.split('.').map(function(label) {
+        var hasNonASCII = false;
+        for (var i = 0; i < label.length; i++) {
+          if (label.charCodeAt(i) >= 0x80) { hasNonASCII = true; break; }
+        }
+        return hasNonASCII ? 'xn--' + punycode.encode(label) : label;
+      }).join('.');
+    },
+    toUnicode: function(domain) {
+      return domain.split('.').map(function(label) {
+        if (label.indexOf('xn--') === 0) return punycode.decode(label.slice(4));
+        return label;
+      }).join('.');
+    },
+    ucs2: {
+      decode: function(s) { var r=[]; for(var i=0;i<s.length;i++) r.push(s.charCodeAt(i)); return r; },
+      encode: function(a) { var r=''; for(var i=0;i<a.length;i++) r+=String.fromCharCode(a[i]); return r; }
+    },
+    version: '2.3.1'
   };
   var diagnostics_channel = {
     channel: function(name) { return { subscribe: function(){}, unsubscribe: function(){}, hasSubscribers: false, name: name }; },
@@ -160,10 +182,44 @@ private void registerStubModules(IJSEngine engine) @trusted
     },
     active: null
   };
-  var constants = { fs: {}, crypto: {}, os: {} };
+  var constants = {
+    fs: {
+      F_OK: 0, R_OK: 4, W_OK: 2, X_OK: 1,
+      COPYFILE_EXCL: 1, COPYFILE_FICLONE: 2, COPYFILE_FICLONE_FORCE: 4,
+      O_RDONLY: 0, O_WRONLY: 1, O_RDWR: 2, O_CREAT: 64, O_EXCL: 128,
+      O_TRUNC: 512, O_APPEND: 1024, O_SYNC: 1052672,
+      S_IFMT: 61440, S_IFREG: 32768, S_IFDIR: 16384, S_IFLNK: 40960,
+      S_IFBLK: 24576, S_IFCHR: 8192, S_IFIFO: 4096, S_IFSOCK: 49152
+    },
+    crypto: {
+      SSL_OP_ALL: 0x80000BFF,
+      SSL_OP_NO_SSLv2: 0x01000000,
+      SSL_OP_NO_SSLv3: 0x02000000,
+      SSL_OP_NO_TLSv1: 0x04000000,
+      SSL_OP_NO_TLSv1_1: 0x10000000,
+      SSL_OP_NO_TLSv1_2: 0x08000000,
+      POINT_CONVERSION_COMPRESSED: 2,
+      POINT_CONVERSION_UNCOMPRESSED: 4,
+      defaultCoreCipherList: 'TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256:TLS_AES_128_GCM_SHA256',
+      RSA_PKCS1_PADDING: 1,
+      RSA_SSLV23_PADDING: 2,
+      RSA_NO_PADDING: 3,
+      RSA_PKCS1_OAEP_PADDING: 4,
+      RSA_X931_PADDING: 5,
+      RSA_PKCS1_PSS_PADDING: 6
+    },
+    os: {
+      UV_UDP_REUSEADDR: 4,
+      SIGTERM: 15, SIGINT: 2, SIGHUP: 1, SIGKILL: 9,
+      SIGPIPE: 13, SIGUSR1: 10, SIGUSR2: 12
+    }
+  };
   try {
     var fsMod = globalThis.__dun_cjs_fs__;
-    if (fsMod && fsMod.constants) constants.fs = fsMod.constants;
+    if (fsMod && fsMod.constants) {
+      var fsConst = fsMod.constants;
+      for (var k in fsConst) constants.fs[k] = fsConst[k];
+    }
   } catch(e) {}
 
   var moduleMod = {

@@ -164,6 +164,7 @@ __gshared JSHandle _httpSrvListen, _httpSrvClose, _httpSrvOn;
 __gshared JSHandle _httpReqOn;
 __gshared JSHandle _httpResSetHeader, _httpResWriteHead, _httpResWrite, _httpResEnd;
 __gshared JSHandle _httpResGetHeader, _httpResGetHeaders, _httpResHasHeader, _httpResRemoveHeader;
+__gshared JSHandle _httpSrvAddress;
 __gshared JSHandle _httpJsDispatchFn;
 __gshared JSHandle _httpCachedUndef;
 __gshared bool _httpFnsCached = false;
@@ -174,6 +175,7 @@ void ensureHttpFnsCached(IJSEngine engine) @trusted
     _httpSrvListen = engine.newFunction(&jsHttpServerListen, "listen", 1);
     _httpSrvClose = engine.newFunction(&jsHttpServerClose, "close", 0);
     _httpSrvOn = engine.newFunction(&jsHttpServerOn, "on", 2);
+    _httpSrvAddress = engine.newFunction(&jsHttpServerAddress, "address", 0);
     _httpReqOn = engine.newFunction(&jsReqOn, "on", 2);
     _httpResSetHeader = engine.newFunction(&jsResSetHeader, "setHeader", 2);
     _httpResWriteHead = engine.newFunction(&jsResWriteHead, "writeHead", 1);
@@ -370,6 +372,14 @@ JSHandle makeHttpServerObj(IJSEngine engine, int id) @trusted
     engine.setProperty(obj, "listen", engine.dupValue(_httpSrvListen));
     engine.setProperty(obj, "close", engine.dupValue(_httpSrvClose));
     engine.setProperty(obj, "on", engine.dupValue(_httpSrvOn));
+    engine.setProperty(obj, "address", engine.dupValue(_httpSrvAddress));
+    engine.setProperty(obj, "listening", engine.newBool(false));
+    engine.setProperty(obj, "maxConnections", engine.newInt(0));
+    engine.setProperty(obj, "timeout", engine.newInt(120000));
+    engine.setProperty(obj, "keepAliveTimeout", engine.newInt(5000));
+    engine.setProperty(obj, "headersTimeout", engine.newInt(60000));
+    engine.setProperty(obj, "requestTimeout", engine.newInt(300000));
+    engine.setProperty(obj, "maxHeadersCount", engine.newInt(2000));
     return obj;
 }
 
@@ -450,6 +460,7 @@ JSHandle jsHttpServerListen(void* ctx, JSHandle thisVal, JSHandle[] args) @trust
         srv.active = true;
         _activeServerCount++;
         srv.port = cast(ushort) port;
+        engine.setProperty(thisVal, "listening", engine.newBool(true));
 
         version (linux)
         {
@@ -501,6 +512,7 @@ JSHandle jsHttpServerClose(void* ctx, JSHandle thisVal, JSHandle[] args) @truste
             }
             srv.active = false;
             _activeServerCount--;
+            engine.setProperty(thisVal, "listening", engine.newBool(false));
         }
         return engine.newUndefined();
     }
@@ -509,6 +521,32 @@ JSHandle jsHttpServerClose(void* ctx, JSHandle thisVal, JSHandle[] args) @truste
         auto state = cast(DunState*) ctx;
         return state.engine.newUndefined();
     }
+}
+
+JSHandle jsHttpServerAddress(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+{
+    assert(ctx !is null, "Null ctx in jsHttpServerAddress");
+    auto state = cast(DunState*) ctx;
+    assert(state !is null, "Null DunState in jsHttpServerAddress");
+    auto engine = state.engine;
+
+    auto idProp = engine.getProperty(thisVal, "__hid");
+    int idVal = engine.extractInt(idProp);
+    engine.freeValue(idProp);
+    if (idVal >= 0 && idVal < cast(int) httpServers.length)
+    {
+        auto srv = &httpServers[idVal];
+        if (srv.active && srv.listenFd >= 0)
+        {
+            auto obj = engine.newObject();
+            engine.setProperty(obj, "address", engine.newString("::"));
+            engine.setProperty(obj, "family", engine.newString("IPv6"));
+            import std.conv : to;
+            engine.setProperty(obj, "port", engine.newInt(cast(int) srv.port));
+            return obj;
+        }
+    }
+    return engine.newNull();
 }
 
 JSHandle jsHttpServerOn(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted

@@ -132,6 +132,13 @@ check('http.STATUS_CODES', typeof http.STATUS_CODES === 'object');
 check('http.Agent', typeof http.Agent === 'function');
 check('http.globalAgent', typeof http.globalAgent === 'object');
 
+// Server properties (express compat)
+var srv = http.createServer(function(){});
+check('server.address', typeof srv.address === 'function');
+check('server.listening', srv.listening === false);
+check('server.timeout', typeof srv.timeout === 'number');
+check('server.keepAliveTimeout', typeof srv.keepAliveTimeout === 'number');
+
 var https = require('https');
 check('https.createServer', typeof https.createServer === 'function');
 check('https.request', typeof https.request === 'function');
