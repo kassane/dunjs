@@ -87,6 +87,10 @@ const { EventEmitter } = require("events");
 | `dun:ws` | WebSocket client/server (RFC 6455) |
 | `dun:util` | inspect, format, types, promisify |
 | `dun:assert` | ok, equal, deepEqual, throws, rejects |
+| `dun:vm` | runInThisContext, runInNewContext, createContext, Script |
+| `dun:cluster` | fork, isPrimary, isWorker, on('exit') |
+| `dun:async_hooks` | AsyncLocalStorage (run, getStore, enterWith, disable) |
+| `dun:worker_threads` | isMainThread, threadId, Worker, parentPort |
 
 Global: `fetch()`, `Worker`, `SharedArrayBuffer`, `Atomics`, `setTimeout`/`setInterval`, `console`, `process`, `Deno.*`, `atob`/`btoa`, `TextEncoder`/`TextDecoder`, `structuredClone`
 
@@ -130,9 +134,9 @@ for 24 hours. `dun install` checks packages before download. See [SECURITY.md](S
 
 | Backend | Tests | Notes |
 |---------|-------|-------|
-| QuickJS-NG | 63/63 | Default. Interpreter, ES2023, smallest binary (4.6MB) |
-| JavaScriptCore | 63/63 | JIT. Same engine as Safari/Bun |
-| V8 | 63/63 | JIT. Same engine as Chrome/Node.js (V8 14.9). Via C++ shim |
+| QuickJS-NG | 66/66 | Default. Interpreter, ES2023, smallest binary (4.6MB) |
+| JavaScriptCore | 66/66 | JIT. Same engine as Safari/Bun |
+| V8 | 66/66 | JIT. Same engine as Chrome/Node.js (V8 14.9). Via C++ shim |
 
 All 24 built-in modules, Workers, SharedArrayBuffer, Atomics, fetch, Deno compat, and web globals work identically on every backend.
 
@@ -157,7 +161,7 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for the full design.
 
 ```sh
 dub test -c unittest                    # ~175 unit tests
-./tests/integration/run.sh              # 63 integration tests (all 3 backends)
+./tests/integration/run.sh              # 66 integration tests (all 3 backends)
 ```
 
 | Suite | Tests |
@@ -168,7 +172,7 @@ dub test -c unittest                    # ~175 unit tests
 | Security | 38 (permissions 27 + CVE audit 8 + security tests 3) |
 | HTTP/2 | 15 (frame encoding, HPACK, static table, settings) |
 | HTTP/3 | 12 (QUIC varint encode/decode, H3 frame header, SETTINGS payload) |
-| Integration | 63 tests (core JS, async, ES2023+, modules, 24 builtins, Workers, Deno compat, TypeScript, fetch Response, import.meta, REPL, CLI, real-world) |
+| Integration | 66 tests (core JS, async, ES2023+, modules, 28 builtins, Workers, Deno compat, TypeScript, fetch Response, import.meta, vm, async_hooks, signals, REPL, CLI, real-world) |
 
 ## Comparison
 
@@ -190,21 +194,19 @@ Feature benchmarks (25 tests, ops/sec — higher is better):
 
 | Runtime | Total Throughput | Relative |
 |---------|-----------------|----------|
-| Bun 1.3.11 | 422M | 1.00x |
-| DunJS JSC | 371M | 0.88x |
-| Node.js v22 | 112M | 0.26x |
-| Deno 2.7.14 | 109M | 0.26x |
-| DunJS V8 | 105M | 0.25x |
+| Bun 1.3.11 | 399M | 1.00x |
+| DunJS JSC | 373M | 0.94x |
+| Node.js v22 | 118M | 0.30x |
+| DunJS V8 | 103M | 0.26x |
 
 Framework benchmarks (39 tests, ops/sec):
 
 | Runtime | Total Throughput | Relative |
 |---------|-----------------|----------|
-| Bun 1.3.11 | 266M | 1.00x |
-| DunJS JSC | 242M | 0.91x |
-| Node.js v22 | 130M | 0.49x |
-| DunJS V8 | 129M | 0.48x |
-| Deno 2.7.14 | 126M | 0.47x |
+| Bun 1.3.11 | 275M | 1.00x |
+| DunJS JSC | 260M | 0.95x |
+| DunJS V8 | 138M | 0.50x |
+| Node.js v22 | 125M | 0.45x |
 
 HTTP stress (wrk, 128 connections, req/sec — higher is better):
 
@@ -215,7 +217,7 @@ HTTP stress (wrk, 128 connections, req/sec — higher is better):
 | /compute | 55,132 | 42,544 | 39,778 | 40,334 | 27,372 |
 | /transaction | 42,694 | 41,792 | 34,138 | 26,501 | 19,046 |
 
-DunJS JSC is 88-91% of Bun on JS compute. DunJS V8 beats Node.js on all HTTP endpoints.
+DunJS JSC is 94-95% of Bun on JS compute. DunJS V8 beats Node.js on all HTTP endpoints.
 npm compat: **145/145** pass across all 6 runtimes.
 
 ## License

@@ -199,11 +199,8 @@ string bytesToHex(const(ubyte)[] data) @trusted nothrow
     try
     {
         auto buf = new char[data.length * 2];
-        foreach (i, b; data)
-        {
-            buf[i * 2]     = hexLUT[b * 2];
-            buf[i * 2 + 1] = hexLUT[b * 2 + 1];
-        }
+        import dun.platform.simd : hexEncodeBuf;
+        hexEncodeBuf(data, buf);
         return cast(string) buf;
     }
     catch (Exception) { return ""; }
@@ -360,7 +357,9 @@ JSHandle jsBufferIsBuffer(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     if (args.length < 1 || !engine.isObject(args[0]))
         return engine.newBool(false);
     auto isBuf = engine.getProperty(args[0], "__isBuffer");
-    return engine.newBool(engine.isBool(isBuf) && engine.extractBool(isBuf));
+    bool result = engine.isBool(isBuf) && engine.extractBool(isBuf);
+    engine.freeValue(isBuf);
+    return engine.newBool(result);
 }
 
 // Buffer.concat(list, [totalLength])
@@ -372,10 +371,17 @@ JSHandle jsBufferConcat(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     auto engine = state.engine;
     if (args.length < 1) return makeBufferObj(engine, cast(ubyte[]) []);
 
-    ubyte[] combined;
     auto lenVal = engine.getProperty(args[0], "length");
-    if (!engine.isNumber(lenVal)) return makeBufferObj(engine, cast(ubyte[]) []);
+    if (!engine.isNumber(lenVal))
+    {
+        engine.freeValue(lenVal);
+        return makeBufferObj(engine, cast(ubyte[]) []);
+    }
     int count = engine.extractInt(lenVal);
+    engine.freeValue(lenVal);
+
+    import std.array : Appender;
+    Appender!(ubyte[]) combined;
 
     for (int i = 0; i < count; i++)
     {
@@ -387,7 +393,7 @@ JSHandle jsBufferConcat(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
         }
         engine.freeValue(elem);
     }
-    return makeBufferObj(engine, combined);
+    return makeBufferObj(engine, combined[]);
 }
 
 // Buffer.byteLength(string, [encoding])

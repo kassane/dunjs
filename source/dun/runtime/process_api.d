@@ -271,6 +271,18 @@ JSHandle jsProcessOn(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
         gRejectionEngine = engine;
         gHasRejectionHandler = true;
     }
+    else if (event == "SIGTERM")
+    {
+        import dun.runtime.signals : registerSignalHandler, installSignalHandlers, SignalType;
+        installSignalHandlers();
+        registerSignalHandler(engine, SignalType.SIGTERM, args[1]);
+    }
+    else if (event == "SIGINT")
+    {
+        import dun.runtime.signals : registerSignalHandler, installSignalHandlers, SignalType;
+        installSignalHandlers();
+        registerSignalHandler(engine, SignalType.SIGINT, args[1]);
+    }
     return engine.dupValue(thisVal);
 }
 

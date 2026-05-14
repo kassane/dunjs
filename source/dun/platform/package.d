@@ -7,3 +7,4 @@ version (EngineQuickJS)
 }
 public import dun.platform.paths;
 public import dun.platform.arena;
+public import dun.platform.simd;

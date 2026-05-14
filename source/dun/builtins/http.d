@@ -1074,11 +1074,7 @@ void parseRequestHeaders(HttpConnState* conn, const(char)[] text) nothrow @trust
         size_t lineStart = 0;
         int lineNo = 0;
 
-        // Fast inline lowercase (avoids std.string.toLower GC allocation)
-        static char toLowerChar(char c) pure nothrow @nogc @safe
-        {
-            return c >= 'A' && c <= 'Z' ? cast(char)(c + 32) : c;
-        }
+        import dun.platform.simd : asciiToLowerBuf;
 
         for (size_t i = 0; i <= text.length; i++)
         {
@@ -1109,11 +1105,10 @@ void parseRequestHeaders(HttpConnState* conn, const(char)[] text) nothrow @trust
                     while (col < lineSlice.length && lineSlice[col] != ':') col++;
                     if (col < lineSlice.length)
                     {
-                        // Lowercase header name in-place via stack buffer
                         char[HTTP_MAX_HEADER_NAME] nameBuf = void;
                         size_t nameLen = col < HTTP_MAX_HEADER_NAME ? col : HTTP_MAX_HEADER_NAME;
-                        foreach (j; 0 .. nameLen)
-                            nameBuf[j] = toLowerChar(lineSlice[j]);
+                        nameBuf[0 .. nameLen] = lineSlice[0 .. nameLen];
+                        asciiToLowerBuf(nameBuf[0 .. nameLen]);
                         string name = cast(string) nameBuf[0 .. nameLen].idup;
 
                         // Trim leading whitespace from value

@@ -46,10 +46,11 @@ JSHandle jsRequireResolve(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     if (specifier.startsWith("node:") || specifier.startsWith("dun:"))
         return engine.newString(specifier);
 
-    string[25] builtins = ["fs", "path", "crypto", "net", "http", "http2",
+    string[29] builtins = ["fs", "path", "crypto", "net", "http", "http2",
         "http3", "os", "buffer", "events", "url", "child_process", "stream",
         "zlib", "dns", "ws", "sqlite", "util", "assert", "querystring",
-        "string_decoder", "timers/promises", "tls", "dgram", "vm"];
+        "string_decoder", "timers/promises", "tls", "dgram", "vm",
+        "cluster", "async_hooks", "worker_threads", "perf_hooks"];
     foreach (b; builtins)
         if (specifier == b) return engine.newString(specifier);
 
@@ -139,6 +140,10 @@ JSHandle jsRequire(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     else if (specifier == "querystring") specifier = "dun:querystring";
     else if (specifier == "string_decoder") specifier = "dun:string_decoder";
     else if (specifier == "timers/promises") specifier = "dun:timers/promises";
+    else if (specifier == "vm") specifier = "dun:vm";
+    else if (specifier == "cluster") specifier = "dun:cluster";
+    else if (specifier == "async_hooks") specifier = "dun:async_hooks";
+    else if (specifier == "worker_threads") specifier = "dun:worker_threads";
 
     auto global = engine.getGlobal();
 
@@ -167,6 +172,10 @@ JSHandle jsRequire(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
         else if (specifier == "dun:querystring") propName = "__dun_cjs_querystring__";
         else if (specifier == "dun:string_decoder") propName = "__dun_cjs_string_decoder__";
         else if (specifier == "dun:timers/promises") propName = "__dun_cjs_timers_promises__";
+        else if (specifier == "dun:vm") propName = "__dun_cjs_vm__";
+        else if (specifier == "dun:cluster") propName = "__dun_cjs_cluster__";
+        else if (specifier == "dun:async_hooks") propName = "__dun_cjs_async_hooks__";
+        else if (specifier == "dun:worker_threads") propName = "__dun_cjs_worker_threads__";
 
         if (propName.length > 0)
         {

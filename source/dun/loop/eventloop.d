@@ -70,6 +70,18 @@ struct EventLoop
                 pollWorkerMessages(engine);
             }
 
+            {
+                import dun.builtins.cluster : pollClusterWorkers;
+                pollClusterWorkers();
+            }
+
+            // Drain pending POSIX signals (SIGTERM/SIGINT) and dispatch JS callbacks
+            {
+                import dun.runtime.signals : checkSignals, drainSignals;
+                if (checkSignals())
+                    drainSignals();
+            }
+
             if (!engine.hasPendingJobs()
                 && microtasks.empty()
                 && nextTicks.empty()
@@ -105,6 +117,7 @@ struct EventLoop
         import dun.builtins.http : hasActiveHttpIO;
         import dun.builtins.http2 : hasActiveHttp2IO;
         import dun.builtins.ws : hasActiveWsIO;
+        import dun.builtins.cluster : hasActiveClusterWorkers;
         import dun.loop.agnostic_pending : hasAgnosticPending;
         import dun.loop.async : asyncHasWork;
 
@@ -117,6 +130,7 @@ struct EventLoop
             || hasActiveHttpIO()
             || hasActiveHttp2IO()
             || hasActiveWsIO()
+            || hasActiveClusterWorkers()
             || hasAgnosticPending()
             || asyncHasWork();
 

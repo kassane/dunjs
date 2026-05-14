@@ -100,6 +100,7 @@ source/dun/ts/           # TypeScript type stripping
 
 source/dun/platform/
 +-- arena.d              # Arena/bump allocator (std.experimental.allocator Region, BorrowedRegion, InSituRegion, Mallocator)
++-- simd.d               # core.simd SIMD primitives (toLower16, hexEncode, findByte; SSE2/NEON)
 +-- openssl.d            # extern(C) OpenSSL bindings (libssl, libcrypto, ALPN, SSL_accept, cert/key loading)
 +-- lsquic.d             # extern(C) lsquic bindings (QUIC/HTTP3, litespeedtech/lsquic)
 
@@ -140,6 +141,10 @@ All runtime globals are **engine-agnostic** (use `IJSEngine` + `NativeCallback`)
 | `querystring` | `registerQuerystringModule(engine)` | `require('querystring')`, ESM `import from 'dun:querystring'` |
 | `string_decoder` | `registerStringDecoderModule(engine)` | `require('string_decoder')`, ESM `import from 'dun:string_decoder'` |
 | `timers/promises` | `registerTimersPromisesModule(engine)` | `require('timers/promises')`, ESM `import from 'dun:timers/promises'` |
+| `vm` | `registerVmModule(engine)` | `require('vm')`, ESM `import from 'dun:vm'` |
+| `cluster` | `registerClusterModule(engine)` | `require('cluster')`, ESM `import from 'dun:cluster'` |
+| `async_hooks` | `registerAsyncHooksModule(engine)` | `require('async_hooks')`, ESM `import from 'dun:async_hooks'` |
+| `worker_threads` | `registerWorkerThreadsModule(engine)` | `require('worker_threads')`, ESM `import from 'dun:worker_threads'` |
 | `fetch` | `registerFetchGlobal(engine)` | Global `fetch()` (Posix, HTTPS via OpenSSL) |
 | Web globals | `installWebCompat(engine)` | `atob`, `btoa`, `structuredClone`, `TextEncoder`, `TextDecoder`, native Uint8Array creation |
 | Web APIs | `installWebAPIs(engine)` | `performance`, `EventTarget`, `Event`, `CustomEvent`, `AbortController`, `AbortSignal`, `DOMException`, `navigator`, `Blob`, `File`, `FormData`, `Headers`, `Request`, `Response`, `MessageChannel`, `MessagePort`, `BroadcastChannel`, `ReadableStream`, `WritableStream`, `TransformStream`, `setImmediate`, `clearImmediate`, `Promise.withResolvers`, `crypto.getRandomValues`, `crypto.randomUUID`, `console.time/timeEnd/timeLog/count/countReset/table/dir/trace` |
@@ -248,7 +253,10 @@ Applied across all 7 layers (~290 assertions in 25 files).
 - **V8 indexed properties**: Native `dun_v8_get/set_property_index` via `Object::Get(context, idx)` — no int-to-string conversion
 - **Crypto cached fd**: `/dev/urandom` opened once, reused for all `randomBytes`/`randomUUID` calls
 - **UUID fast format**: CTFE hex LUT instead of `std.format` for UUID formatting
-- **CTFE hex LUT**: `bytesToHex` uses compile-time 512-byte lookup table, no `std.format`
+- **SIMD hex encoding**: `dun.platform.simd.hexEncodeBuf` uses `core.simd` ubyte16 to encode 16 bytes → 32 hex chars per cycle (used by `buffer.d` `bytesToHex`)
+- **SIMD HTTP toLower**: `asciiToLowerBuf` lowercases HTTP header names 16 bytes/cycle via SIMD masks (used by `http.d` `parseRequestHeaders`)
+- **SIMD byte search**: `findByte` scans buffers for delimiters 16 bytes/cycle via SIMD equality check
+- **CTFE hex LUT**: Fallback 512-byte lookup table for non-SIMD paths and tail bytes
 - **Pre-allocated buffers**: WebSocket frames, ESM shim use `Appender` with `reserve()`
 - **ESM shim O(n) strings**: `escapeJsString`, `splitLines`, `parseImportLine` use `Appender` instead of `~=`/`~` concatenation
 - **Arena allocator**: `dun.platform.arena` re-exports `std.experimental.allocator` (`Region!Mallocator`, `BorrowedRegion`, `InSituRegion`) for `@nogc pure` bump allocation
@@ -393,7 +401,7 @@ dub test -c unittest    # All unit tests
 | V8 TMP bridge | `source/dun/engine/v8/cppbindings.d` | compile-time | V8TypeName coverage, tag->name mapping |
 | JSC TMP bridge | `source/dun/engine/jsc/cppbindings.d` | compile-time | JSCTypeName coverage, kJSType* alignment |
 
-### Integration Tests (63 tests)
+### Integration Tests (66 tests)
 
 ```sh
 # Run against a specific backend
@@ -419,9 +427,10 @@ dub build -c v8  && BACKEND=v8  ./tests/integration/run.sh
 | TypeScript | `typescript`, `realworld_ts_library` | Type annotations, interfaces, as, arrow types |
 | Fetch/Response | `fetch_response` | 19 checks: Response constructor, status/statusText/ok/url, headers, text/json/clone, process.stdin |
 | import.meta | `import_meta` | 6 checks: url, filename, dirname, main (all 3 backends) |
+| New Modules | `vm_api`, `async_hooks_api`, `signal_handling` | vm.runInThisContext/runInNewContext/createContext/Script, AsyncLocalStorage run/getStore/enterWith/disable, process.on('SIGTERM'/'SIGINT') |
 | Real-world | 7 end-to-end scenarios | Config loading, task runner, file processing, events, promise pool, nested require, ESM pipeline |
 
-Backend test scores: **QuickJS 63/63**, **JSC 63/63**, **V8 63/63** (full parity across all 3 backends).
+Backend test scores: **QuickJS 66/66**, **JSC 66/66**, **V8 66/66** (full parity across all 3 backends).
 
 Test pattern: fixtures in `tests/integration/fixtures/*.{js,mjs,ts}`, expected stdout in `tests/integration/expected/*.txt`.
 
@@ -452,21 +461,19 @@ Cross-runtime comparison (feature_bench.js, 25 tests, release builds, ops/sec):
 
 | Runtime | Total Throughput | vs Bun |
 |---------|-----------------|--------|
-| Bun 1.3.11 | 422M | 1.00x |
-| DunJS JSC | 371M | **0.88x** |
-| Node.js v22 | 112M | 0.26x |
-| Deno 2.7.14 | 109M | 0.26x |
-| DunJS V8 | 105M | 0.25x |
+| Bun 1.3.11 | 399M | 1.00x |
+| DunJS JSC | 373M | **0.94x** |
+| Node.js v22 | 118M | 0.30x |
+| DunJS V8 | 103M | 0.26x |
 
 Framework benchmarks (framework_bench.js, 39 tests, release builds, ops/sec):
 
 | Runtime | Total Throughput | vs Bun |
 |---------|-----------------|--------|
-| Bun 1.3.11 | 266M | 1.00x |
-| DunJS JSC | 242M | **0.91x** |
-| Node.js v22 | 130M | 0.49x |
-| DunJS V8 | 129M | 0.48x |
-| Deno 2.7.14 | 126M | 0.47x |
+| Bun 1.3.11 | 275M | 1.00x |
+| DunJS JSC | 260M | **0.95x** |
+| DunJS V8 | 138M | 0.50x |
+| Node.js v22 | 125M | 0.45x |
 
 npm compat test (npm_compat_test.js, 145 assertions): **All 6 runtimes: 145/145 pass**
 
@@ -503,14 +510,18 @@ Stress test (stress.js, 240 tests, release builds):
 | Atomics | Yes (futex on Linux) | Yes | Yes | Yes |
 | io_uring | Yes (IORING_OP_POLL_ADD) | Yes (internal) | No | No (libuv) |
 | Async thread pool | Yes (D threads) | Yes (Zig) | Yes (Tokio) | Yes (libuv) |
-| core.simd / WASM SIMD | `core.simd` available | WASM SIMD | V8 SIMD | V8 SIMD |
+| core.simd / WASM SIMD | `core.simd` active (hex, toLower, findByte) | WASM SIMD | V8 SIMD | V8 SIMD |
 | Epoll/kqueue | Yes | Yes | Yes | Via libuv |
 | HTTP/2 multiplexing | Yes | Yes | Yes | Yes |
 | WebSocket | Yes (RFC 6455) | Yes | Yes | Via ws pkg |
 
 D's `core.simd` maps to SSE2/AVX (x86) and NEON (ARM) at compile time, similar to
 Zig's `@Vector`. V8/JSC use their own internal SIMD for JIT-compiled code.
-DunJS can use `core.simd` for hot paths in D code (buffer ops, hex encoding, HTTP parsing).
+DunJS uses `core.simd` in hot paths (`dun.platform.simd`):
+- **`hexEncodeBuf`**: SIMD hex encoding (16 bytes → 32 hex chars/cycle) used by `buffer.d`
+- **`asciiToLowerBuf`**: SIMD ASCII toLower (16 bytes/cycle) used by HTTP header parsing
+- **`findByte`**: SIMD byte search (16 bytes/cycle) for delimiter scanning
+- Scalar fallback via `version(D_SIMD)` for platforms without SIMD
 
 ### Docker Support
 
@@ -677,3 +688,9 @@ Benchmark impact (25 benchmarks, feature_bench.js):
 | 12c | import.meta all backends | import.meta.url/filename/dirname/main on QuickJS (native) + JSC/V8 (ESM shim polyfill) | **Done** |
 | 12d | D FFI bindgen tests | 27 tests: -HCf, -H, ImportC, @nogc alloc, clang AST, FFI linkage, --extern-std | **Done** |
 | 13a | HTTP/3 | dun:http3 module, RFC 9114 constants, QUIC varint encoding, lsquic bindings, API stubs | **Done** |
+| 14a | vm module | dun:vm — runInThisContext, runInNewContext, createContext, Script class | **Done** |
+| 14b | cluster module | dun:cluster — fork(), isPrimary/isWorker, worker tracking, exit callbacks | **Done** |
+| 14c | async_hooks | dun:async_hooks — AsyncLocalStorage constructor, run/getStore/enterWith/disable | **Done** |
+| 14d | worker_threads | dun:worker_threads — isMainThread, threadId, Worker (delegates to existing Worker API) | **Done** |
+| 14e | Signal handling | POSIX SIGTERM/SIGINT handlers, process.on('SIGTERM'/'SIGINT', cb), event loop drain | **Done** |
+| 14f | core.simd | SIMD hex encoding (16B/cycle), ASCII toLower (16B/cycle), byte search; SSE2/NEON | **Done** |

@@ -1,0 +1,6 @@
+=== signal_handling ===
+SIGTERM registered: true
+SIGINT registered: true
+multiple handlers: true
+uncaughtException handler: true
+PASS: signal_handling

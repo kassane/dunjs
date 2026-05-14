@@ -9,6 +9,11 @@ private enum : size_t {
     MAX_READ_LENGTH   = 64 * 1024 * 1024,
 }
 
+private enum {
+    FILE_MODE_0644 = 0x1A4,
+    S_IFREG_0644   = 0x81A4,
+}
+
 // ── Cross-platform compatibility layer ──────────────────────────
 
 version(Posix)
@@ -322,7 +327,7 @@ else version(Windows)
         fclose(fp);
         result.size = size >= 0 ? size : 0;
         result.isFile = true;
-        result.mode = 0x81A4; // S_IFREG | 0644
+        result.mode = S_IFREG_0644;
         return 0;
     }
 
@@ -526,6 +531,7 @@ JSHandle jsMkdirSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     {
         auto rv = engine.getProperty(args[1], "recursive");
         recursive = engine.extractBool(rv);
+        engine.freeValue(rv);
     }
     if (!checkPerm(state, Permission.write, path))
         return throwPermError(engine, "write", path);
@@ -742,6 +748,7 @@ JSHandle jsRmSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     {
         auto rv = engine.getProperty(args[1], "recursive");
         recursive = engine.extractBool(rv);
+        engine.freeValue(rv);
     }
     if (!checkPerm(state, Permission.write, path))
         return throwPermError(engine, "write", path);
@@ -1093,7 +1100,7 @@ JSHandle jsOpenSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     string flags = "r";
     if (args.length >= 2 && engine.isString(args[1]))
         flags = engine.extractString(args[1]);
-    int mode = 0x1A4; // 0o644
+    int mode = FILE_MODE_0644;
     if (args.length >= 3 && engine.isNumber(args[2]))
         mode = engine.extractInt(args[2]);
     bool needsRead = (flags == "r" || flags == "r+" || flags == "w+" || flags == "a+");

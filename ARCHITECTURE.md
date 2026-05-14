@@ -6,12 +6,14 @@ DunJS is a 7-layer JavaScript/TypeScript runtime with a **pluggable engine archi
 (IJSEngine interface), a cross-platform I/O poller (epoll/kqueue/poll), and a Deno-inspired permission system.
 
 Three backends are fully functional: QuickJS-NG (default), JavaScriptCore, and V8.
-All 63 integration tests pass on QuickJS, JSC, and V8 (full parity across all 3 backends).
-All 24 built-in modules (fs, path, crypto, net, http, http2, buffer, events, url, os, fetch,
+All 66 integration tests pass on QuickJS, JSC, and V8 (full parity across all 3 backends).
+All 28 built-in modules (fs, path, crypto, net, http, http2, buffer, events, url, os, fetch,
 child_process, stream, zlib, dns, ws, sqlite, util, assert, querystring, string_decoder,
-timers/promises, tls) are engine-agnostic. Workers, SharedArrayBuffer, and Atomics work on all backends.
-HTTPS via OpenSSL, npm package install, 30+ Deno APIs, and web standard globals are included.
+timers/promises, vm, cluster, async_hooks, worker_threads, tls) are engine-agnostic.
+Workers, SharedArrayBuffer, and Atomics work on all backends.
+HTTPS via OpenSSL, npm package install, 30+ Deno APIs, web standard globals, POSIX signal handling.
 fetch() returns proper Response objects. import.meta works on all backends. process.stdin available.
+core.simd SIMD acceleration for hex encoding, HTTP header parsing, and byte search.
 
 Reference: [Bun's Zig->Rust port](https://github.com/oven-sh/bun/pull/30412) -- modular
 workspace with `bun_jsc` engine layer, `*_jsc` suffix pattern for engine-specific modules,
@@ -584,4 +586,4 @@ tests/benchmarks/http_bench/
 HTTP server optimizations: TCP_NODELAY, buffered single-write response, CTFE pre-computed
 status lines, connection slot pooling, fd→connId hashmap (O(1) lookup), JS-level dispatch
 for reduced FFI overhead, lazy header loading, MSG_NOSIGNAL, EOF detection with RAII cleanup.
-**QuickJS 63/63, JSC 63/63, V8 63/63** (all backends at full parity).
+**QuickJS 66/66, JSC 66/66, V8 66/66** (all backends at full parity).

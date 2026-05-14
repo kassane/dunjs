@@ -1,0 +1,12 @@
+const vm = require('vm');
+console.log('=== vm module ===');
+console.log('runInThisContext:', vm.runInThisContext('1 + 2'));
+const result = vm.runInNewContext('x + y', { x: 10, y: 20 });
+console.log('runInNewContext:', result);
+const ctx = vm.createContext({ counter: 0 });
+vm.runInContext('counter++', ctx);
+vm.runInContext('counter++', ctx);
+console.log('context counter:', ctx.counter);
+console.log('isContext:', vm.isContext(ctx));
+console.log('isContext plain:', vm.isContext({}));
+console.log('PASS: vm');
