@@ -154,6 +154,12 @@ All runtime globals are **engine-agnostic** (use `IJSEngine` + `NativeCallback`)
 | `punycode` | stub (globalThis) | `require('punycode')`, ESM `import from 'dun:punycode'` |
 | `domain` | stub (globalThis) | `require('domain')`, ESM `import from 'dun:domain'` |
 | `diagnostics_channel` | stub (globalThis) | `require('diagnostics_channel')`, ESM `import from 'dun:diagnostics_channel'` |
+| `tty` | `registerTtyModule(engine)` | `require('tty')`, ESM `import from 'dun:tty'` |
+| `constants` | stub (globalThis) | `require('constants')` |
+| `module` | stub (globalThis) | `require('module')` — builtinModules, isBuiltin, createRequire |
+| `timers` | stub (globalThis) | `require('timers')` — setTimeout, setInterval, etc. |
+| `process` | stub (globalThis) | `require('process')` — delegates to global `process` |
+| `console` | stub (globalThis) | `require('console')` — delegates to global `console` |
 | `fetch` | `registerFetchGlobal(engine)` | Global `fetch()` (Posix, HTTPS via OpenSSL) |
 | Web globals | `installWebCompat(engine)` | `atob`, `btoa`, `structuredClone`, `TextEncoder`, `TextDecoder`, native Uint8Array creation |
 | Web APIs | `installWebAPIs(engine)` | `performance`, `EventTarget`, `Event`, `CustomEvent`, `AbortController`, `AbortSignal`, `DOMException`, `navigator`, `Blob`, `File`, `FormData`, `Headers`, `Request`, `Response`, `MessageChannel`, `MessagePort`, `BroadcastChannel`, `ReadableStream`, `WritableStream`, `TransformStream`, `setImmediate`, `clearImmediate`, `Promise.withResolvers`, `crypto.getRandomValues`, `crypto.randomUUID`, `console.time/timeEnd/timeLog/count/countReset/table/dir/trace` |
@@ -423,7 +429,7 @@ dub test -c unittest    # All unit tests
 | V8 TMP bridge | `source/dun/engine/v8/cppbindings.d` | compile-time | V8TypeName coverage, tag->name mapping |
 | JSC TMP bridge | `source/dun/engine/jsc/cppbindings.d` | compile-time | JSCTypeName coverage, kJSType* alignment |
 
-### Integration Tests (75 tests)
+### Integration Tests (77 tests)
 
 ```sh
 # Run against a specific backend
@@ -452,16 +458,18 @@ dub build -c v8  && BACKEND=v8  ./tests/integration/run.sh
 | New Modules | `vm_api`, `async_hooks_api`, `signal_handling` | vm.runInThisContext/runInNewContext/createContext/Script, AsyncLocalStorage run/getStore/enterWith/disable, process.on('SIGTERM'/'SIGINT') |
 | fs errors | `fs_errors` | Node-compatible Error objects (code/errno/syscall/path), ENOENT, permission errors |
 | fs promises | `fs_promises` | 20 checks: readFile, writeFile, appendFile, copyFile, rename, unlink, mkdir, readdir, stat, access, realpath |
-| HTTPS | `https_api` | https.createServer, options validation, cert/key loading |
+| HTTPS | `https_api` | https.createServer, options validation, cert/key loading, request/get/Agent |
+| HTTP client | `http_client_api` | 42 checks: STATUS_CODES, METHODS, Agent, request/get, ClientRequest API |
+| Crypto async | `crypto_async` | 12 checks: async pbkdf2/scrypt, randomFill, createSign/createVerify, constants |
 | Real-world | 7 end-to-end scenarios | Config loading, task runner, file processing, events, promise pool, nested require, ESM pipeline |
 | Process | `process_enhanced` | 18 checks: nextTick args, emitWarning, kill, umask, hrtime, memoryUsage, cpuUsage |
 | Crypto | `crypto_cipher` | 12 checks: AES-256-CBC/AES-128-CBC round-trip, getCiphers, getHashes, timingSafeEqual, HMAC |
 | Util | `util_enhanced` | 27 checks: types (20+), debuglog, _extend, format, inherits, promisify, callbackify |
 | Readline | `readline_api` | 18 checks: createInterface, events, write/line, punycode, domain, diagnostics_channel |
 | Env Proxy | `process_env_proxy` | 8 checks: set/delete/in/keys, NODE_ENV pattern |
-| npm compat | `npm_compat_modules` | 97 checks: 29 modules, key API surface, globals |
+| npm compat | `npm_compat_modules` | 119 checks: 35 modules, key API surface, globals, http/https client |
 
-Backend test scores: **QuickJS 75/75**, **JSC 75/75**, **V8 75/75** (full parity across all 3 backends).
+Backend test scores: **QuickJS 77/77**, **JSC 77/77**, **V8 77/77** (full parity across all 3 backends).
 
 Test pattern: fixtures in `tests/integration/fixtures/*.{js,mjs,ts}`, expected stdout in `tests/integration/expected/*.txt`.
 
@@ -747,3 +755,9 @@ Benchmark impact (25 benchmarks, feature_bench.js):
 | 15m | net.isIP | net.isIP/isIPv4/isIPv6 with pure D validators | **Done** |
 | 15n | stream.Readable | Readable.from(iterable), Readable[Symbol.asyncIterator] | **Done** |
 | 15o | npm compat test | 97-check test covering 29 modules + key API surface (75/75 integration) | **Done** |
+| 15p | HTTP client API | http.request/get, STATUS_CODES (50), METHODS (34), Agent, ClientRequest with fetch backend | **Done** |
+| 15q | tty + pseudo-modules | tty.isatty/ReadStream/WriteStream, require('constants'/'module'/'timers'/'process'/'console') | **Done** |
+| 15r | Async crypto | pbkdf2/scrypt async wrappers, randomFill/randomFillSync, createSign/createVerify stubs, constants | **Done** |
+| 15s | Socket addresses | remoteAddress/remotePort/localAddress/localPort on net.Socket via accept()/getsockname() | **Done** |
+| 15t | process.stdout | cork/uncork/cursorTo/clearLine/moveCursor/getWindowSize, process.argv0/execArgv/mainModule | **Done** |
+| 15u | aarch64 + Docker | stat_t __traits(hasMember) for aarch64, Docker buildx multiplatform (amd64+arm64), non-root user | **Done** |
