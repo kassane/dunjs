@@ -133,6 +133,7 @@ class QuickJSEngine : IJSEngine
         size_t abSize;
         auto ptr = JS_GetArrayBuffer(ctx, &abSize, ab);
         if (ptr is null) return null;
+        if (offset + byteLen > abSize) return null;
         return ptr[offset .. offset + byteLen];
     }
 
