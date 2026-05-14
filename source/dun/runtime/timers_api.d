@@ -27,6 +27,7 @@ JSHandle jsSetTimeout(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in setTimeout");
     auto state = cast(DunState*) ctx;
+    assert(state !is null, "Null DunState in setTimeout");
     auto engine = state.engine;
     assert(engine !is null, "Null engine in setTimeout");
 
@@ -52,6 +53,7 @@ JSHandle jsSetInterval(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in setInterval");
     auto state = cast(DunState*) ctx;
+    assert(state !is null, "Null DunState in setInterval");
     auto engine = state.engine;
     assert(engine !is null, "Null engine in setInterval");
 
@@ -78,6 +80,7 @@ JSHandle jsClearTimer(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in clearTimer");
     auto state = cast(DunState*) ctx;
+    assert(state !is null, "Null DunState in clearTimer");
     auto engine = state.engine;
     assert(engine !is null, "Null engine in clearTimer");
 

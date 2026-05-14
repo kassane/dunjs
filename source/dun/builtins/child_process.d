@@ -252,21 +252,27 @@ JSHandle jsSpawnSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
         try
         {
+            import std.array : Appender;
+            Appender!(char[]) outBuf;
             foreach (line; pipes.stdout.byLineCopy)
             {
-                if (stdoutStr.length > 0) stdoutStr ~= "\n";
-                stdoutStr ~= line;
+                if (outBuf[].length > 0) outBuf.put('\n');
+                outBuf.put(line);
             }
+            stdoutStr = cast(string) outBuf[];
         }
         catch (Exception) {}
 
         try
         {
+            import std.array : Appender;
+            Appender!(char[]) errBuf;
             foreach (line; pipes.stderr.byLineCopy)
             {
-                if (stderrStr.length > 0) stderrStr ~= "\n";
-                stderrStr ~= line;
+                if (errBuf[].length > 0) errBuf.put('\n');
+                errBuf.put(line);
             }
+            stderrStr = cast(string) errBuf[];
         }
         catch (Exception) {}
 

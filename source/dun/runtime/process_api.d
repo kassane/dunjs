@@ -83,9 +83,10 @@ private bool isattyFd(int fd) @trusted nothrow
 
 void installProcess(IJSEngine engine) @trusted
 {
-    assert(engine !is null, "Null engine");
+    assert(engine !is null, "Null engine in installProcess");
     ensureStartTime();
     auto state = cast(DunState*) engine.getContextOpaque();
+    assert(state !is null, "Null DunState in installProcess");
     auto global = engine.getGlobal();
     auto process = engine.newObject();
 
