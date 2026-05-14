@@ -44,6 +44,34 @@ void registerNetModule(IJSEngine engine) @trusted
     engine.setProperty(global, "__dun_cjs_net__", obj);
     engine.freeValue(global);
 
+    // Add BlockList and SocketAddress stubs via JS eval
+    auto netStubsResult = engine.eval(
+        "(function() {" ~
+        "  var net = globalThis.__dun_cjs_net__;" ~
+        "  net.BlockList = function BlockList() { this._rules = []; };" ~
+        "  net.BlockList.prototype.addAddress = function(addr) { this._rules.push({type:'address',addr:addr}); };" ~
+        "  net.BlockList.prototype.addRange = function(start, end) { this._rules.push({type:'range',start:start,end:end}); };" ~
+        "  net.BlockList.prototype.addSubnet = function(n, prefix) { this._rules.push({type:'subnet',net:n,prefix:prefix}); };" ~
+        "  net.BlockList.prototype.check = function(addr) { return false; };" ~
+        "  net.SocketAddress = function SocketAddress(opts) {" ~
+        "    opts = opts || {};" ~
+        "    this.address = opts.address || '127.0.0.1';" ~
+        "    this.port = opts.port || 0;" ~
+        "    this.family = opts.family || 'ipv4';" ~
+        "    this.flowlabel = opts.flowlabel || 0;" ~
+        "  };" ~
+        "})()", "<net-stubs>");
+    if (netStubsResult.isError)
+    {
+        try
+        {
+            import std.stdio : stderr;
+            stderr.writeln("net stubs init failed: ", netStubsResult.errorMessage);
+        }
+        catch (Exception) {}
+    }
+    engine.freeValue(netStubsResult.value);
+
     version (EngineQuickJS)
         registerQuickJSModule(engine);
 }
@@ -57,7 +85,8 @@ version (EngineQuickJS)
         auto ctx = cast(JSContext*) engine.rawContext();
         auto m = JS_NewCModule(ctx, "dun:net", &netModuleInit);
         if (m is null) return;
-        foreach (name; ["createServer", "createConnection", "connect", "isIP", "isIPv4", "isIPv6", "Socket"])
+        foreach (name; ["createServer", "createConnection", "connect", "isIP", "isIPv4", "isIPv6", "Socket",
+                        "BlockList", "SocketAddress"])
             JS_AddModuleExport(ctx, m, name.ptr);
     }
 
@@ -67,7 +96,8 @@ version (EngineQuickJS)
         assert(m !is null, "Null JSModuleDef in netModuleInit");
         auto global = JS_GetGlobalObject(ctx);
         auto netObj = JS_GetPropertyStr(ctx, global, "__dun_cjs_net__");
-        foreach (name; ["createServer", "createConnection", "connect", "isIP", "isIPv4", "isIPv6", "Socket"])
+        foreach (name; ["createServer", "createConnection", "connect", "isIP", "isIPv4", "isIPv6", "Socket",
+                        "BlockList", "SocketAddress"])
         {
             auto fn = JS_GetPropertyStr(ctx, netObj, name.ptr);
             JS_SetModuleExport(ctx, m, name.ptr, fn);

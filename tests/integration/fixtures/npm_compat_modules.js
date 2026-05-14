@@ -429,5 +429,143 @@ check('Dirent.isDirectory', dirent.isDirectory() === false);
 check('Buffer.allocUnsafeSlow', typeof Buffer.allocUnsafeSlow === 'function');
 check('Buffer.poolSize', Buffer.poolSize === 8192);
 
+// process gaps
+check('process.debugPort', process.debugPort === 9229);
+check('process.channel', process.channel === undefined);
+check('process.connected', process.connected === false);
+check('process.report', typeof process.report === 'object');
+check('process.report.writeReport', typeof process.report.writeReport === 'function');
+check('process.report.getReport', typeof process.report.getReport === 'function');
+check('process.report.reportOnSignal', process.report.reportOnSignal === false);
+check('process.report.reportOnFatalError', process.report.reportOnFatalError === false);
+check('process.report.reportOnUncaughtException', process.report.reportOnUncaughtException === false);
+check('process.resourceUsage', typeof process.resourceUsage === 'function');
+var ru = process.resourceUsage();
+check('process.resourceUsage returns object', typeof ru === 'object');
+check('process.resourceUsage.userCPUTime', typeof ru.userCPUTime === 'number');
+check('process.resourceUsage.maxRSS', typeof ru.maxRSS === 'number');
+check('process.resourceUsage.voluntaryContextSwitches', typeof ru.voluntaryContextSwitches === 'number');
+check('process.allowedNodeEnvironmentFlags', process.allowedNodeEnvironmentFlags instanceof Set);
+
+// http gaps
+check('http.maxHeaderSize', http.maxHeaderSize === 16384);
+check('http.validateHeaderName', typeof http.validateHeaderName === 'function');
+check('http.validateHeaderValue', typeof http.validateHeaderValue === 'function');
+// Test that valid header name does not throw
+var validHeaderOk = true;
+try { http.validateHeaderName('content-type'); } catch(e) { validHeaderOk = false; }
+check('http.validateHeaderName valid', validHeaderOk);
+// Test that invalid header name throws
+var invalidHeaderThrew = false;
+try { http.validateHeaderName('bad header\x00'); } catch(e) { invalidHeaderThrew = true; }
+check('http.validateHeaderName invalid throws', invalidHeaderThrew);
+// Test that valid header value does not throw
+var validValueOk = true;
+try { http.validateHeaderValue('x-test', 'hello'); } catch(e) { validValueOk = false; }
+check('http.validateHeaderValue valid', validValueOk);
+
+// os gaps
+check('os.availableParallelism', typeof os.availableParallelism === 'function');
+check('os.availableParallelism returns number', typeof os.availableParallelism() === 'number');
+check('os.availableParallelism > 0', os.availableParallelism() > 0);
+check('os.getPriority', typeof os.getPriority === 'function');
+check('os.setPriority', typeof os.setPriority === 'function');
+check('os.getPriority returns number', typeof os.getPriority() === 'number');
+
+// crypto extended APIs
+check('crypto.createECDH', typeof crypto.createECDH === 'function');
+var ecdh = crypto.createECDH('prime256v1');
+check('crypto.createECDH returns object', typeof ecdh === 'object');
+check('crypto.createECDH.generateKeys', typeof ecdh.generateKeys === 'function');
+check('crypto.generateKeySync', typeof crypto.generateKeySync === 'function');
+check('crypto.hkdfSync', typeof crypto.hkdfSync === 'function');
+check('crypto.hkdf', typeof crypto.hkdf === 'function');
+check('crypto.X509Certificate', typeof crypto.X509Certificate === 'function');
+check('crypto.KeyObject', typeof crypto.KeyObject === 'function');
+check('crypto.createSecretKey', typeof crypto.createSecretKey === 'function');
+check('crypto.createPublicKey', typeof crypto.createPublicKey === 'function');
+check('crypto.createPrivateKey', typeof crypto.createPrivateKey === 'function');
+check('crypto.webcrypto', typeof crypto.webcrypto === 'object');
+check('crypto.webcrypto.subtle', typeof crypto.webcrypto.subtle === 'object');
+check('crypto.webcrypto.getRandomValues', typeof crypto.webcrypto.getRandomValues === 'function');
+check('crypto.webcrypto.randomUUID', typeof crypto.webcrypto.randomUUID === 'function');
+check('crypto.subtle', typeof crypto.subtle === 'object');
+check('crypto.generateKey', typeof crypto.generateKey === 'function');
+check('crypto.generateKeyPair', typeof crypto.generateKeyPair === 'function');
+check('crypto.getDiffieHellman', typeof crypto.getDiffieHellman === 'function');
+check('crypto.createDiffieHellmanGroup', typeof crypto.createDiffieHellmanGroup === 'function');
+check('crypto.diffieHellman', typeof crypto.diffieHellman === 'function');
+check('crypto.getCurves', typeof crypto.getCurves === 'function');
+check('crypto.getCurves returns array', Array.isArray(crypto.getCurves()));
+check('crypto.getCurves has prime256v1', crypto.getCurves().indexOf('prime256v1') >= 0);
+check('crypto.secureHeapUsed', typeof crypto.secureHeapUsed === 'function');
+check('crypto.setFips', typeof crypto.setFips === 'function');
+check('crypto.getFips', typeof crypto.getFips === 'function');
+check('crypto.getFips returns 0', crypto.getFips() === 0);
+check('crypto.checkPrime', typeof crypto.checkPrime === 'function');
+check('crypto.checkPrimeSync', typeof crypto.checkPrimeSync === 'function');
+check('crypto.generatePrime', typeof crypto.generatePrime === 'function');
+check('crypto.generatePrimeSync', typeof crypto.generatePrimeSync === 'function');
+check('crypto.hash', typeof crypto.hash === 'function');
+var hashResult = crypto.hash('sha256', 'hello');
+check('crypto.hash sha256 works', typeof hashResult === 'string' && hashResult.length === 64);
+
+// stream extended APIs
+check('stream.compose', typeof stream.compose === 'function');
+check('stream.isErrored', typeof stream.isErrored === 'function');
+check('stream.isReadable', typeof stream.isReadable === 'function');
+check('stream.isDisturbed', typeof stream.isDisturbed === 'function');
+check('stream.consumers', typeof stream.consumers === 'object');
+check('stream.consumers.text', typeof stream.consumers.text === 'function');
+check('stream.consumers.json', typeof stream.consumers.json === 'function');
+check('stream.consumers.arrayBuffer', typeof stream.consumers.arrayBuffer === 'function');
+check('stream.Duplex', typeof stream.Duplex === 'function');
+check('stream.PassThrough', typeof stream.PassThrough === 'function');
+
+// events extended APIs
+check('events.captureRejectionSymbol', typeof events.captureRejectionSymbol === 'symbol');
+check('events.captureRejections', events.captureRejections === false);
+check('events.errorMonitor', typeof events.errorMonitor === 'symbol');
+check('events.getEventListeners', typeof events.getEventListeners === 'function');
+check('events.getMaxListeners', typeof events.getMaxListeners === 'function');
+check('events.setMaxListeners', typeof events.setMaxListeners === 'function');
+check('events.addAbortListener', typeof events.addAbortListener === 'function');
+
+// util extended APIs
+check('util.getSystemErrorName', typeof util.getSystemErrorName === 'function');
+check('util.getSystemErrorName ENOENT', util.getSystemErrorName(-2) === 'ENOENT');
+check('util.parseArgs', typeof util.parseArgs === 'function');
+check('util.styleText', typeof util.styleText === 'function');
+check('util.MIMEType', typeof util.MIMEType === 'function');
+var mime = new util.MIMEType('text/html; charset=utf-8');
+check('util.MIMEType.type', mime.type === 'text');
+check('util.MIMEType.subtype', mime.subtype === 'html');
+check('util.MIMEType.essence', mime.essence === 'text/html');
+check('util.aborted', typeof util.aborted === 'function');
+check('util.transferableAbortController', typeof util.transferableAbortController === 'function');
+check('util.transferableAbortSignal', typeof util.transferableAbortSignal === 'function');
+check('util.getCallSites', typeof util.getCallSites === 'function');
+
+// fs extended APIs
+check('fs.ftruncateSync', typeof fs.ftruncateSync === 'function');
+check('fs.futimesSync', typeof fs.futimesSync === 'function');
+check('fs.lutimesSync', typeof fs.lutimesSync === 'function');
+check('fs.fdatasyncSync', typeof fs.fdatasyncSync === 'function');
+
+// net extended APIs
+check('net.BlockList', typeof net.BlockList === 'function');
+var bl = new net.BlockList();
+check('net.BlockList.addAddress', typeof bl.addAddress === 'function');
+check('net.BlockList.check', typeof bl.check === 'function');
+check('net.SocketAddress', typeof net.SocketAddress === 'function');
+var sa = new net.SocketAddress({ address: '10.0.0.1', port: 8080 });
+check('net.SocketAddress.address', sa.address === '10.0.0.1');
+check('net.SocketAddress.port', sa.port === 8080);
+
+// path extended APIs
+check('path.matchesGlob', typeof path.matchesGlob === 'function');
+check('path.matchesGlob works', path.matchesGlob('foo.js', '*.js') === true);
+check('path.matchesGlob negative', path.matchesGlob('foo.ts', '*.js') === false);
+
 console.log('---');
 console.log('Total: ' + passed + '/' + checks + ' passed');

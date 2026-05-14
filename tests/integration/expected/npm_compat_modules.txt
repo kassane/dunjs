@@ -300,5 +300,108 @@ PASS: Dirent.isFile
 PASS: Dirent.isDirectory
 PASS: Buffer.allocUnsafeSlow
 PASS: Buffer.poolSize
+PASS: process.debugPort
+PASS: process.channel
+PASS: process.connected
+PASS: process.report
+PASS: process.report.writeReport
+PASS: process.report.getReport
+PASS: process.report.reportOnSignal
+PASS: process.report.reportOnFatalError
+PASS: process.report.reportOnUncaughtException
+PASS: process.resourceUsage
+PASS: process.resourceUsage returns object
+PASS: process.resourceUsage.userCPUTime
+PASS: process.resourceUsage.maxRSS
+PASS: process.resourceUsage.voluntaryContextSwitches
+PASS: process.allowedNodeEnvironmentFlags
+PASS: http.maxHeaderSize
+PASS: http.validateHeaderName
+PASS: http.validateHeaderValue
+PASS: http.validateHeaderName valid
+PASS: http.validateHeaderName invalid throws
+PASS: http.validateHeaderValue valid
+PASS: os.availableParallelism
+PASS: os.availableParallelism returns number
+PASS: os.availableParallelism > 0
+PASS: os.getPriority
+PASS: os.setPriority
+PASS: os.getPriority returns number
+PASS: crypto.createECDH
+PASS: crypto.createECDH returns object
+PASS: crypto.createECDH.generateKeys
+PASS: crypto.generateKeySync
+PASS: crypto.hkdfSync
+PASS: crypto.hkdf
+PASS: crypto.X509Certificate
+PASS: crypto.KeyObject
+PASS: crypto.createSecretKey
+PASS: crypto.createPublicKey
+PASS: crypto.createPrivateKey
+PASS: crypto.webcrypto
+PASS: crypto.webcrypto.subtle
+PASS: crypto.webcrypto.getRandomValues
+PASS: crypto.webcrypto.randomUUID
+PASS: crypto.subtle
+PASS: crypto.generateKey
+PASS: crypto.generateKeyPair
+PASS: crypto.getDiffieHellman
+PASS: crypto.createDiffieHellmanGroup
+PASS: crypto.diffieHellman
+PASS: crypto.getCurves
+PASS: crypto.getCurves returns array
+PASS: crypto.getCurves has prime256v1
+PASS: crypto.secureHeapUsed
+PASS: crypto.setFips
+PASS: crypto.getFips
+PASS: crypto.getFips returns 0
+PASS: crypto.checkPrime
+PASS: crypto.checkPrimeSync
+PASS: crypto.generatePrime
+PASS: crypto.generatePrimeSync
+PASS: crypto.hash
+PASS: crypto.hash sha256 works
+PASS: stream.compose
+PASS: stream.isErrored
+PASS: stream.isReadable
+PASS: stream.isDisturbed
+PASS: stream.consumers
+PASS: stream.consumers.text
+PASS: stream.consumers.json
+PASS: stream.consumers.arrayBuffer
+PASS: stream.Duplex
+PASS: stream.PassThrough
+PASS: events.captureRejectionSymbol
+PASS: events.captureRejections
+PASS: events.errorMonitor
+PASS: events.getEventListeners
+PASS: events.getMaxListeners
+PASS: events.setMaxListeners
+PASS: events.addAbortListener
+PASS: util.getSystemErrorName
+PASS: util.getSystemErrorName ENOENT
+PASS: util.parseArgs
+PASS: util.styleText
+PASS: util.MIMEType
+PASS: util.MIMEType.type
+PASS: util.MIMEType.subtype
+PASS: util.MIMEType.essence
+PASS: util.aborted
+PASS: util.transferableAbortController
+PASS: util.transferableAbortSignal
+PASS: util.getCallSites
+PASS: fs.ftruncateSync
+PASS: fs.futimesSync
+PASS: fs.lutimesSync
+PASS: fs.fdatasyncSync
+PASS: net.BlockList
+PASS: net.BlockList.addAddress
+PASS: net.BlockList.check
+PASS: net.SocketAddress
+PASS: net.SocketAddress.address
+PASS: net.SocketAddress.port
+PASS: path.matchesGlob
+PASS: path.matchesGlob works
+PASS: path.matchesGlob negative
 ---
-Total: 302/302 passed
+Total: 405/405 passed

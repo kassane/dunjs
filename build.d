@@ -134,7 +134,14 @@ string v8PrebuiltUrl()
         else
             return V8_PREBUILT_BASE_URL ~ stem ~ "macos-x64-" ~ profile ~ ".tar.xz";
     }
-    else // Linux (kassane/libv8 v14.9 has linux-x64 and macos-arm64)
+    else version (Windows)
+    {
+        version (AArch64)
+            return V8_PREBUILT_BASE_URL ~ stem ~ "windows-arm64-" ~ profile ~ ".7z";
+        else
+            return V8_PREBUILT_BASE_URL ~ stem ~ "windows-x64-" ~ profile ~ ".7z";
+    }
+    else // Linux
     {
         version (AArch64)
             return V8_PREBUILT_BASE_URL ~ stem ~ "linux-arm64-" ~ profile ~ ".tar.xz";

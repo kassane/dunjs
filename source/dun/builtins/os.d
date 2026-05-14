@@ -26,6 +26,9 @@ void registerOsModule(IJSEngine engine) @trusted
     engine.setProperty(obj, "loadavg", engine.newFunction(&jsOsLoadavg, "loadavg", 0));
     engine.setProperty(obj, "version", engine.newFunction(&jsOsVersion, "version", 0));
     engine.setProperty(obj, "machine", engine.newFunction(&jsOsMachine, "machine", 0));
+    engine.setProperty(obj, "availableParallelism", engine.newFunction(&jsOsAvailableParallelism, "availableParallelism", 0));
+    engine.setProperty(obj, "setPriority", engine.newFunction(&jsOsSetPriority, "setPriority", 2));
+    engine.setProperty(obj, "getPriority", engine.newFunction(&jsOsGetPriority, "getPriority", 1));
     engine.setProperty(obj, "EOL", engine.newString(eol()));
     engine.setProperty(obj, "devNull", engine.newString(devNull()));
 
@@ -63,6 +66,7 @@ version (EngineQuickJS)
         "tmpdir", "cpus", "totalmem", "freemem", "uptime",
         "release", "endianness", "networkInterfaces",
         "userInfo", "loadavg", "version", "machine",
+        "availableParallelism", "setPriority", "getPriority",
         "EOL", "devNull", "constants"
     ];
 
@@ -469,6 +473,68 @@ JSHandle jsOsMachine(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     version (X86_64) return engine.newString("x86_64");
     else version (AArch64) return engine.newString("aarch64");
     else return engine.newString("unknown");
+}
+
+JSHandle jsOsAvailableParallelism(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+{
+    auto engine = getEngine(ctx);
+    try
+    {
+        import std.parallelism : totalCPUs;
+        return engine.newInt(totalCPUs);
+    }
+    catch (Exception) { return engine.newInt(1); }
+}
+
+JSHandle jsOsSetPriority(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+{
+    auto engine = getEngine(ctx);
+    version (Posix)
+    {
+        int pid = 0;
+        int priority = 0;
+        if (args.length >= 2 && engine.isNumber(args[0]) && engine.isNumber(args[1]))
+        {
+            pid = engine.extractInt(args[0]);
+            priority = engine.extractInt(args[1]);
+        }
+        else if (args.length >= 1 && engine.isNumber(args[0]))
+        {
+            // os.setPriority(priority) — sets for current process
+            priority = engine.extractInt(args[0]);
+        }
+        else
+            return engine.throwTypeError("os.setPriority requires priority argument");
+
+        import core.sys.posix.sys.resource : setpriority, PRIO_PROCESS;
+        auto ret = setpriority(PRIO_PROCESS, pid, priority);
+        if (ret != 0)
+            return engine.throwTypeError("os.setPriority failed");
+        return engine.newUndefined();
+    }
+    else
+        return engine.throwTypeError("os.setPriority not supported on this platform");
+}
+
+JSHandle jsOsGetPriority(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+{
+    auto engine = getEngine(ctx);
+    version (Posix)
+    {
+        int pid = 0;
+        if (args.length >= 1 && engine.isNumber(args[0]))
+            pid = engine.extractInt(args[0]);
+
+        import core.sys.posix.sys.resource : getpriority, PRIO_PROCESS;
+        import core.stdc.errno : errno;
+        errno = 0;
+        auto prio = getpriority(PRIO_PROCESS, pid);
+        if (prio == -1 && errno != 0)
+            return engine.throwTypeError("os.getPriority failed");
+        return engine.newInt(prio);
+    }
+    else
+        return engine.newInt(0);
 }
 
 string osConstantsSource() pure nothrow @safe

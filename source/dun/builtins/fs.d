@@ -223,6 +223,7 @@ version (EngineQuickJS)
         "readSync", "writeSync", "fstatSync", "fsyncSync",
         "fdatasyncSync", "createReadStream", "createWriteStream", "watch",
         "watchFile", "unwatchFile", "mkdtempSync", "cpSync", "utimesSync",
+        "ftruncateSync", "futimesSync", "lutimesSync",
         "constants", "Dirent"
     ];
 
@@ -2159,6 +2160,10 @@ string fsWatchSource() pure @safe nothrow
       delete _statWatchers[key];
     }
   };
+
+  if (!fs.ftruncateSync) fs.ftruncateSync = function(fd, len) { throw new Error('fs.ftruncateSync requires fd-based API (not yet implemented)'); };
+  if (!fs.futimesSync) fs.futimesSync = function(fd, atime, mtime) { throw new Error('fs.futimesSync requires fd-based API (not yet implemented)'); };
+  if (!fs.lutimesSync) fs.lutimesSync = function(path, atime, mtime) { fs.utimesSync(path, atime, mtime); };
 
   globalThis.__dun_cjs_fs__ = fs;
 })()`;

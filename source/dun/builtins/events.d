@@ -39,6 +39,13 @@ version (EngineQuickJS)
         JS_AddModuleExport(ctx, m, "EventEmitter");
         JS_AddModuleExport(ctx, m, "once");
         JS_AddModuleExport(ctx, m, "on");
+        JS_AddModuleExport(ctx, m, "getEventListeners");
+        JS_AddModuleExport(ctx, m, "getMaxListeners");
+        JS_AddModuleExport(ctx, m, "setMaxListeners");
+        JS_AddModuleExport(ctx, m, "addAbortListener");
+        JS_AddModuleExport(ctx, m, "captureRejectionSymbol");
+        JS_AddModuleExport(ctx, m, "captureRejections");
+        JS_AddModuleExport(ctx, m, "errorMonitor");
         JS_AddModuleExport(ctx, m, "default");
     }
 
@@ -52,6 +59,12 @@ version (EngineQuickJS)
         JS_SetModuleExport(ctx, m, "EventEmitter", JS_DupValue(ctx, eeClass));
         JS_SetModuleExport(ctx, m, "once", onceFn);
         JS_SetModuleExport(ctx, m, "on", onFn);
+        foreach (name; ["getEventListeners", "getMaxListeners", "setMaxListeners", "addAbortListener",
+                        "captureRejectionSymbol", "captureRejections", "errorMonitor"])
+        {
+            auto val = JS_GetPropertyStr(ctx, ee, name.ptr);
+            JS_SetModuleExport(ctx, m, name.ptr, val);
+        }
         JS_SetModuleExport(ctx, m, "default", ee);
         JS_FreeValue(ctx, eeClass);
         JS_FreeValue(ctx, global);
@@ -278,7 +291,32 @@ string eventEmitterSource() pure @safe nothrow
 
   EventEmitter.on = on;
 
-  var mod = { EventEmitter: EventEmitter, once: once, on: on };
+  EventEmitter.getEventListeners = function(emitterOrTarget, eventName) {
+    if (emitterOrTarget && typeof emitterOrTarget.listeners === 'function') return emitterOrTarget.listeners(eventName);
+    return [];
+  };
+  EventEmitter.getMaxListeners = function(emitterOrTarget) {
+    if (emitterOrTarget && typeof emitterOrTarget.getMaxListeners === 'function') return emitterOrTarget.getMaxListeners();
+    return EventEmitter.defaultMaxListeners;
+  };
+  EventEmitter.setMaxListeners = function(n) { EventEmitter.defaultMaxListeners = n; };
+  EventEmitter.addAbortListener = function(signal, listener) {
+    if (signal && typeof signal.addEventListener === 'function') signal.addEventListener('abort', listener);
+    return { [Symbol.dispose]: function() { if (signal && typeof signal.removeEventListener === 'function') signal.removeEventListener('abort', listener); } };
+  };
+
+  EventEmitter.captureRejectionSymbol = Symbol.for('nodejs.rejection');
+  EventEmitter.captureRejections = false;
+  EventEmitter.errorMonitor = Symbol.for('events.errorMonitor');
+
+  var mod = { EventEmitter: EventEmitter, once: once, on: on,
+              getEventListeners: EventEmitter.getEventListeners,
+              getMaxListeners: EventEmitter.getMaxListeners,
+              setMaxListeners: EventEmitter.setMaxListeners,
+              addAbortListener: EventEmitter.addAbortListener,
+              captureRejectionSymbol: EventEmitter.captureRejectionSymbol,
+              captureRejections: EventEmitter.captureRejections,
+              errorMonitor: EventEmitter.errorMonitor };
   if (typeof globalThis !== 'undefined') {
     globalThis.__dun_cjs_events__ = mod;
     globalThis.EventEmitter = EventEmitter;

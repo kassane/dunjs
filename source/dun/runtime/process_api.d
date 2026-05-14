@@ -351,6 +351,16 @@ void installProcess(IJSEngine engine) @trusted
             engine.newFunction(&jsProcessGetgroups, "getgroups", 0));
     }
 
+    // process.debugPort
+    engine.setProperty(process, "debugPort", engine.newInt(9229));
+
+    // process.connected
+    engine.setProperty(process, "connected", engine.newBool(false));
+
+    // process.resourceUsage()
+    engine.setProperty(process, "resourceUsage",
+        engine.newFunction(&jsProcessResourceUsage, "resourceUsage", 0));
+
     engine.setProperty(global, "process", process);
     engine.freeValue(global);
 
@@ -816,6 +826,80 @@ private int sigNameToNum(string name) @safe nothrow
     return 15;
 }
 
+JSHandle jsProcessResourceUsage(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+{
+    assert(ctx !is null, "Null ctx in process.resourceUsage");
+    auto state = cast(DunState*) ctx;
+    assert(state.engine !is null, "Null engine in process.resourceUsage");
+    auto engine = state.engine;
+    auto obj = engine.newObject();
+    version (Posix)
+    {
+        import core.sys.posix.sys.resource : getrusage, rusage, RUSAGE_SELF;
+        rusage ru;
+        if (getrusage(RUSAGE_SELF, &ru) == 0)
+        {
+            engine.setProperty(obj, "userCPUTime", engine.newFloat(
+                cast(double)(ru.ru_utime.tv_sec * 1_000_000L + ru.ru_utime.tv_usec)));
+            engine.setProperty(obj, "systemCPUTime", engine.newFloat(
+                cast(double)(ru.ru_stime.tv_sec * 1_000_000L + ru.ru_stime.tv_usec)));
+            engine.setProperty(obj, "maxRSS", engine.newFloat(cast(double) ru.ru_maxrss));
+            engine.setProperty(obj, "sharedMemorySize", engine.newFloat(cast(double) ru.ru_ixrss));
+            engine.setProperty(obj, "unsharedDataSize", engine.newFloat(cast(double) ru.ru_idrss));
+            engine.setProperty(obj, "unsharedStackSize", engine.newFloat(cast(double) ru.ru_isrss));
+            engine.setProperty(obj, "minorPageFault", engine.newFloat(cast(double) ru.ru_minflt));
+            engine.setProperty(obj, "majorPageFault", engine.newFloat(cast(double) ru.ru_majflt));
+            engine.setProperty(obj, "swappedOut", engine.newFloat(cast(double) ru.ru_nswap));
+            engine.setProperty(obj, "fsRead", engine.newFloat(cast(double) ru.ru_inblock));
+            engine.setProperty(obj, "fsWrite", engine.newFloat(cast(double) ru.ru_oublock));
+            engine.setProperty(obj, "ipcSent", engine.newFloat(cast(double) ru.ru_msgsnd));
+            engine.setProperty(obj, "ipcReceived", engine.newFloat(cast(double) ru.ru_msgrcv));
+            engine.setProperty(obj, "signalsCount", engine.newFloat(cast(double) ru.ru_nsignals));
+            engine.setProperty(obj, "voluntaryContextSwitches", engine.newFloat(cast(double) ru.ru_nvcsw));
+            engine.setProperty(obj, "involuntaryContextSwitches", engine.newFloat(cast(double) ru.ru_nivcsw));
+        }
+        else
+        {
+            engine.setProperty(obj, "userCPUTime", engine.newFloat(0));
+            engine.setProperty(obj, "systemCPUTime", engine.newFloat(0));
+            engine.setProperty(obj, "maxRSS", engine.newFloat(0));
+            engine.setProperty(obj, "sharedMemorySize", engine.newFloat(0));
+            engine.setProperty(obj, "unsharedDataSize", engine.newFloat(0));
+            engine.setProperty(obj, "unsharedStackSize", engine.newFloat(0));
+            engine.setProperty(obj, "minorPageFault", engine.newFloat(0));
+            engine.setProperty(obj, "majorPageFault", engine.newFloat(0));
+            engine.setProperty(obj, "swappedOut", engine.newFloat(0));
+            engine.setProperty(obj, "fsRead", engine.newFloat(0));
+            engine.setProperty(obj, "fsWrite", engine.newFloat(0));
+            engine.setProperty(obj, "ipcSent", engine.newFloat(0));
+            engine.setProperty(obj, "ipcReceived", engine.newFloat(0));
+            engine.setProperty(obj, "signalsCount", engine.newFloat(0));
+            engine.setProperty(obj, "voluntaryContextSwitches", engine.newFloat(0));
+            engine.setProperty(obj, "involuntaryContextSwitches", engine.newFloat(0));
+        }
+    }
+    else
+    {
+        engine.setProperty(obj, "userCPUTime", engine.newFloat(0));
+        engine.setProperty(obj, "systemCPUTime", engine.newFloat(0));
+        engine.setProperty(obj, "maxRSS", engine.newFloat(0));
+        engine.setProperty(obj, "sharedMemorySize", engine.newFloat(0));
+        engine.setProperty(obj, "unsharedDataSize", engine.newFloat(0));
+        engine.setProperty(obj, "unsharedStackSize", engine.newFloat(0));
+        engine.setProperty(obj, "minorPageFault", engine.newFloat(0));
+        engine.setProperty(obj, "majorPageFault", engine.newFloat(0));
+        engine.setProperty(obj, "swappedOut", engine.newFloat(0));
+        engine.setProperty(obj, "fsRead", engine.newFloat(0));
+        engine.setProperty(obj, "fsWrite", engine.newFloat(0));
+        engine.setProperty(obj, "ipcSent", engine.newFloat(0));
+        engine.setProperty(obj, "ipcReceived", engine.newFloat(0));
+        engine.setProperty(obj, "signalsCount", engine.newFloat(0));
+        engine.setProperty(obj, "voluntaryContextSwitches", engine.newFloat(0));
+        engine.setProperty(obj, "involuntaryContextSwitches", engine.newFloat(0));
+    }
+    return obj;
+}
+
 JSHandle jsStdinRead(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in process.stdin.read");
@@ -924,5 +1008,15 @@ string processEnhanceSource() pure @safe nothrow
   };
   p.setMaxListeners = function() { return p; };
   p.getMaxListeners = function() { return 10; };
+  p.report = {
+    writeReport: function() { return ''; },
+    getReport: function() { return {}; },
+    reportOnSignal: false,
+    reportOnFatalError: false,
+    reportOnUncaughtException: false,
+    directory: '',
+    filename: ''
+  };
+  p.allowedNodeEnvironmentFlags = new Set();
 })()`;
 }

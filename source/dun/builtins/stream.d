@@ -36,7 +36,8 @@ version (EngineQuickJS)
         if (m is null) return;
         foreach (name; ["Stream", "Readable", "Writable", "Duplex",
                         "Transform", "PassThrough", "pipeline", "finished",
-                        "addAbortSignal", "promises", "default"])
+                        "addAbortSignal", "promises", "compose", "isErrored",
+                        "isReadable", "isDisturbed", "consumers", "default"])
             JS_AddModuleExport(ctx, m, name.ptr);
     }
 
@@ -514,6 +515,18 @@ string streamSource() pure @safe nothrow
     });
   };
 
+  function compose() { throw new Error('stream.compose is not yet implemented'); }
+  function isErrored(stream) { return stream && stream.destroyed === true && stream.errored != null; }
+  function isReadable(stream) { return stream && typeof stream.read === 'function' && stream.destroyed !== true; }
+  function isDisturbed(stream) { return stream && (stream.readableDidRead === true || stream._readableState && stream._readableState.dataEmitted === true); }
+  var consumers = {
+    arrayBuffer: function(stream) { return new Promise(function(res, rej) { var chunks = []; stream.on('data', function(c){chunks.push(c);}); stream.on('end', function(){res(Buffer.concat(chunks));}); stream.on('error', rej); }); },
+    text: function(stream) { return new Promise(function(res, rej) { var s = ''; stream.on('data', function(c){s += c.toString();}); stream.on('end', function(){res(s);}); stream.on('error', rej); }); },
+    json: function(stream) { return consumers.text(stream).then(JSON.parse); },
+    blob: function(stream) { return consumers.arrayBuffer(stream).then(function(buf){return new Blob([buf]);}); },
+    buffer: function(stream) { return consumers.arrayBuffer(stream); }
+  };
+
   var mod = {
     Stream: Stream,
     Readable: Readable,
@@ -524,7 +537,12 @@ string streamSource() pure @safe nothrow
     pipeline: pipeline,
     finished: finished,
     addAbortSignal: addAbortSignal,
-    promises: promises
+    promises: promises,
+    compose: compose,
+    isErrored: isErrored,
+    isReadable: isReadable,
+    isDisturbed: isDisturbed,
+    consumers: consumers
   };
 
   if (typeof globalThis !== 'undefined') {

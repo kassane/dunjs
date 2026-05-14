@@ -111,6 +111,20 @@ void registerHttpModule(IJSEngine engine) @trusted
     }
     engine.freeValue(httpExtResult.value);
 
+    // http.maxHeaderSize
+    engine.setProperty(obj, "maxHeaderSize", engine.newInt(16384));
+
+    // http.validateHeaderName / http.validateHeaderValue via JS
+    auto valResult = engine.eval(httpValidationSource(), "<http-validate>");
+    if (!valResult.isError)
+    {
+        auto vhn = engine.getProperty(valResult.value, "validateHeaderName");
+        auto vhv = engine.getProperty(valResult.value, "validateHeaderValue");
+        engine.setProperty(obj, "validateHeaderName", vhn);
+        engine.setProperty(obj, "validateHeaderValue", vhv);
+    }
+    engine.freeValue(valResult.value);
+
     auto global = engine.getGlobal();
     engine.setProperty(global, "__dun_cjs_http__", obj);
     engine.freeValue(global);
@@ -130,7 +144,8 @@ version (EngineQuickJS)
         if (m is null) return;
         foreach (name; ["createServer", "request", "get", "METHODS",
                         "STATUS_CODES", "Agent", "globalAgent",
-                        "IncomingMessage", "ServerResponse", "ClientRequest"])
+                        "IncomingMessage", "ServerResponse", "ClientRequest",
+                        "maxHeaderSize", "validateHeaderName", "validateHeaderValue"])
             JS_AddModuleExport(ctx, m, name.ptr);
     }
 
@@ -142,7 +157,8 @@ version (EngineQuickJS)
         auto httpObj = JS_GetPropertyStr(ctx, global, "__dun_cjs_http__");
         foreach (name; ["createServer", "request", "get", "METHODS",
                         "STATUS_CODES", "Agent", "globalAgent",
-                        "IncomingMessage", "ServerResponse", "ClientRequest"])
+                        "IncomingMessage", "ServerResponse", "ClientRequest",
+                        "maxHeaderSize", "validateHeaderName", "validateHeaderValue"])
         {
             auto fn = JS_GetPropertyStr(ctx, httpObj, name.ptr);
             JS_SetModuleExport(ctx, m, name.ptr, fn);
@@ -1788,4 +1804,26 @@ string httpExtensionSource() pure @safe nothrow
     ClientRequest: ClientRequest
   };
 })();`;
+}
+
+string httpValidationSource() pure @safe nothrow
+{
+    return "(function() {" ~
+        "var INVALID_HEADER_NAME = /[^\\t\\x20-\\x7e\\x80-\\xff]/;" ~
+        "var INVALID_HEADER_VALUE = /[\\x00-\\x08\\x0a-\\x1f\\x7f]/;" ~
+        "function validateHeaderName(name) {" ~
+        "  if (typeof name !== 'string' || name.length === 0)" ~
+        "    throw new TypeError('Header name must be a valid HTTP token [\"' + name + '\"]');" ~
+        "  if (INVALID_HEADER_NAME.test(name))" ~
+        "    throw new TypeError('Header name must be a valid HTTP token [\"' + name + '\"]');" ~
+        "}" ~
+        "function validateHeaderValue(name, value) {" ~
+        "  if (value === undefined)" ~
+        "    throw new TypeError('Invalid value \"undefined\" for header \"' + name + '\"');" ~
+        "  var s = String(value);" ~
+        "  if (INVALID_HEADER_VALUE.test(s))" ~
+        "    throw new TypeError('Invalid character in header content [\"' + name + '\"]');" ~
+        "}" ~
+        "return { validateHeaderName: validateHeaderName, validateHeaderValue: validateHeaderValue };" ~
+        "})()";
 }

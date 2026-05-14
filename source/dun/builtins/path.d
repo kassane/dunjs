@@ -56,6 +56,30 @@ void registerPathModule(IJSEngine engine) @trusted
     engine.setProperty(global, "__dun_cjs_path__", obj);
     engine.freeValue(global);
 
+    // Add matchesGlob via JS eval (glob matching is best expressed in JS regex)
+    auto matchesGlobResult = engine.eval(
+        "(function() {" ~
+        "  var pathMod = globalThis.__dun_cjs_path__;" ~
+        "  pathMod.matchesGlob = function(filepath, pattern) {" ~
+        "    var re = pattern.replace(/[.+^${}()|[\\]\\\\]/g, '\\\\$&')" ~
+        "      .replace(/\\*\\*/g, '{{GLOBSTAR}}')" ~
+        "      .replace(/\\*/g, '[^/]*')" ~
+        "      .replace(/\\?/g, '[^/]')" ~
+        "      .replace(/\\{\\{GLOBSTAR\\}\\}/g, '.*');" ~
+        "    return new RegExp('^' + re + '$').test(filepath);" ~
+        "  };" ~
+        "})()", "<path-matchesGlob>");
+    if (matchesGlobResult.isError)
+    {
+        try
+        {
+            import std.stdio : stderr;
+            stderr.writeln("path.matchesGlob init failed: ", matchesGlobResult.errorMessage);
+        }
+        catch (Exception) {}
+    }
+    engine.freeValue(matchesGlobResult.value);
+
     version (EngineQuickJS)
         registerQuickJSModule(engine);
 }
@@ -71,7 +95,8 @@ version (EngineQuickJS)
         if (m is null) return;
         foreach (name; ["join", "basename", "dirname", "extname", "isAbsolute",
                         "resolve", "normalize", "relative", "parse", "format",
-                        "sep", "delimiter", "toNamespacedPath", "posix", "win32"])
+                        "sep", "delimiter", "toNamespacedPath", "posix", "win32",
+                        "matchesGlob"])
             JS_AddModuleExport(ctx, m, name.ptr);
     }
 
@@ -83,7 +108,8 @@ version (EngineQuickJS)
         auto pathObj = JS_GetPropertyStr(ctx, global, "__dun_cjs_path__");
         foreach (name; ["join", "basename", "dirname", "extname", "isAbsolute",
                         "resolve", "normalize", "relative", "parse", "format",
-                        "sep", "delimiter", "toNamespacedPath", "posix", "win32"])
+                        "sep", "delimiter", "toNamespacedPath", "posix", "win32",
+                        "matchesGlob"])
         {
             auto fn = JS_GetPropertyStr(ctx, pathObj, name.ptr);
             JS_SetModuleExport(ctx, m, name.ptr, fn);

@@ -205,7 +205,13 @@ void registerCryptoModule(IJSEngine engine) @trusted
     if (!cryptoExtResult.isError)
     {
         foreach (name; ["pbkdf2", "scrypt", "randomFillSync", "randomFill",
-                        "constants"])
+                        "constants", "KeyObject", "createSecretKey", "createPublicKey",
+                        "createPrivateKey", "X509Certificate", "createECDH",
+                        "generateKeySync", "hkdfSync", "hkdf", "generateKey",
+                        "generateKeyPair", "getDiffieHellman", "createDiffieHellmanGroup",
+                        "diffieHellman", "getCurves", "secureHeapUsed", "setFips",
+                        "getFips", "checkPrime", "checkPrimeSync", "generatePrime",
+                        "generatePrimeSync", "hash", "webcrypto", "subtle"])
         {
             auto prop = engine.getProperty(cryptoExtResult.value, name);
             engine.setProperty(obj, name, prop);
@@ -227,15 +233,25 @@ version (EngineQuickJS)
         auto ctx = cast(JSContext*) engine.rawContext();
         auto m = JS_NewCModule(ctx, "dun:crypto", &cryptoModuleInit);
         if (m is null) return;
-        foreach (name; ["randomBytes", "randomUUID", "createHash", "createHmac",
-                        "timingSafeEqual", "randomInt", "pbkdf2Sync", "scryptSync",
-                        "createCipheriv", "createDecipheriv",
-                        "getHashes", "getCiphers",
-                        "pbkdf2", "scrypt", "randomFillSync", "randomFill",
-                        "createSign", "createVerify", "generateKeyPairSync",
-                        "createDiffieHellman", "constants"])
+        foreach (name; cryptoExportNames)
             JS_AddModuleExport(ctx, m, name.ptr);
     }
+
+    private static immutable cryptoExportNames = [
+        "randomBytes", "randomUUID", "createHash", "createHmac",
+        "timingSafeEqual", "randomInt", "pbkdf2Sync", "scryptSync",
+        "createCipheriv", "createDecipheriv",
+        "getHashes", "getCiphers",
+        "pbkdf2", "scrypt", "randomFillSync", "randomFill",
+        "createSign", "createVerify", "generateKeyPairSync",
+        "createDiffieHellman", "constants",
+        "KeyObject", "createSecretKey", "createPublicKey", "createPrivateKey",
+        "X509Certificate", "createECDH", "generateKeySync", "hkdfSync",
+        "hkdf", "generateKey", "generateKeyPair", "getDiffieHellman",
+        "createDiffieHellmanGroup", "diffieHellman", "getCurves",
+        "secureHeapUsed", "setFips", "getFips", "checkPrime", "checkPrimeSync",
+        "generatePrime", "generatePrimeSync", "hash", "webcrypto", "subtle"
+    ];
 
     private extern (C) int cryptoModuleInit(JSContext* ctx, JSModuleDef* m) nothrow @trusted
     {
@@ -243,13 +259,7 @@ version (EngineQuickJS)
         assert(m !is null, "Null JSModuleDef in cryptoModuleInit");
         auto global = JS_GetGlobalObject(ctx);
         auto cryptoObj = JS_GetPropertyStr(ctx, global, "__dun_cjs_crypto__");
-        foreach (name; ["randomBytes", "randomUUID", "createHash", "createHmac",
-                        "timingSafeEqual", "randomInt", "pbkdf2Sync", "scryptSync",
-                        "createCipheriv", "createDecipheriv",
-                        "getHashes", "getCiphers",
-                        "pbkdf2", "scrypt", "randomFillSync", "randomFill",
-                        "createSign", "createVerify", "generateKeyPairSync",
-                        "createDiffieHellman", "constants"])
+        foreach (name; cryptoExportNames)
         {
             auto fn = JS_GetPropertyStr(ctx, cryptoObj, name.ptr);
             JS_SetModuleExport(ctx, m, name.ptr, fn);
@@ -1778,12 +1788,121 @@ string cryptoExtensionSource() pure @safe nothrow
     defaultCipherList: 'TLS_AES_256_GCM_SHA384:TLS_AES_128_GCM_SHA256'
   };
 
+  // --- Stub classes for npm compat ---
+  function KeyObject(type, data) { this.type = type; this._data = data; this.asymmetricKeyType = undefined; this.symmetricKeySize = data ? data.length : 0; }
+  KeyObject.prototype.export = function() { return this._data || Buffer.alloc(0); };
+  KeyObject.from = function(key) { return new KeyObject('secret', key); };
+
+  function createSecretKey(key, encoding) {
+    if (typeof key === 'string') key = Buffer.from(key, encoding || 'utf8');
+    return new KeyObject('secret', key);
+  }
+  function createPublicKey(key) { return new KeyObject('public', typeof key === 'string' ? Buffer.from(key) : (key.key || key)); }
+  function createPrivateKey(key) { return new KeyObject('private', typeof key === 'string' ? Buffer.from(key) : (key.key || key)); }
+
+  function X509Certificate(buf) { this._buf = buf; this.subject = ''; this.issuer = ''; this.validFrom = ''; this.validTo = ''; this.serialNumber = ''; this.fingerprint = ''; this.fingerprint256 = ''; }
+  X509Certificate.prototype.toString = function() { return this._buf ? this._buf.toString() : ''; };
+  X509Certificate.prototype.toJSON = function() { return { subject: this.subject, issuer: this.issuer }; };
+
+  function createECDH(curveName) {
+    return {
+      generateKeys: function(enc) { return enc ? '' : Buffer.alloc(65); },
+      getPublicKey: function(enc) { return enc ? '' : Buffer.alloc(65); },
+      getPrivateKey: function(enc) { return enc ? '' : Buffer.alloc(32); },
+      setPrivateKey: function() {},
+      computeSecret: function(key) { return Buffer.alloc(32); }
+    };
+  }
+
+  function generateKeySync(type, options) { return new KeyObject('secret', crypto.randomBytes(options && options.length || 32)); }
+
+  function hkdfSync(digest, ikm, salt, info, keylen) {
+    return crypto.pbkdf2Sync(typeof ikm === 'string' ? ikm : ikm.toString(), salt || '', 1, keylen, digest || 'sha256');
+  }
+  function hkdf(digest, ikm, salt, info, keylen, callback) {
+    Promise.resolve().then(function() {
+      try { callback(null, hkdfSync(digest, ikm, salt, info, keylen)); }
+      catch(e) { callback(e); }
+    });
+  }
+
+  function generateKey(type, options, callback) {
+    Promise.resolve().then(function() {
+      try { callback(null, generateKeySync(type, options)); }
+      catch(e) { callback(e); }
+    });
+  }
+  function generateKeyPair(type, options, callback) {
+    Promise.resolve().then(function() {
+      try { var r = crypto.generateKeyPairSync(type, options); callback(null, r.publicKey, r.privateKey); }
+      catch(e) { callback(e); }
+    });
+  }
+
+  function getDiffieHellman(groupName) { return crypto.createDiffieHellman(256); }
+  var createDiffieHellmanGroup = getDiffieHellman;
+  function diffieHellman(options) { return Buffer.alloc(32); }
+
+  function getCurves() { return ['prime256v1','secp384r1','secp521r1','secp256k1']; }
+  function secureHeapUsed() { return { total: 0, min: 0, used: 0 }; }
+  function setFips(val) {}
+  function getFips() { return 0; }
+  function checkPrimeSync(candidate) { return false; }
+  function checkPrime(candidate, callback) { Promise.resolve().then(function() { callback(null, checkPrimeSync(candidate)); }); }
+  function generatePrimeSync(size) { return crypto.randomBytes(Math.ceil((size || 256) / 8)); }
+  function generatePrime(size, callback) { Promise.resolve().then(function() { try { callback(null, generatePrimeSync(size)); } catch(e) { callback(e); } }); }
+  function hash(algorithm, data, outputEncoding) {
+    var h = crypto.createHash(algorithm);
+    h.update(typeof data === 'string' ? data : data.toString());
+    return h.digest(outputEncoding || 'hex');
+  }
+
+  var webcrypto = { subtle: {
+    digest: function(algo, data) { return Promise.resolve(crypto.createHash(typeof algo === 'string' ? algo.replace('-','').toLowerCase() : algo.name.replace('-','').toLowerCase()).update(Buffer.from(data)).digest()); },
+    encrypt: function() { return Promise.reject(new Error('Not implemented')); },
+    decrypt: function() { return Promise.reject(new Error('Not implemented')); },
+    sign: function() { return Promise.reject(new Error('Not implemented')); },
+    verify: function() { return Promise.reject(new Error('Not implemented')); },
+    generateKey: function() { return Promise.reject(new Error('Not implemented')); },
+    importKey: function() { return Promise.reject(new Error('Not implemented')); },
+    exportKey: function() { return Promise.reject(new Error('Not implemented')); },
+    deriveBits: function() { return Promise.reject(new Error('Not implemented')); },
+    deriveKey: function() { return Promise.reject(new Error('Not implemented')); },
+    wrapKey: function() { return Promise.reject(new Error('Not implemented')); },
+    unwrapKey: function() { return Promise.reject(new Error('Not implemented')); }
+  }, getRandomValues: function(arr) { return crypto.randomFillSync(arr); }, randomUUID: function() { return crypto.randomUUID(); } };
+
   return {
     pbkdf2: pbkdf2,
     scrypt: scrypt,
     randomFillSync: randomFillSync,
     randomFill: randomFill,
-    constants: constants
+    constants: constants,
+    KeyObject: KeyObject,
+    createSecretKey: createSecretKey,
+    createPublicKey: createPublicKey,
+    createPrivateKey: createPrivateKey,
+    X509Certificate: X509Certificate,
+    createECDH: createECDH,
+    generateKeySync: generateKeySync,
+    hkdfSync: hkdfSync,
+    hkdf: hkdf,
+    generateKey: generateKey,
+    generateKeyPair: generateKeyPair,
+    getDiffieHellman: getDiffieHellman,
+    createDiffieHellmanGroup: createDiffieHellmanGroup,
+    diffieHellman: diffieHellman,
+    getCurves: getCurves,
+    secureHeapUsed: secureHeapUsed,
+    setFips: setFips,
+    getFips: getFips,
+    checkPrime: checkPrime,
+    checkPrimeSync: checkPrimeSync,
+    generatePrime: generatePrime,
+    generatePrimeSync: generatePrimeSync,
+    hash: hash,
+    webcrypto: webcrypto,
+    subtle: webcrypto.subtle
   };
 })();`;
 }
