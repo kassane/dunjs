@@ -131,6 +131,8 @@ void runModuleTests(alias M)(IJSEngine engine)
 /// Generates per-backend unittest blocks from a tuple of test modules.
 mixin template EngineTestRunner(string label, Modules...)
 {
+    import std.stdio : writeln;
+
     version (EngineQuickJS)
     {
         @("quickjs: " ~ label)
