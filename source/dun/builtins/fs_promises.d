@@ -29,8 +29,23 @@ void registerFsPromisesModule(IJSEngine engine) @trusted
     engine.setProperty(obj, "truncate", engine.newFunction(&jsFspTruncate, "truncate", 2));
     engine.setProperty(obj, "symlink", engine.newFunction(&jsFspSymlink, "symlink", 2));
     engine.setProperty(obj, "open", engine.newFunction(&jsFspOpen, "open", 1));
+    engine.setProperty(obj, "cp", engine.newFunction(&jsFspCopyFile, "cp", 2));
 
     auto global = engine.getGlobal();
+
+    auto fsObj0 = engine.getProperty(global, "__dun_cjs_fs__");
+    if (!engine.isUndefined(fsObj0))
+    {
+        auto fsConstants = engine.getProperty(fsObj0, "constants");
+        if (!engine.isUndefined(fsConstants))
+            engine.setProperty(obj, "constants", fsConstants);
+        else
+            engine.freeValue(fsConstants);
+        engine.freeValue(fsObj0);
+    }
+    else
+        engine.freeValue(fsObj0);
+
     engine.setProperty(global, "__dun_cjs_fs_promises__", obj);
 
     auto fsObj = engine.getProperty(global, "__dun_cjs_fs__");
@@ -54,7 +69,7 @@ version (EngineQuickJS)
         "readFile", "writeFile", "appendFile", "copyFile", "rename",
         "unlink", "rmdir", "rm", "mkdir", "readdir", "stat", "lstat",
         "access", "realpath", "chmod", "chown", "truncate", "symlink",
-        "open"
+        "open", "cp", "constants"
     ];
 
     private void registerQuickJSModule(IJSEngine engine) @trusted

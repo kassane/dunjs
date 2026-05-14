@@ -612,5 +612,42 @@ check('URL.canParse', typeof URL.canParse === 'function');
 check('URL.canParse valid', URL.canParse('https://example.com') === true);
 check('URL.canParse invalid', URL.canParse('not a url') === false);
 
+// fs/promises completeness
+var fsp = require('fs/promises');
+check('fs/promises.cp', typeof fsp.cp === 'function');
+check('fs/promises.constants', typeof fsp.constants === 'object');
+check('fs/promises.constants.R_OK', fsp.constants.R_OK === 4);
+
+// module completeness
+check('module.builtinModules is array', Array.isArray(mod.builtinModules));
+check('module.builtinModules includes fs', mod.builtinModules.indexOf('fs') >= 0);
+
+// worker_threads
+var wt = require('worker_threads');
+check('worker_threads.isMainThread', wt.isMainThread === true);
+check('worker_threads.threadId', typeof wt.threadId === 'number');
+
+// timers/promises
+var tp = require('timers/promises');
+check('timers/promises.setTimeout', typeof tp.setTimeout === 'function');
+check('timers/promises.setInterval', typeof tp.setInterval === 'function');
+check('timers/promises.setImmediate', typeof tp.setImmediate === 'function');
+
+// ES2023+ features
+check('Array.findLast', typeof [].findLast === 'function');
+check('Array.toReversed', typeof [].toReversed === 'function');
+check('Array.toSorted', typeof [].toSorted === 'function');
+
+// Global constructors
+check('WeakRef', typeof WeakRef === 'function');
+check('FinalizationRegistry', typeof FinalizationRegistry === 'function');
+check('Proxy', typeof Proxy === 'function');
+check('Reflect', typeof Reflect === 'object');
+
+// Symbol well-known
+check('Symbol.asyncIterator', typeof Symbol.asyncIterator === 'symbol');
+check('Symbol.iterator', typeof Symbol.iterator === 'symbol');
+check('Symbol.hasInstance', typeof Symbol.hasInstance === 'symbol');
+
 console.log('---');
 console.log('Total: ' + passed + '/' + checks + ' passed');

@@ -430,5 +430,25 @@ PASS: http.Server.setTimeout returns server
 PASS: URL.canParse
 PASS: URL.canParse valid
 PASS: URL.canParse invalid
+PASS: fs/promises.cp
+PASS: fs/promises.constants
+PASS: fs/promises.constants.R_OK
+PASS: module.builtinModules is array
+PASS: module.builtinModules includes fs
+PASS: worker_threads.isMainThread
+PASS: worker_threads.threadId
+PASS: timers/promises.setTimeout
+PASS: timers/promises.setInterval
+PASS: timers/promises.setImmediate
+PASS: Array.findLast
+PASS: Array.toReversed
+PASS: Array.toSorted
+PASS: WeakRef
+PASS: FinalizationRegistry
+PASS: Proxy
+PASS: Reflect
+PASS: Symbol.asyncIterator
+PASS: Symbol.iterator
+PASS: Symbol.hasInstance
 ---
-Total: 432/432 passed
+Total: 452/452 passed
