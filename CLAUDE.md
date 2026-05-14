@@ -429,7 +429,7 @@ dub test -c unittest    # All unit tests
 | V8 TMP bridge | `source/dun/engine/v8/cppbindings.d` | compile-time | V8TypeName coverage, tag->name mapping |
 | JSC TMP bridge | `source/dun/engine/jsc/cppbindings.d` | compile-time | JSCTypeName coverage, kJSType* alignment |
 
-### Integration Tests (86 tests, 152 npm compat checks)
+### Integration Tests (87 tests, 452 npm compat checks)
 
 ```sh
 # Run against a specific backend
@@ -467,7 +467,7 @@ dub build -c v8  && BACKEND=v8  ./tests/integration/run.sh
 | Util | `util_enhanced` | 27 checks: types (20+), debuglog, _extend, format, inherits, promisify, callbackify |
 | Readline | `readline_api` | 18 checks: createInterface, events, write/line, punycode, domain, diagnostics_channel |
 | Env Proxy | `process_env_proxy` | 8 checks: set/delete/in/keys, NODE_ENV pattern |
-| npm compat | `npm_compat_modules` | 152 checks: 35 modules, key API surface, globals, http/https, stream/tls/dns/dgram/spawn, os, perf_hooks |
+| npm compat | `npm_compat_modules` | 452 checks: 35 modules, key API surface, globals, crypto (25+ APIs), stream, events, util, http/https, tls/dns/dgram, os, perf_hooks, ES2023+, Symbol well-known |
 | UDP/dgram | `dgram_api` | 25 checks: createSocket, bind, address, setBroadcast, setTTL, on/close, Socket alias |
 | spawn/execFile | `spawn_api` | 19 checks: spawn pid/stdout/stderr/stdin/on/kill, execFile with callback |
 | TLS module | `tls_api` | 24 checks: connect, getCiphers, TLSSocket constructor/methods, constants |
@@ -480,7 +480,7 @@ dub build -c v8  && BACKEND=v8  ./tests/integration/run.sh
 | Bundler compat | `bundler_compat` | 91 checks: fs ops, path resolution, crypto hashing, Map/Set, RegExp, string ops, Promise, modules |
 | Crypto keygen | `crypto_keygen` | 12 checks: generateKeyPairSync RSA/EC, PEM output, sign+verify round-trip, DiffieHellman |
 
-Backend test scores: **QuickJS 86/86**, **JSC 86/86**, **V8 86/86** (full parity across all 3 backends).
+Backend test scores: **QuickJS 87/87**, **JSC 87/87**, **V8 87/87** (full parity across all 3 backends).
 
 Test pattern: fixtures in `tests/integration/fixtures/*.{js,mjs,ts}`, expected stdout in `tests/integration/expected/*.txt`.
 
@@ -785,3 +785,13 @@ Benchmark impact (25 benchmarks, feature_bench.js):
 | 16k | os enhancements | os.networkInterfaces (getifaddrs), os.userInfo (getpwuid), os.loadavg, os.version, os.machine | **Done** |
 | 16l | crypto.generateKeyPairSync | RSA/EC key pair generation with OpenSSL, PEM encoding, DiffieHellman stubs | **Done** |
 | 16m | Compat tests | express_compat (102 checks), bundler_compat (91 checks) — npm ecosystem validation | **Done** |
+| 17a | Crypto complete | createECDH, KeyObject, X509Certificate, webcrypto/subtle, generateKeySync, hkdfSync, hash, getCurves, FIPS stubs | **Done** |
+| 17b | Stream complete | compose, isErrored, isReadable, isDisturbed, consumers (text/json/arrayBuffer), Readable.fromWeb | **Done** |
+| 17c | Events complete | captureRejectionSymbol, captureRejections, errorMonitor, getEventListeners, addAbortListener | **Done** |
+| 17d | Util complete | getSystemErrorName, parseArgs, styleText, MIMEType, aborted, transferableAbortController, getCallSites | **Done** |
+| 17e | Process complete | debugPort, connected, report, resourceUsage (getrusage), binding, config, features, release, allowedNodeEnvironmentFlags | **Done** |
+| 17f | HTTP/URL complete | maxHeaderSize, validateHeaderName/Value, Server.setTimeout, URL.canParse | **Done** |
+| 17g | Module stubs | os.availableParallelism/setPriority/getPriority, net.BlockList/SocketAddress, path.matchesGlob | **Done** |
+| 17h | Zlib complete | brotliCompressSync/DecompressSync, unzipSync, createBrotliCompress/Decompress | **Done** |
+| 17i | Misc complete | readline.promises, assert.strict, fs/promises.cp/constants, Readable statics | **Done** |
+| 17j | npm compat 452 | 452-check npm_compat_modules test covering all Node.js core APIs | **Done** |
