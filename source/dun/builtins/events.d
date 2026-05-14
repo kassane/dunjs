@@ -37,6 +37,7 @@ version (EngineQuickJS)
         auto m = JS_NewCModule(ctx, "dun:events", &eventsModuleInit);
         if (m is null) return;
         JS_AddModuleExport(ctx, m, "EventEmitter");
+        JS_AddModuleExport(ctx, m, "once");
         JS_AddModuleExport(ctx, m, "default");
     }
 
@@ -45,7 +46,9 @@ version (EngineQuickJS)
         auto global = JS_GetGlobalObject(ctx);
         auto ee = JS_GetPropertyStr(ctx, global, "__dun_cjs_events__");
         auto eeClass = JS_GetPropertyStr(ctx, ee, "EventEmitter");
+        auto onceFn = JS_GetPropertyStr(ctx, ee, "once");
         JS_SetModuleExport(ctx, m, "EventEmitter", JS_DupValue(ctx, eeClass));
+        JS_SetModuleExport(ctx, m, "once", onceFn);
         JS_SetModuleExport(ctx, m, "default", ee);
         JS_FreeValue(ctx, eeClass);
         JS_FreeValue(ctx, global);
@@ -167,7 +170,35 @@ string eventEmitterSource() pure @safe nothrow
 
   EventEmitter.defaultMaxListeners = 10;
 
-  var mod = { EventEmitter: EventEmitter };
+  function once(emitter, event, options) {
+    return new Promise(function(resolve, reject) {
+      var signal = options && options.signal;
+      if (signal && signal.aborted) {
+        reject(signal.reason || new Error('AbortError'));
+        return;
+      }
+      function onEvent() {
+        cleanup();
+        var args = [];
+        for (var i = 0; i < arguments.length; i++) args.push(arguments[i]);
+        resolve(args);
+      }
+      function onError(err) {
+        cleanup();
+        reject(err);
+      }
+      function cleanup() {
+        emitter.removeListener(event, onEvent);
+        if (event !== 'error') emitter.removeListener('error', onError);
+      }
+      emitter.once(event, onEvent);
+      if (event !== 'error') emitter.once('error', onError);
+    });
+  }
+
+  EventEmitter.once = once;
+
+  var mod = { EventEmitter: EventEmitter, once: once };
   if (typeof globalThis !== 'undefined') {
     globalThis.__dun_cjs_events__ = mod;
     globalThis.EventEmitter = EventEmitter;

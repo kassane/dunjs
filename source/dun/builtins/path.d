@@ -30,6 +30,28 @@ void registerPathModule(IJSEngine engine) @trusted
         engine.setProperty(obj, "delimiter", engine.newString(":"));
     }
 
+    // path.posix / path.win32 — on each platform, the current one is self-referential
+    version (Windows)
+    {
+        engine.setProperty(obj, "win32", engine.dupValue(obj));
+        auto posixStub = engine.newObject();
+        engine.setProperty(posixStub, "sep", engine.newString("/"));
+        engine.setProperty(posixStub, "delimiter", engine.newString(":"));
+        engine.setProperty(obj, "posix", posixStub);
+    }
+    else
+    {
+        engine.setProperty(obj, "posix", engine.dupValue(obj));
+        auto win32Stub = engine.newObject();
+        engine.setProperty(win32Stub, "sep", engine.newString("\\"));
+        engine.setProperty(win32Stub, "delimiter", engine.newString(";"));
+        engine.setProperty(obj, "win32", win32Stub);
+    }
+
+    // path.toNamespacedPath (identity function on POSIX)
+    engine.setProperty(obj, "toNamespacedPath",
+        engine.newFunction(&jsPathToNamespacedPath, "toNamespacedPath", 1));
+
     auto global = engine.getGlobal();
     engine.setProperty(global, "__dun_cjs_path__", obj);
     engine.freeValue(global);
@@ -48,7 +70,8 @@ version (EngineQuickJS)
         auto m = JS_NewCModule(ctx, "dun:path", &pathModuleInit);
         if (m is null) return;
         foreach (name; ["join", "basename", "dirname", "extname", "isAbsolute",
-                        "resolve", "normalize", "relative", "parse", "format", "sep", "delimiter"])
+                        "resolve", "normalize", "relative", "parse", "format",
+                        "sep", "delimiter", "toNamespacedPath", "posix", "win32"])
             JS_AddModuleExport(ctx, m, name.ptr);
     }
 
@@ -59,7 +82,8 @@ version (EngineQuickJS)
         auto global = JS_GetGlobalObject(ctx);
         auto pathObj = JS_GetPropertyStr(ctx, global, "__dun_cjs_path__");
         foreach (name; ["join", "basename", "dirname", "extname", "isAbsolute",
-                        "resolve", "normalize", "relative", "parse", "format", "sep", "delimiter"])
+                        "resolve", "normalize", "relative", "parse", "format",
+                        "sep", "delimiter", "toNamespacedPath", "posix", "win32"])
         {
             auto fn = JS_GetPropertyStr(ctx, pathObj, name.ptr);
             JS_SetModuleExport(ctx, m, name.ptr, fn);
@@ -258,4 +282,15 @@ JSHandle jsPathFormat(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
         return engine.newString(result);
     }
     catch (Exception) { return engine.newString(""); }
+}
+
+JSHandle jsPathToNamespacedPath(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+{
+    assert(ctx !is null, "Null ctx in jsPathToNamespacedPath");
+    auto state = cast(DunState*) ctx;
+    assert(state.engine !is null, "Null engine in jsPathToNamespacedPath");
+    auto engine = state.engine;
+    if (args.length < 1 || !engine.isString(args[0]))
+        return engine.newUndefined();
+    return engine.newString(engine.extractString(args[0]));
 }
