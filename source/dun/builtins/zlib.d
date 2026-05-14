@@ -79,6 +79,7 @@ ubyte[] extractInputBytes(IJSEngine engine, JSHandle val) @trusted
         {
             auto elem = engine.getPropertyIndex(val, i);
             buf[i] = cast(ubyte) engine.extractInt(elem);
+            engine.freeValue(elem);
         }
         return buf;
     }

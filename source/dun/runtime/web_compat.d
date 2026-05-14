@@ -11,31 +11,32 @@ void installWebCompat(IJSEngine engine) @trusted
     engine.setProperty(global, "structuredClone",
         engine.newFunction(&jsStructuredClone, "structuredClone", 1));
 
-    // Native btoa/atob — CTFE lookup tables, faster than pure-JS for interpreter
-    // engines; JIT engines optimize both paths similarly.
     engine.setProperty(global, "btoa",
         engine.newFunction(&jsNativeBtoa, "btoa", 1));
     engine.setProperty(global, "atob",
         engine.newFunction(&jsNativeAtob, "atob", 1));
 
-    // TextEncoder/TextDecoder — native D encode/decode backed by typed array
-    // direct access.  D strings are already UTF-8, so encode is a cast+copy.
+    // TextEncoder/TextDecoder — register constructors via eval, then bind
+    // native D functions directly on prototypes (no JS wrapper indirection).
     auto teRes = engine.eval(textEncoderSetup(), "<web-compat>");
     if (!teRes.isError)
         engine.freeValue(teRes.value);
 
-    auto encodeFn = engine.newFunction(&jsNativeTextEncoderEncode, "__dun_te_encode", 1);
-    engine.setProperty(global, "__dun_te_encode", encodeFn);
+    auto teCtor = engine.getProperty(global, "TextEncoder");
+    auto teProto = engine.getProperty(teCtor, "prototype");
+    engine.setProperty(teProto, "encode",
+        engine.newFunction(&jsNativeTextEncoderEncode, "encode", 1));
+    engine.setProperty(teProto, "encodeInto",
+        engine.newFunction(&jsNativeTextEncoderEncodeInto, "encodeInto", 2));
+    engine.freeValue(teProto);
+    engine.freeValue(teCtor);
 
-    auto encodeIntoFn = engine.newFunction(&jsNativeTextEncoderEncodeInto, "__dun_te_encodeInto", 2);
-    engine.setProperty(global, "__dun_te_encodeInto", encodeIntoFn);
-
-    auto decodeFn = engine.newFunction(&jsNativeTextDecoderDecode, "__dun_td_decode", 1);
-    engine.setProperty(global, "__dun_td_decode", decodeFn);
-
-    auto wireRes = engine.eval(textEncoderWire(), "<web-compat-wire>");
-    if (!wireRes.isError)
-        engine.freeValue(wireRes.value);
+    auto tdCtor = engine.getProperty(global, "TextDecoder");
+    auto tdProto = engine.getProperty(tdCtor, "prototype");
+    engine.setProperty(tdProto, "decode",
+        engine.newFunction(&jsNativeTextDecoderDecode, "decode", 1));
+    engine.freeValue(tdProto);
+    engine.freeValue(tdCtor);
 
     engine.freeValue(global);
 }
@@ -49,15 +50,6 @@ private string textEncoderSetup() pure nothrow @safe
     ~ "})();";
 }
 
-private string textEncoderWire() pure nothrow @safe
-{
-    return
-    "(function(){"
-    ~ "TextEncoder.prototype.encode=function(s){return __dun_te_encode(String(s||''));};"
-    ~ "TextEncoder.prototype.encodeInto=function(s,u8){return __dun_te_encodeInto(String(s||''),u8);};"
-    ~ "TextDecoder.prototype.decode=function(b){if(typeof b==='string')return b;return __dun_td_decode(b);};"
-    ~ "})();";
-}
 
 private:
 
@@ -187,13 +179,12 @@ JSHandle jsNativeTextEncoderEncode(void* ctx, JSHandle thisVal, JSHandle[] args)
     assert(state.engine !is null, "Null engine in TextEncoder.encode");
     auto engine = state.engine;
 
-    if (args.length < 1)
+    if (args.length < 1 || engine.isUndefined(args[0]) || engine.isNull(args[0]))
         return engine.newUint8Array(cast(ubyte[]) []);
 
     auto input = engine.extractString(args[0]);
     if (input.length == 0) return engine.newUint8Array(cast(ubyte[]) []);
 
-    // D strings are already UTF-8
     return engine.newUint8Array(cast(const(ubyte)[]) input);
 }
 
@@ -233,6 +224,9 @@ JSHandle jsNativeTextDecoderDecode(void* ctx, JSHandle thisVal, JSHandle[] args)
 
     if (args.length < 1 || engine.isUndefined(args[0]) || engine.isNull(args[0]))
         return engine.newString("");
+
+    if (engine.isString(args[0]))
+        return engine.dupValue(args[0]);
 
     auto bytes = engine.getTypedArrayBytes(args[0]);
     if (bytes !is null && bytes.length > 0)

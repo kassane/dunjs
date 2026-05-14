@@ -1441,6 +1441,7 @@ JSHandle jsStreamOn(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     auto eventName = engine.extractString(args[0]);
     auto listeners = engine.getProperty(thisVal, "_listeners");
     engine.setProperty(listeners, eventName, args[1]);
+    engine.freeValue(listeners);
     return thisVal;
 }
 
@@ -1457,7 +1458,9 @@ JSHandle jsReadStreamRead(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     auto state = cast(DunState*) ctx;
     assert(state !is null, "Null DunState in jsReadStreamRead");
     auto engine = state.engine;
-    auto ended = engine.extractBool(engine.getProperty(thisVal, "_ended"));
+    auto endedProp = engine.getProperty(thisVal, "_ended");
+    auto ended = engine.extractBool(endedProp);
+    engine.freeValue(endedProp);
     if (ended) return engine.newNull();
     engine.setProperty(thisVal, "_ended", engine.newBool(true));
     return engine.getProperty(thisVal, "_data");
@@ -1477,6 +1480,9 @@ JSHandle jsReadStreamPipe(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     auto endFn = engine.getProperty(args[0], "end");
     if (engine.isFunction(endFn))
         engine.callFunction(endFn, args[0], []);
+    engine.freeValue(data);
+    engine.freeValue(writeFn);
+    engine.freeValue(endFn);
     return args[0];
 }
 
@@ -1488,8 +1494,11 @@ JSHandle jsWriteStreamWrite(void* ctx, JSHandle thisVal, JSHandle[] args) @trust
     auto engine = state.engine;
     if (args.length < 1) return engine.newBool(false);
     auto chunks = engine.getProperty(thisVal, "_chunks");
-    auto idx = engine.extractInt(engine.getProperty(thisVal, "_chunkCount"));
+    auto countProp = engine.getProperty(thisVal, "_chunkCount");
+    auto idx = engine.extractInt(countProp);
+    engine.freeValue(countProp);
     engine.setPropertyIndex(chunks, cast(uint) idx, args[0]);
+    engine.freeValue(chunks);
     engine.setProperty(thisVal, "_chunkCount", engine.newInt(idx + 1));
     return engine.newBool(true);
 }
@@ -1502,17 +1511,29 @@ JSHandle jsWriteStreamEnd(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     auto engine = state.engine;
     if (args.length >= 1 && engine.isString(args[0]))
     {
-        auto chunks = engine.getProperty(thisVal, "_chunks");
-        auto idx = engine.extractInt(engine.getProperty(thisVal, "_chunkCount"));
-        engine.setPropertyIndex(chunks, cast(uint) idx, args[0]);
+        auto chunks0 = engine.getProperty(thisVal, "_chunks");
+        auto countProp0 = engine.getProperty(thisVal, "_chunkCount");
+        auto idx = engine.extractInt(countProp0);
+        engine.freeValue(countProp0);
+        engine.setPropertyIndex(chunks0, cast(uint) idx, args[0]);
+        engine.freeValue(chunks0);
         engine.setProperty(thisVal, "_chunkCount", engine.newInt(idx + 1));
     }
-    auto path = engine.extractString(engine.getProperty(thisVal, "_path"));
+    auto pathProp = engine.getProperty(thisVal, "_path");
+    auto path = engine.extractString(pathProp);
+    engine.freeValue(pathProp);
     auto chunks = engine.getProperty(thisVal, "_chunks");
-    auto count = engine.extractInt(engine.getProperty(thisVal, "_chunkCount"));
+    auto countProp = engine.getProperty(thisVal, "_chunkCount");
+    auto count = engine.extractInt(countProp);
+    engine.freeValue(countProp);
     string allData;
     foreach (i; 0 .. count)
-        allData ~= engine.extractString(engine.getPropertyIndex(chunks, cast(uint) i));
+    {
+        auto elem = engine.getPropertyIndex(chunks, cast(uint) i);
+        allData ~= engine.extractString(elem);
+        engine.freeValue(elem);
+    }
+    engine.freeValue(chunks);
     try
     {
         import std.file : write;
@@ -1522,6 +1543,8 @@ JSHandle jsWriteStreamEnd(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
         auto finishCb = engine.getProperty(listeners, "finish");
         if (engine.isFunction(finishCb))
             engine.callFunction(finishCb, thisVal, []);
+        engine.freeValue(finishCb);
+        engine.freeValue(listeners);
     }
     catch (Exception) {}
     return engine.newUndefined();

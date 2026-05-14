@@ -184,7 +184,10 @@ JSHandle makeBufferObj(IJSEngine engine, const(ubyte)[] data) @trusted
     auto u8 = engine.newUint8Array(data);
     auto lenVal = engine.newInt(cast(int) data.length);
     JSHandle[2] factoryArgs = [u8, lenVal];
-    return engine.callFunction(_bufFactory, _bufFactoryThis, factoryArgs[]);
+    auto result = engine.callFunction(_bufFactory, _bufFactoryThis, factoryArgs[]);
+    engine.freeValue(lenVal);
+    engine.freeValue(u8);
+    return result;
 }
 
 JSHandle makeBufferObjZeroed(IJSEngine engine, int size) @trusted
@@ -193,7 +196,10 @@ JSHandle makeBufferObjZeroed(IJSEngine engine, int size) @trusted
     auto u8 = engine.newUint8ArrayZeroed(size);
     auto lenVal = engine.newInt(size);
     JSHandle[2] factoryArgs = [u8, lenVal];
-    return engine.callFunction(_bufFactory, _bufFactoryThis, factoryArgs[]);
+    auto result = engine.callFunction(_bufFactory, _bufFactoryThis, factoryArgs[]);
+    engine.freeValue(lenVal);
+    engine.freeValue(u8);
+    return result;
 }
 
 private immutable char[512] hexLUT = () {
@@ -296,7 +302,9 @@ JSHandle jsBufferFrom(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     if (engine.isObject(args[0]))
     {
         auto isBuf = engine.getProperty(args[0], "__isBuffer");
-        if (engine.isBool(isBuf) && engine.extractBool(isBuf))
+        bool isBuffer = engine.isBool(isBuf) && engine.extractBool(isBuf);
+        engine.freeValue(isBuf);
+        if (isBuffer)
         {
             auto bytes = extractBytes(engine, args[0]);
             return makeBufferObj(engine, bytes);
@@ -307,6 +315,7 @@ JSHandle jsBufferFrom(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
         if (engine.isNumber(lenVal))
         {
             int len = engine.extractInt(lenVal);
+            engine.freeValue(lenVal);
             auto bytes = new ubyte[len];
             for (int i = 0; i < len; i++)
             {
@@ -317,6 +326,7 @@ JSHandle jsBufferFrom(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
             }
             return makeBufferObj(engine, bytes);
         }
+        engine.freeValue(lenVal);
     }
 
     return engine.throwTypeError("Buffer.from: unsupported argument type");
@@ -468,6 +478,7 @@ JSHandle jsBufferByteLength(void* ctx, JSHandle thisVal, JSHandle[] args) @trust
     {
         auto lenProp = engine.getProperty(args[0], "length");
         if (engine.isNumber(lenProp)) return lenProp;
+        engine.freeValue(lenProp);
     }
     return engine.newInt(0);
 }

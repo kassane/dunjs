@@ -261,10 +261,17 @@ JSHandle jsRequire(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     auto cache = engine.getProperty(global, "__dunCjsCache__");
     auto cached = engine.getProperty(cache, resolved);
     if (!engine.isUndefined(cached))
+    {
+        engine.freeValue(cache);
         return cached;
+    }
+    engine.freeValue(cached);
 
     if (!checkPerm(state, Permission.read, resolved))
+    {
+        engine.freeValue(cache);
         return engine.throwTypeError("require() denied: requires --allow-read");
+    }
 
     // JSON files: parse and return directly
     import std.algorithm : endsWith;
@@ -278,6 +285,7 @@ JSHandle jsRequire(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
             if (!parseResult.isError)
             {
                 engine.setProperty(cache, resolved, engine.dupValue(parseResult.value));
+                engine.freeValue(cache);
                 return parseResult.value;
             }
         }
@@ -307,6 +315,7 @@ JSHandle jsRequire(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     auto stack = engine.getProperty(global, "__dunCjsStack__");
     auto stackLenVal = engine.getProperty(stack, "length");
     int stackLen = engine.extractInt(stackLenVal);
+    engine.freeValue(stackLenVal);
     engine.setPropertyIndex(stack, cast(uint) stackLen, engine.newString(resolved));
 
     string dirname_;
@@ -334,6 +343,8 @@ JSHandle jsRequire(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
         if (evalResult.isError)
         {
             engine.setProperty(stack, "length", engine.newInt(stackLen));
+            engine.freeValue(stack);
+            engine.freeValue(cache);
             return engine.throwTypeError("Failed to evaluate module");
         }
         result = evalResult.value;
@@ -341,17 +352,23 @@ JSHandle jsRequire(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     catch (Exception)
     {
         engine.setProperty(stack, "length", engine.newInt(stackLen));
+        engine.freeValue(stack);
+        engine.freeValue(cache);
         return engine.throwTypeError("Failed to evaluate module");
     }
 
     // Pop stack
     auto newLenVal = engine.getProperty(stack, "length");
     int newLen = engine.extractInt(newLenVal);
+    engine.freeValue(newLenVal);
     if (newLen > 0)
         engine.setProperty(stack, "length", engine.newInt(newLen - 1));
 
+    engine.freeValue(stack);
+
     // Cache
     engine.setProperty(cache, resolved, engine.dupValue(result));
+    engine.freeValue(cache);
     return result;
 }
 
@@ -363,11 +380,16 @@ string getCjsStackDir(IJSEngine engine, JSHandle global) nothrow @trusted
         auto stack = engine.getProperty(global, "__dunCjsStack__");
         auto lenVal = engine.getProperty(stack, "length");
         int len = engine.extractInt(lenVal);
+        engine.freeValue(lenVal);
         if (len > 0)
         {
             auto topVal = engine.getPropertyIndex(stack, cast(uint)(len - 1));
-            return dirName(engine.extractString(topVal));
+            auto result = dirName(engine.extractString(topVal));
+            engine.freeValue(topVal);
+            engine.freeValue(stack);
+            return result;
         }
+        engine.freeValue(stack);
     }
     catch (Exception) {}
     try

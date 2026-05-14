@@ -105,6 +105,7 @@ bool hasShellMetaChars(string cmd) @safe pure nothrow
 string extractOptString(IJSEngine engine, JSHandle opts, string key) @trusted
 {
     auto val = engine.getProperty(opts, key);
+    scope(exit) engine.freeValue(val);
     if (!engine.isUndefined(val) && !engine.isNull(val) && engine.isString(val))
         return engine.extractString(val);
     return "";
@@ -113,6 +114,7 @@ string extractOptString(IJSEngine engine, JSHandle opts, string key) @trusted
 int extractOptInt(IJSEngine engine, JSHandle opts, string key, int def) @trusted
 {
     auto val = engine.getProperty(opts, key);
+    scope(exit) engine.freeValue(val);
     if (!engine.isUndefined(val) && !engine.isNull(val) && engine.isNumber(val))
         return engine.extractInt(val);
     return def;

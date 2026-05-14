@@ -20,6 +20,43 @@ void installWebAPIs(IJSEngine engine) @trusted
     }
     else
         engine.freeValue(res.value);
+
+    bindNativeCryptoOnGlobal(engine);
+}
+
+private void bindNativeCryptoOnGlobal(IJSEngine engine) @trusted
+{
+    import dun.builtins.crypto : jsCryptoRandomUUID, jsCryptoRandomBytes;
+    auto global = engine.getGlobal();
+    auto cryptoObj = engine.getProperty(global, "crypto");
+    if (!engine.isUndefined(cryptoObj) && !engine.isNull(cryptoObj))
+    {
+        engine.setProperty(cryptoObj, "randomUUID",
+            engine.newFunction(&jsCryptoRandomUUID, "randomUUID", 0));
+        engine.setProperty(cryptoObj, "getRandomValues",
+            engine.newFunction(&jsNativeGetRandomValues, "getRandomValues", 1));
+    }
+    engine.freeValue(cryptoObj);
+    engine.freeValue(global);
+}
+
+private JSHandle jsNativeGetRandomValues(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+{
+    assert(ctx !is null, "Null ctx in getRandomValues");
+    auto state = cast(DunState*) ctx;
+    assert(state.engine !is null, "Null engine in getRandomValues");
+    auto engine = state.engine;
+
+    if (args.length < 1)
+        return engine.throwTypeError("Expected typed array");
+
+    auto bytes = engine.getTypedArrayBytes(args[0]);
+    if (bytes is null)
+        return engine.throwTypeError("Expected typed array");
+
+    import dun.builtins.crypto : fillRandomBytesPublic;
+    fillRandomBytesPublic(bytes);
+    return engine.dupValue(args[0]);
 }
 
 private string webAPIsSource() pure nothrow @safe
@@ -389,17 +426,6 @@ private string webAPIsSource() pure nothrow @safe
     // crypto.getRandomValues()
     // ═══════════════════════════════════
     ~ "if(typeof globalThis.crypto==='undefined')globalThis.crypto={};"
-    ~ "if(!globalThis.crypto.getRandomValues){"
-    ~ "globalThis.crypto.getRandomValues=function(arr){"
-    ~ "if(!(arr instanceof Uint8Array||arr instanceof Uint16Array||arr instanceof Uint32Array||arr instanceof Int8Array||arr instanceof Int16Array||arr instanceof Int32Array))throw new TypeError('Expected typed array');"
-    ~ "var bytes=typeof require==='function'?require('crypto').randomBytes(arr.byteLength):null;"
-    ~ "if(bytes){var u8=new Uint8Array(arr.buffer,arr.byteOffset,arr.byteLength);for(var i=0;i<u8.length;i++)u8[i]=bytes[i];}"
-    ~ "else{var u8=new Uint8Array(arr.buffer,arr.byteOffset,arr.byteLength);for(var i=0;i<u8.length;i++)u8[i]=Math.floor(Math.random()*256);}"
-    ~ "return arr;};"
-    ~ "}"
-    ~ "if(!globalThis.crypto.randomUUID){"
-    ~ "globalThis.crypto.randomUUID=function(){return typeof require==='function'?require('crypto').randomUUID():'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g,function(c){var r=Math.random()*16|0;return(c==='x'?r:r&3|8).toString(16);});};"
-    ~ "}"
 
     // ═══════════════════════════════════
     // console.time/timeEnd/timeLog/count/countReset/table

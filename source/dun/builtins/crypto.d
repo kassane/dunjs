@@ -107,52 +107,7 @@ version (EngineQuickJS)
     }
 }
 
-private:
-
-JSHandle jsCryptoRandomBytes(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
-{
-    import core.stdc.stdlib : malloc, free;
-
-    assert(ctx !is null, "Null ctx in jsCryptoRandomBytes");
-    auto state = cast(DunState*) ctx;
-    assert(state !is null, "Null DunState in jsCryptoRandomBytes");
-    auto engine = state.engine;
-    if (args.length < 1) return engine.throwTypeError("randomBytes requires a length argument");
-    int n = engine.extractInt(args[0]);
-    if (n < 0) return engine.throwTypeError("randomBytes length must be non-negative");
-    enum STACK_LIMIT = 256;
-    ubyte[STACK_LIMIT] stackBuf = void;
-    if (n <= STACK_LIMIT)
-    {
-        auto buf = stackBuf[0 .. n];
-        fillRandomBytes(buf);
-        return engine.newUint8Array(buf);
-    }
-    auto buf = cast(ubyte*) malloc(n);
-    if (buf is null) return engine.throwTypeError("Failed to allocate random bytes buffer");
-    scope(exit) free(buf);
-    fillRandomBytes(buf[0 .. n]);
-    return engine.newUint8Array(buf[0 .. n]);
-}
-
-// Pre-filled random byte pool — amortizes getrandom syscall cost across UUIDs
-private enum UUID_POOL_UUIDS = 64;
-private enum UUID_POOL_BYTES = UUID_POOL_UUIDS * 16;
-private __gshared ubyte[UUID_POOL_BYTES] _uuidPool = void;
-private __gshared size_t _uuidPoolPos = UUID_POOL_BYTES;
-
-private ubyte[16] nextUUIDBytes() @trusted
-{
-    if (_uuidPoolPos >= UUID_POOL_BYTES)
-    {
-        fillRandomBytes(_uuidPool[]);
-        _uuidPoolPos = 0;
-    }
-    ubyte[16] r = _uuidPool[_uuidPoolPos .. _uuidPoolPos + 16];
-    _uuidPoolPos += 16;
-    return r;
-}
-
+// Public API for cross-module access (used by dun.runtime.web_apis)
 JSHandle jsCryptoRandomUUID(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsCryptoRandomUUID");
@@ -182,10 +137,60 @@ JSHandle jsCryptoRandomUUID(void* ctx, JSHandle thisVal, JSHandle[] args) @trust
     catch (Exception) { return engine.throwTypeError("Failed to generate UUID"); }
 }
 
-private immutable char[16] hexLUT = "0123456789abcdef";
+JSHandle jsCryptoRandomBytes(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+{
+    import core.stdc.stdlib : malloc, free;
 
-// Cached /dev/urandom file descriptor for fast random byte generation
-private __gshared int _urandomFd = -1;
+    assert(ctx !is null, "Null ctx in jsCryptoRandomBytes");
+    auto state = cast(DunState*) ctx;
+    assert(state !is null, "Null DunState in jsCryptoRandomBytes");
+    auto engine = state.engine;
+    if (args.length < 1) return engine.throwTypeError("randomBytes requires a length argument");
+    int n = engine.extractInt(args[0]);
+    if (n < 0) return engine.throwTypeError("randomBytes length must be non-negative");
+    enum STACK_LIMIT = 256;
+    ubyte[STACK_LIMIT] stackBuf = void;
+    if (n <= STACK_LIMIT)
+    {
+        auto buf = stackBuf[0 .. n];
+        fillRandomBytes(buf);
+        return engine.newUint8Array(buf);
+    }
+    auto buf = cast(ubyte*) malloc(n);
+    if (buf is null) return engine.throwTypeError("Failed to allocate random bytes buffer");
+    scope(exit) free(buf);
+    fillRandomBytes(buf[0 .. n]);
+    return engine.newUint8Array(buf[0 .. n]);
+}
+
+void fillRandomBytesPublic(ubyte[] buf) @trusted
+{
+    fillRandomBytes(buf);
+}
+
+private:
+
+// Pre-filled random byte pool — amortizes getrandom syscall cost across UUIDs
+enum UUID_POOL_UUIDS = 64;
+enum UUID_POOL_BYTES = UUID_POOL_UUIDS * 16;
+__gshared ubyte[UUID_POOL_BYTES] _uuidPool = void;
+__gshared size_t _uuidPoolPos = UUID_POOL_BYTES;
+
+ubyte[16] nextUUIDBytes() @trusted
+{
+    if (_uuidPoolPos >= UUID_POOL_BYTES)
+    {
+        fillRandomBytes(_uuidPool[]);
+        _uuidPoolPos = 0;
+    }
+    ubyte[16] r = _uuidPool[_uuidPoolPos .. _uuidPoolPos + 16];
+    _uuidPoolPos += 16;
+    return r;
+}
+
+immutable char[16] hexLUT = "0123456789abcdef";
+
+__gshared int _urandomFd = -1;
 
 private void fillRandomBytes(ubyte[] buf) @trusted
 {
@@ -267,7 +272,9 @@ JSHandle jsHashUpdate(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     if (args.length < 1) return engine.dupValue(thisVal);
     try
     {
-        auto prev = engine.extractString(engine.getProperty(thisVal, "_data"));
+        auto dataProp = engine.getProperty(thisVal, "_data");
+        auto prev = engine.extractString(dataProp);
+        engine.freeValue(dataProp);
         auto chunk = engine.extractString(args[0]);
         engine.setProperty(thisVal, "_data", engine.newString(prev ~ chunk));
     }
@@ -283,8 +290,12 @@ JSHandle jsHashDigest(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     auto engine = state.engine;
     try
     {
-        auto algo = engine.extractString(engine.getProperty(thisVal, "_algo"));
-        auto data = engine.extractString(engine.getProperty(thisVal, "_data"));
+        auto algoProp = engine.getProperty(thisVal, "_algo");
+        auto algo = engine.extractString(algoProp);
+        engine.freeValue(algoProp);
+        auto dataProp = engine.getProperty(thisVal, "_data");
+        auto data = engine.extractString(dataProp);
+        engine.freeValue(dataProp);
         return engine.newString(computeHash(algo, data));
     }
     catch (Exception) { return engine.throwTypeError("Failed to compute hash"); }
@@ -334,7 +345,9 @@ JSHandle jsHmacUpdate(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     if (args.length < 1) return engine.dupValue(thisVal);
     try
     {
-        auto prev = engine.extractString(engine.getProperty(thisVal, "_data"));
+        auto dataProp = engine.getProperty(thisVal, "_data");
+        auto prev = engine.extractString(dataProp);
+        engine.freeValue(dataProp);
         auto chunk = engine.extractString(args[0]);
         engine.setProperty(thisVal, "_data", engine.newString(prev ~ chunk));
     }
@@ -350,9 +363,15 @@ JSHandle jsHmacDigest(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     auto engine = state.engine;
     try
     {
-        auto algo = engine.extractString(engine.getProperty(thisVal, "_algo"));
-        auto key = engine.extractString(engine.getProperty(thisVal, "_key"));
-        auto data = engine.extractString(engine.getProperty(thisVal, "_data"));
+        auto algoProp = engine.getProperty(thisVal, "_algo");
+        auto algo = engine.extractString(algoProp);
+        engine.freeValue(algoProp);
+        auto keyProp = engine.getProperty(thisVal, "_key");
+        auto key = engine.extractString(keyProp);
+        engine.freeValue(keyProp);
+        auto dataProp = engine.getProperty(thisVal, "_data");
+        auto data = engine.extractString(dataProp);
+        engine.freeValue(dataProp);
         return engine.newString(computeHmac(algo, key, data));
     }
     catch (Exception) { return engine.throwTypeError("Failed to compute HMAC"); }
@@ -492,6 +511,9 @@ JSHandle jsCryptoScryptSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trust
             if (engine.isNumber(optN)) N = cast(ulong) engine.extractInt(optN);
             if (engine.isNumber(optR)) r = cast(ulong) engine.extractInt(optR);
             if (engine.isNumber(optP)) p = cast(ulong) engine.extractInt(optP);
+            engine.freeValue(optN);
+            engine.freeValue(optR);
+            engine.freeValue(optP);
         }
 
         auto outbuf = new ubyte[keylen];
