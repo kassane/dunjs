@@ -16,7 +16,14 @@ private enum {
     HTTP_DEFAULT_PORT = 80,
     HTTP_LISTEN_BACKLOG = 1024,
     HTTP_MAX_HEADER_NAME = 128,
+    HTTP_MAX_HEADER_SIZE = 16_384,
     IO_POLL_BATCH_SIZE = 256,
+    HTTP_DEFAULT_TIMEOUT_MS     = 120_000,
+    HTTP_KEEPALIVE_TIMEOUT_MS   = 5_000,
+    HTTP_REQUEST_TIMEOUT_MS     = 60_000,
+    HTTP_HEADERS_TIMEOUT_MS     = 300_000,
+    HTTP_CONNECT_TIMEOUT_MS     = 2_000,
+    HTTP_MAX_HEADERS_COUNT      = 2_000,
 }
 
 private string sizeToStr(size_t n) nothrow @trusted
@@ -112,7 +119,7 @@ void registerHttpModule(IJSEngine engine) @trusted
     engine.freeValue(httpExtResult.value);
 
     // http.maxHeaderSize
-    engine.setProperty(obj, "maxHeaderSize", engine.newInt(16384));
+    engine.setProperty(obj, "maxHeaderSize", engine.newInt(HTTP_MAX_HEADER_SIZE));
 
     // http.validateHeaderName / http.validateHeaderValue via JS
     auto valResult = engine.eval(httpValidationSource(), "<http-validate>");
@@ -400,11 +407,11 @@ JSHandle makeHttpServerObj(IJSEngine engine, int id) @trusted
     engine.setProperty(obj, "address", engine.dupValue(_httpSrvAddress));
     engine.setProperty(obj, "listening", engine.newBool(false));
     engine.setProperty(obj, "maxConnections", engine.newInt(0));
-    engine.setProperty(obj, "timeout", engine.newInt(120000));
-    engine.setProperty(obj, "keepAliveTimeout", engine.newInt(5000));
-    engine.setProperty(obj, "headersTimeout", engine.newInt(60000));
-    engine.setProperty(obj, "requestTimeout", engine.newInt(300000));
-    engine.setProperty(obj, "maxHeadersCount", engine.newInt(2000));
+    engine.setProperty(obj, "timeout", engine.newInt(HTTP_DEFAULT_TIMEOUT_MS));
+    engine.setProperty(obj, "keepAliveTimeout", engine.newInt(HTTP_KEEPALIVE_TIMEOUT_MS));
+    engine.setProperty(obj, "headersTimeout", engine.newInt(HTTP_REQUEST_TIMEOUT_MS));
+    engine.setProperty(obj, "requestTimeout", engine.newInt(HTTP_HEADERS_TIMEOUT_MS));
+    engine.setProperty(obj, "maxHeadersCount", engine.newInt(HTTP_MAX_HEADERS_COUNT));
     engine.setProperty(obj, "setTimeout", engine.newFunction(&jsHttpServerSetTimeout, "setTimeout", 2));
     return obj;
 }
@@ -827,8 +834,18 @@ JSHandle jsResRemoveHeader(void* ctx, JSHandle thisVal, JSHandle[] args) @truste
     return engine.newUndefined();
 }
 
-private string toLowerSimple(string s) @safe pure nothrow
+private string toLowerSimple(string s) @trusted pure nothrow
 {
+    if (s.length == 0) return s;
+    enum STACK_BUF = 256;
+    if (s.length <= STACK_BUF)
+    {
+        char[STACK_BUF] buf = void;
+        buf[0 .. s.length] = s[];
+        import dun.platform.simd : asciiToLowerBuf;
+        asciiToLowerBuf(buf[0 .. s.length]);
+        try { return buf[0 .. s.length].idup; } catch (Exception) { return s; }
+    }
     char[] result;
     try { result.reserve(s.length); } catch (Exception) {}
     foreach (c; s)

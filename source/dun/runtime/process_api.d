@@ -5,6 +5,8 @@ import dun.runtime.globals : DunState;
 import dun.security.permissions : Permission;
 
 private enum STDIN_READ_BUF_SIZE = 65_536;
+private enum DEFAULT_TERMINAL_COLUMNS = 80;
+private enum LINUX_PAGE_SIZE = 4096;
 
 private __gshared JSHandle gUncaughtHandler;
 private __gshared IJSEngine gUncaughtEngine;
@@ -206,7 +208,7 @@ void installProcess(IJSEngine engine) @trusted
     engine.setProperty(stdoutObj, "clearLine", engine.newFunction(&jsNoop, "clearLine", 1));
     engine.setProperty(stdoutObj, "moveCursor", engine.newFunction(&jsNoop, "moveCursor", 2));
     engine.setProperty(stdoutObj, "getWindowSize", engine.newFunction(&jsGetWindowSize, "getWindowSize", 0));
-    engine.setProperty(stdoutObj, "columns", engine.newInt(80));
+    engine.setProperty(stdoutObj, "columns", engine.newInt(DEFAULT_TERMINAL_COLUMNS));
     engine.setProperty(stdoutObj, "rows", engine.newInt(24));
     engine.setProperty(process, "stdout", stdoutObj);
 
@@ -222,7 +224,7 @@ void installProcess(IJSEngine engine) @trusted
     engine.setProperty(stderrObj, "emit", engine.newFunction(&jsNoop, "emit", 1));
     engine.setProperty(stderrObj, "cork", engine.newFunction(&jsNoop, "cork", 0));
     engine.setProperty(stderrObj, "uncork", engine.newFunction(&jsNoop, "uncork", 0));
-    engine.setProperty(stderrObj, "columns", engine.newInt(80));
+    engine.setProperty(stderrObj, "columns", engine.newInt(DEFAULT_TERMINAL_COLUMNS));
     engine.setProperty(stderrObj, "rows", engine.newInt(24));
     engine.setProperty(process, "stderr", stderrObj);
 
@@ -385,7 +387,7 @@ JSHandle jsGetWindowSize(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     assert(state.engine !is null, "Null engine in jsGetWindowSize");
     auto engine = state.engine;
     auto arr = engine.newArray();
-    engine.setPropertyIndex(arr, 0, engine.newInt(80));
+    engine.setPropertyIndex(arr, 0, engine.newInt(DEFAULT_TERMINAL_COLUMNS));
     engine.setPropertyIndex(arr, 1, engine.newInt(24));
     return arr;
 }
@@ -613,7 +615,7 @@ JSHandle jsMemoryUsage(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
             auto statm = readText("/proc/self/statm");
             auto parts = statm.split(" ");
             if (parts.length >= 2)
-                rss = to!double(parts[1]) * 4096.0;
+                rss = to!double(parts[1]) * LINUX_PAGE_SIZE;
         }
         catch (Exception) {}
     }

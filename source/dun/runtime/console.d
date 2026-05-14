@@ -17,6 +17,7 @@ void installConsole(IJSEngine engine) @trusted
     engine.setProperty(console, "assert", engine.newFunction(&consoleAssert, "assert", 2));
 
     engine.setProperty(global, "console", console);
+    engine.freeValue(global);
 }
 
 private:

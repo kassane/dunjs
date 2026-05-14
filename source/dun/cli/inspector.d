@@ -4,10 +4,17 @@ version (Posix):
 
 import dun.engine.iface : IJSEngine;
 
+private enum DEFAULT_INSPECTOR_PORT = 9229;
+private enum RECV_BUF_SIZE = 4096;
+private enum WS_FIN_TEXT = 0x81;
+private enum WS_PAYLOAD_16BIT = 126;
+private enum WS_PAYLOAD_64BIT = 127;
+private enum WS_PAYLOAD_16BIT_MAX = 65536;
+
 private __gshared bool gInspectorActive = false;
 private __gshared int gInspectorFd = -1;
 private __gshared int gClientFd = -1;
-private __gshared ushort gInspectorPort = 9229;
+private __gshared ushort gInspectorPort = DEFAULT_INSPECTOR_PORT;
 private __gshared IJSEngine gInspectorEngine;
 
 bool isInspectorActive() nothrow @trusted
@@ -15,7 +22,7 @@ bool isInspectorActive() nothrow @trusted
     return gInspectorActive;
 }
 
-void startInspector(IJSEngine engine, ushort port = 9229) @trusted
+void startInspector(IJSEngine engine, ushort port = DEFAULT_INSPECTOR_PORT) @trusted
 {
     assert(engine !is null);
     import core.sys.posix.sys.socket;
@@ -85,7 +92,7 @@ void pollInspector() nothrow @trusted
         return;
     }
 
-    ubyte[4096] buf;
+    ubyte[RECV_BUF_SIZE] buf;
     auto n = recv(gClientFd, buf.ptr, buf.length, 0);
     if (n > 0)
     {
@@ -117,7 +124,7 @@ void handleHttpUpgrade(int fd) nothrow @trusted
 {
     import core.sys.posix.sys.socket : recv, send;
 
-    ubyte[4096] buf;
+    ubyte[RECV_BUF_SIZE] buf;
     auto n = recv(fd, buf.ptr, buf.length, 0);
     if (n <= 0) return;
 
@@ -288,22 +295,22 @@ void sendWebSocketFrame(ubyte[] payload) nothrow @trusted
     ubyte[10] header;
     size_t headerLen;
 
-    header[0] = 0x81; // FIN + text
-    if (payload.length < 126)
+    header[0] = WS_FIN_TEXT;
+    if (payload.length < WS_PAYLOAD_16BIT)
     {
         header[1] = cast(ubyte) payload.length;
         headerLen = 2;
     }
-    else if (payload.length < 65536)
+    else if (payload.length < WS_PAYLOAD_16BIT_MAX)
     {
-        header[1] = 126;
+        header[1] = WS_PAYLOAD_16BIT;
         header[2] = cast(ubyte)(payload.length >> 8);
         header[3] = cast(ubyte)(payload.length & 0xFF);
         headerLen = 4;
     }
     else
     {
-        header[1] = 127;
+        header[1] = WS_PAYLOAD_64BIT;
         foreach (i; 0 .. 8)
             header[2 + i] = cast(ubyte)((payload.length >> ((7 - i) * 8)) & 0xFF);
         headerLen = 10;

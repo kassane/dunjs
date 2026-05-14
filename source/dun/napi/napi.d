@@ -10,10 +10,10 @@ private __gshared int gValuePoolUsed = 0;
 
 napi_value allocValue(JSHandle h) nothrow @trusted
 {
+    assert(gValuePoolUsed >= 0 && gValuePoolUsed <= MAX_NAPI_VALUES,
+        "NAPI value pool index out of bounds");
     if (gValuePoolUsed >= MAX_NAPI_VALUES)
-    {
         gValuePoolUsed = 0;
-    }
     gValuePool[gValuePoolUsed].handle = h;
     auto result = &gValuePool[gValuePoolUsed];
     gValuePoolUsed++;

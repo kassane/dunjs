@@ -630,6 +630,7 @@ JSHandle jsStatIsFile(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     assert(state !is null, "Null DunState in jsStatIsFile");
     auto engine = state.engine;
     auto typeVal = engine.getProperty(thisVal, "_type");
+    scope(exit) engine.freeValue(typeVal);
     return engine.newBool(engine.extractInt(typeVal) == 1);
 }
 
@@ -640,6 +641,7 @@ JSHandle jsStatIsDirectory(void* ctx, JSHandle thisVal, JSHandle[] args) @truste
     assert(state !is null, "Null DunState in jsStatIsDirectory");
     auto engine = state.engine;
     auto typeVal = engine.getProperty(thisVal, "_type");
+    scope(exit) engine.freeValue(typeVal);
     return engine.newBool(engine.extractInt(typeVal) == 2);
 }
 
@@ -990,6 +992,7 @@ JSHandle jsStatIsSymbolicLink(void* ctx, JSHandle thisVal, JSHandle[] args) @tru
     assert(state !is null, "Null DunState in jsStatIsSymbolicLink");
     auto engine = state.engine;
     auto typeVal = engine.getProperty(thisVal, "_type");
+    scope(exit) engine.freeValue(typeVal);
     return engine.newBool(engine.extractInt(typeVal) == 3);
 }
 

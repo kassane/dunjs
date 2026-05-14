@@ -57,6 +57,7 @@ JSHandle jsRequireResolve(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
         if (specifier == b) return engine.newString(specifier);
 
     auto global = engine.getGlobal();
+    scope(exit) engine.freeValue(global);
     string resolved;
 
     try
@@ -163,6 +164,7 @@ JSHandle jsRequire(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     else if (specifier == "console") specifier = "dun:console";
 
     auto global = engine.getGlobal();
+    scope(exit) engine.freeValue(global);
 
     if (specifier.startsWith("dun:"))
     {

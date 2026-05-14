@@ -295,11 +295,23 @@ JSHandle jsPathFormat(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     try
     {
         import std.path : buildPath;
-        auto dir = engine.extractString(engine.getProperty(args[0], "dir"));
-        auto root = engine.extractString(engine.getProperty(args[0], "root"));
-        auto base = engine.extractString(engine.getProperty(args[0], "base"));
-        auto name = engine.extractString(engine.getProperty(args[0], "name"));
-        auto ext = engine.extractString(engine.getProperty(args[0], "ext"));
+        auto dirH = engine.getProperty(args[0], "dir");
+        auto rootH = engine.getProperty(args[0], "root");
+        auto baseH = engine.getProperty(args[0], "base");
+        auto nameH = engine.getProperty(args[0], "name");
+        auto extH = engine.getProperty(args[0], "ext");
+        scope(exit) {
+            engine.freeValue(dirH);
+            engine.freeValue(rootH);
+            engine.freeValue(baseH);
+            engine.freeValue(nameH);
+            engine.freeValue(extH);
+        }
+        auto dir = engine.extractString(dirH);
+        auto root = engine.extractString(rootH);
+        auto base = engine.extractString(baseH);
+        auto name = engine.extractString(nameH);
+        auto ext = engine.extractString(extH);
         string filename = base.length > 0 ? base : name ~ ext;
         string result;
         if (dir.length > 0) result = buildPath(dir, filename);

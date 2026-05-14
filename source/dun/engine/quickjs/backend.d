@@ -199,17 +199,17 @@ class QuickJSEngine : IJSEngine
     JSHandle getProperty(JSHandle obj, const(char)[] name) @trusted
     {
         assert(ctx !is null, "Engine not initialized");
-        import std.string : toStringz;
+        char[QJS_STACK_STRING_SIZE] buf = void;
         return toHandle(JS_GetPropertyStr(ctx, fromHandle(obj),
-            (cast(string) name).toStringz));
+            stackTerminate(name, buf)));
     }
 
     void setProperty(JSHandle obj, const(char)[] name, JSHandle val) @trusted
     {
         assert(ctx !is null, "Engine not initialized");
-        import std.string : toStringz;
+        char[QJS_STACK_STRING_SIZE] buf = void;
         JS_SetPropertyStr(ctx, fromHandle(obj),
-            (cast(string) name).toStringz, fromHandle(val));
+            stackTerminate(name, buf), fromHandle(val));
     }
 
     void setPropertyIndex(JSHandle obj, uint idx, JSHandle val) @trusted
@@ -455,6 +455,21 @@ class QuickJSEngine : IJSEngine
         auto fnVal = JS_NewCFunction(ctx, func, name.toStringz, argc);
         JS_SetPropertyStr(ctx, global, name.toStringz, fnVal);
         JS_FreeValue(ctx, global);
+    }
+
+    private enum QJS_STACK_STRING_SIZE = 512;
+
+    private static const(char)* stackTerminate(
+        const(char)[] name, return ref char[QJS_STACK_STRING_SIZE] buf) @trusted
+    {
+        if (name.length < QJS_STACK_STRING_SIZE)
+        {
+            buf[0 .. name.length] = name[];
+            buf[name.length] = '\0';
+            return buf.ptr;
+        }
+        import std.string : toStringz;
+        return (cast(string) name).toStringz;
     }
 
     static JSHandle toHandle(JSValue v) pure nothrow @nogc @trusted
