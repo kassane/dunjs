@@ -432,6 +432,21 @@ DunV8Value* dun_v8_new_uint8array(DunV8Context* cw,
     });
 }
 
+unsigned char* dun_v8_typed_array_data(DunV8Context* cw,
+    DunV8Value* val, size_t* out_len)
+{
+    if (!val || !out_len) { if (out_len) *out_len = 0; return nullptr; }
+    return dun::withContext(cw, [&](auto isolate, auto context, auto* iw) -> unsigned char* {
+        auto local = val->value.Get(isolate);
+        if (!local->IsTypedArray()) { *out_len = 0; return nullptr; }
+        auto ta = local.template As<v8::TypedArray>();
+        *out_len = ta->ByteLength();
+        auto ab = ta->Buffer();
+        return static_cast<unsigned char*>(ab->GetBackingStore()->Data())
+            + ta->ByteOffset();
+    });
+}
+
 // --- Reference management ---
 
 void dun_v8_value_ref(DunV8Value* vw) {

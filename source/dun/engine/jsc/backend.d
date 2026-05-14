@@ -155,6 +155,19 @@ class JSCEngine : IJSEngine
         return toHandle(cast(void*) cast(JSValueRef) ta);
     }
 
+    ubyte[] getTypedArrayBytes(JSHandle val) @trusted
+    {
+        assert(ctx !is null, "JSC context not initialized");
+        auto obj = cast(JSObjectRef) fromHandle(val);
+        if (obj is null) return null;
+        JSValueRef exc = null;
+        auto len = JSObjectGetTypedArrayByteLength(ctx, obj, &exc);
+        if (exc !is null || len == 0) return null;
+        auto ptr = cast(ubyte*) JSObjectGetTypedArrayBytesPtr(ctx, obj, &exc);
+        if (exc !is null || ptr is null) return null;
+        return ptr[0 .. len];
+    }
+
     JSHandle newFunction(NativeCallback cb, string name, int argc) @trusted
     {
         import std.string : toStringz;

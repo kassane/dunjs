@@ -122,6 +122,20 @@ class QuickJSEngine : IJSEngine
         return toHandle(result);
     }
 
+    ubyte[] getTypedArrayBytes(JSHandle val) @trusted
+    {
+        assert(ctx !is null, "Engine not initialized");
+        auto v = fromHandle(val);
+        size_t offset, byteLen, bpe;
+        auto ab = JS_GetTypedArrayBuffer(ctx, v, &offset, &byteLen, &bpe);
+        if (JS_IsException(ab) != 0) return null;
+        scope(exit) JS_FreeValue(ctx, ab);
+        size_t abSize;
+        auto ptr = JS_GetArrayBuffer(ctx, &abSize, ab);
+        if (ptr is null) return null;
+        return ptr[offset .. offset + byteLen];
+    }
+
     JSHandle newFunction(NativeCallback cb, string name, int argc) @trusted
     {
         assert(ctx !is null, "Engine not initialized");

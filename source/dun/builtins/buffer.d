@@ -69,7 +69,6 @@ __gshared JSHandle _bufWriteFloatLE, _bufWriteFloatBE;
 __gshared JSHandle _bufWriteDoubleLE, _bufWriteDoubleBE;
 __gshared JSHandle _bufCompare, _bufIncludes, _bufSubarray, _bufIsEncoding;
 __gshared JSHandle _bufProto; // Shared prototype object with all methods
-__gshared JSHandle _objectCreate; // Cached Object.create function
 __gshared bool _bufFnsCached = false;
 
 void ensureBufferFnsCached(IJSEngine engine) @trusted
@@ -156,36 +155,32 @@ void ensureBufferFnsCached(IJSEngine engine) @trusted
     engine.setProperty(_bufProto, "includes", engine.dupValue(_bufIncludes));
     engine.setProperty(_bufProto, "subarray", engine.dupValue(_bufSubarray));
 
-    // Cache Object.create for fast prototype-based buffer creation
+    // Store proto globally and create a fast JS-side factory function
+    // that does Object.create + property assignment in a single JS call.
     auto global = engine.getGlobal();
-    auto objectCtor = engine.getProperty(global, "Object");
-    _objectCreate = engine.getProperty(objectCtor, "create");
-
-    // Store proto globally so JS can access it
     engine.setProperty(global, "__dunBufProto__", engine.dupValue(_bufProto));
+
+    auto factoryRes = engine.eval(
+        "(function(){" ~
+        "var p=__dunBufProto__,c=Object.create;" ~
+        "return function __dunMkBuf(u8,len){" ~
+        "var o=c(p);o.__isBuffer=true;o.length=len;o.__u8=u8;return o;};})()",
+        "<buffer-factory>");
+    assert(!factoryRes.isError, "Failed to create buffer factory");
+    _bufFactory = factoryRes.value;
 
     _bufFnsCached = true;
 }
 
+__gshared JSHandle _bufFactory;
+
 JSHandle makeBufferObj(IJSEngine engine, const(ubyte)[] data) @trusted
 {
     ensureBufferFnsCached(engine);
-    // Object.create(_bufProto) — inherits all 35 methods from prototype
-    JSHandle[] createArgs = [_bufProto];
-    auto obj = engine.callFunction(_objectCreate, engine.newNull(), createArgs);
-
-    engine.setProperty(obj, "__isBuffer", engine.newBool(true));
-    engine.setProperty(obj, "length", engine.newInt(cast(int) data.length));
-
-    try
-    {
-        engine.setProperty(obj, "__data", engine.newString(bytesToHex(data)));
-    }
-    catch (Exception)
-    {
-        engine.setProperty(obj, "__data", engine.newString(""));
-    }
-    return obj;
+    auto u8 = engine.newUint8Array(data);
+    auto lenVal = engine.newInt(cast(int) data.length);
+    JSHandle[] factoryArgs = [u8, lenVal];
+    return engine.callFunction(_bufFactory, engine.newUndefined(), factoryArgs);
 }
 
 private immutable char[512] hexLUT = () {
@@ -240,9 +235,10 @@ ubyte hexDigit(char c) pure @safe
 
 ubyte[] extractBytes(IJSEngine engine, JSHandle obj) @trusted
 {
-    auto hexVal = engine.getProperty(obj, "__data");
-    auto hex = engine.extractString(hexVal);
-    return hexToBytes(hex);
+    auto u8 = engine.getProperty(obj, "__u8");
+    auto bytes = engine.getTypedArrayBytes(u8);
+    if (bytes !is null) return bytes;
+    return null;
 }
 
 // Buffer.from(input, [encoding])
@@ -575,7 +571,6 @@ JSHandle jsBufferFill(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     }
 
     bytes[] = fillVal;
-    engine.setProperty(thisVal, "__data", engine.newString(bytesToHex(bytes)));
     return thisVal;
 }
 
@@ -603,7 +598,6 @@ JSHandle jsBufferWrite(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
         written++;
     }
 
-    engine.setProperty(thisVal, "__data", engine.newString(bytesToHex(bytes)));
     return engine.newInt(written);
 }
 
@@ -642,7 +636,6 @@ JSHandle jsBufferWriteUInt8(void* ctx, JSHandle thisVal, JSHandle[] args) @trust
         return engine.throwRangeError("Offset out of range");
 
     bytes[offset] = cast(ubyte) value;
-    engine.setProperty(thisVal, "__data", engine.newString(bytesToHex(bytes)));
     return engine.newInt(offset + 1);
 }
 
@@ -885,7 +878,6 @@ JSHandle jsBufferWriteUInt16LE(void* ctx, JSHandle thisVal, JSHandle[] args) @tr
     if (offset < 0 || offset + 1 >= cast(int) bytes.length) return engine.throwRangeError("Offset out of range");
     bytes[offset] = cast(ubyte)(value & 0xFF);
     bytes[offset + 1] = cast(ubyte)((value >> 8) & 0xFF);
-    engine.setProperty(thisVal, "__data", engine.newString(bytesToHex(bytes)));
     return engine.newInt(offset + 2);
 }
 
@@ -903,7 +895,6 @@ JSHandle jsBufferWriteUInt16BE(void* ctx, JSHandle thisVal, JSHandle[] args) @tr
     if (offset < 0 || offset + 1 >= cast(int) bytes.length) return engine.throwRangeError("Offset out of range");
     bytes[offset] = cast(ubyte)((value >> 8) & 0xFF);
     bytes[offset + 1] = cast(ubyte)(value & 0xFF);
-    engine.setProperty(thisVal, "__data", engine.newString(bytesToHex(bytes)));
     return engine.newInt(offset + 2);
 }
 
@@ -923,7 +914,6 @@ JSHandle jsBufferWriteUInt32LE(void* ctx, JSHandle thisVal, JSHandle[] args) @tr
     bytes[offset+1] = cast(ubyte)((value >> 8) & 0xFF);
     bytes[offset+2] = cast(ubyte)((value >> 16) & 0xFF);
     bytes[offset+3] = cast(ubyte)((value >> 24) & 0xFF);
-    engine.setProperty(thisVal, "__data", engine.newString(bytesToHex(bytes)));
     return engine.newInt(offset + 4);
 }
 
@@ -943,7 +933,6 @@ JSHandle jsBufferWriteUInt32BE(void* ctx, JSHandle thisVal, JSHandle[] args) @tr
     bytes[offset+1] = cast(ubyte)((value >> 16) & 0xFF);
     bytes[offset+2] = cast(ubyte)((value >> 8) & 0xFF);
     bytes[offset+3] = cast(ubyte)(value & 0xFF);
-    engine.setProperty(thisVal, "__data", engine.newString(bytesToHex(bytes)));
     return engine.newInt(offset + 4);
 }
 
@@ -961,7 +950,6 @@ JSHandle jsBufferWriteInt16LE(void* ctx, JSHandle thisVal, JSHandle[] args) @tru
     if (offset < 0 || offset + 1 >= cast(int) bytes.length) return engine.throwRangeError("Offset out of range");
     bytes[offset] = cast(ubyte)(uval & 0xFF);
     bytes[offset + 1] = cast(ubyte)((uval >> 8) & 0xFF);
-    engine.setProperty(thisVal, "__data", engine.newString(bytesToHex(bytes)));
     return engine.newInt(offset + 2);
 }
 
@@ -979,7 +967,6 @@ JSHandle jsBufferWriteInt16BE(void* ctx, JSHandle thisVal, JSHandle[] args) @tru
     if (offset < 0 || offset + 1 >= cast(int) bytes.length) return engine.throwRangeError("Offset out of range");
     bytes[offset] = cast(ubyte)((uval >> 8) & 0xFF);
     bytes[offset + 1] = cast(ubyte)(uval & 0xFF);
-    engine.setProperty(thisVal, "__data", engine.newString(bytesToHex(bytes)));
     return engine.newInt(offset + 2);
 }
 
@@ -999,7 +986,6 @@ JSHandle jsBufferWriteInt32LE(void* ctx, JSHandle thisVal, JSHandle[] args) @tru
     bytes[offset+1] = cast(ubyte)((uval >> 8) & 0xFF);
     bytes[offset+2] = cast(ubyte)((uval >> 16) & 0xFF);
     bytes[offset+3] = cast(ubyte)((uval >> 24) & 0xFF);
-    engine.setProperty(thisVal, "__data", engine.newString(bytesToHex(bytes)));
     return engine.newInt(offset + 4);
 }
 
@@ -1019,7 +1005,6 @@ JSHandle jsBufferWriteInt32BE(void* ctx, JSHandle thisVal, JSHandle[] args) @tru
     bytes[offset+1] = cast(ubyte)((uval >> 16) & 0xFF);
     bytes[offset+2] = cast(ubyte)((uval >> 8) & 0xFF);
     bytes[offset+3] = cast(ubyte)(uval & 0xFF);
-    engine.setProperty(thisVal, "__data", engine.newString(bytesToHex(bytes)));
     return engine.newInt(offset + 4);
 }
 
@@ -1037,7 +1022,6 @@ JSHandle jsBufferWriteFloatLE(void* ctx, JSHandle thisVal, JSHandle[] args) @tru
     if (offset < 0 || offset + 3 >= cast(int) bytes.length) return engine.throwRangeError("Offset out of range");
     ubyte* fp = cast(ubyte*)&value;
     foreach (i; 0 .. 4) bytes[offset + i] = fp[i];
-    engine.setProperty(thisVal, "__data", engine.newString(bytesToHex(bytes)));
     return engine.newInt(offset + 4);
 }
 
@@ -1055,7 +1039,6 @@ JSHandle jsBufferWriteFloatBE(void* ctx, JSHandle thisVal, JSHandle[] args) @tru
     if (offset < 0 || offset + 3 >= cast(int) bytes.length) return engine.throwRangeError("Offset out of range");
     ubyte* fp = cast(ubyte*)&value;
     foreach (i; 0 .. 4) bytes[offset + i] = fp[3 - i];
-    engine.setProperty(thisVal, "__data", engine.newString(bytesToHex(bytes)));
     return engine.newInt(offset + 4);
 }
 
@@ -1073,7 +1056,6 @@ JSHandle jsBufferWriteDoubleLE(void* ctx, JSHandle thisVal, JSHandle[] args) @tr
     if (offset < 0 || offset + 7 >= cast(int) bytes.length) return engine.throwRangeError("Offset out of range");
     ubyte* dp = cast(ubyte*)&value;
     foreach (i; 0 .. 8) bytes[offset + i] = dp[i];
-    engine.setProperty(thisVal, "__data", engine.newString(bytesToHex(bytes)));
     return engine.newInt(offset + 8);
 }
 
@@ -1091,7 +1073,6 @@ JSHandle jsBufferWriteDoubleBE(void* ctx, JSHandle thisVal, JSHandle[] args) @tr
     if (offset < 0 || offset + 7 >= cast(int) bytes.length) return engine.throwRangeError("Offset out of range");
     ubyte* dp = cast(ubyte*)&value;
     foreach (i; 0 .. 8) bytes[offset + i] = dp[7 - i];
-    engine.setProperty(thisVal, "__data", engine.newString(bytesToHex(bytes)));
     return engine.newInt(offset + 8);
 }
 

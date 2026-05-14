@@ -88,6 +88,7 @@ interface IJSEngine
 
     // --- Typed arrays ---
     JSHandle newUint8Array(const(ubyte)[] data);
+    ubyte[] getTypedArrayBytes(JSHandle val) @trusted;
 
     // --- Indexed property access (O(1) for arrays) ---
     void setPropertyIndex(JSHandle obj, uint idx, JSHandle val);

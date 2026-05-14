@@ -114,6 +114,17 @@ class V8Engine : IJSEngine
         return toHandle(dun_v8_new_uint8array(ctx, data.ptr, data.length));
     }
 
+    ubyte[] getTypedArrayBytes(JSHandle val) @trusted
+    {
+        assert(ctx !is null, "V8 context not initialized");
+        auto v = fromHandle(val);
+        if (v is null) return null;
+        size_t len;
+        auto ptr = dun_v8_typed_array_data(ctx, v, &len);
+        if (ptr is null || len == 0) return null;
+        return ptr[0 .. len];
+    }
+
     JSHandle newFunction(NativeCallback cb, string name, int argc) @trusted
     {
         import std.string : toStringz;

@@ -68,6 +68,8 @@ DunV8Value* dun_v8_global(DunV8Context* ctx);
 // --- Typed arrays ---
 DunV8Value* dun_v8_new_uint8array(DunV8Context* ctx,
     const(ubyte)* data, size_t len);
+ubyte* dun_v8_typed_array_data(DunV8Context* ctx,
+    DunV8Value* val, size_t* out_len);
 
 // --- Reference management ---
 void dun_v8_value_ref(DunV8Value* val);
