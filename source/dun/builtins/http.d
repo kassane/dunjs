@@ -5,8 +5,10 @@ import dun.runtime.globals : DunState;
 import dun.loop.agnostic_pending : pushAgnosticPending;
 
 private enum {
-    HTTP_STATUS_OK   = 200,
+    HTTP_STATUS_OK    = 200,
     HTTP_DEFAULT_PORT = 80,
+    HTTP_LISTEN_BACKLOG = 1024,
+    HTTP_MAX_HEADER_NAME = 128,
 }
 
 private string sanitizeHeaderValue(string s) @safe pure
@@ -317,7 +319,7 @@ JSHandle jsHttpServerListen(void* ctx, JSHandle thisVal, JSHandle[] args) @trust
             if (hasCb) engine.freeValue(listenCb);
             return engine.throwTypeError("http server: bind() failed");
         }
-        if (listen(lfd, 1024) < 0)
+        if (listen(lfd, HTTP_LISTEN_BACKLOG) < 0)
         {
             import core.sys.posix.unistd : close;
             close(lfd);
@@ -1116,8 +1118,8 @@ void parseRequestHeaders(HttpConnState* conn, const(char)[] text) nothrow @trust
                     if (col < lineSlice.length)
                     {
                         // Lowercase header name in-place via stack buffer
-                        char[128] nameBuf = void;
-                        size_t nameLen = col < 128 ? col : 128;
+                        char[HTTP_MAX_HEADER_NAME] nameBuf = void;
+                        size_t nameLen = col < HTTP_MAX_HEADER_NAME ? col : HTTP_MAX_HEADER_NAME;
                         foreach (j; 0 .. nameLen)
                             nameBuf[j] = toLowerChar(lineSlice[j]);
                         string name = cast(string) nameBuf[0 .. nameLen].idup;
