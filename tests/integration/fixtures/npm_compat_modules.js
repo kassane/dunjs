@@ -361,6 +361,35 @@ check('url.resolve works', url.resolve('https://example.com/a/b', '/c') === 'htt
 // url.fileURLToPath check
 check('url.fileURLToPath works', url.fileURLToPath('file:///tmp/test.txt') === '/tmp/test.txt');
 
+// globalThis.global (Node.js legacy compat)
+check('globalThis.global exists', typeof global !== 'undefined');
+check('globalThis.global === globalThis', global === globalThis);
+
+// process.versions.node
+check('process.versions.node', typeof process.versions.node === 'string');
+check('process.versions.node is 20.0.0', process.versions.node === '20.0.0');
+
+// util.TextEncoder / util.TextDecoder
+check('util.TextEncoder', typeof util.TextEncoder === 'function');
+check('util.TextDecoder', typeof util.TextDecoder === 'function');
+check('util.TextEncoder is global', util.TextEncoder === TextEncoder);
+check('util.TextDecoder is global', util.TextDecoder === TextDecoder);
+
+// events.on (async iterator)
+var events = require('events');
+check('events.on', typeof events.on === 'function');
+check('EventEmitter.on', typeof EventEmitter.on === 'function');
+var ee = new EventEmitter();
+var iter = events.on(ee, 'data');
+check('events.on returns async iterator', typeof iter[Symbol.asyncIterator] === 'function');
+check('events.on iterator has next', typeof iter.next === 'function');
+check('events.on iterator has return', typeof iter['return'] === 'function');
+
+// http.IncomingMessage / http.ServerResponse / http.ClientRequest
+check('http.IncomingMessage', typeof http.IncomingMessage === 'function');
+check('http.ServerResponse', typeof http.ServerResponse === 'function');
+check('http.ClientRequest', typeof http.ClientRequest === 'function');
+
 // Globals
 check('Buffer', typeof Buffer !== 'undefined');
 check('setTimeout', typeof setTimeout === 'function');
@@ -369,6 +398,23 @@ check('clearTimeout', typeof clearTimeout === 'function');
 check('console.log', typeof console.log === 'function');
 check('console.error', typeof console.error === 'function');
 check('console.warn', typeof console.warn === 'function');
+
+// fs.constants and fs.Dirent
+check('fs.constants', typeof fs.constants === 'object');
+check('fs.constants.R_OK', fs.constants.R_OK === 4);
+check('fs.constants.W_OK', fs.constants.W_OK === 2);
+check('fs.constants.F_OK', fs.constants.F_OK === 0);
+check('fs.constants.O_RDONLY', fs.constants.O_RDONLY === 0);
+check('fs.constants.S_IFDIR', fs.constants.S_IFDIR === 16384);
+check('fs.constants.S_IFREG', fs.constants.S_IFREG === 32768);
+check('fs.Dirent', typeof fs.Dirent === 'function');
+var dirent = new fs.Dirent('test.txt', 1);
+check('Dirent.isFile', dirent.isFile() === true);
+check('Dirent.isDirectory', dirent.isDirectory() === false);
+
+// Buffer extras
+check('Buffer.allocUnsafeSlow', typeof Buffer.allocUnsafeSlow === 'function');
+check('Buffer.poolSize', Buffer.poolSize === 8192);
 
 console.log('---');
 console.log('Total: ' + passed + '/' + checks + ' passed');

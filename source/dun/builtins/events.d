@@ -38,6 +38,7 @@ version (EngineQuickJS)
         if (m is null) return;
         JS_AddModuleExport(ctx, m, "EventEmitter");
         JS_AddModuleExport(ctx, m, "once");
+        JS_AddModuleExport(ctx, m, "on");
         JS_AddModuleExport(ctx, m, "default");
     }
 
@@ -47,8 +48,10 @@ version (EngineQuickJS)
         auto ee = JS_GetPropertyStr(ctx, global, "__dun_cjs_events__");
         auto eeClass = JS_GetPropertyStr(ctx, ee, "EventEmitter");
         auto onceFn = JS_GetPropertyStr(ctx, ee, "once");
+        auto onFn = JS_GetPropertyStr(ctx, ee, "on");
         JS_SetModuleExport(ctx, m, "EventEmitter", JS_DupValue(ctx, eeClass));
         JS_SetModuleExport(ctx, m, "once", onceFn);
+        JS_SetModuleExport(ctx, m, "on", onFn);
         JS_SetModuleExport(ctx, m, "default", ee);
         JS_FreeValue(ctx, eeClass);
         JS_FreeValue(ctx, global);
@@ -205,7 +208,77 @@ string eventEmitterSource() pure @safe nothrow
 
   EventEmitter.once = once;
 
-  var mod = { EventEmitter: EventEmitter, once: once };
+  function on(emitter, event, options) {
+    var signal = options && options.signal;
+    var unconsumedEvents = [];
+    var unconsumedPromises = [];
+    var done = false;
+    var error = null;
+
+    function eventHandler() {
+      var args = [];
+      for (var i = 0; i < arguments.length; i++) args.push(arguments[i]);
+      if (unconsumedPromises.length > 0) {
+        var resolve = unconsumedPromises.shift();
+        resolve({ value: args, done: false });
+      } else {
+        unconsumedEvents.push(args);
+      }
+    }
+
+    function errorHandler(err) {
+      error = err;
+      done = true;
+      while (unconsumedPromises.length > 0) {
+        var reject = unconsumedPromises.shift();
+        reject(err);
+      }
+    }
+
+    emitter.on(event, eventHandler);
+    if (event !== 'error') emitter.on('error', errorHandler);
+
+    if (signal) {
+      signal.addEventListener('abort', function() {
+        done = true;
+        emitter.removeListener(event, eventHandler);
+        if (event !== 'error') emitter.removeListener('error', errorHandler);
+        while (unconsumedPromises.length > 0) {
+          var reject = unconsumedPromises.shift();
+          reject(signal.reason || new Error('AbortError'));
+        }
+      });
+    }
+
+    var iterator = {};
+    iterator.next = function() {
+      if (unconsumedEvents.length > 0) {
+        return Promise.resolve({ value: unconsumedEvents.shift(), done: false });
+      }
+      if (done) {
+        if (error) return Promise.reject(error);
+        return Promise.resolve({ value: undefined, done: true });
+      }
+      return new Promise(function(resolve, reject) {
+        unconsumedPromises.push(function(result) {
+          if (result && result.done === false) resolve(result);
+          else resolve({ value: undefined, done: true });
+        });
+      });
+    };
+    iterator['return'] = function() {
+      done = true;
+      emitter.removeListener(event, eventHandler);
+      if (event !== 'error') emitter.removeListener('error', errorHandler);
+      return Promise.resolve({ value: undefined, done: true });
+    };
+    iterator[Symbol.asyncIterator] = function() { return iterator; };
+    return iterator;
+  }
+
+  EventEmitter.on = on;
+
+  var mod = { EventEmitter: EventEmitter, once: once, on: on };
   if (typeof globalThis !== 'undefined') {
     globalThis.__dun_cjs_events__ = mod;
     globalThis.EventEmitter = EventEmitter;

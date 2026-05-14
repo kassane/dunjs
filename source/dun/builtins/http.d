@@ -96,12 +96,18 @@ void registerHttpModule(IJSEngine engine) @trusted
         auto codes = engine.getProperty(httpExtResult.value, "STATUS_CODES");
         auto agent = engine.getProperty(httpExtResult.value, "Agent");
         auto globalAgent = engine.getProperty(httpExtResult.value, "globalAgent");
+        auto incomingMsg = engine.getProperty(httpExtResult.value, "IncomingMessage");
+        auto serverRes = engine.getProperty(httpExtResult.value, "ServerResponse");
+        auto clientReq = engine.getProperty(httpExtResult.value, "ClientRequest");
         engine.setProperty(obj, "request", reqFn);
         engine.setProperty(obj, "get", getFn);
         engine.setProperty(obj, "METHODS", methods);
         engine.setProperty(obj, "STATUS_CODES", codes);
         engine.setProperty(obj, "Agent", agent);
         engine.setProperty(obj, "globalAgent", globalAgent);
+        engine.setProperty(obj, "IncomingMessage", incomingMsg);
+        engine.setProperty(obj, "ServerResponse", serverRes);
+        engine.setProperty(obj, "ClientRequest", clientReq);
     }
     engine.freeValue(httpExtResult.value);
 
@@ -123,7 +129,8 @@ version (EngineQuickJS)
         auto m = JS_NewCModule(ctx, "dun:http", &httpModuleInit);
         if (m is null) return;
         foreach (name; ["createServer", "request", "get", "METHODS",
-                        "STATUS_CODES", "Agent", "globalAgent"])
+                        "STATUS_CODES", "Agent", "globalAgent",
+                        "IncomingMessage", "ServerResponse", "ClientRequest"])
             JS_AddModuleExport(ctx, m, name.ptr);
     }
 
@@ -134,7 +141,8 @@ version (EngineQuickJS)
         auto global = JS_GetGlobalObject(ctx);
         auto httpObj = JS_GetPropertyStr(ctx, global, "__dun_cjs_http__");
         foreach (name; ["createServer", "request", "get", "METHODS",
-                        "STATUS_CODES", "Agent", "globalAgent"])
+                        "STATUS_CODES", "Agent", "globalAgent",
+                        "IncomingMessage", "ServerResponse", "ClientRequest"])
         {
             auto fn = JS_GetPropertyStr(ctx, httpObj, name.ptr);
             JS_SetModuleExport(ctx, m, name.ptr, fn);
@@ -1712,6 +1720,29 @@ string httpExtensionSource() pure @safe nothrow
     delete this.headers[name.toLowerCase()];
   };
 
+  function ServerResponse() {
+    EventEmitter.call(this);
+    this.statusCode = 200;
+    this.statusMessage = 'OK';
+    this.headersSent = false;
+    this.finished = false;
+    this.writableEnded = false;
+    this.writableFinished = false;
+    this._headers = {};
+  }
+  ServerResponse.prototype = Object.create(EventEmitter.prototype);
+  ServerResponse.prototype.constructor = ServerResponse;
+  ServerResponse.prototype.setHeader = function(name, value) { this._headers[name.toLowerCase()] = value; };
+  ServerResponse.prototype.getHeader = function(name) { return this._headers[name.toLowerCase()]; };
+  ServerResponse.prototype.removeHeader = function(name) { delete this._headers[name.toLowerCase()]; };
+  ServerResponse.prototype.writeHead = function(statusCode, headers) {
+    this.statusCode = statusCode;
+    if (headers) { var k = Object.keys(headers); for (var i = 0; i < k.length; i++) this.setHeader(k[i], headers[k[i]]); }
+    return this;
+  };
+  ServerResponse.prototype.write = function() { return true; };
+  ServerResponse.prototype.end = function() { this.finished = true; this.writableEnded = true; };
+
   function request(urlOrOptions, optionsOrCallback, callback) {
     var options;
     if (typeof urlOrOptions === 'string') {
@@ -1751,7 +1782,10 @@ string httpExtensionSource() pure @safe nothrow
     METHODS: METHODS,
     STATUS_CODES: STATUS_CODES,
     Agent: Agent,
-    globalAgent: globalAgent
+    globalAgent: globalAgent,
+    IncomingMessage: IncomingMessage,
+    ServerResponse: ServerResponse,
+    ClientRequest: ClientRequest
   };
 })();`;
 }

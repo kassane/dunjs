@@ -17,6 +17,8 @@ void registerBufferModule(IJSEngine engine) @trusted
     engine.setProperty(bufferClass, "byteLength", engine.newFunction(&jsBufferByteLength, "byteLength", 1));
     engine.setProperty(bufferClass, "isEncoding", engine.newFunction(&jsBufferIsEncoding, "isEncoding", 1));
     engine.setProperty(bufferClass, "compare", engine.newFunction(&jsBufferStaticCompare, "compare", 2));
+    engine.setProperty(bufferClass, "allocUnsafeSlow", engine.newFunction(&jsBufferAllocUnsafe, "allocUnsafeSlow", 1));
+    engine.setProperty(bufferClass, "poolSize", engine.newInt(8192));
 
     auto global = engine.getGlobal();
     engine.setProperty(global, "Buffer", bufferClass);

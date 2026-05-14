@@ -8,6 +8,9 @@ void installWebCompat(IJSEngine engine) @trusted
     assert(engine !is null, "Null engine in installWebCompat");
     auto global = engine.getGlobal();
 
+    // globalThis.global = globalThis — Node.js legacy compat (npm packages check typeof global)
+    engine.setProperty(global, "global", engine.dupValue(global));
+
     engine.setProperty(global, "structuredClone",
         engine.newFunction(&jsStructuredClone, "structuredClone", 1));
 

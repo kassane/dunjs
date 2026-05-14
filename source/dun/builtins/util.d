@@ -367,10 +367,17 @@ string utilSource() pure @safe nothrow
     types: types,
     _extend: _extend,
     toUSVString: toUSVString,
-    stripVTControlCharacters: stripVTControlCharacters,
-    TextEncoder: typeof TextEncoder !== 'undefined' ? TextEncoder : undefined,
-    TextDecoder: typeof TextDecoder !== 'undefined' ? TextDecoder : undefined
+    stripVTControlCharacters: stripVTControlCharacters
   };
+  // TextEncoder/TextDecoder — lazy getters so they resolve after web compat is installed
+  Object.defineProperty(mod, 'TextEncoder', {
+    get: function() { return typeof globalThis.TextEncoder !== 'undefined' ? globalThis.TextEncoder : undefined; },
+    enumerable: true, configurable: true
+  });
+  Object.defineProperty(mod, 'TextDecoder', {
+    get: function() { return typeof globalThis.TextDecoder !== 'undefined' ? globalThis.TextDecoder : undefined; },
+    enumerable: true, configurable: true
+  });
 
   if (typeof globalThis !== 'undefined') {
     globalThis.__dun_cjs_util__ = mod;

@@ -256,6 +256,22 @@ PASS: url.parse path
 PASS: url.format works
 PASS: url.resolve works
 PASS: url.fileURLToPath works
+PASS: globalThis.global exists
+PASS: globalThis.global === globalThis
+PASS: process.versions.node
+PASS: process.versions.node is 20.0.0
+PASS: util.TextEncoder
+PASS: util.TextDecoder
+PASS: util.TextEncoder is global
+PASS: util.TextDecoder is global
+PASS: events.on
+PASS: EventEmitter.on
+PASS: events.on returns async iterator
+PASS: events.on iterator has next
+PASS: events.on iterator has return
+PASS: http.IncomingMessage
+PASS: http.ServerResponse
+PASS: http.ClientRequest
 PASS: Buffer
 PASS: setTimeout
 PASS: setInterval
@@ -263,5 +279,17 @@ PASS: clearTimeout
 PASS: console.log
 PASS: console.error
 PASS: console.warn
+PASS: fs.constants
+PASS: fs.constants.R_OK
+PASS: fs.constants.W_OK
+PASS: fs.constants.F_OK
+PASS: fs.constants.O_RDONLY
+PASS: fs.constants.S_IFDIR
+PASS: fs.constants.S_IFREG
+PASS: fs.Dirent
+PASS: Dirent.isFile
+PASS: Dirent.isDirectory
+PASS: Buffer.allocUnsafeSlow
+PASS: Buffer.poolSize
 ---
-Total: 265/265 passed
+Total: 293/293 passed

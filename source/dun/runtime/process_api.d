@@ -278,6 +278,8 @@ void installProcess(IJSEngine engine) @trusted
     // process.versions
     auto versionsObj = engine.newObject();
     engine.setProperty(versionsObj, "dun", engine.newString("1.0.0"));
+    // process.versions.node — npm packages check this for version compatibility
+    engine.setProperty(versionsObj, "node", engine.newString("20.0.0"));
     version (EngineQuickJS)
         engine.setProperty(versionsObj, "quickjs", engine.newString("0.8.0"));
     else version (EngineJSC)
