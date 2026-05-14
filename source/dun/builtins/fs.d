@@ -373,42 +373,110 @@ bool checkPerm(DunState* state, Permission perm, string resource = "") nothrow @
     catch (Exception) { return false; }
 }
 
+string detectErrCode(string msg) @trusted nothrow
+{
+    if (msg.length == 0) return "ERR_FS_ERROR";
+    import std.string : indexOf;
+    try
+    {
+        if (indexOf(msg, "No such file") >= 0 || indexOf(msg, "not found") >= 0
+            || indexOf(msg, "cannot find") >= 0)
+            return "ENOENT";
+        if (indexOf(msg, "Permission denied") >= 0 || indexOf(msg, "ccess") >= 0)
+            return "EACCES";
+        if (indexOf(msg, "already exists") >= 0 || indexOf(msg, "File exists") >= 0)
+            return "EEXIST";
+        if (indexOf(msg, "Not a directory") >= 0)
+            return "ENOTDIR";
+        if (indexOf(msg, "Is a directory") >= 0)
+            return "EISDIR";
+        if (indexOf(msg, "not empty") >= 0)
+            return "ENOTEMPTY";
+        if (indexOf(msg, "No space") >= 0)
+            return "ENOSPC";
+    }
+    catch (Exception) {}
+    return "EIO";
+}
+
+int errnoFromCode(string code) @safe pure nothrow @nogc
+{
+    if (code == "ENOENT") return -2;
+    if (code == "EACCES") return -13;
+    if (code == "EEXIST") return -17;
+    if (code == "ENOTDIR") return -20;
+    if (code == "EISDIR") return -21;
+    if (code == "ENOTEMPTY") return -39;
+    if (code == "ENOSPC") return -28;
+    if (code == "EPERM") return -1;
+    if (code == "EIO") return -5;
+    return -1;
+}
+
+package JSHandle throwNodeError(IJSEngine engine, string code, string msg,
+    string syscall = "", string path = "") @trusted
+{
+    auto fullMsg = code ~ ": " ~ msg;
+    if (syscall.length > 0)
+        fullMsg ~= ", " ~ syscall;
+    if (path.length > 0)
+        fullMsg ~= " '" ~ path ~ "'";
+
+    auto errResult = engine.eval(
+        "(function(){var e=new Error('" ~ escapeJs(fullMsg) ~ "');"
+        ~ "e.code='" ~ escapeJs(code) ~ "';"
+        ~ "e.errno=" ~ intToStr(errnoFromCode(code)) ~ ";"
+        ~ (syscall.length > 0 ? "e.syscall='" ~ escapeJs(syscall) ~ "';" : "")
+        ~ (path.length > 0 ? "e.path='" ~ escapeJs(path) ~ "';" : "")
+        ~ "return e;})()", "<fs-error>");
+    if (!errResult.isError)
+    {
+        auto thrown = engine.throwValue(errResult.value);
+        engine.freeValue(errResult.value);
+        return thrown;
+    }
+    engine.freeValue(errResult.value);
+    return engine.throwTypeError(fullMsg);
+}
+
 JSHandle throwSystemError(IJSEngine engine, string syscall, string path, Exception e) @trusted
 {
     string msg = "";
-    string code = "ERR_FS_ERROR";
-
     try { msg = e.msg; } catch (Exception) {}
+    string code = detectErrCode(msg);
+    return throwNodeError(engine, code, msg, syscall, path);
+}
 
-    if (msg.length > 0)
+private string escapeJs(string s) @safe pure nothrow
+{
+    string r;
+    foreach (c; s)
     {
-        import std.string : indexOf;
-        if (indexOf(msg, "No such file") >= 0 || indexOf(msg, "not found") >= 0
-            || indexOf(msg, "cannot find") >= 0)
-            code = "ENOENT";
-        else if (indexOf(msg, "Permission denied") >= 0 || indexOf(msg, "ccess") >= 0)
-            code = "EACCES";
-        else if (indexOf(msg, "already exists") >= 0 || indexOf(msg, "File exists") >= 0)
-            code = "EEXIST";
-        else if (indexOf(msg, "Not a directory") >= 0)
-            code = "ENOTDIR";
-        else if (indexOf(msg, "Is a directory") >= 0)
-            code = "EISDIR";
-        else if (indexOf(msg, "not empty") >= 0)
-            code = "ENOTEMPTY";
-        else if (indexOf(msg, "No space") >= 0)
-            code = "ENOSPC";
+        if (c == '\'') r ~= "\\'";
+        else if (c == '\\') r ~= "\\\\";
+        else if (c == '\n') r ~= "\\n";
+        else if (c == '\r') r ~= "\\r";
+        else r ~= c;
     }
+    return r;
+}
 
-    return engine.throwTypeError(code ~ ": " ~ msg ~ ", " ~ syscall ~ " '" ~ path ~ "'");
+private string intToStr(int n) @trusted pure nothrow
+{
+    if (n == 0) return "0";
+    bool neg = n < 0;
+    uint v = neg ? cast(uint)(-n) : cast(uint) n;
+    char[12] buf;
+    int pos = 11;
+    while (v > 0) { buf[pos--] = cast(char)('0' + v % 10); v /= 10; }
+    if (neg) buf[pos--] = '-';
+    return cast(string) buf[pos + 1 .. 12].dup;
 }
 
 JSHandle throwPermError(IJSEngine engine, string perm, string path = "") @trusted
 {
-    string msg = "Requires --allow-" ~ perm ~ " permission";
-    if (path.length > 0)
-        msg ~= ", path '" ~ path ~ "'";
-    return engine.throwTypeError("[ERR_PERMISSION_DENIED] " ~ msg);
+    return throwNodeError(engine, "ERR_PERMISSION_DENIED",
+        "Requires --allow-" ~ perm ~ " permission", "", path);
 }
 
 JSHandle jsReadFileSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
@@ -424,7 +492,7 @@ JSHandle jsReadFileSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     string errMsg;
     auto content = safeReadFile(path, errMsg);
     if (content is null)
-        return engine.throwTypeError("ENOENT: " ~ errMsg ~ ", open '" ~ path ~ "'");
+        return throwNodeError(engine, "ENOENT", errMsg, "open", path);
     return engine.newString(content);
 }
 
@@ -441,7 +509,7 @@ JSHandle jsWriteFileSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
         return throwPermError(engine, "write", path);
     string errMsg;
     if (!safeWriteFile(path, data, errMsg))
-        return engine.throwTypeError("EIO: " ~ errMsg ~ ", open '" ~ path ~ "'");
+        return throwNodeError(engine, "EIO", errMsg, "open", path);
     return engine.newUndefined();
 }
 
@@ -495,7 +563,7 @@ JSHandle jsStatSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     auto cpath = (path ~ '\0');
     SafeStatResult sr;
     if (safeStat(cpath.ptr, sr) != 0)
-        return engine.throwTypeError("ENOENT: no such file or directory, stat '" ~ path ~ "'");
+        return throwNodeError(engine, "ENOENT", "no such file or directory", "stat", path);
     return buildStatObject(engine, sr);
 }
 

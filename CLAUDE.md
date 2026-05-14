@@ -145,6 +145,8 @@ All runtime globals are **engine-agnostic** (use `IJSEngine` + `NativeCallback`)
 | `cluster` | `registerClusterModule(engine)` | `require('cluster')`, ESM `import from 'dun:cluster'` |
 | `async_hooks` | `registerAsyncHooksModule(engine)` | `require('async_hooks')`, ESM `import from 'dun:async_hooks'` |
 | `worker_threads` | `registerWorkerThreadsModule(engine)` | `require('worker_threads')`, ESM `import from 'dun:worker_threads'` |
+| `https` | `registerHttpsModule(engine)` | `require('https')`, ESM `import from 'dun:https'` |
+| `fs/promises` | `registerFsPromisesModule(engine)` | `require('fs/promises')`, ESM `import from 'dun:fs/promises'` |
 | `fetch` | `registerFetchGlobal(engine)` | Global `fetch()` (Posix, HTTPS via OpenSSL) |
 | Web globals | `installWebCompat(engine)` | `atob`, `btoa`, `structuredClone`, `TextEncoder`, `TextDecoder`, native Uint8Array creation |
 | Web APIs | `installWebAPIs(engine)` | `performance`, `EventTarget`, `Event`, `CustomEvent`, `AbortController`, `AbortSignal`, `DOMException`, `navigator`, `Blob`, `File`, `FormData`, `Headers`, `Request`, `Response`, `MessageChannel`, `MessagePort`, `BroadcastChannel`, `ReadableStream`, `WritableStream`, `TransformStream`, `setImmediate`, `clearImmediate`, `Promise.withResolvers`, `crypto.getRandomValues`, `crypto.randomUUID`, `console.time/timeEnd/timeLog/count/countReset/table/dir/trace` |
@@ -441,9 +443,12 @@ dub build -c v8  && BACKEND=v8  ./tests/integration/run.sh
 | Fetch/Response | `fetch_response` | 19 checks: Response constructor, status/statusText/ok/url, headers, text/json/clone, process.stdin |
 | import.meta | `import_meta` | 6 checks: url, filename, dirname, main (all 3 backends) |
 | New Modules | `vm_api`, `async_hooks_api`, `signal_handling` | vm.runInThisContext/runInNewContext/createContext/Script, AsyncLocalStorage run/getStore/enterWith/disable, process.on('SIGTERM'/'SIGINT') |
+| fs errors | `fs_errors` | Node-compatible Error objects (code/errno/syscall/path), ENOENT, permission errors |
+| fs promises | `fs_promises` | 20 checks: readFile, writeFile, appendFile, copyFile, rename, unlink, mkdir, readdir, stat, access, realpath |
+| HTTPS | `https_api` | https.createServer, options validation, cert/key loading |
 | Real-world | 7 end-to-end scenarios | Config loading, task runner, file processing, events, promise pool, nested require, ESM pipeline |
 
-Backend test scores: **QuickJS 66/66**, **JSC 66/66**, **V8 66/66** (full parity across all 3 backends).
+Backend test scores: **QuickJS 69/69**, **JSC 69/69**, **V8 69/69** (full parity across all 3 backends).
 
 Test pattern: fixtures in `tests/integration/fixtures/*.{js,mjs,ts}`, expected stdout in `tests/integration/expected/*.txt`.
 
@@ -714,3 +719,7 @@ Benchmark impact (25 benchmarks, feature_bench.js):
 | 14g | LDC intrinsics | loadUnaligned/storeUnaligned, shufflevector interleave, llvm_bswap, llvm_cttz, llvm_prefetch | **Done** |
 | 14h | V8 value pool | DunV8Value free-list allocator (256-entry pool), eliminates malloc/free per JS value | **Done** |
 | 14i | Fuzz coverage | 21 new fuzz tests: ES2023+, typed arrays, JSON, classes, closures, regex, proxy, symbols, destructuring | **Done** |
+| 15a | Node errors | Node-compatible Error objects with code/errno/syscall/path via IJSEngine.throwValue() | **Done** |
+| 15b | fs/promises | Full fs.promises module (17 async operations) using asyncSubmitSafe nothrow pattern | **Done** |
+| 15c | HTTPS server | https.createServer with OpenSSL TLS, cert/key loading, TLS-aware read/write/accept | **Done** |
+| 15d | Stream finished | stream.finished() utility, util.callbackify, process.stdout/stderr stream compat | **Done** |

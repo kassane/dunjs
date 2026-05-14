@@ -332,6 +332,12 @@ class V8Engine : IJSEngine
         return toHandle(dun_v8_throw_range_error(ctx, stackTerminate(msg, buf)));
     }
 
+    JSHandle throwValue(JSHandle val) @trusted
+    {
+        assert(ctx !is null, "V8 context not initialized");
+        return toHandle(dun_v8_throw_value(ctx, fromHandle(val)));
+    }
+
     PromiseHandles newPromise() @trusted
     {
         assert(ctx !is null, "V8 context not initialized");

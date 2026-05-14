@@ -351,6 +351,7 @@ private string builtinGlobalProp(string specifier) @safe pure nothrow
     if (specifier == "dun:crypto" || specifier == "node:crypto") return "__dun_cjs_crypto__";
     if (specifier == "dun:net" || specifier == "node:net") return "__dun_cjs_net__";
     if (specifier == "dun:http" || specifier == "node:http") return "__dun_cjs_http__";
+    if (specifier == "dun:https" || specifier == "node:https" || specifier == "https") return "__dun_cjs_https__";
     if (specifier == "dun:http2" || specifier == "node:http2") return "__dun_cjs_http2__";
     if (specifier == "dun:http3" || specifier == "node:http3") return "__dun_cjs_http3__";
     if (specifier == "dun:os" || specifier == "node:os") return "__dun_cjs_os__";

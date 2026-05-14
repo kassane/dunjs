@@ -91,6 +91,7 @@ const char* dun_v8_get_exception(DunV8Context* ctx, size_t* len);
 DunV8Value* dun_v8_throw_error(DunV8Context* ctx, const char* msg);
 DunV8Value* dun_v8_throw_type_error(DunV8Context* ctx, const char* msg);
 DunV8Value* dun_v8_throw_range_error(DunV8Context* ctx, const char* msg);
+DunV8Value* dun_v8_throw_value(DunV8Context* ctx, DunV8Value* val);
 
 /* Function call */
 DunV8Value* dun_v8_call(DunV8Context* ctx, DunV8Value* func,

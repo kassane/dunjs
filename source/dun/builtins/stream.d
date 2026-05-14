@@ -40,6 +40,7 @@ version (EngineQuickJS)
         JS_AddModuleExport(ctx, m, "Transform");
         JS_AddModuleExport(ctx, m, "PassThrough");
         JS_AddModuleExport(ctx, m, "pipeline");
+        JS_AddModuleExport(ctx, m, "finished");
         JS_AddModuleExport(ctx, m, "default");
     }
 
@@ -54,6 +55,7 @@ version (EngineQuickJS)
         auto transform = JS_GetPropertyStr(ctx, mod, "Transform");
         auto passthrough = JS_GetPropertyStr(ctx, mod, "PassThrough");
         auto pl = JS_GetPropertyStr(ctx, mod, "pipeline");
+        auto fin = JS_GetPropertyStr(ctx, mod, "finished");
 
         JS_SetModuleExport(ctx, m, "Readable", JS_DupValue(ctx, readable));
         JS_SetModuleExport(ctx, m, "Writable", JS_DupValue(ctx, writable));
@@ -61,8 +63,10 @@ version (EngineQuickJS)
         JS_SetModuleExport(ctx, m, "Transform", JS_DupValue(ctx, transform));
         JS_SetModuleExport(ctx, m, "PassThrough", JS_DupValue(ctx, passthrough));
         JS_SetModuleExport(ctx, m, "pipeline", JS_DupValue(ctx, pl));
+        JS_SetModuleExport(ctx, m, "finished", JS_DupValue(ctx, fin));
         JS_SetModuleExport(ctx, m, "default", mod);
 
+        JS_FreeValue(ctx, fin);
         JS_FreeValue(ctx, pl);
         JS_FreeValue(ctx, passthrough);
         JS_FreeValue(ctx, transform);
@@ -413,13 +417,35 @@ string streamSource() pure @safe nothrow
     return last;
   }
 
+  // --- finished ---
+  function finished(stream, opts, callback) {
+    if (typeof opts === 'function') { callback = opts; opts = {}; }
+    opts = opts || {};
+    var once = false;
+    function done(err) {
+      if (once) return;
+      once = true;
+      if (callback) callback(err || null);
+    }
+    if (stream._readableState && stream._readableState.ended) { done(); return done; }
+    if (stream._finished) { done(); return done; }
+    if (stream.on) {
+      stream.on('end', function() { done(); });
+      stream.on('finish', function() { done(); });
+      stream.on('error', function(err) { done(err); });
+      stream.on('close', function() { done(); });
+    }
+    return done;
+  }
+
   var mod = {
     Readable: Readable,
     Writable: Writable,
     Duplex: Duplex,
     Transform: Transform,
     PassThrough: PassThrough,
-    pipeline: pipeline
+    pipeline: pipeline,
+    finished: finished
   };
 
   if (typeof globalThis !== 'undefined') {

@@ -310,6 +310,12 @@ class QuickJSEngine : IJSEngine
         return toHandle(JS_ThrowRangeError(ctx, "%s", (cast(string) msg).toStringz));
     }
 
+    JSHandle throwValue(JSHandle val) @trusted
+    {
+        assert(ctx !is null, "Engine not initialized");
+        return toHandle(JS_Throw(ctx, JS_DupValue(ctx, fromHandle(val))));
+    }
+
     PromiseHandles newPromise() @trusted
     {
         assert(ctx !is null, "Engine not initialized");

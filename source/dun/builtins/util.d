@@ -41,6 +41,7 @@ version (EngineQuickJS)
         JS_AddModuleExport(ctx, m, "inspect");
         JS_AddModuleExport(ctx, m, "inherits");
         JS_AddModuleExport(ctx, m, "promisify");
+        JS_AddModuleExport(ctx, m, "callbackify");
         JS_AddModuleExport(ctx, m, "deprecate");
         JS_AddModuleExport(ctx, m, "isDeepStrictEqual");
         JS_AddModuleExport(ctx, m, "types");
@@ -58,6 +59,7 @@ version (EngineQuickJS)
         auto inspect = JS_GetPropertyStr(ctx, mod, "inspect");
         auto inherits = JS_GetPropertyStr(ctx, mod, "inherits");
         auto promisify = JS_GetPropertyStr(ctx, mod, "promisify");
+        auto callbackify = JS_GetPropertyStr(ctx, mod, "callbackify");
         auto deprecate = JS_GetPropertyStr(ctx, mod, "deprecate");
         auto isDeepStrictEqual = JS_GetPropertyStr(ctx, mod, "isDeepStrictEqual");
         auto types = JS_GetPropertyStr(ctx, mod, "types");
@@ -68,6 +70,7 @@ version (EngineQuickJS)
         JS_SetModuleExport(ctx, m, "inspect", inspect);
         JS_SetModuleExport(ctx, m, "inherits", inherits);
         JS_SetModuleExport(ctx, m, "promisify", promisify);
+        JS_SetModuleExport(ctx, m, "callbackify", callbackify);
         JS_SetModuleExport(ctx, m, "deprecate", deprecate);
         JS_SetModuleExport(ctx, m, "isDeepStrictEqual", isDeepStrictEqual);
         JS_SetModuleExport(ctx, m, "types", types);
@@ -265,11 +268,29 @@ string utilSource() pure @safe nothrow
     return deprecated;
   }
 
+  // --- util.callbackify ---
+  function callbackify(original) {
+    if (typeof original !== 'function')
+      throw new TypeError('The "original" argument must be of type Function');
+    function callbackified() {
+      var args = Array.prototype.slice.call(arguments);
+      var cb = args.pop();
+      if (typeof cb !== 'function')
+        throw new TypeError('The last argument must be of type Function');
+      original.apply(this, args).then(
+        function(ret) { cb(null, ret); },
+        function(err) { cb(err || new Error('Promise rejected with falsy value')); }
+      );
+    }
+    return callbackified;
+  }
+
   var mod = {
     format: format,
     inspect: inspect,
     inherits: inherits,
     promisify: promisify,
+    callbackify: callbackify,
     deprecate: deprecate,
     isDeepStrictEqual: isDeepStrictEqual,
     types: types,

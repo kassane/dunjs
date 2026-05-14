@@ -154,6 +154,13 @@ void installProcess(IJSEngine engine) @trusted
     engine.setProperty(stdoutObj, "write", engine.newFunction(&jsStdoutWrite, "write", 1));
     engine.setProperty(stdoutObj, "writable", engine.newBool(true));
     engine.setProperty(stdoutObj, "isTTY", engine.newBool(isattyFd(1)));
+    engine.setProperty(stdoutObj, "fd", engine.newInt(1));
+    engine.setProperty(stdoutObj, "end", engine.newFunction(&jsNoop, "end", 0));
+    engine.setProperty(stdoutObj, "on", engine.newFunction(&jsNoop, "on", 2));
+    engine.setProperty(stdoutObj, "once", engine.newFunction(&jsNoop, "once", 2));
+    engine.setProperty(stdoutObj, "emit", engine.newFunction(&jsNoop, "emit", 1));
+    engine.setProperty(stdoutObj, "columns", engine.newInt(80));
+    engine.setProperty(stdoutObj, "rows", engine.newInt(24));
     engine.setProperty(process, "stdout", stdoutObj);
 
     // process.stderr
@@ -161,6 +168,11 @@ void installProcess(IJSEngine engine) @trusted
     engine.setProperty(stderrObj, "write", engine.newFunction(&jsStderrWrite, "write", 1));
     engine.setProperty(stderrObj, "writable", engine.newBool(true));
     engine.setProperty(stderrObj, "isTTY", engine.newBool(isattyFd(2)));
+    engine.setProperty(stderrObj, "fd", engine.newInt(2));
+    engine.setProperty(stderrObj, "end", engine.newFunction(&jsNoop, "end", 0));
+    engine.setProperty(stderrObj, "on", engine.newFunction(&jsNoop, "on", 2));
+    engine.setProperty(stderrObj, "once", engine.newFunction(&jsNoop, "once", 2));
+    engine.setProperty(stderrObj, "emit", engine.newFunction(&jsNoop, "emit", 1));
     engine.setProperty(process, "stderr", stderrObj);
 
     // process.stdin
@@ -216,11 +228,40 @@ void installProcess(IJSEngine engine) @trusted
     engine.setProperty(versionsObj, "openssl", engine.newString("3.0.0"));
     engine.setProperty(process, "versions", versionsObj);
 
+    // process.release
+    auto releaseObj = engine.newObject();
+    engine.setProperty(releaseObj, "name", engine.newString("dun"));
+    engine.setProperty(process, "release", releaseObj);
+
+    // process.config (minimal — needed by some npm packages)
+    auto configObj = engine.newObject();
+    auto configVars = engine.newObject();
+    engine.setProperty(configVars, "host_arch", engine.newString("x64"));
+    engine.setProperty(configObj, "variables", configVars);
+    engine.setProperty(process, "config", configObj);
+
+    // process.features
+    auto featObj = engine.newObject();
+    engine.setProperty(featObj, "inspector", engine.newBool(false));
+    engine.setProperty(featObj, "tls", engine.newBool(true));
+    engine.setProperty(process, "features", featObj);
+
+    // process.channel (undefined — no IPC by default)
+    engine.setProperty(process, "channel", engine.newUndefined());
+
     engine.setProperty(global, "process", process);
     engine.freeValue(global);
 }
 
 private:
+
+JSHandle jsNoop(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+{
+    assert(ctx !is null, "Null ctx in jsNoop");
+    auto state = cast(DunState*) ctx;
+    assert(state.engine !is null, "Null engine in jsNoop");
+    return state.engine.newUndefined();
+}
 
 JSHandle jsCwd(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {

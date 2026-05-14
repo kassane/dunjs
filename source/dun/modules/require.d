@@ -46,11 +46,11 @@ JSHandle jsRequireResolve(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     if (specifier.startsWith("node:") || specifier.startsWith("dun:"))
         return engine.newString(specifier);
 
-    string[30] builtins = ["fs", "path", "crypto", "net", "http", "http2",
-        "http3", "os", "buffer", "events", "url", "child_process", "stream",
-        "zlib", "dns", "ws", "sqlite", "util", "assert", "querystring",
-        "string_decoder", "timers/promises", "tls", "dgram", "vm",
-        "cluster", "async_hooks", "worker_threads", "perf_hooks",
+    string[31] builtins = ["fs", "path", "crypto", "net", "http", "https",
+        "http2", "http3", "os", "buffer", "events", "url", "child_process",
+        "stream", "zlib", "dns", "ws", "sqlite", "util", "assert",
+        "querystring", "string_decoder", "timers/promises", "tls", "dgram",
+        "vm", "cluster", "async_hooks", "worker_threads", "perf_hooks",
         "fs/promises"];
     foreach (b; builtins)
         if (specifier == b) return engine.newString(specifier);
@@ -124,6 +124,7 @@ JSHandle jsRequire(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     else if (specifier == "crypto") specifier = "dun:crypto";
     else if (specifier == "net") specifier = "dun:net";
     else if (specifier == "http") specifier = "dun:http";
+    else if (specifier == "https") specifier = "dun:https";
     else if (specifier == "http2") specifier = "dun:http2";
     else if (specifier == "http3") specifier = "dun:http3";
     else if (specifier == "os") specifier = "dun:os";
@@ -157,6 +158,7 @@ JSHandle jsRequire(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
         else if (specifier == "dun:crypto") propName = "__dun_cjs_crypto__";
         else if (specifier == "dun:net") propName = "__dun_cjs_net__";
         else if (specifier == "dun:http") propName = "__dun_cjs_http__";
+        else if (specifier == "dun:https") propName = "__dun_cjs_https__";
         else if (specifier == "dun:http2") propName = "__dun_cjs_http2__";
         else if (specifier == "dun:http3") propName = "__dun_cjs_http3__";
         else if (specifier == "dun:os") propName = "__dun_cjs_os__";

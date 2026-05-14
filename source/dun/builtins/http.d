@@ -4,6 +4,8 @@ import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
 import dun.runtime.globals : DunState;
 import dun.loop.agnostic_pending : pushAgnosticPending;
 
+version (Posix) { private import ssl = dun.platform.openssl; }
+
 version (linux)
 {
     private extern (C) int accept4(int, void*, void*, int) nothrow @nogc;
@@ -200,6 +202,7 @@ struct HttpServerState
     bool active;
     ushort port;
     bool cbSet;
+    version (Posix) { void* sslCtx; } // SSL_CTX* for TLS servers
 }
 
 enum MAX_BUF = 16 * 1024;
@@ -226,6 +229,7 @@ struct HttpConnState
     // Buffered response — headers+body combined into single write()
     char[MAX_BUF] respBuf;
     size_t respLen;
+    version (Posix) { void* ssl; } // SSL* for TLS connections
 }
 
 // fd → connection index for O(1) lookup (avoids O(n) scan in pollHttpIO)
@@ -243,6 +247,26 @@ int[] httpFreeSlots;
 enum MAX_HTTP_READY = 256;
 int[MAX_HTTP_READY] httpReadyConns;
 int httpReadyCount;
+
+void closeConnFd(HttpConnState* conn) nothrow @trusted
+{
+    version (Posix)
+    {
+        if (conn.ssl !is null)
+        {
+            auto sslp = cast(ssl.SSL*) conn.ssl;
+            ssl.SSL_shutdown(sslp);
+            ssl.SSL_free(sslp);
+            conn.ssl = null;
+        }
+        if (conn.fd >= 0)
+        {
+            import core.sys.posix.unistd : close;
+            close(conn.fd);
+            conn.fd = -1;
+        }
+    }
+}
 
 // Allocate or reuse a connection slot
 int allocConnSlot() nothrow @trusted
@@ -267,6 +291,26 @@ void freeConnSlot(int slot) nothrow @trusted
     try { httpFreeSlots ~= slot; } catch (Throwable) {}
 }
 
+package JSHandle createServerWithTls(IJSEngine engine, JSHandle cb, bool hasCb,
+    void* sslCtx = null) @trusted
+{
+    int id = nextHttpServerId++;
+    try
+    {
+        HttpServerState srv;
+        srv.engine = engine;
+        if (hasCb) { srv.requestCb = cb; srv.cbSet = true; }
+        version (Posix) { srv.sslCtx = sslCtx; }
+        httpServers ~= srv;
+    }
+    catch (Throwable)
+    {
+        if (hasCb) engine.freeValue(cb);
+        return engine.throwTypeError("http.createServer: out of memory");
+    }
+    return makeHttpServerObj(engine, id);
+}
+
 JSHandle jsHttpCreateServer(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsHttpCreateServer");
@@ -282,20 +326,7 @@ JSHandle jsHttpCreateServer(void* ctx, JSHandle thisVal, JSHandle[] args) @trust
         hasCb = true;
     }
 
-    int id = nextHttpServerId++;
-    try
-    {
-        HttpServerState srv;
-        srv.engine = engine;
-        if (hasCb) { srv.requestCb = cb; srv.cbSet = true; }
-        httpServers ~= srv;
-    }
-    catch (Throwable)
-    {
-        if (hasCb) engine.freeValue(cb);
-        return engine.throwTypeError("http.createServer: out of memory");
-    }
-    return makeHttpServerObj(engine, id);
+    return createServerWithTls(engine, cb, hasCb);
 }
 
 JSHandle makeHttpServerObj(IJSEngine engine, int id) @trusted
@@ -430,6 +461,11 @@ JSHandle jsHttpServerClose(void* ctx, JSHandle thisVal, JSHandle[] args) @truste
                 version (linux) gHttpPoller.unwatch(srv.listenFd);
                 close(srv.listenFd);
                 srv.listenFd = -1;
+            }
+            if (srv.sslCtx !is null)
+            {
+                ssl.SSL_CTX_free(cast(ssl.SSL_CTX*) srv.sslCtx);
+                srv.sslCtx = null;
             }
             srv.active = false;
             _activeServerCount--;
@@ -734,13 +770,9 @@ JSHandle jsResEnd(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
         else
         {
             conn.closed = true;
-            if (conn.fd >= 0)
-            {
-                version (linux) gHttpPoller.unwatch(conn.fd);
-                fdToConnId.remove(conn.fd);
-                close(conn.fd);
-                conn.fd = -1;
-            }
+            version (linux) if (conn.fd >= 0) gHttpPoller.unwatch(conn.fd);
+            try { fdToConnId.remove(conn.fd); } catch (Exception) {}
+            closeConnFd(conn);
             freeConnSlot(connId);
         }
         return engine.newUndefined();
@@ -828,13 +860,28 @@ void flushResponse(HttpConnState* conn) nothrow @trusted
     version (Posix)
     {
         if (conn.fd < 0 || conn.respLen == 0) return;
-        import core.sys.posix.sys.socket : send, MSG_NOSIGNAL;
-        size_t sent = 0;
-        while (sent < conn.respLen)
+        if (conn.ssl !is null)
         {
-            auto n = send(conn.fd, conn.respBuf.ptr + sent, conn.respLen - sent, MSG_NOSIGNAL);
-            if (n <= 0) break;
-            sent += n;
+            auto sslp = cast(ssl.SSL*) conn.ssl;
+            size_t sent = 0;
+            while (sent < conn.respLen)
+            {
+                auto n = ssl.SSL_write(sslp, conn.respBuf.ptr + sent,
+                    cast(int)(conn.respLen - sent));
+                if (n <= 0) break;
+                sent += n;
+            }
+        }
+        else
+        {
+            import core.sys.posix.sys.socket : send, MSG_NOSIGNAL;
+            size_t sent = 0;
+            while (sent < conn.respLen)
+            {
+                auto n = send(conn.fd, conn.respBuf.ptr + sent, conn.respLen - sent, MSG_NOSIGNAL);
+                if (n <= 0) break;
+                sent += n;
+            }
         }
         conn.respLen = 0;
     }
@@ -848,15 +895,10 @@ void sendError(HttpConnState* conn, int status, string text, int connSlot = -1) 
     flushResponse(conn);
     version (Posix)
     {
-        import core.sys.posix.unistd : close;
         conn.closed = true;
         version (linux) if (conn.fd >= 0) gHttpPoller.unwatch(conn.fd);
-        if (conn.fd >= 0)
-        {
-            try { fdToConnId.remove(conn.fd); } catch (Exception) {}
-            close(conn.fd);
-            conn.fd = -1;
-        }
+        try { fdToConnId.remove(conn.fd); } catch (Exception) {}
+        closeConnFd(conn);
         if (connSlot >= 0) freeConnSlot(connSlot);
     }
 }
@@ -867,13 +909,27 @@ void sendRaw(HttpConnState* conn, string data) nothrow @trusted
     version (Posix)
     {
         if (conn.fd < 0 || data.length == 0) return;
-        import core.sys.posix.sys.socket : send, MSG_NOSIGNAL;
-        size_t sent = 0;
-        while (sent < data.length)
+        if (conn.ssl !is null)
         {
-            auto n = send(conn.fd, data.ptr + sent, data.length - sent, MSG_NOSIGNAL);
-            if (n <= 0) break;
-            sent += n;
+            auto sslp = cast(ssl.SSL*) conn.ssl;
+            size_t sent = 0;
+            while (sent < data.length)
+            {
+                auto n = ssl.SSL_write(sslp, data.ptr + sent, cast(int)(data.length - sent));
+                if (n <= 0) break;
+                sent += n;
+            }
+        }
+        else
+        {
+            import core.sys.posix.sys.socket : send, MSG_NOSIGNAL;
+            size_t sent = 0;
+            while (sent < data.length)
+            {
+                auto n = send(conn.fd, data.ptr + sent, data.length - sent, MSG_NOSIGNAL);
+                if (n <= 0) break;
+                sent += n;
+            }
         }
     }
 }
@@ -1014,6 +1070,31 @@ void acceptHttpConnection(int srvId) nothrow @trusted
             int one = 1;
             setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &one, one.sizeof);
 
+            // TLS handshake for HTTPS servers
+            void* connSsl = null;
+            if (srv.sslCtx !is null)
+            {
+                auto sctx = cast(ssl.SSL_CTX*) srv.sslCtx;
+                auto tlsConn = ssl.SSL_new(sctx);
+                if (tlsConn is null)
+                {
+                    import core.sys.posix.unistd : close;
+                    close(fd);
+                    continue;
+                }
+                ssl.SSL_set_fd(tlsConn, fd);
+                ssl.ERR_clear_error();
+                int ret = ssl.SSL_accept(tlsConn);
+                if (ret != 1)
+                {
+                    ssl.SSL_free(tlsConn);
+                    import core.sys.posix.unistd : close;
+                    close(fd);
+                    continue;
+                }
+                connSsl = cast(void*) tlsConn;
+            }
+
             int cid = allocConnSlot();
             try
             {
@@ -1022,6 +1103,7 @@ void acceptHttpConnection(int srvId) nothrow @trusted
                 c.srvId = srvId;
                 c.fd = fd;
                 c.statusCode = 200;
+                c.ssl = connSsl;
                 if (cid < cast(int) httpConns.length)
                     httpConns[cid] = c;
                 else
@@ -1031,6 +1113,8 @@ void acceptHttpConnection(int srvId) nothrow @trusted
             }
             catch (Throwable)
             {
+                if (connSsl !is null)
+                    ssl.SSL_free(cast(ssl.SSL*) connSsl);
                 import core.sys.posix.unistd : close;
                 close(fd);
                 continue;
@@ -1055,7 +1139,25 @@ void readHttpData(int cid) nothrow @trusted
         bool gotEof = false;
         while (conn.bufLen < MAX_BUF)
         {
-            auto n = read(conn.fd, conn.buf.ptr + conn.bufLen, MAX_BUF - conn.bufLen);
+            long n;
+            if (conn.ssl !is null)
+            {
+                auto sslp = cast(ssl.SSL*) conn.ssl;
+                auto ret = ssl.SSL_read(sslp, conn.buf.ptr + conn.bufLen,
+                    cast(int)(MAX_BUF - conn.bufLen));
+                if (ret > 0) { n = ret; }
+                else
+                {
+                    auto err = ssl.SSL_get_error(sslp, ret);
+                    if (err == ssl.SSL_ERROR_WANT_READ || err == ssl.SSL_ERROR_WANT_WRITE)
+                        break;
+                    n = ret <= 0 ? 0 : ret;
+                }
+            }
+            else
+            {
+                n = read(conn.fd, conn.buf.ptr + conn.bufLen, MAX_BUF - conn.bufLen);
+            }
             if (n > 0)
             {
                 conn.bufLen += n;
@@ -1079,10 +1181,9 @@ void readHttpData(int cid) nothrow @trusted
         if (gotEof && !gotData)
         {
             conn.closed = true;
-            version (linux) gHttpPoller.unwatch(conn.fd);
+            version (linux) if (conn.fd >= 0) gHttpPoller.unwatch(conn.fd);
             try { fdToConnId.remove(conn.fd); } catch (Exception) {}
-            close(conn.fd);
-            conn.fd = -1;
+            closeConnFd(conn);
             freeConnSlot(cid);
             return;
         }

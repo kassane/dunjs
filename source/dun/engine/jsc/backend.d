@@ -454,6 +454,13 @@ class JSCEngine : IJSEngine
         return toHandle(cast(void*) err);
     }
 
+    JSHandle throwValue(JSHandle val) @trusted
+    {
+        assert(ctx !is null, "JSC context not initialized");
+        _jscPendingThrow = cast(JSValueRef) fromHandle(val);
+        return val;
+    }
+
     PromiseHandles newPromise() @trusted
     {
         assert(ctx !is null, "JSC context not initialized");

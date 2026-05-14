@@ -116,6 +116,7 @@ interface IJSEngine
     string getException();
     JSHandle throwTypeError(const(char)[] msg);
     JSHandle throwRangeError(const(char)[] msg);
+    JSHandle throwValue(JSHandle val);
 
     // --- Promises ---
     PromiseHandles newPromise();

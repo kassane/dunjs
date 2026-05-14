@@ -1,0 +1,13 @@
+1 instanceof Error: true
+1 code: ENOENT
+1 errno: -2
+1 syscall: open
+1 path: /nonexistent/file.txt
+2 code: ENOENT
+2 syscall: stat
+3 code: ERR_PERMISSION_DENIED
+3 has path: true
+4 msg has code: true
+5 rethrown code: ENOENT
+5 rethrown errno: -2
+All fs error checks passed

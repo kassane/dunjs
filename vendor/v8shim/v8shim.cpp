@@ -551,6 +551,16 @@ DunV8Value* dun_v8_throw_range_error(DunV8Context* cw, const char* msg) {
     });
 }
 
+DunV8Value* dun_v8_throw_value(DunV8Context* cw, DunV8Value* val) {
+    assert(cw && "dun_v8_throw_value: null context");
+    assert(val && "dun_v8_throw_value: null value");
+    return dun::withContext(cw, [&](auto isolate, auto, auto* iw) {
+        auto local = val->value.Get(isolate);
+        isolate->ThrowException(local);
+        return wrapValue(iw, local);
+    });
+}
+
 // --- Function call (unique — TryCatch + args marshalling) ---
 
 DunV8Value* dun_v8_call(DunV8Context* cw, DunV8Value* func,

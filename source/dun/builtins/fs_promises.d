@@ -96,10 +96,9 @@ bool checkPerm(DunState* state, Permission perm, string resource = "") nothrow @
 
 JSHandle throwPermError(IJSEngine engine, string perm, string path = "") @trusted
 {
-    string msg = "Requires --allow-" ~ perm ~ " permission";
-    if (path.length > 0)
-        msg ~= ", path '" ~ path ~ "'";
-    return engine.throwTypeError("[ERR_PERMISSION_DENIED] " ~ msg);
+    import dun.builtins.fs : throwNodeError;
+    return throwNodeError(engine, "ERR_PERMISSION_DENIED",
+        "Requires --allow-" ~ perm ~ " permission", "", path);
 }
 
 // Wraps std.file operations safely — never throws in async thread
