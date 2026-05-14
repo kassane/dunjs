@@ -60,6 +60,7 @@ void registerHttp3Module(IJSEngine engine) @trusted
 
     auto global = engine.getGlobal();
     engine.setProperty(global, "__dun_cjs_http3__", obj);
+    engine.freeValue(global);
 
     version (EngineQuickJS)
         registerQuickJSModule(engine);

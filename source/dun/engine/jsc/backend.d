@@ -84,11 +84,12 @@ class JSCEngine : IJSEngine
         return toHandle(cast(void*) JSValueMakeNull(ctx));
     }
 
+    private enum STACK_TERM_SIZE = 512;
+
     JSHandle newString(const(char)[] s) @trusted
     {
         assert(ctx !is null, "JSC context not initialized");
         // Stack-terminate for short strings to avoid GC allocation from toStringz
-        enum STACK_TERM_SIZE = 512;
         const(char)* cstr;
         char[STACK_TERM_SIZE] stackBuf = void;
         if (s.length < STACK_TERM_SIZE)
@@ -229,11 +230,25 @@ class JSCEngine : IJSEngine
         return JSValueToBoolean(ctx, cast(JSValueRef) fromHandle(val));
     }
 
+    pragma(inline, true)
+    private static const(char)* stackTerminate(
+        const(char)[] name, return ref char[STACK_TERM_SIZE] buf) nothrow @trusted
+    {
+        if (name.length < STACK_TERM_SIZE)
+        {
+            buf[0 .. name.length] = name[];
+            buf[name.length] = '\0';
+            return buf.ptr;
+        }
+        import std.string : toStringz;
+        return (cast(string) name).toStringz;
+    }
+
     JSHandle getProperty(JSHandle obj, const(char)[] name) @trusted
     {
-        import std.string : toStringz;
         assert(ctx !is null, "JSC context not initialized");
-        auto jsName = JSStringCreateWithUTF8CString((cast(string) name).toStringz);
+        char[STACK_TERM_SIZE] termBuf = void;
+        auto jsName = JSStringCreateWithUTF8CString(stackTerminate(name, termBuf));
         scope (exit) JSStringRelease(jsName);
         JSValueRef exc = null;
         auto val = JSObjectGetProperty(ctx, cast(JSObjectRef) fromHandle(obj),
@@ -244,9 +259,9 @@ class JSCEngine : IJSEngine
 
     void setProperty(JSHandle obj, const(char)[] name, JSHandle val) @trusted
     {
-        import std.string : toStringz;
         assert(ctx !is null, "JSC context not initialized");
-        auto jsName = JSStringCreateWithUTF8CString((cast(string) name).toStringz);
+        char[STACK_TERM_SIZE] termBuf = void;
+        auto jsName = JSStringCreateWithUTF8CString(stackTerminate(name, termBuf));
         scope (exit) JSStringRelease(jsName);
         JSValueRef exc = null;
         JSObjectSetProperty(ctx, cast(JSObjectRef) fromHandle(obj),

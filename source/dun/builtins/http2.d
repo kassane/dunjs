@@ -16,6 +16,7 @@ void registerHttp2Module(IJSEngine engine) @trusted
 
     auto global = engine.getGlobal();
     engine.setProperty(global, "__dun_cjs_http2__", obj);
+    engine.freeValue(global);
 
     version (EngineQuickJS)
         registerQuickJSModule(engine);
@@ -1646,6 +1647,7 @@ JSHandle jsH2ServerListen(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
         auto idProp = engine.getProperty(thisVal, "__h2sid");
         int idVal = engine.extractInt(idProp);
+        engine.freeValue(idProp);
         if (idVal < 0 || idVal >= cast(int) h2Servers.length)
             return engine.throwTypeError("h2 server.listen: invalid server");
 
@@ -1732,6 +1734,7 @@ JSHandle jsH2ServerClose(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
         auto idProp = engine.getProperty(thisVal, "__h2sid");
         int idVal = engine.extractInt(idProp);
+        engine.freeValue(idProp);
         if (idVal >= 0 && idVal < cast(int) h2Servers.length)
         {
             auto srv = &h2Servers[idVal];
@@ -1761,6 +1764,7 @@ JSHandle jsH2ServerOn(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
     auto idProp = engine.getProperty(thisVal, "__h2sid");
     int idVal = engine.extractInt(idProp);
+    engine.freeValue(idProp);
     if (idVal < 0 || idVal >= cast(int) h2Servers.length) return thisVal;
 
     auto ev = engine.extractString(args[0]);
@@ -1822,6 +1826,7 @@ JSHandle jsH2ResWriteHead(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
     auto sidProp = engine.getProperty(thisVal, "__h2_stream_id");
     uint streamId = cast(uint) engine.extractInt(sidProp);
+    engine.freeValue(sidProp);
     int rsIdx = findOrCreateResponseState(streamId);
     if (rsIdx < 0) return engine.newUndefined();
 
@@ -1841,6 +1846,7 @@ JSHandle jsH2ResSetHeader(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
     auto sidProp = engine.getProperty(thisVal, "__h2_stream_id");
     uint streamId = cast(uint) engine.extractInt(sidProp);
+    engine.freeValue(sidProp);
     int rsIdx = findOrCreateResponseState(streamId);
     if (rsIdx < 0) return engine.newUndefined();
 
@@ -1863,6 +1869,7 @@ JSHandle jsH2ResWrite(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
     auto sidProp = engine.getProperty(thisVal, "__h2_stream_id");
     uint streamId = cast(uint) engine.extractInt(sidProp);
+    engine.freeValue(sidProp);
     int rsIdx = findOrCreateResponseState(streamId);
     if (rsIdx < 0) return engine.newBool(false);
 
@@ -1893,6 +1900,7 @@ JSHandle jsH2ResEnd(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
     auto sidProp = engine.getProperty(thisVal, "__h2_stream_id");
     uint streamId = cast(uint) engine.extractInt(sidProp);
+    engine.freeValue(sidProp);
     int rsIdx = findOrCreateResponseState(streamId);
     if (rsIdx < 0) return engine.newUndefined();
 

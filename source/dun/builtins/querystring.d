@@ -21,6 +21,8 @@ void registerQuerystringModule(IJSEngine engine) @trusted
         catch (Exception) {}
     }
 
+    engine.freeValue(global);
+
     version (EngineQuickJS)
         registerQuickJSModule(engine);
 }

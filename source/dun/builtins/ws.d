@@ -31,6 +31,7 @@ void registerWsModule(IJSEngine engine) @trusted
 
     auto global = engine.getGlobal();
     engine.setProperty(global, "__dun_cjs_ws__", obj);
+    engine.freeValue(global);
 
     version (EngineQuickJS)
         registerQuickJSModule(engine);
@@ -351,6 +352,7 @@ JSHandle jsWsServerListen(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
         auto idProp = engine.getProperty(thisVal, "__wsid");
         int idVal = engine.extractInt(idProp);
+        engine.freeValue(idProp);
         if (idVal < 0 || idVal >= cast(int) wsServers.length)
             return engine.throwTypeError("WebSocketServer.listen: invalid server");
 
@@ -443,6 +445,7 @@ JSHandle jsWsServerOn(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
     auto idProp = engine.getProperty(thisVal, "__wsid");
     int idVal = engine.extractInt(idProp);
+    engine.freeValue(idProp);
     if (idVal < 0 || idVal >= cast(int) wsServers.length) return thisVal;
 
     auto ev = engine.extractString(args[0]);
@@ -468,6 +471,7 @@ JSHandle jsWsServerClose(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
         auto idProp = engine.getProperty(thisVal, "__wsid");
         int idVal = engine.extractInt(idProp);
+        engine.freeValue(idProp);
         if (idVal >= 0 && idVal < cast(int) wsServers.length)
         {
             auto srv = &wsServers[idVal];
@@ -600,6 +604,7 @@ JSHandle jsWsClientOn(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
     auto idProp = engine.getProperty(thisVal, "__wcid");
     int cid = engine.extractInt(idProp);
+    engine.freeValue(idProp);
     if (cid < 0 || cid >= cast(int) wsConns.length) return thisVal;
 
     auto conn = &wsConns[cid];
@@ -643,6 +648,7 @@ JSHandle jsWsClientSend(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
         auto idProp = engine.getProperty(thisVal, "__wcid");
         int cid = engine.extractInt(idProp);
+        engine.freeValue(idProp);
         if (cid < 0 || cid >= cast(int) wsConns.length)
             return engine.throwTypeError("WebSocket.send: invalid connection");
 
@@ -675,6 +681,7 @@ JSHandle jsWsClientClose(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
         auto idProp = engine.getProperty(thisVal, "__wcid");
         int cid = engine.extractInt(idProp);
+        engine.freeValue(idProp);
         if (cid < 0 || cid >= cast(int) wsConns.length)
             return engine.newUndefined();
 

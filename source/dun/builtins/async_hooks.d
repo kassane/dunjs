@@ -23,6 +23,7 @@ void registerAsyncHooksModule(IJSEngine engine) @trusted
         engine.newFunction(&jsAlsEnterWith, "__dun_als_enterWith", 1));
     engine.setProperty(global, "__dun_als_disable",
         engine.newFunction(&jsAlsDisable, "__dun_als_disable", 0));
+    engine.freeValue(global);
 
     // Evaluate JS source that creates the AsyncLocalStorage constructor
     auto src = asyncHooksSource();

@@ -32,6 +32,7 @@ void registerPathModule(IJSEngine engine) @trusted
 
     auto global = engine.getGlobal();
     engine.setProperty(global, "__dun_cjs_path__", obj);
+    engine.freeValue(global);
 
     version (EngineQuickJS)
         registerQuickJSModule(engine);

@@ -381,6 +381,24 @@ int dun_v8_value_is_object(DunV8Value* vw)      { return valueIsType<dun::V8Tag:
 int dun_v8_value_is_function(DunV8Value* vw)    { return valueIsType<dun::V8Tag::Function>(vw); }
 int dun_v8_value_is_array(DunV8Value* vw)       { return valueIsType<dun::V8Tag::Array>(vw); }
 
+// Single FFI call: returns V8Tag enum value for the given value
+int dun_v8_value_get_type(DunV8Value* vw) {
+    if (!vw) return 0;
+    return dun::withIsolate(vw->isolate_wrapper, [&](auto isolate) -> int {
+        auto val = vw->value.Get(isolate);
+        if (val->IsUndefined()) return static_cast<int>(dun::V8Tag::Undefined);
+        if (val->IsNull())      return static_cast<int>(dun::V8Tag::Null);
+        if (val->IsBoolean())   return static_cast<int>(dun::V8Tag::Bool);
+        if (val->IsInt32())     return static_cast<int>(dun::V8Tag::Int);
+        if (val->IsNumber())    return static_cast<int>(dun::V8Tag::Number);
+        if (val->IsString())    return static_cast<int>(dun::V8Tag::String);
+        if (val->IsArray())     return static_cast<int>(dun::V8Tag::Array);
+        if (val->IsFunction())  return static_cast<int>(dun::V8Tag::Function);
+        if (val->IsObject())    return static_cast<int>(dun::V8Tag::Object);
+        return static_cast<int>(dun::V8Tag::Undefined);
+    });
+}
+
 // --- Property access (withContext eliminates scope guard boilerplate) ---
 
 DunV8Value* dun_v8_get_property(DunV8Context* cw, DunV8Value* obj, const char* name) {

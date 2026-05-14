@@ -9,6 +9,7 @@ void installMicrotask(IJSEngine engine) @trusted
     auto global = engine.getGlobal();
     engine.setProperty(global, "queueMicrotask",
         engine.newFunction(&jsQueueMicrotask, "queueMicrotask", 1));
+    engine.freeValue(global);
 }
 
 private:

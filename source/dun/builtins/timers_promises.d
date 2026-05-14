@@ -21,6 +21,8 @@ void registerTimersPromisesModule(IJSEngine engine) @trusted
         catch (Exception) {}
     }
 
+    engine.freeValue(global);
+
     version (EngineQuickJS)
         registerQuickJSModule(engine);
 }

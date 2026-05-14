@@ -66,6 +66,9 @@ int dun_v8_value_is_object(DunV8Value* val);
 int dun_v8_value_is_function(DunV8Value* val);
 int dun_v8_value_is_array(DunV8Value* val);
 
+/* Batch type query — single FFI call returns type tag */
+int dun_v8_value_get_type(DunV8Value* val);
+
 /* Properties */
 DunV8Value* dun_v8_get_property(DunV8Context* ctx, DunV8Value* obj, const char* name);
 void dun_v8_set_property(DunV8Context* ctx, DunV8Value* obj, const char* name, DunV8Value* val);

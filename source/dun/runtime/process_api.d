@@ -29,6 +29,7 @@ bool invokeUncaughtExceptionHandler(IJSEngine engine, string errorMsg) @trusted 
         auto global = engine.getGlobal();
         engine.callFunction(gUncaughtHandler, global, args[]);
         engine.freeValue(errObj);
+        engine.freeValue(global);
         return true;
     }
     catch (Throwable) { return false; }
@@ -47,6 +48,7 @@ bool invokeUnhandledRejectionHandler(IJSEngine engine, JSHandle reason, JSHandle
         JSHandle[2] args = [reason, promise];
         auto global = engine.getGlobal();
         engine.callFunction(gRejectionHandler, global, args[]);
+        engine.freeValue(global);
         return true;
     }
     catch (Throwable) { return false; }
@@ -214,6 +216,7 @@ void installProcess(IJSEngine engine) @trusted
     engine.setProperty(process, "versions", versionsObj);
 
     engine.setProperty(global, "process", process);
+    engine.freeValue(global);
 }
 
 private:

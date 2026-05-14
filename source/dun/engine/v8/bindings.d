@@ -53,6 +53,7 @@ int dun_v8_value_is_string(DunV8Value* val);
 int dun_v8_value_is_object(DunV8Value* val);
 int dun_v8_value_is_function(DunV8Value* val);
 int dun_v8_value_is_array(DunV8Value* val);
+int dun_v8_value_get_type(DunV8Value* val);
 
 // --- Property access ---
 DunV8Value* dun_v8_get_property(DunV8Context* ctx, DunV8Value* obj,

@@ -17,6 +17,7 @@ void registerChildProcessModule(IJSEngine engine) @trusted
 
     auto global = engine.getGlobal();
     engine.setProperty(global, "__dun_cjs_child_process__", obj);
+    engine.freeValue(global);
 
     version (EngineQuickJS)
         registerQuickJSModule(engine);

@@ -21,6 +21,7 @@ void registerNetModule(IJSEngine engine) @trusted
 
     auto global = engine.getGlobal();
     engine.setProperty(global, "__dun_cjs_net__", obj);
+    engine.freeValue(global);
 
     version (EngineQuickJS)
         registerQuickJSModule(engine);
@@ -307,6 +308,7 @@ JSHandle jsServerListen(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
         auto idProp = engine.getProperty(thisVal, "__id");
         int idVal = engine.extractInt(idProp);
+        engine.freeValue(idProp);
         if (idVal < 0 || idVal >= cast(int) servers.length)
             return engine.throwTypeError("server.listen: invalid server");
 
@@ -397,6 +399,7 @@ JSHandle jsServerClose(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
         auto idProp = engine.getProperty(thisVal, "__id");
         int idVal = engine.extractInt(idProp);
+        engine.freeValue(idProp);
         if (idVal >= 0 && idVal < cast(int) servers.length)
         {
             auto srv = &servers[idVal];
@@ -427,6 +430,7 @@ JSHandle jsServerOn(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
     auto idProp = engine.getProperty(thisVal, "__id");
     int idVal = engine.extractInt(idProp);
+    engine.freeValue(idProp);
     if (idVal < 0 || idVal >= cast(int) servers.length) return thisVal;
 
     auto srv = &servers[idVal];
@@ -451,6 +455,7 @@ JSHandle jsSocketOn(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
     auto idProp = engine.getProperty(thisVal, "__id");
     int idVal = engine.extractInt(idProp);
+    engine.freeValue(idProp);
     if (idVal < 0 || idVal >= cast(int) sockets.length) return thisVal;
 
     auto sock = &sockets[idVal];
@@ -485,6 +490,7 @@ JSHandle jsSocketWrite(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
         auto idProp = engine.getProperty(thisVal, "__id");
         int idVal = engine.extractInt(idProp);
+        engine.freeValue(idProp);
         if (idVal < 0 || idVal >= cast(int) sockets.length) return engine.newBool(false);
 
         auto sock = &sockets[idVal];
@@ -523,6 +529,7 @@ JSHandle jsSocketEnd(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
         auto idProp = engine.getProperty(thisVal, "__id");
         int idVal = engine.extractInt(idProp);
+        engine.freeValue(idProp);
         if (idVal < 0 || idVal >= cast(int) sockets.length)
             return engine.newUndefined();
 

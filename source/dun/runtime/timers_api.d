@@ -18,6 +18,7 @@ void installTimers(IJSEngine engine) @trusted
         engine.newFunction(&jsClearTimer, "clearTimeout", 1));
     engine.setProperty(global, "clearInterval",
         engine.newFunction(&jsClearTimer, "clearInterval", 1));
+    engine.freeValue(global);
 }
 
 private:

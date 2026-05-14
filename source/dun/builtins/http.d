@@ -56,6 +56,7 @@ void registerHttpModule(IJSEngine engine) @trusted
 
     auto global = engine.getGlobal();
     engine.setProperty(global, "__dun_cjs_http__", obj);
+    engine.freeValue(global);
 
     version (EngineQuickJS)
         registerQuickJSModule(engine);
@@ -110,6 +111,7 @@ __gshared JSHandle _httpSrvListen, _httpSrvClose, _httpSrvOn;
 __gshared JSHandle _httpReqOn;
 __gshared JSHandle _httpResSetHeader, _httpResWriteHead, _httpResWrite, _httpResEnd;
 __gshared JSHandle _httpJsDispatchFn;
+__gshared JSHandle _httpCachedUndef;
 __gshared bool _httpFnsCached = false;
 
 void ensureHttpFnsCached(IJSEngine engine) @trusted
@@ -136,6 +138,7 @@ void ensureHttpFnsCached(IJSEngine engine) @trusted
     // Native function to lazily retrieve headers for a connection
     auto getHdrsFn = engine.newFunction(&jsGetConnHeaders, "__httpGetHeaders", 1);
     engine.setProperty(global, "__httpGetHeaders", getHdrsFn);
+    engine.freeValue(global);
 
     import dun.engine.iface : JSResult;
     auto dispatchResult = engine.eval(
@@ -155,6 +158,7 @@ void ensureHttpFnsCached(IJSEngine engine) @trusted
         _httpJsDispatchFn = engine.dupValue(dispatchResult.value);
     engine.freeValue(dispatchResult.value);
 
+    _httpCachedUndef = engine.newUndefined();
     _httpFnsCached = true;
 }
 
@@ -229,6 +233,7 @@ int allocConnSlot() nothrow @trusted
 // Return a connection slot to the free list
 void freeConnSlot(int slot) nothrow @trusted
 {
+    _activeConnCount--;
     try { httpFreeSlots ~= slot; } catch (Throwable) {}
 }
 
@@ -291,6 +296,7 @@ JSHandle jsHttpServerListen(void* ctx, JSHandle thisVal, JSHandle[] args) @trust
 
         auto idProp = engine.getProperty(thisVal, "__hid");
         int idVal = engine.extractInt(idProp);
+        engine.freeValue(idProp);
         if (idVal < 0 || idVal >= cast(int) httpServers.length)
             return engine.throwTypeError("server.listen: invalid server");
 
@@ -348,6 +354,7 @@ JSHandle jsHttpServerListen(void* ctx, JSHandle thisVal, JSHandle[] args) @trust
 
         srv.listenFd = lfd;
         srv.active = true;
+        _activeServerCount++;
         srv.port = cast(ushort) port;
 
         version (linux)
@@ -362,7 +369,7 @@ JSHandle jsHttpServerListen(void* ctx, JSHandle thisVal, JSHandle[] args) @trust
             pushAgnosticPending(engine, listenCb, noArgs[]);
             engine.freeValue(listenCb);
         }
-        return engine.newUndefined();
+        return _httpCachedUndef;
     }
     else
     {
@@ -383,6 +390,7 @@ JSHandle jsHttpServerClose(void* ctx, JSHandle thisVal, JSHandle[] args) @truste
 
         auto idProp = engine.getProperty(thisVal, "__hid");
         int idVal = engine.extractInt(idProp);
+        engine.freeValue(idProp);
         if (idVal >= 0 && idVal < cast(int) httpServers.length)
         {
             auto srv = &httpServers[idVal];
@@ -393,13 +401,13 @@ JSHandle jsHttpServerClose(void* ctx, JSHandle thisVal, JSHandle[] args) @truste
                 srv.listenFd = -1;
             }
             srv.active = false;
+            _activeServerCount--;
         }
-        return engine.newUndefined();
+        return _httpCachedUndef;
     }
     else
     {
-        auto state = cast(DunState*) ctx;
-        return state.engine.newUndefined();
+        return _httpCachedUndef;
     }
 }
 
@@ -413,6 +421,7 @@ JSHandle jsHttpServerOn(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
     auto idProp = engine.getProperty(thisVal, "__hid");
     int idVal = engine.extractInt(idProp);
+    engine.freeValue(idProp);
     if (idVal < 0 || idVal >= cast(int) httpServers.length) return thisVal;
 
     auto ev = engine.extractString(args[0]);
@@ -479,6 +488,7 @@ JSHandle jsReqOn(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
     auto idProp = engine.getProperty(thisVal, "__cid");
     int connId = engine.extractInt(idProp);
+    engine.freeValue(idProp);
     if (connId < 0 || connId >= cast(int) httpConns.length) return thisVal;
 
     auto ev = engine.extractString(args[0]);
@@ -530,11 +540,12 @@ JSHandle jsResSetHeader(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     auto state = cast(DunState*) ctx;
     assert(state !is null, "Null DunState in jsResSetHeader");
     auto engine = state.engine;
-    if (args.length < 2) return engine.newUndefined();
+    if (args.length < 2) return _httpCachedUndef;
 
     auto idProp = engine.getProperty(thisVal, "__cid");
     int connId = engine.extractInt(idProp);
-    if (connId < 0 || connId >= cast(int) httpConns.length) return engine.newUndefined();
+    engine.freeValue(idProp);
+    if (connId < 0 || connId >= cast(int) httpConns.length) return _httpCachedUndef;
 
     try
     {
@@ -543,7 +554,7 @@ JSHandle jsResSetHeader(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
         httpConns[connId].respHeaders[name] = val;
     }
     catch (Exception) {}
-    return engine.newUndefined();
+    return _httpCachedUndef;
 }
 
 JSHandle jsResWriteHead(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
@@ -555,7 +566,8 @@ JSHandle jsResWriteHead(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
     auto idProp = engine.getProperty(thisVal, "__cid");
     int connId = engine.extractInt(idProp);
-    if (connId < 0 || connId >= cast(int) httpConns.length) return engine.newUndefined();
+    engine.freeValue(idProp);
+    if (connId < 0 || connId >= cast(int) httpConns.length) return _httpCachedUndef;
 
     auto conn = &httpConns[connId];
     if (args.length >= 1 && engine.isNumber(args[0]))
@@ -566,7 +578,6 @@ JSHandle jsResWriteHead(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     {
         try
         {
-            // Extract known header names from the JS object
             static immutable hdrs = [
                 "Content-Type", "Content-Length", "Connection",
                 "Cache-Control", "Location", "Server",
@@ -586,7 +597,7 @@ JSHandle jsResWriteHead(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     }
 
     bufferStatusLine(conn);
-    return engine.newUndefined();
+    return _httpCachedUndef;
 }
 
 JSHandle jsResWrite(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
@@ -599,6 +610,7 @@ JSHandle jsResWrite(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
     auto idProp = engine.getProperty(thisVal, "__cid");
     int connId = engine.extractInt(idProp);
+    engine.freeValue(idProp);
     if (connId < 0 || connId >= cast(int) httpConns.length) return engine.newBool(false);
 
     auto conn = &httpConns[connId];
@@ -625,10 +637,11 @@ JSHandle jsResEnd(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
         auto idProp = engine.getProperty(thisVal, "__cid");
         int connId = engine.extractInt(idProp);
-        if (connId < 0 || connId >= cast(int) httpConns.length) return engine.newUndefined();
+        engine.freeValue(idProp);
+        if (connId < 0 || connId >= cast(int) httpConns.length) return _httpCachedUndef;
 
         auto conn = &httpConns[connId];
-        if (conn.closed) return engine.newUndefined();
+        if (conn.closed) return _httpCachedUndef;
 
         // Buffer headers if not yet sent
         if (!conn.headersSent) bufferStatusLine(conn);
@@ -690,12 +703,11 @@ JSHandle jsResEnd(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
             }
             freeConnSlot(connId);
         }
-        return engine.newUndefined();
+        return _httpCachedUndef;
     }
     else
     {
-        auto state = cast(DunState*) ctx;
-        return state.engine.newUndefined();
+        return _httpCachedUndef;
     }
 }
 
@@ -863,11 +875,12 @@ public void pollHttpIO() nothrow @trusted
     }
 }
 
-public bool hasActiveHttpIO() @safe nothrow
+private __gshared int _activeServerCount = 0;
+private __gshared int _activeConnCount = 0;
+
+public bool hasActiveHttpIO() nothrow @nogc @trusted
 {
-    foreach (ref s; httpServers) if (s.active) return true;
-    foreach (ref c; httpConns) if (!c.closed) return true;
-    return false;
+    return _activeServerCount > 0 || _activeConnCount > 0;
 }
 
 // Direct dispatch — call JS callbacks for ready connections
@@ -898,7 +911,7 @@ public void dispatchHttpCallbacks() @trusted
                     auto jsUrl = engine.newString(conn.url);
                     auto jsCid = engine.newInt(cid);
                     JSHandle[4] dArgs = [srv.requestCb, jsMethod, jsUrl, jsCid];
-                    auto ret = engine.callFunction(_httpJsDispatchFn, engine.newUndefined(), dArgs[]);
+                    auto ret = engine.callFunction(_httpJsDispatchFn, _httpCachedUndef, dArgs[]);
                     engine.freeValue(ret);
                     engine.freeValue(jsMethod);
                     engine.freeValue(jsUrl);
@@ -910,7 +923,7 @@ public void dispatchHttpCallbacks() @trusted
                     auto reqObj = makeReqObj(engine, cid);
                     auto resObj = makeResObj(engine, cid);
                     JSHandle[2] callArgs = [reqObj, resObj];
-                    auto ret = engine.callFunction(srv.requestCb, engine.newUndefined(), callArgs[]);
+                    auto ret = engine.callFunction(srv.requestCb, _httpCachedUndef, callArgs[]);
                     engine.freeValue(ret);
                     engine.freeValue(reqObj);
                     engine.freeValue(resObj);
@@ -959,6 +972,7 @@ void acceptHttpConnection(int srvId) nothrow @trusted
                 else
                     httpConns ~= c;
                 fdToConnId[fd] = cid;
+                _activeConnCount++;
             }
             catch (Throwable)
             {

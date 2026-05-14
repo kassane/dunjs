@@ -21,6 +21,7 @@ void registerBufferModule(IJSEngine engine) @trusted
     auto global = engine.getGlobal();
     engine.setProperty(global, "Buffer", bufferClass);
     engine.setProperty(global, "__dun_cjs_buffer__", bufferClass);
+    engine.freeValue(global);
 
     version (EngineQuickJS)
         registerQuickJSModule(engine);
@@ -159,6 +160,7 @@ void ensureBufferFnsCached(IJSEngine engine) @trusted
     // that does Object.create + property assignment in a single JS call.
     auto global = engine.getGlobal();
     engine.setProperty(global, "__dunBufProto__", engine.dupValue(_bufProto));
+    engine.freeValue(global);
 
     auto factoryRes = engine.eval(
         "(function(){" ~

@@ -67,6 +67,7 @@ void registerCryptoModule(IJSEngine engine) @trusted
 
     auto global = engine.getGlobal();
     engine.setProperty(global, "__dun_cjs_crypto__", obj);
+    engine.freeValue(global);
 
     version (EngineQuickJS)
         registerQuickJSModule(engine);
@@ -134,6 +135,24 @@ JSHandle jsCryptoRandomBytes(void* ctx, JSHandle thisVal, JSHandle[] args) @trus
     return engine.newUint8Array(buf[0 .. n]);
 }
 
+// Pre-filled random byte pool — amortizes getrandom syscall cost across UUIDs
+private enum UUID_POOL_UUIDS = 64;
+private enum UUID_POOL_BYTES = UUID_POOL_UUIDS * 16;
+private __gshared ubyte[UUID_POOL_BYTES] _uuidPool = void;
+private __gshared size_t _uuidPoolPos = UUID_POOL_BYTES;
+
+private ubyte[16] nextUUIDBytes() @trusted
+{
+    if (_uuidPoolPos >= UUID_POOL_BYTES)
+    {
+        fillRandomBytes(_uuidPool[]);
+        _uuidPoolPos = 0;
+    }
+    ubyte[16] r = _uuidPool[_uuidPoolPos .. _uuidPoolPos + 16];
+    _uuidPoolPos += 16;
+    return r;
+}
+
 JSHandle jsCryptoRandomUUID(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsCryptoRandomUUID");
@@ -142,23 +161,22 @@ JSHandle jsCryptoRandomUUID(void* ctx, JSHandle thisVal, JSHandle[] args) @trust
     auto engine = state.engine;
     try
     {
-        ubyte[16] bytes = void;
-        fillRandomBytes(bytes[]);
+        auto bytes = nextUUIDBytes();
         bytes[6] = cast(ubyte)((bytes[6] & 0x0f) | 0x40);
         bytes[8] = cast(ubyte)((bytes[8] & 0x3f) | 0x80);
-        // Fast UUID formatting with CTFE hex LUT (no std.format)
+        import dun.platform.simd : hexEncodeBuf;
+        char[32] hex = void;
+        hexEncodeBuf(bytes[], hex[]);
         char[36] uuid = void;
-        void hex2(ref size_t p, ubyte b) { uuid[p++] = hexLUT[b >> 4]; uuid[p++] = hexLUT[b & 0xf]; }
-        size_t p = 0;
-        foreach (i; 0 .. 4) hex2(p, bytes[i]);
-        uuid[p++] = '-';
-        foreach (i; 4 .. 6) hex2(p, bytes[i]);
-        uuid[p++] = '-';
-        foreach (i; 6 .. 8) hex2(p, bytes[i]);
-        uuid[p++] = '-';
-        foreach (i; 8 .. 10) hex2(p, bytes[i]);
-        uuid[p++] = '-';
-        foreach (i; 10 .. 16) hex2(p, bytes[i]);
+        uuid[0 .. 8] = hex[0 .. 8];
+        uuid[8] = '-';
+        uuid[9 .. 13] = hex[8 .. 12];
+        uuid[13] = '-';
+        uuid[14 .. 18] = hex[12 .. 16];
+        uuid[18] = '-';
+        uuid[19 .. 23] = hex[16 .. 20];
+        uuid[23] = '-';
+        uuid[24 .. 36] = hex[20 .. 32];
         return engine.newString(cast(string) uuid[]);
     }
     catch (Exception) { return engine.throwTypeError("Failed to generate UUID"); }
@@ -171,6 +189,22 @@ private __gshared int _urandomFd = -1;
 
 private void fillRandomBytes(ubyte[] buf) @trusted
 {
+    version (linux)
+    {
+        // getrandom syscall: no fd management, faster for small buffers
+        import core.sys.linux.unistd : syscall;
+        import core.sys.linux.sys.syscall : __NR_getrandom;
+        {
+            size_t total = 0;
+            while (total < buf.length)
+            {
+                auto n = syscall(__NR_getrandom, buf.ptr + total, buf.length - total, 0);
+                if (n <= 0) break;
+                total += n;
+            }
+            if (total >= buf.length) return;
+        }
+    }
     version (Posix)
     {
         import core.sys.posix.unistd : read;

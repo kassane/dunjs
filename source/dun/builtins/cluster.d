@@ -44,6 +44,7 @@ void registerClusterModule(IJSEngine engine) @trusted
 
     auto global = engine.getGlobal();
     engine.setProperty(global, "__dun_cjs_cluster__", obj);
+    engine.freeValue(global);
 
     version (EngineQuickJS)
         registerQuickJSModule(engine);
@@ -102,6 +103,10 @@ public void pollClusterWorkers() nothrow @trusted
                 import std.conv : to;
                 auto pidStr = pid.to!string;
                 gClusterEngine.setProperty(workersObj, pidStr, gClusterEngine.newUndefined());
+
+                gClusterEngine.freeValue(workersObj);
+                gClusterEngine.freeValue(clusterObj);
+                gClusterEngine.freeValue(global);
             }
             catch (Exception) {}
 
@@ -202,6 +207,8 @@ JSHandle jsClusterFork(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
             engine.setProperty(clusterObj, "isPrimary", engine.newBool(false));
             engine.setProperty(clusterObj, "isWorker", engine.newBool(true));
             engine.setProperty(clusterObj, "isMaster", engine.newBool(false));
+            engine.freeValue(clusterObj);
+            engine.freeValue(global);
 
             // Return a worker info object (from child's perspective)
             auto workerObj = engine.newObject();
@@ -227,6 +234,10 @@ JSHandle jsClusterFork(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
             import std.conv : to;
             engine.setProperty(workersObj, pid.to!string, workerObj);
+
+            engine.freeValue(workersObj);
+            engine.freeValue(clusterObj);
+            engine.freeValue(global);
 
             // Return worker info with pid
             auto retObj = engine.newObject();
@@ -271,5 +282,7 @@ JSHandle jsClusterOn(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
     // Return cluster object for chaining
     auto global = engine.getGlobal();
-    return engine.getProperty(global, "__dun_cjs_cluster__");
+    auto clusterObj = engine.getProperty(global, "__dun_cjs_cluster__");
+    engine.freeValue(global);
+    return clusterObj;
 }
