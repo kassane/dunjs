@@ -88,8 +88,54 @@ private extern (C) @nogc nothrow
 
     // BIO for reading PEM from memory
     alias BIO = void;
+    alias BIO_METHOD = void;
     BIO* BIO_new_mem_buf(const(void)* buf, int len);
+    BIO* BIO_new(const(BIO_METHOD)* type);
+    const(BIO_METHOD)* BIO_s_mem();
     int BIO_free(BIO* a);
+    int BIO_read(BIO* b, void* data, int dlen);
+    long BIO_ctrl(BIO* bp, int cmd, long larg, void* parg);
+
+    // Key generation (EVP_PKEY_CTX)
+    alias EVP_PKEY_CTX = void;
+    EVP_PKEY_CTX* EVP_PKEY_CTX_new_id(int id, void* e);
+    void EVP_PKEY_CTX_free(EVP_PKEY_CTX* ctx);
+    int EVP_PKEY_keygen_init(EVP_PKEY_CTX* ctx);
+    int EVP_PKEY_keygen(EVP_PKEY_CTX* ctx, EVP_PKEY** ppkey);
+    int EVP_PKEY_CTX_set_rsa_keygen_bits(EVP_PKEY_CTX* ctx, int mbits);
+
+    // EC key generation
+    int EVP_PKEY_CTX_set_ec_paramgen_curve_nid(EVP_PKEY_CTX* ctx, int nid);
+    int OBJ_txt2nid(const(char)* s);
+
+    // PEM writing
+    int PEM_write_bio_PrivateKey(BIO* bp, EVP_PKEY* x, const(EVP_CIPHER)* enc,
+                                 ubyte* kstr, int klen, void* cb, void* u);
+    int PEM_write_bio_PUBKEY(BIO* bp, EVP_PKEY* pkey);
+
+    // DH key exchange
+    alias DH = void;
+    alias BIGNUM = void;
+    DH* DH_new();
+    void DH_free(DH* dh);
+    int DH_generate_parameters_ex(DH* dh, int prime_len, int generator, void* cb);
+    int DH_generate_key(DH* dh);
+    int DH_compute_key(ubyte* key, const(BIGNUM)* pub_key, DH* dh);
+    int DH_size(const(DH)* dh);
+    const(BIGNUM)* DH_get0_pub_key(const(DH)* dh);
+    const(BIGNUM)* DH_get0_priv_key(const(DH)* dh);
+    const(BIGNUM)* DH_get0_p(const(DH)* dh);
+    const(BIGNUM)* DH_get0_g(const(DH)* dh);
+
+    // BIGNUM helpers
+    int BN_num_bits(const(BIGNUM)* a);
+    int BN_bn2bin(const(BIGNUM)* a, ubyte* to);
+    BIGNUM* BN_bin2bn(const(ubyte)* s, int len, BIGNUM* ret);
+    void BN_free(BIGNUM* a);
+
+    enum EVP_PKEY_RSA = 6;
+    enum EVP_PKEY_EC = 408;
+    enum BIO_CTRL_PENDING = 10;
 }
 
 private const(EVP_MD)* getEvpMd(string algo) @trusted nothrow @nogc
@@ -146,6 +192,8 @@ void registerCryptoModule(IJSEngine engine) @trusted
     engine.setProperty(obj, "getCiphers", engine.newFunction(&jsCryptoGetCiphers, "getCiphers", 0));
     engine.setProperty(obj, "createSign", engine.newFunction(&jsCryptoCreateSign, "createSign", 1));
     engine.setProperty(obj, "createVerify", engine.newFunction(&jsCryptoCreateVerify, "createVerify", 1));
+    engine.setProperty(obj, "generateKeyPairSync", engine.newFunction(&jsCryptoGenerateKeyPairSync, "generateKeyPairSync", 2));
+    engine.setProperty(obj, "createDiffieHellman", engine.newFunction(&jsCryptoCreateDiffieHellman, "createDiffieHellman", 1));
 
     auto global = engine.getGlobal();
     engine.setProperty(global, "__dun_cjs_crypto__", obj);
@@ -154,8 +202,7 @@ void registerCryptoModule(IJSEngine engine) @trusted
     if (!cryptoExtResult.isError)
     {
         foreach (name; ["pbkdf2", "scrypt", "randomFillSync", "randomFill",
-                        "generateKeyPairSync",
-                        "createDiffieHellman", "constants"])
+                        "constants"])
         {
             auto prop = engine.getProperty(cryptoExtResult.value, name);
             engine.setProperty(obj, name, prop);
@@ -1334,6 +1381,328 @@ private string computeHmac(string algo, string key, string data) @trusted
     return toHexString!(LetterCase.lower)(outBuf[0 .. outLen]).idup;
 }
 
+// --- generateKeyPairSync ---
+
+/// Read all pending data from a BIO into a D string
+private string bioToString(BIO* bio) @trusted nothrow
+{
+    assert(bio !is null, "Null BIO in bioToString");
+    auto pending = BIO_ctrl(bio, BIO_CTRL_PENDING, 0, null);
+    if (pending <= 0) return null;
+
+    ubyte[] buf;
+    try { buf = new ubyte[cast(size_t) pending]; }
+    catch (Exception) { return null; }
+
+    auto n = BIO_read(bio, buf.ptr, cast(int) pending);
+    if (n <= 0) return null;
+    try { return (cast(char[]) buf[0 .. n]).idup; }
+    catch (Exception) { return null; }
+}
+
+/// Generate an RSA or EC key pair via OpenSSL, returns (publicKeyPEM, privateKeyPEM)
+private bool evpGenerateKeyPair(string type, int modulusLength, string namedCurve,
+    out string publicKeyPEM, out string privateKeyPEM) @trusted nothrow
+{
+    int pkeyType;
+    if (type == "rsa")
+        pkeyType = EVP_PKEY_RSA;
+    else if (type == "ec")
+        pkeyType = EVP_PKEY_EC;
+    else
+        return false;
+
+    auto pkCtx = EVP_PKEY_CTX_new_id(pkeyType, null);
+    if (pkCtx is null) return false;
+    scope(exit) EVP_PKEY_CTX_free(pkCtx);
+
+    if (EVP_PKEY_keygen_init(pkCtx) <= 0) return false;
+
+    if (type == "rsa")
+    {
+        if (EVP_PKEY_CTX_set_rsa_keygen_bits(pkCtx, modulusLength) <= 0)
+            return false;
+    }
+    else if (type == "ec")
+    {
+        // Convert curve name to NID
+        char[64] curveBuf = void;
+        if (namedCurve.length >= curveBuf.length) return false;
+        curveBuf[0 .. namedCurve.length] = cast(char[]) namedCurve[];
+        curveBuf[namedCurve.length] = '\0';
+        auto nid = OBJ_txt2nid(curveBuf.ptr);
+        if (nid == 0) return false;
+        if (EVP_PKEY_CTX_set_ec_paramgen_curve_nid(pkCtx, nid) <= 0)
+            return false;
+    }
+
+    EVP_PKEY* pkey = null;
+    if (EVP_PKEY_keygen(pkCtx, &pkey) <= 0) return false;
+    if (pkey is null) return false;
+    scope(exit) EVP_PKEY_free(pkey);
+
+    // Write private key to PEM
+    auto privBio = BIO_new(BIO_s_mem());
+    if (privBio is null) return false;
+    scope(exit) BIO_free(privBio);
+
+    if (PEM_write_bio_PrivateKey(privBio, pkey, null, null, 0, null, null) != 1)
+        return false;
+    privateKeyPEM = bioToString(privBio);
+    if (privateKeyPEM is null) return false;
+
+    // Write public key to PEM
+    auto pubBio = BIO_new(BIO_s_mem());
+    if (pubBio is null) return false;
+    scope(exit) BIO_free(pubBio);
+
+    if (PEM_write_bio_PUBKEY(pubBio, pkey) != 1)
+        return false;
+    publicKeyPEM = bioToString(pubBio);
+    if (publicKeyPEM is null) return false;
+
+    return true;
+}
+
+JSHandle jsCryptoGenerateKeyPairSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+{
+    assert(ctx !is null, "Null ctx in jsCryptoGenerateKeyPairSync");
+    auto state = cast(DunState*) ctx;
+    assert(state !is null, "Null DunState in jsCryptoGenerateKeyPairSync");
+    auto engine = state.engine;
+
+    if (args.length < 1)
+        return engine.throwTypeError("generateKeyPairSync requires a type argument");
+
+    auto type = engine.extractString(args[0]);
+    if (type != "rsa" && type != "ec")
+        return engine.throwTypeError("Unsupported key type: " ~ type ~ " (supported: rsa, ec)");
+
+    // Parse options
+    int modulusLength = 2048;
+    string namedCurve = "prime256v1";
+
+    if (args.length >= 2 && engine.isObject(args[1]))
+    {
+        auto opts = args[1];
+        if (type == "rsa")
+        {
+            auto modProp = engine.getProperty(opts, "modulusLength");
+            if (engine.isNumber(modProp))
+                modulusLength = engine.extractInt(modProp);
+            engine.freeValue(modProp);
+        }
+        else if (type == "ec")
+        {
+            auto curveProp = engine.getProperty(opts, "namedCurve");
+            if (engine.isString(curveProp))
+                namedCurve = engine.extractString(curveProp);
+            engine.freeValue(curveProp);
+        }
+    }
+
+    string publicKeyPEM, privateKeyPEM;
+    if (!evpGenerateKeyPair(type, modulusLength, namedCurve, publicKeyPEM, privateKeyPEM))
+        return engine.throwTypeError("Key generation failed");
+
+    auto result = engine.newObject();
+    engine.setProperty(result, "publicKey", engine.newString(publicKeyPEM));
+    engine.setProperty(result, "privateKey", engine.newString(privateKeyPEM));
+    return result;
+}
+
+// --- createDiffieHellman ---
+
+private __gshared JSHandle _cachedDHGenerateKeysFn;
+private __gshared JSHandle _cachedDHGetPublicKeyFn;
+private __gshared JSHandle _cachedDHGetPrivateKeyFn;
+private __gshared JSHandle _cachedDHComputeSecretFn;
+private __gshared JSHandle _cachedDHGetPrimeFn;
+private __gshared JSHandle _cachedDHGetGeneratorFn;
+private __gshared bool _dhFnsCached = false;
+
+private void ensureDHFnsCached(IJSEngine engine) @trusted
+{
+    if (_dhFnsCached) return;
+    _cachedDHGenerateKeysFn = engine.newFunction(&jsDHGenerateKeys, "generateKeys", 0);
+    _cachedDHGetPublicKeyFn = engine.newFunction(&jsDHGetPublicKey, "getPublicKey", 1);
+    _cachedDHGetPrivateKeyFn = engine.newFunction(&jsDHGetPrivateKey, "getPrivateKey", 1);
+    _cachedDHComputeSecretFn = engine.newFunction(&jsDHComputeSecret, "computeSecret", 3);
+    _cachedDHGetPrimeFn = engine.newFunction(&jsDHGetPrime, "getPrime", 1);
+    _cachedDHGetGeneratorFn = engine.newFunction(&jsDHGetGenerator, "getGenerator", 1);
+    _dhFnsCached = true;
+}
+
+/// Encode a BIGNUM to hex string
+private string bnToHex(const(BIGNUM)* bn) @trusted nothrow
+{
+    if (bn is null) return "";
+    auto nbytes = (BN_num_bits(bn) + 7) / 8;
+    if (nbytes <= 0) return "";
+    ubyte[] buf;
+    try { buf = new ubyte[nbytes]; }
+    catch (Exception) { return ""; }
+    BN_bn2bin(bn, buf.ptr);
+    try
+    {
+        import std.digest : toHexString, LetterCase;
+        return toHexString!(LetterCase.lower)(buf).idup;
+    }
+    catch (Exception) { return ""; }
+}
+
+JSHandle jsCryptoCreateDiffieHellman(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+{
+    assert(ctx !is null, "Null ctx in jsCryptoCreateDiffieHellman");
+    auto state = cast(DunState*) ctx;
+    assert(state !is null, "Null DunState in jsCryptoCreateDiffieHellman");
+    auto engine = state.engine;
+
+    if (args.length < 1 || !engine.isNumber(args[0]))
+        return engine.throwTypeError("createDiffieHellman requires a primeLength argument");
+
+    int primeLength = engine.extractInt(args[0]);
+    if (primeLength < 64 || primeLength > 8192)
+        return engine.throwTypeError("primeLength must be between 64 and 8192");
+
+    // Generate DH parameters
+    auto dh = DH_new();
+    if (dh is null)
+        return engine.throwTypeError("Failed to create DH context");
+
+    if (DH_generate_parameters_ex(dh, primeLength, 2, null) != 1)
+    {
+        DH_free(dh);
+        return engine.throwTypeError("Failed to generate DH parameters");
+    }
+
+    ensureDHFnsCached(engine);
+    auto obj = engine.newObject();
+    // Store DH pointer as float (same pattern as cipher _evpCtx)
+    engine.setProperty(obj, "_dh", engine.newFloat(cast(double) cast(size_t) dh));
+    engine.setProperty(obj, "generateKeys", engine.dupValue(_cachedDHGenerateKeysFn));
+    engine.setProperty(obj, "getPublicKey", engine.dupValue(_cachedDHGetPublicKeyFn));
+    engine.setProperty(obj, "getPrivateKey", engine.dupValue(_cachedDHGetPrivateKeyFn));
+    engine.setProperty(obj, "computeSecret", engine.dupValue(_cachedDHComputeSecretFn));
+    engine.setProperty(obj, "getPrime", engine.dupValue(_cachedDHGetPrimeFn));
+    engine.setProperty(obj, "getGenerator", engine.dupValue(_cachedDHGetGeneratorFn));
+    return obj;
+}
+
+private DH* extractDH(IJSEngine engine, JSHandle thisVal) @trusted
+{
+    auto dhProp = engine.getProperty(thisVal, "_dh");
+    auto dh = cast(DH*) cast(size_t) engine.extractFloat(dhProp);
+    engine.freeValue(dhProp);
+    return dh;
+}
+
+JSHandle jsDHGenerateKeys(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+{
+    assert(ctx !is null, "Null ctx in DH.generateKeys");
+    auto state = cast(DunState*) ctx;
+    auto engine = state.engine;
+    auto dh = extractDH(engine, thisVal);
+    if (dh is null) return engine.throwTypeError("Invalid DH object");
+
+    if (DH_generate_key(dh) != 1)
+        return engine.throwTypeError("Failed to generate DH key");
+
+    // Return public key as hex by default
+    auto pubKey = DH_get0_pub_key(dh);
+    return engine.newString(bnToHex(pubKey));
+}
+
+JSHandle jsDHGetPublicKey(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+{
+    assert(ctx !is null, "Null ctx in DH.getPublicKey");
+    auto state = cast(DunState*) ctx;
+    auto engine = state.engine;
+    auto dh = extractDH(engine, thisVal);
+    if (dh is null) return engine.throwTypeError("Invalid DH object");
+
+    auto pubKey = DH_get0_pub_key(dh);
+    if (pubKey is null) return engine.throwTypeError("Keys not yet generated");
+    return engine.newString(bnToHex(pubKey));
+}
+
+JSHandle jsDHGetPrivateKey(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+{
+    assert(ctx !is null, "Null ctx in DH.getPrivateKey");
+    auto state = cast(DunState*) ctx;
+    auto engine = state.engine;
+    auto dh = extractDH(engine, thisVal);
+    if (dh is null) return engine.throwTypeError("Invalid DH object");
+
+    auto privKey = DH_get0_priv_key(dh);
+    if (privKey is null) return engine.throwTypeError("Keys not yet generated");
+    return engine.newString(bnToHex(privKey));
+}
+
+JSHandle jsDHComputeSecret(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+{
+    assert(ctx !is null, "Null ctx in DH.computeSecret");
+    auto state = cast(DunState*) ctx;
+    auto engine = state.engine;
+    auto dh = extractDH(engine, thisVal);
+    if (dh is null) return engine.throwTypeError("Invalid DH object");
+    if (args.length < 1) return engine.throwTypeError("computeSecret requires otherPublicKey");
+
+    auto otherKeyHex = engine.extractString(args[0]);
+
+    // Decode hex to BIGNUM
+    auto otherKeyBytes = decodeInput(otherKeyHex, "hex");
+    if (otherKeyBytes is null)
+        return engine.throwTypeError("Invalid hex encoding for otherPublicKey");
+
+    auto otherPub = BN_bin2bn(otherKeyBytes.ptr, cast(int) otherKeyBytes.length, null);
+    if (otherPub is null)
+        return engine.throwTypeError("Failed to decode other public key");
+    scope(exit) BN_free(otherPub);
+
+    auto secretLen = DH_size(dh);
+    if (secretLen <= 0)
+        return engine.throwTypeError("DH_size returned invalid length");
+
+    ubyte[] secret;
+    try { secret = new ubyte[secretLen]; }
+    catch (Exception) { return engine.throwTypeError("Failed to allocate secret buffer"); }
+
+    auto n = DH_compute_key(secret.ptr, otherPub, dh);
+    if (n < 0)
+        return engine.throwTypeError("DH_compute_key failed");
+
+    import std.digest : toHexString, LetterCase;
+    try { return engine.newString(toHexString!(LetterCase.lower)(secret[0 .. n]).idup); }
+    catch (Exception) { return engine.throwTypeError("Failed to encode secret"); }
+}
+
+JSHandle jsDHGetPrime(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+{
+    assert(ctx !is null, "Null ctx in DH.getPrime");
+    auto state = cast(DunState*) ctx;
+    auto engine = state.engine;
+    auto dh = extractDH(engine, thisVal);
+    if (dh is null) return engine.throwTypeError("Invalid DH object");
+
+    auto p = DH_get0_p(dh);
+    if (p is null) return engine.throwTypeError("No prime available");
+    return engine.newString(bnToHex(p));
+}
+
+JSHandle jsDHGetGenerator(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+{
+    assert(ctx !is null, "Null ctx in DH.getGenerator");
+    auto state = cast(DunState*) ctx;
+    auto engine = state.engine;
+    auto dh = extractDH(engine, thisVal);
+    if (dh is null) return engine.throwTypeError("Invalid DH object");
+
+    auto g = DH_get0_g(dh);
+    if (g is null) return engine.throwTypeError("No generator available");
+    return engine.newString(bnToHex(g));
+}
+
 string cryptoExtensionSource() pure @safe nothrow
 {
     return `(function() {
@@ -1391,14 +1760,6 @@ string cryptoExtensionSource() pure @safe nothrow
     });
   }
 
-  function generateKeyPairSync(type, options) {
-    throw new Error('crypto.generateKeyPairSync requires OpenSSL key generation (not yet implemented)');
-  }
-
-  function createDiffieHellman(primeLength) {
-    throw new Error('crypto.createDiffieHellman requires OpenSSL DH (not yet implemented)');
-  }
-
   var constants = {
     SSL_OP_ALL: 0,
     ENGINE_METHOD_RSA: 1,
@@ -1417,8 +1778,6 @@ string cryptoExtensionSource() pure @safe nothrow
     scrypt: scrypt,
     randomFillSync: randomFillSync,
     randomFill: randomFill,
-    generateKeyPairSync: generateKeyPairSync,
-    createDiffieHellman: createDiffieHellman,
     constants: constants
   };
 })();`;

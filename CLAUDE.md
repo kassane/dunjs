@@ -429,7 +429,7 @@ dub test -c unittest    # All unit tests
 | V8 TMP bridge | `source/dun/engine/v8/cppbindings.d` | compile-time | V8TypeName coverage, tag->name mapping |
 | JSC TMP bridge | `source/dun/engine/jsc/cppbindings.d` | compile-time | JSCTypeName coverage, kJSType* alignment |
 
-### Integration Tests (83 tests, 152 npm compat checks)
+### Integration Tests (86 tests, 152 npm compat checks)
 
 ```sh
 # Run against a specific backend
@@ -476,7 +476,11 @@ dub build -c v8  && BACKEND=v8  ./tests/integration/run.sh
 | Crypto | `crypto_sign` | 19 checks: createSign/createVerify with OpenSSL, RSA/ECDSA, hex/base64 encoding |
 | Zlib | `zlib_enhanced` | 33 checks: async deflate/inflate/gzip/gunzip, createDeflate/createGzip streams, constants |
 
-Backend test scores: **QuickJS 83/83**, **JSC 83/83**, **V8 83/83** (full parity across all 3 backends).
+| Express compat | `express_compat` | 102 checks: EventEmitter, streams, Buffer, URL, path, crypto, querystring, http, assert, os, util |
+| Bundler compat | `bundler_compat` | 91 checks: fs ops, path resolution, crypto hashing, Map/Set, RegExp, string ops, Promise, modules |
+| Crypto keygen | `crypto_keygen` | 12 checks: generateKeyPairSync RSA/EC, PEM output, sign+verify round-trip, DiffieHellman |
+
+Backend test scores: **QuickJS 86/86**, **JSC 86/86**, **V8 86/86** (full parity across all 3 backends).
 
 Test pattern: fixtures in `tests/integration/fixtures/*.{js,mjs,ts}`, expected stdout in `tests/integration/expected/*.txt`.
 
@@ -779,3 +783,5 @@ Benchmark impact (25 benchmarks, feature_bench.js):
 | 16i | Async zlib | deflate/inflate/gzip/gunzip async, createDeflate/createGzip streams, zlib.constants (35), brotli stubs | **Done** |
 | 16j | Crypto sign/verify | createSign/createVerify with OpenSSL EVP_DigestSign, RSA/ECDSA, hex/base64/buffer encoding | **Done** |
 | 16k | os enhancements | os.networkInterfaces (getifaddrs), os.userInfo (getpwuid), os.loadavg, os.version, os.machine | **Done** |
+| 16l | crypto.generateKeyPairSync | RSA/EC key pair generation with OpenSSL, PEM encoding, DiffieHellman stubs | **Done** |
+| 16m | Compat tests | express_compat (102 checks), bundler_compat (91 checks) — npm ecosystem validation | **Done** |

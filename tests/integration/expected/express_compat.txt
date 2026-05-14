@@ -1,0 +1,104 @@
+PASS: require is function
+PASS: require.resolve exists
+PASS: EventEmitter constructor
+PASS: setMaxListeners
+PASS: listenerCount
+PASS: eventNames
+PASS: prependListener
+PASS: EventEmitter.once returns promise
+PASS: Readable instance
+PASS: Readable has pipe
+PASS: Readable has on
+PASS: Transform instance
+PASS: pipeline exists
+PASS: stream.promises exists
+PASS: Buffer.from string
+PASS: Buffer.toString
+PASS: Buffer.toString utf8
+PASS: Buffer.toString hex
+PASS: Buffer.toString base64
+PASS: Buffer.from hex
+PASS: Buffer.concat
+PASS: Buffer.isBuffer
+PASS: Buffer.isBuffer string
+PASS: Buffer.byteLength
+PASS: Buffer.alloc
+PASS: Buffer.allocUnsafe
+PASS: URL pathname
+PASS: URL search
+PASS: URL hash
+PASS: URL hostname
+PASS: URLSearchParams get
+PASS: path.join
+PASS: path.resolve
+PASS: path.extname
+PASS: path.basename
+PASS: path.dirname
+PASS: path.parse
+PASS: path.format
+PASS: path.relative
+PASS: path.isAbsolute
+PASS: sha256 hash
+PASS: hmac
+PASS: randomBytes
+PASS: randomUUID
+PASS: timingSafeEqual
+PASS: qs.parse
+PASS: qs.stringify
+PASS: process.env
+PASS: process.cwd
+PASS: process.nextTick
+PASS: process.version
+PASS: process.versions
+PASS: util.format
+PASS: util.inherits
+PASS: util.promisify
+PASS: util.types
+PASS: util.deprecate
+PASS: http.createServer
+PASS: http.STATUS_CODES
+PASS: http.STATUS_CODES 200
+PASS: http.STATUS_CODES 404
+PASS: http.METHODS
+PASS: http.METHODS includes GET
+PASS: http.Agent
+PASS: http.globalAgent
+PASS: assert ok
+PASS: assert.strictEqual
+PASS: assert.deepStrictEqual
+PASS: assert.throws
+PASS: os.platform
+PASS: os.hostname
+PASS: os.tmpdir
+PASS: os.cpus
+PASS: os.totalmem
+PASS: os.userInfo
+PASS: os.networkInterfaces
+PASS: console.log
+PASS: console.error
+PASS: console.warn
+PASS: console.time
+PASS: console.timeEnd
+PASS: setTimeout
+PASS: setInterval
+PASS: clearTimeout
+PASS: clearInterval
+PASS: setImmediate
+PASS: Promise.all
+PASS: Promise.race
+PASS: Promise.allSettled
+PASS: JSON.parse
+PASS: JSON.stringify
+PASS: JSON.parse error
+PASS: Symbol.iterator
+PASS: Symbol.asyncIterator
+PASS: Symbol.hasInstance
+PASS: Symbol.toPrimitive
+PASS: globalThis
+PASS: TextEncoder
+PASS: TextDecoder
+PASS: atob
+PASS: btoa
+PASS: structuredClone
+---
+Total: 102/102 passed
