@@ -1,0 +1,44 @@
+PASS: STATUS_CODES is object
+PASS: STATUS_CODES 200
+PASS: STATUS_CODES 404
+PASS: STATUS_CODES 500
+PASS: STATUS_CODES 301
+PASS: STATUS_CODES 204
+PASS: STATUS_CODES 418
+PASS: METHODS is array
+PASS: METHODS has GET
+PASS: METHODS has POST
+PASS: METHODS has PUT
+PASS: METHODS has DELETE
+PASS: METHODS has PATCH
+PASS: METHODS has HEAD
+PASS: METHODS has OPTIONS
+PASS: Agent is function
+PASS: globalAgent exists
+PASS: globalAgent.maxSockets
+PASS: globalAgent.keepAlive
+PASS: custom agent maxSockets
+PASS: custom agent keepAlive
+PASS: agent.destroy
+PASS: agent.getName
+PASS: agent getName result
+PASS: request is function
+PASS: get is function
+PASS: req has write
+PASS: req has end
+PASS: req has abort
+PASS: req has destroy
+PASS: req has on
+PASS: req has setTimeout
+PASS: req has setHeader
+PASS: req has getHeader
+PASS: req has removeHeader
+PASS: req method default GET
+PASS: req path default /
+PASS: post req method
+PASS: post req path
+PASS: getHeader after set
+PASS: getHeader case insensitive
+PASS: getHeader after remove
+---
+Total: 42/42 passed

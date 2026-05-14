@@ -61,6 +61,8 @@ void installGlobals(IJSEngine engine, DunState* state) @trusted
     installTimers(engine);
     installMicrotask(engine);
     installProcess(engine);
+    registerEventsModule(engine);
+    registerBufferModule(engine);
     registerFsModule(engine);
     registerPathModule(engine);
     registerCryptoModule(engine);
@@ -68,8 +70,6 @@ void installGlobals(IJSEngine engine, DunState* state) @trusted
     registerHttpModule(engine);
     registerHttpsModule(engine);
     registerHttp2Module(engine);
-    registerBufferModule(engine);
-    registerEventsModule(engine);
     registerUrlModule(engine);
     registerOsModule(engine);
     registerZlibModule(engine);

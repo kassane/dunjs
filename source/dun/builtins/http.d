@@ -86,6 +86,25 @@ void registerHttpModule(IJSEngine engine) @trusted
     auto obj = engine.newObject();
     engine.setProperty(obj, "createServer", engine.newFunction(&jsHttpCreateServer, "createServer", 1));
 
+    // http.get/request/METHODS/STATUS_CODES via JS (uses fetch internally)
+    auto httpExtResult = engine.eval(httpExtensionSource(), "<http-ext>");
+    if (!httpExtResult.isError)
+    {
+        auto reqFn = engine.getProperty(httpExtResult.value, "request");
+        auto getFn = engine.getProperty(httpExtResult.value, "get");
+        auto methods = engine.getProperty(httpExtResult.value, "METHODS");
+        auto codes = engine.getProperty(httpExtResult.value, "STATUS_CODES");
+        auto agent = engine.getProperty(httpExtResult.value, "Agent");
+        auto globalAgent = engine.getProperty(httpExtResult.value, "globalAgent");
+        engine.setProperty(obj, "request", reqFn);
+        engine.setProperty(obj, "get", getFn);
+        engine.setProperty(obj, "METHODS", methods);
+        engine.setProperty(obj, "STATUS_CODES", codes);
+        engine.setProperty(obj, "Agent", agent);
+        engine.setProperty(obj, "globalAgent", globalAgent);
+    }
+    engine.freeValue(httpExtResult.value);
+
     auto global = engine.getGlobal();
     engine.setProperty(global, "__dun_cjs_http__", obj);
     engine.freeValue(global);
@@ -103,8 +122,9 @@ version (EngineQuickJS)
         auto ctx = cast(JSContext*) engine.rawContext();
         auto m = JS_NewCModule(ctx, "dun:http", &httpModuleInit);
         if (m is null) return;
-        JS_AddModuleExport(ctx, m, "createServer");
-        JS_AddModuleExport(ctx, m, "STATUS_CODES");
+        foreach (name; ["createServer", "request", "get", "METHODS",
+                        "STATUS_CODES", "Agent", "globalAgent"])
+            JS_AddModuleExport(ctx, m, name.ptr);
     }
 
     private extern (C) int httpModuleInit(JSContext* ctx, JSModuleDef* m) nothrow @trusted
@@ -113,7 +133,8 @@ version (EngineQuickJS)
         assert(m !is null, "Null JSModuleDef in httpModuleInit");
         auto global = JS_GetGlobalObject(ctx);
         auto httpObj = JS_GetPropertyStr(ctx, global, "__dun_cjs_http__");
-        foreach (name; ["createServer", "STATUS_CODES"])
+        foreach (name; ["createServer", "request", "get", "METHODS",
+                        "STATUS_CODES", "Agent", "globalAgent"])
         {
             auto fn = JS_GetPropertyStr(ctx, httpObj, name.ptr);
             JS_SetModuleExport(ctx, m, name.ptr, fn);
@@ -1425,4 +1446,223 @@ void parseRequestHeaders(HttpConnState* conn, const(char)[] text) nothrow @trust
         }
     }
     catch (Exception) {}
+}
+
+string httpExtensionSource() pure @safe nothrow
+{
+    return `(function() {
+  var STATUS_CODES = {
+    100: 'Continue', 101: 'Switching Protocols', 102: 'Processing',
+    200: 'OK', 201: 'Created', 202: 'Accepted', 203: 'Non-Authoritative Information',
+    204: 'No Content', 205: 'Reset Content', 206: 'Partial Content',
+    300: 'Multiple Choices', 301: 'Moved Permanently', 302: 'Found',
+    303: 'See Other', 304: 'Not Modified', 307: 'Temporary Redirect',
+    308: 'Permanent Redirect',
+    400: 'Bad Request', 401: 'Unauthorized', 402: 'Payment Required',
+    403: 'Forbidden', 404: 'Not Found', 405: 'Method Not Allowed',
+    406: 'Not Acceptable', 407: 'Proxy Authentication Required',
+    408: 'Request Timeout', 409: 'Conflict', 410: 'Gone',
+    411: 'Length Required', 412: 'Precondition Failed',
+    413: 'Payload Too Large', 414: 'URI Too Long',
+    415: 'Unsupported Media Type', 416: 'Range Not Satisfiable',
+    417: 'Expectation Failed', 418: "I'm a Teapot",
+    422: 'Unprocessable Entity', 425: 'Too Early',
+    426: 'Upgrade Required', 428: 'Precondition Required',
+    429: 'Too Many Requests', 431: 'Request Header Fields Too Large',
+    451: 'Unavailable For Legal Reasons',
+    500: 'Internal Server Error', 501: 'Not Implemented',
+    502: 'Bad Gateway', 503: 'Service Unavailable',
+    504: 'Gateway Timeout', 505: 'HTTP Version Not Supported',
+    507: 'Insufficient Storage', 511: 'Network Authentication Required'
+  };
+
+  var METHODS = [
+    'ACL', 'BIND', 'CHECKOUT', 'CONNECT', 'COPY', 'DELETE', 'GET',
+    'HEAD', 'LINK', 'LOCK', 'M-SEARCH', 'MERGE', 'MKACTIVITY',
+    'MKCALENDAR', 'MKCOL', 'MOVE', 'NOTIFY', 'OPTIONS', 'PATCH',
+    'POST', 'PROPFIND', 'PROPPATCH', 'PURGE', 'PUT', 'REBIND',
+    'REPORT', 'SEARCH', 'SOURCE', 'SUBSCRIBE', 'TRACE', 'UNBIND',
+    'UNLINK', 'UNLOCK', 'UNSUBSCRIBE'
+  ];
+
+  function Agent(options) {
+    this.maxSockets = (options && options.maxSockets) || Infinity;
+    this.maxFreeSockets = (options && options.maxFreeSockets) || 256;
+    this.keepAlive = (options && options.keepAlive) || false;
+    this.keepAliveMsecs = (options && options.keepAliveMsecs) || 1000;
+    this.requests = {};
+    this.sockets = {};
+    this.freeSockets = {};
+  }
+  Agent.prototype.destroy = function() {
+    this.requests = {};
+    this.sockets = {};
+    this.freeSockets = {};
+  };
+  Agent.prototype.getName = function(options) {
+    var name = (options.host || 'localhost') + ':';
+    name += options.port || 80;
+    if (options.localAddress) name += ':' + options.localAddress;
+    return name;
+  };
+
+  var globalAgent = new Agent();
+
+  function IncomingMessage(statusCode, headers, body) {
+    EventEmitter.call(this);
+    this.statusCode = statusCode;
+    this.statusMessage = STATUS_CODES[statusCode] || '';
+    this.headers = headers || {};
+    this.httpVersion = '1.1';
+    this._body = body;
+    this._consumed = false;
+  }
+  IncomingMessage.prototype = Object.create(EventEmitter.prototype);
+  IncomingMessage.prototype.constructor = IncomingMessage;
+
+  function ClientRequest(options, callback) {
+    EventEmitter.call(this);
+    this._options = options;
+    this._callback = callback;
+    this._body = '';
+    this._ended = false;
+    this._aborted = false;
+    this.method = (options.method || 'GET').toUpperCase();
+    this.path = options.path || options.pathname || '/';
+    this.headers = options.headers || {};
+    this.socket = null;
+    this.finished = false;
+  }
+  ClientRequest.prototype = Object.create(EventEmitter.prototype);
+  ClientRequest.prototype.constructor = ClientRequest;
+
+  ClientRequest.prototype.write = function(chunk) {
+    if (this._ended) return false;
+    this._body += (typeof chunk === 'string') ? chunk : String(chunk);
+    return true;
+  };
+
+  ClientRequest.prototype.end = function(data, encoding, callback) {
+    if (typeof data === 'function') { callback = data; data = undefined; }
+    if (typeof encoding === 'function') { callback = encoding; encoding = undefined; }
+    if (data !== undefined && data !== null) this.write(data);
+    this._ended = true;
+    this.finished = true;
+    var self = this;
+
+    var protocol = self._options.protocol || 'http:';
+    var hostname = self._options.hostname || self._options.host || 'localhost';
+    var port = self._options.port || (protocol === 'https:' ? 443 : 80);
+    var path = self.path;
+    var url = protocol + '//' + hostname + ':' + port + path;
+
+    var fetchOpts = { method: self.method, headers: self.headers };
+    if (self._body && self.method !== 'GET' && self.method !== 'HEAD') {
+      fetchOpts.body = self._body;
+    }
+
+    if (typeof fetch === 'function') {
+      try {
+        fetch(url, fetchOpts).then(function(resp) {
+          return resp.text().then(function(body) {
+            var respHeaders = {};
+            if (resp.headers && typeof resp.headers.forEach === 'function') {
+              resp.headers.forEach(function(v, k) { respHeaders[k] = v; });
+            }
+            var res = new IncomingMessage(resp.status, respHeaders, body);
+            if (self._callback) self._callback(res);
+            self.emit('response', res);
+            if (body) {
+              res.emit('data', body);
+            }
+            res.emit('end');
+          });
+        })['catch'](function(err) {
+          self.emit('error', err);
+        });
+      } catch(e) {
+        Promise.resolve().then(function() { self.emit('error', e); });
+      }
+    } else {
+      Promise.resolve().then(function() {
+        self.emit('error', new Error('fetch not available'));
+      });
+    }
+
+    if (callback) this.once('response', callback);
+    return this;
+  };
+
+  ClientRequest.prototype.abort = function() {
+    this._aborted = true;
+    this.emit('abort');
+  };
+
+  ClientRequest.prototype.destroy = function(err) {
+    this._aborted = true;
+    if (err) this.emit('error', err);
+    this.emit('close');
+    return this;
+  };
+
+  ClientRequest.prototype.setTimeout = function(ms, callback) {
+    if (callback) this.once('timeout', callback);
+    return this;
+  };
+
+  ClientRequest.prototype.setNoDelay = function() { return this; };
+  ClientRequest.prototype.setSocketKeepAlive = function() { return this; };
+  ClientRequest.prototype.flushHeaders = function() {};
+  ClientRequest.prototype.getHeader = function(name) {
+    return this.headers[name.toLowerCase()];
+  };
+  ClientRequest.prototype.setHeader = function(name, value) {
+    this.headers[name.toLowerCase()] = value;
+  };
+  ClientRequest.prototype.removeHeader = function(name) {
+    delete this.headers[name.toLowerCase()];
+  };
+
+  function request(urlOrOptions, optionsOrCallback, callback) {
+    var options;
+    if (typeof urlOrOptions === 'string') {
+      try {
+        var parsed = new URL(urlOrOptions);
+        options = {
+          protocol: parsed.protocol,
+          hostname: parsed.hostname,
+          port: parsed.port,
+          path: parsed.pathname + parsed.search
+        };
+      } catch(e) {
+        options = { path: urlOrOptions };
+      }
+      if (typeof optionsOrCallback === 'function') {
+        callback = optionsOrCallback;
+      } else if (typeof optionsOrCallback === 'object' && optionsOrCallback !== null) {
+        var keys = Object.keys(optionsOrCallback);
+        for (var i = 0; i < keys.length; i++) options[keys[i]] = optionsOrCallback[keys[i]];
+      }
+    } else {
+      options = urlOrOptions || {};
+      callback = typeof optionsOrCallback === 'function' ? optionsOrCallback : callback;
+    }
+    return new ClientRequest(options, callback);
+  }
+
+  function get(urlOrOptions, optionsOrCallback, callback) {
+    var req = request(urlOrOptions, optionsOrCallback, callback);
+    req.end();
+    return req;
+  }
+
+  return {
+    request: request,
+    get: get,
+    METHODS: METHODS,
+    STATUS_CODES: STATUS_CODES,
+    Agent: Agent,
+    globalAgent: globalAgent
+  };
+})();`;
 }
