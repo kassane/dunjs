@@ -38,6 +38,12 @@ check('diagnostics_channel module', typeof require('diagnostics_channel') === 'o
 check('cluster module', typeof require('cluster') === 'object');
 check('async_hooks module', typeof require('async_hooks') === 'object');
 check('worker_threads module', typeof require('worker_threads') === 'object');
+check('tty module', typeof require('tty') === 'object');
+check('constants module', typeof require('constants') === 'object');
+check('module module', typeof require('module') === 'object');
+check('timers module', typeof require('timers') === 'object');
+check('process module', typeof require('process') === 'object');
+check('console module', typeof require('console') === 'object');
 
 // Key API surface checks
 var fs = require('fs');
@@ -116,6 +122,30 @@ check('process.platform', typeof process.platform === 'string');
 check('process.arch', typeof process.arch === 'string');
 check('process.version', typeof process.version === 'string');
 check('process.versions', typeof process.versions === 'object');
+
+var http = require('http');
+check('http.createServer', typeof http.createServer === 'function');
+check('http.request', typeof http.request === 'function');
+check('http.get', typeof http.get === 'function');
+check('http.METHODS', Array.isArray(http.METHODS));
+check('http.STATUS_CODES', typeof http.STATUS_CODES === 'object');
+check('http.Agent', typeof http.Agent === 'function');
+check('http.globalAgent', typeof http.globalAgent === 'object');
+
+var https = require('https');
+check('https.createServer', typeof https.createServer === 'function');
+check('https.request', typeof https.request === 'function');
+check('https.get', typeof https.get === 'function');
+
+var tty = require('tty');
+check('tty.isatty', typeof tty.isatty === 'function');
+check('tty.ReadStream', typeof tty.ReadStream === 'function');
+check('tty.WriteStream', typeof tty.WriteStream === 'function');
+
+var mod = require('module');
+check('module.builtinModules', Array.isArray(mod.builtinModules));
+check('module.isBuiltin', typeof mod.isBuiltin === 'function');
+check('module.createRequire', typeof mod.createRequire === 'function');
 
 // Globals
 check('Buffer', typeof Buffer !== 'undefined');

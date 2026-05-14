@@ -27,6 +27,12 @@ PASS: diagnostics_channel module
 PASS: cluster module
 PASS: async_hooks module
 PASS: worker_threads module
+PASS: tty module
+PASS: constants module
+PASS: module module
+PASS: timers module
+PASS: process module
+PASS: console module
 PASS: fs.readFileSync
 PASS: fs.writeFileSync
 PASS: fs.existsSync
@@ -88,6 +94,22 @@ PASS: process.platform
 PASS: process.arch
 PASS: process.version
 PASS: process.versions
+PASS: http.createServer
+PASS: http.request
+PASS: http.get
+PASS: http.METHODS
+PASS: http.STATUS_CODES
+PASS: http.Agent
+PASS: http.globalAgent
+PASS: https.createServer
+PASS: https.request
+PASS: https.get
+PASS: tty.isatty
+PASS: tty.ReadStream
+PASS: tty.WriteStream
+PASS: module.builtinModules
+PASS: module.isBuiltin
+PASS: module.createRequire
 PASS: Buffer
 PASS: setTimeout
 PASS: setInterval
@@ -96,4 +118,4 @@ PASS: console.log
 PASS: console.error
 PASS: console.warn
 ---
-Total: 97/97 passed
+Total: 119/119 passed

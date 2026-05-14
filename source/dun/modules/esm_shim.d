@@ -371,6 +371,12 @@ private string builtinGlobalProp(string specifier) @safe pure nothrow
     if (specifier == "dun:punycode" || specifier == "node:punycode" || specifier == "punycode") return "__dun_cjs_punycode__";
     if (specifier == "dun:diagnostics_channel" || specifier == "node:diagnostics_channel" || specifier == "diagnostics_channel") return "__dun_cjs_diagnostics_channel__";
     if (specifier == "dun:domain" || specifier == "node:domain" || specifier == "domain") return "__dun_cjs_domain__";
+    if (specifier == "dun:tty" || specifier == "node:tty" || specifier == "tty") return "__dun_cjs_tty__";
+    if (specifier == "dun:constants" || specifier == "node:constants" || specifier == "constants") return "__dun_cjs_constants__";
+    if (specifier == "dun:module" || specifier == "node:module" || specifier == "module") return "__dun_cjs_module__";
+    if (specifier == "dun:timers" || specifier == "node:timers" || specifier == "timers") return "__dun_cjs_timers__";
+    if (specifier == "dun:process" || specifier == "node:process" || specifier == "process") return "__dun_cjs_process__";
+    if (specifier == "dun:console" || specifier == "node:console" || specifier == "console") return "__dun_cjs_console__";
     return "";
 }
 

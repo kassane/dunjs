@@ -55,6 +55,7 @@ void installGlobals(IJSEngine engine, DunState* state) @trusted
     import dun.builtins.cluster : registerClusterModule;
     import dun.builtins.worker_threads : registerWorkerThreadsModule;
     import dun.builtins.readline : registerReadlineModule;
+    import dun.builtins.tty : registerTtyModule;
     import dun.modules.require : installRequire;
 
     installConsole(engine);
@@ -90,6 +91,7 @@ void installGlobals(IJSEngine engine, DunState* state) @trusted
     registerClusterModule(engine);
     registerWorkerThreadsModule(engine);
     registerReadlineModule(engine);
+    registerTtyModule(engine);
     registerStubModules(engine);
 
     version (Posix)
@@ -154,6 +156,37 @@ private void registerStubModules(IJSEngine engine) @trusted
     },
     active: null
   };
+  var constants = { fs: {}, crypto: {}, os: {} };
+  try {
+    var fsMod = globalThis.__dun_cjs_fs__;
+    if (fsMod && fsMod.constants) constants.fs = fsMod.constants;
+  } catch(e) {}
+
+  var moduleMod = {
+    builtinModules: ['fs','path','crypto','net','http','https','os','buffer',
+      'events','url','stream','util','assert','querystring','string_decoder',
+      'child_process','zlib','dns','readline','vm','tls','dgram','perf_hooks',
+      'punycode','domain','diagnostics_channel','cluster','async_hooks',
+      'worker_threads','tty','constants','module','timers','process','console'],
+    Module: function() {},
+    createRequire: function() { return typeof require === 'function' ? require : function(){}; },
+    isBuiltin: function(name) { return moduleMod.builtinModules.indexOf(name) !== -1; },
+    _cache: {},
+    _resolveFilename: function(request) { return request; }
+  };
+
+  var timersMod = {
+    setTimeout: typeof setTimeout !== 'undefined' ? setTimeout : function(){},
+    setInterval: typeof setInterval !== 'undefined' ? setInterval : function(){},
+    clearTimeout: typeof clearTimeout !== 'undefined' ? clearTimeout : function(){},
+    clearInterval: typeof clearInterval !== 'undefined' ? clearInterval : function(){},
+    setImmediate: typeof setImmediate !== 'undefined' ? setImmediate : function(fn){fn();},
+    clearImmediate: typeof clearImmediate !== 'undefined' ? clearImmediate : function(){}
+  };
+
+  var processMod = typeof process !== 'undefined' ? process : {};
+  var consoleMod = typeof console !== 'undefined' ? console : {};
+
   if (typeof globalThis !== 'undefined') {
     globalThis.__dun_cjs_tls__ = tls;
     globalThis.__dun_cjs_dgram__ = dgram;
@@ -161,6 +194,11 @@ private void registerStubModules(IJSEngine engine) @trusted
     globalThis.__dun_cjs_punycode__ = punycode;
     globalThis.__dun_cjs_diagnostics_channel__ = diagnostics_channel;
     globalThis.__dun_cjs_domain__ = domain;
+    globalThis.__dun_cjs_constants__ = constants;
+    globalThis.__dun_cjs_module__ = moduleMod;
+    globalThis.__dun_cjs_timers__ = timersMod;
+    globalThis.__dun_cjs_process__ = processMod;
+    globalThis.__dun_cjs_console__ = consoleMod;
   }
 })()`, "<stubs>");
     engine.freeValue(result.value);
