@@ -332,10 +332,6 @@
 			"dflags": [
 				"-O",
 				"-g"
-			],
-			"dflags-ldc": [
-				"-O3",
-				"-g"
 			]
 		},
 		"release-pgo-gen": {
@@ -347,7 +343,6 @@
 				"--fprofile-instr-generate=build/dun-%m.profraw"
 			],
 			"lflags-posix": [
-				"-L/opt/ldc2-1.42.0-linux-x86_64/lib",
 				"-lldc_rt.profile"
 			]
 		},
