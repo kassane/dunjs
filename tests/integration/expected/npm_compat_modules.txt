@@ -7,6 +7,7 @@ PASS: https module
 PASS: os module
 PASS: buffer module
 PASS: events module
+PASS: EventEmitter.listenerCount
 PASS: url module
 PASS: stream module
 PASS: util module
@@ -67,6 +68,7 @@ PASS: isIP ::1
 PASS: isIP invalid
 PASS: isIPv4 true
 PASS: isIPv4 false
+PASS: net.Socket
 PASS: stream.Readable
 PASS: stream.Writable
 PASS: stream.Transform
@@ -124,6 +126,7 @@ PASS: server.address
 PASS: server.listening
 PASS: server.timeout
 PASS: server.keepAliveTimeout
+PASS: http req.finished initial
 PASS: https.createServer
 PASS: https.request
 PASS: https.get
@@ -192,6 +195,23 @@ PASS: util.types.isAsyncFunction
 PASS: util.types.isNumberObject
 PASS: util.types.isStringObject
 PASS: util.types.isBooleanObject
+PASS: assert.ok
+PASS: assert.equal
+PASS: assert.notEqual
+PASS: assert.strictEqual
+PASS: assert.notStrictEqual
+PASS: assert.deepEqual
+PASS: assert.deepStrictEqual
+PASS: assert.notDeepEqual
+PASS: assert.notDeepStrictEqual
+PASS: assert.throws
+PASS: assert.doesNotThrow
+PASS: assert.rejects
+PASS: assert.doesNotReject
+PASS: assert.match
+PASS: assert.doesNotMatch
+PASS: assert.fail
+PASS: assert.ifError
 PASS: Buffer
 PASS: setTimeout
 PASS: setInterval
@@ -200,4 +220,4 @@ PASS: console.log
 PASS: console.error
 PASS: console.warn
 ---
-Total: 201/201 passed
+Total: 221/221 passed

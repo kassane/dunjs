@@ -209,7 +209,8 @@ void ensureHttpFnsCached(IJSEngine engine) @trusted
         "  var req = { method: method, url: url, httpVersion: 'HTTP/1.1', __cid: cid," ~
         "    get headers() { var h = _gh(cid); Object.defineProperty(this, 'headers', {value: h}); return h; }," ~
         "    on: globalThis.__httpReqOn };" ~
-        "  var res = { __cid: cid, statusCode: 200, headersSent: false," ~
+        "  var res = { __cid: cid, statusCode: 200, statusMessage: 'OK', headersSent: false," ~
+        "    finished: false, writableEnded: false, writableFinished: false," ~
         "    setHeader: globalThis.__httpSetHeader," ~
         "    getHeader: globalThis.__httpGetHeader," ~
         "    getHeaders: globalThis.__httpGetHeaders," ~
@@ -664,7 +665,11 @@ JSHandle makeResObj(IJSEngine engine, int connId) @trusted
     auto obj = engine.newObject();
     engine.setProperty(obj, "__cid", engine.newInt(connId));
     engine.setProperty(obj, "statusCode", engine.newInt(200));
+    engine.setProperty(obj, "statusMessage", engine.newString("OK"));
     engine.setProperty(obj, "headersSent", engine.newBool(false));
+    engine.setProperty(obj, "finished", engine.newBool(false));
+    engine.setProperty(obj, "writableEnded", engine.newBool(false));
+    engine.setProperty(obj, "writableFinished", engine.newBool(false));
     ensureHttpFnsCached(engine);
     engine.setProperty(obj, "setHeader", engine.dupValue(_httpResSetHeader));
     engine.setProperty(obj, "getHeader", engine.dupValue(_httpResGetHeader));
@@ -809,7 +814,11 @@ JSHandle jsResWriteHead(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
     auto conn = &httpConns[connId];
     if (args.length >= 1 && engine.isNumber(args[0]))
+    {
         conn.statusCode = engine.extractInt(args[0]);
+        engine.setProperty(thisVal, "statusCode", engine.newInt(conn.statusCode));
+        engine.setProperty(thisVal, "statusMessage", engine.newString(statusMessage(conn.statusCode)));
+    }
 
     // Process headers object (second argument)
     if (args.length >= 2 && engine.isObject(args[1]))
@@ -902,6 +911,11 @@ JSHandle jsResEnd(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
         // Flush everything in ONE write() — avoids Nagle+delayed-ACK latency
         flushResponse(conn);
 
+        // Mark response as finished (Node.js compat)
+        engine.setProperty(thisVal, "finished", engine.newBool(true));
+        engine.setProperty(thisVal, "writableEnded", engine.newBool(true));
+        engine.setProperty(thisVal, "writableFinished", engine.newBool(true));
+
         if (conn.keepAlive)
         {
             // Reset for next request on same connection
@@ -951,6 +965,43 @@ JSHandle jsResEnd(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     {
         auto state = cast(DunState*) ctx;
         return state.engine.newUndefined();
+    }
+}
+
+// CTFE pre-computed status message text for a given HTTP status code
+string statusMessage(int code) pure nothrow @safe @nogc
+{
+    switch (code)
+    {
+        case 100: return "Continue";
+        case 101: return "Switching Protocols";
+        case 200: return "OK";
+        case 201: return "Created";
+        case 202: return "Accepted";
+        case 204: return "No Content";
+        case 301: return "Moved Permanently";
+        case 302: return "Found";
+        case 304: return "Not Modified";
+        case 307: return "Temporary Redirect";
+        case 308: return "Permanent Redirect";
+        case 400: return "Bad Request";
+        case 401: return "Unauthorized";
+        case 403: return "Forbidden";
+        case 404: return "Not Found";
+        case 405: return "Method Not Allowed";
+        case 408: return "Request Timeout";
+        case 409: return "Conflict";
+        case 410: return "Gone";
+        case 413: return "Payload Too Large";
+        case 415: return "Unsupported Media Type";
+        case 422: return "Unprocessable Entity";
+        case 429: return "Too Many Requests";
+        case 500: return "Internal Server Error";
+        case 501: return "Not Implemented";
+        case 502: return "Bad Gateway";
+        case 503: return "Service Unavailable";
+        case 504: return "Gateway Timeout";
+        default: return "OK";
     }
 }
 

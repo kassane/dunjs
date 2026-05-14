@@ -170,6 +170,13 @@ string eventEmitterSource() pure @safe nothrow
 
   EventEmitter.defaultMaxListeners = 10;
 
+  EventEmitter.listenerCount = function(emitter, eventName) {
+    if (emitter && typeof emitter.listenerCount === 'function') {
+      return emitter.listenerCount(eventName);
+    }
+    return 0;
+  };
+
   function once(emitter, event, options) {
     return new Promise(function(resolve, reject) {
       var signal = options && options.signal;

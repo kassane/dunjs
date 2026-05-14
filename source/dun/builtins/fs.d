@@ -551,20 +551,44 @@ JSHandle jsReaddirSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     assert(state !is null, "Null DunState in jsReaddirSync");
     auto engine = state.engine;
     if (args.length < 1) return engine.throwTypeError("readdirSync requires a path argument");
-    auto path = engine.extractString(args[0]);
-    if (!checkPerm(state, Permission.read, path))
-        return throwPermError(engine, "read", path);
-    try
+    auto dirPath = engine.extractString(args[0]);
+    if (!checkPerm(state, Permission.read, dirPath))
+        return throwPermError(engine, "read", dirPath);
+    version (Posix)
     {
-        import std.file : dirEntries, SpanMode;
-        import std.path : baseName;
+        import core.sys.posix.dirent : DIR, dirent, opendir, readdir, closedir;
+        import core.stdc.string : strlen;
+        auto cpath = (dirPath ~ '\0');
+        auto dir = opendir(cpath.ptr);
+        if (dir is null)
+            return throwNodeError(engine, "ENOENT", "no such file or directory", "scandir", dirPath);
+        scope(exit) closedir(dir);
         auto arr = engine.newArray();
         uint idx = 0;
-        foreach (entry; dirEntries(path, SpanMode.shallow))
-            engine.setPropertyIndex(arr, idx++, engine.newString(baseName(entry.name)));
+        while (true)
+        {
+            auto entry = readdir(dir);
+            if (entry is null) break;
+            auto name = cast(string) entry.d_name.ptr[0 .. strlen(entry.d_name.ptr)];
+            if (name == "." || name == "..") continue;
+            engine.setPropertyIndex(arr, idx++, engine.newString(name));
+        }
         return arr;
     }
-    catch (Exception e) { return throwSystemError(engine, "scandir", path, e); }
+    else
+    {
+        try
+        {
+            import std.file : dirEntries, SpanMode;
+            import std.path : baseName;
+            auto arr = engine.newArray();
+            uint idx = 0;
+            foreach (entry; dirEntries(dirPath, SpanMode.shallow))
+                engine.setPropertyIndex(arr, idx++, engine.newString(baseName(entry.name)));
+            return arr;
+        }
+        catch (Exception e) { return throwSystemError(engine, "scandir", dirPath, e); }
+    }
 }
 
 JSHandle jsStatSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted

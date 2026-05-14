@@ -22,6 +22,24 @@ void registerNetModule(IJSEngine engine) @trusted
     engine.setProperty(obj, "isIPv4", engine.newFunction(&jsNetIsIPv4, "isIPv4", 1));
     engine.setProperty(obj, "isIPv6", engine.newFunction(&jsNetIsIPv6, "isIPv6", 1));
 
+    // net.Socket constructor — many npm packages check typeof net.Socket === 'function'
+    auto socketResult = engine.eval(
+        "(function Socket(options) {" ~
+        "  this.readable = true;" ~
+        "  this.writable = true;" ~
+        "  this.destroyed = false;" ~
+        "  this.connecting = false;" ~
+        "  this.localAddress = '';" ~
+        "  this.localPort = 0;" ~
+        "  this.remoteAddress = '';" ~
+        "  this.remoteFamily = '';" ~
+        "  this.remotePort = 0;" ~
+        "})", "<net-socket>");
+    if (!socketResult.isError)
+        engine.setProperty(obj, "Socket", socketResult.value);
+    else
+        engine.freeValue(socketResult.value);
+
     auto global = engine.getGlobal();
     engine.setProperty(global, "__dun_cjs_net__", obj);
     engine.freeValue(global);
@@ -39,7 +57,7 @@ version (EngineQuickJS)
         auto ctx = cast(JSContext*) engine.rawContext();
         auto m = JS_NewCModule(ctx, "dun:net", &netModuleInit);
         if (m is null) return;
-        foreach (name; ["createServer", "createConnection", "connect", "isIP", "isIPv4", "isIPv6"])
+        foreach (name; ["createServer", "createConnection", "connect", "isIP", "isIPv4", "isIPv6", "Socket"])
             JS_AddModuleExport(ctx, m, name.ptr);
     }
 
@@ -49,7 +67,7 @@ version (EngineQuickJS)
         assert(m !is null, "Null JSModuleDef in netModuleInit");
         auto global = JS_GetGlobalObject(ctx);
         auto netObj = JS_GetPropertyStr(ctx, global, "__dun_cjs_net__");
-        foreach (name; ["createServer", "createConnection", "connect", "isIP", "isIPv4", "isIPv6"])
+        foreach (name; ["createServer", "createConnection", "connect", "isIP", "isIPv4", "isIPv6", "Socket"])
         {
             auto fn = JS_GetPropertyStr(ctx, netObj, name.ptr);
             JS_SetModuleExport(ctx, m, name.ptr, fn);

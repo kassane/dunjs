@@ -1,0 +1,13 @@
+PASS: readFileSync ENOENT code
+PASS: statSync ENOENT code
+PASS: existsSync returns false
+PASS: path.resolve absolute
+PASS: path.relative
+PASS: TypeError instanceof
+PASS: ReferenceError instanceof
+PASS: SyntaxError instanceof
+PASS: RangeError exists
+PASS: URIError exists
+PASS: EvalError exists
+---
+Total: 11/11 passed

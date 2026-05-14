@@ -41,11 +41,16 @@ version (EngineQuickJS)
         JS_AddModuleExport(ctx, m, "notStrictEqual");
         JS_AddModuleExport(ctx, m, "deepEqual");
         JS_AddModuleExport(ctx, m, "deepStrictEqual");
+        JS_AddModuleExport(ctx, m, "notDeepEqual");
+        JS_AddModuleExport(ctx, m, "notDeepStrictEqual");
         JS_AddModuleExport(ctx, m, "throws");
         JS_AddModuleExport(ctx, m, "doesNotThrow");
         JS_AddModuleExport(ctx, m, "rejects");
+        JS_AddModuleExport(ctx, m, "doesNotReject");
         JS_AddModuleExport(ctx, m, "match");
+        JS_AddModuleExport(ctx, m, "doesNotMatch");
         JS_AddModuleExport(ctx, m, "fail");
+        JS_AddModuleExport(ctx, m, "ifError");
         JS_AddModuleExport(ctx, m, "AssertionError");
     }
 
@@ -59,8 +64,9 @@ version (EngineQuickJS)
         JS_SetModuleExport(ctx, m, "default", JS_DupValue(ctx, assertMod));
         static immutable names = [
             "ok", "equal", "notEqual", "strictEqual", "notStrictEqual",
-            "deepEqual", "deepStrictEqual", "throws", "doesNotThrow",
-            "rejects", "match", "fail", "AssertionError"
+            "deepEqual", "deepStrictEqual", "notDeepEqual", "notDeepStrictEqual",
+            "throws", "doesNotThrow", "rejects", "doesNotReject",
+            "match", "doesNotMatch", "fail", "ifError", "AssertionError"
         ];
         foreach (name; names)
         {
@@ -222,6 +228,46 @@ private string assertSource() pure nothrow @safe
             message: message || 'String does not match regexp',
             actual: string, expected: regexp, operator: 'match'
         });
+    };
+
+    assertFn.notDeepEqual = function notDeepEqual(actual, expected, message) {
+        if (deepEqual(actual, expected)) throw new AssertionError({
+            message: message, actual: actual, expected: expected, operator: 'notDeepEqual'
+        });
+    };
+
+    assertFn.notDeepStrictEqual = function notDeepStrictEqual(actual, expected, message) {
+        if (deepEqual(actual, expected)) throw new AssertionError({
+            message: message, actual: actual, expected: expected, operator: 'notDeepStrictEqual'
+        });
+    };
+
+    assertFn.doesNotMatch = function doesNotMatch(string, regexp, message) {
+        if (regexp.test(string)) throw new AssertionError({
+            message: message || 'String should not match regexp',
+            actual: string, expected: regexp, operator: 'doesNotMatch'
+        });
+    };
+
+    assertFn.doesNotReject = async function doesNotReject(asyncFn, expectedErr, message) {
+        try {
+            var p = typeof asyncFn === 'function' ? asyncFn() : asyncFn;
+            await p;
+        } catch(e) {
+            throw new AssertionError({
+                message: message || 'Expected promise not to reject: ' + e.message,
+                actual: e, operator: 'doesNotReject'
+            });
+        }
+    };
+
+    assertFn.ifError = function ifError(value) {
+        if (value !== null && value !== undefined) {
+            throw value instanceof Error ? value : new AssertionError({
+                message: 'ifError got unwanted value: ' + value,
+                actual: value, operator: 'ifError'
+            });
+        }
     };
 
     assertFn.fail = function fail(message) {

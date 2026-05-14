@@ -18,6 +18,7 @@ check('https module', typeof require('https') === 'object');
 check('os module', typeof require('os') === 'object');
 check('buffer module', typeof require('buffer') === 'object');
 check('events module', typeof require('events') === 'object');
+check('EventEmitter.listenerCount', typeof EventEmitter.listenerCount === 'function');
 check('url module', typeof require('url') === 'object');
 check('stream module', typeof require('stream') === 'object');
 check('util module', typeof require('util') === 'object');
@@ -89,6 +90,7 @@ check('isIP ::1', net.isIP('::1') === 6);
 check('isIP invalid', net.isIP('not-an-ip') === 0);
 check('isIPv4 true', net.isIPv4('192.168.1.1') === true);
 check('isIPv4 false', net.isIPv4('::1') === false);
+check('net.Socket', typeof net.Socket === 'function');
 
 var stream = require('stream');
 check('stream.Readable', typeof stream.Readable === 'function');
@@ -163,6 +165,10 @@ check('server.address', typeof srv.address === 'function');
 check('server.listening', srv.listening === false);
 check('server.timeout', typeof srv.timeout === 'number');
 check('server.keepAliveTimeout', typeof srv.keepAliveTimeout === 'number');
+
+// http.request finished property (Node.js compat)
+var req = http.request({hostname: 'localhost', port: 1});
+check('http req.finished initial', req.finished === false);
 
 var https = require('https');
 check('https.createServer', typeof https.createServer === 'function');
@@ -275,6 +281,26 @@ check('util.types.isAsyncFunction', util.types.isAsyncFunction(async function(){
 check('util.types.isNumberObject', util.types.isNumberObject(new Number(1)) === true);
 check('util.types.isStringObject', util.types.isStringObject(new String('a')) === true);
 check('util.types.isBooleanObject', util.types.isBooleanObject(new Boolean(true)) === true);
+
+// assert module API surface
+var assert = require('assert');
+check('assert.ok', typeof assert.ok === 'function');
+check('assert.equal', typeof assert.equal === 'function');
+check('assert.notEqual', typeof assert.notEqual === 'function');
+check('assert.strictEqual', typeof assert.strictEqual === 'function');
+check('assert.notStrictEqual', typeof assert.notStrictEqual === 'function');
+check('assert.deepEqual', typeof assert.deepEqual === 'function');
+check('assert.deepStrictEqual', typeof assert.deepStrictEqual === 'function');
+check('assert.notDeepEqual', typeof assert.notDeepEqual === 'function');
+check('assert.notDeepStrictEqual', typeof assert.notDeepStrictEqual === 'function');
+check('assert.throws', typeof assert.throws === 'function');
+check('assert.doesNotThrow', typeof assert.doesNotThrow === 'function');
+check('assert.rejects', typeof assert.rejects === 'function');
+check('assert.doesNotReject', typeof assert.doesNotReject === 'function');
+check('assert.match', typeof assert.match === 'function');
+check('assert.doesNotMatch', typeof assert.doesNotMatch === 'function');
+check('assert.fail', typeof assert.fail === 'function');
+check('assert.ifError', typeof assert.ifError === 'function');
 
 // Globals
 check('Buffer', typeof Buffer !== 'undefined');
