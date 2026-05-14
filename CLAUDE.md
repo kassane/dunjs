@@ -162,12 +162,12 @@ All runtime globals are **engine-agnostic** (use `IJSEngine` + `NativeCallback`)
 | `console` | stub (globalThis) | `require('console')` — delegates to global `console` |
 | `fetch` | `registerFetchGlobal(engine)` | Global `fetch()` (Posix, HTTPS via OpenSSL) |
 | Web globals | `installWebCompat(engine)` | `atob`, `btoa`, `structuredClone`, `TextEncoder`, `TextDecoder`, native Uint8Array creation |
-| Web APIs | `installWebAPIs(engine)` | `performance`, `EventTarget`, `Event`, `CustomEvent`, `AbortController`, `AbortSignal`, `DOMException`, `navigator`, `Blob`, `File`, `FormData`, `Headers`, `Request`, `Response`, `MessageChannel`, `MessagePort`, `BroadcastChannel`, `ReadableStream`, `WritableStream`, `TransformStream`, `setImmediate`, `clearImmediate`, `Promise.withResolvers`, `crypto.getRandomValues`, `crypto.randomUUID`, `console.time/timeEnd/timeLog/count/countReset/table/dir/trace` |
+| Web APIs | `installWebAPIs(engine)` | `performance`, `EventTarget`, `Event`, `CustomEvent`, `AbortController`, `AbortSignal`, `DOMException`, `navigator`, `Blob`, `File`, `FormData`, `Headers`, `Request`, `Response`, `MessageChannel`, `MessagePort`, `BroadcastChannel`, `ReadableStream`, `WritableStream`, `TransformStream`, `CompressionStream`, `DecompressionStream`, `setImmediate`, `clearImmediate`, `Promise.withResolvers`, `crypto.getRandomValues`, `crypto.randomUUID`, `crypto.subtle`, `console.time/timeEnd/timeLog/count/countReset/table/dir/trace` |
 | `Deno.*` | `installDenoCompat(engine)` | Full Deno compat (30+ APIs: env, fs, permissions, errors) |
 
 All modules work identically across QuickJS, JSC, and V8 backends.
 Workers work identically across QuickJS, JSC, and V8 backends.
-Web APIs (91 checks) pass identically across all 3 backends.
+Web APIs (101 checks) pass identically across all 3 backends.
 
 ### Module Resolution (package.json)
 
@@ -429,7 +429,7 @@ dub test -c unittest    # All unit tests
 | V8 TMP bridge | `source/dun/engine/v8/cppbindings.d` | compile-time | V8TypeName coverage, tag->name mapping |
 | JSC TMP bridge | `source/dun/engine/jsc/cppbindings.d` | compile-time | JSCTypeName coverage, kJSType* alignment |
 
-### Integration Tests (87 tests, 452 npm compat checks)
+### Integration Tests (89 tests, 452 npm compat checks)
 
 ```sh
 # Run against a specific backend
@@ -449,7 +449,7 @@ dub build -c v8  && BACKEND=v8  ./tests/integration/run.sh
 | Node APIs | `buffer_api`, `event_emitter`, `url_api`, `os_api`, `http2_api`, `http3_api` | Buffer.from/alloc/concat, EventEmitter on/emit/once, URL/URLSearchParams, os.platform/cpus/totalmem, HTTP/2 API (20 checks), HTTP/3 API (22 checks) |
 | New Modules | `child_process_api`, `stream_api`, `zlib_api`, `dns_api`, `ws_api` | execSync/spawnSync, Readable/Writable/Transform/pipeline, deflate/gzip round-trip, DNS lookup/resolve, WebSocket API |
 | Database | `sqlite_api` | open, exec, run, get, all, close, NULL handling, types (20 checks) |
-| Web APIs | `web_apis` | 91 checks: performance, EventTarget/Event, AbortController, Blob, FormData, Headers, Request/Response, MessageChannel, BroadcastChannel, ReadableStream, WritableStream, TransformStream, crypto.getRandomValues, navigator, Promise.withResolvers, require.resolve |
+| Web APIs | `web_apis` | 101 checks: performance, EventTarget/Event, AbortController, Blob, FormData, Headers, Request/Response, MessageChannel, BroadcastChannel, ReadableStream, WritableStream, TransformStream, CompressionStream, DecompressionStream, crypto.getRandomValues, navigator, Promise.withResolvers, require.resolve |
 | Deno compat | `deno_compat` | 22 checks: env, fs, stat, copy, rename, remove, web globals |
 | Security | `perm_deny_read`, `perm_deny_write`, `realworld_security_boundary` | Permission denial enforcement |
 | TypeScript | `typescript`, `realworld_ts_library` | Type annotations, interfaces, as, arrow types |
@@ -479,8 +479,10 @@ dub build -c v8  && BACKEND=v8  ./tests/integration/run.sh
 | Express compat | `express_compat` | 102 checks: EventEmitter, streams, Buffer, URL, path, crypto, querystring, http, assert, os, util |
 | Bundler compat | `bundler_compat` | 91 checks: fs ops, path resolution, crypto hashing, Map/Set, RegExp, string ops, Promise, modules |
 | Crypto keygen | `crypto_keygen` | 12 checks: generateKeyPairSync RSA/EC, PEM output, sign+verify round-trip, DiffieHellman |
+| WebCrypto | `webcrypto_api` | 37 checks: subtle.digest (SHA-1/256/384/512), importKey, sign/verify (HMAC), encrypt/decrypt (AES-GCM, AES-CBC) |
+| .env loading | `dotenv_loading` | 3 checks: parse KEY=VALUE/quoted, no-override existing env, missing .env OK |
 
-Backend test scores: **QuickJS 87/87**, **JSC 87/87**, **V8 87/87** (full parity across all 3 backends).
+Backend test scores: **QuickJS 89/89**, **JSC 89/89**, **V8 89/89** (full parity across all 3 backends).
 
 Test pattern: fixtures in `tests/integration/fixtures/*.{js,mjs,ts}`, expected stdout in `tests/integration/expected/*.txt`.
 
@@ -795,3 +797,9 @@ Benchmark impact (25 benchmarks, feature_bench.js):
 | 17h | Zlib complete | brotliCompressSync/DecompressSync, unzipSync, createBrotliCompress/Decompress | **Done** |
 | 17i | Misc complete | readline.promises, assert.strict, fs/promises.cp/constants, Readable statics | **Done** |
 | 17j | npm compat 452 | 452-check npm_compat_modules test covering all Node.js core APIs | **Done** |
+| 18a | .env auto-loading | Bun-compatible .env parsing at startup (KEY=VALUE, quotes, no-override) | **Done** |
+| 18b | --watch mode | `--watch` / `-w` flag: poll mtime, restart script on file changes | **Done** |
+| 18c | CompressionStream | Web Compression API: CompressionStream/DecompressionStream (gzip/deflate/deflate-raw) | **Done** |
+| 18d | WebCrypto subtle | Native crypto.subtle via OpenSSL: digest, importKey, sign/verify (HMAC), encrypt/decrypt (AES-GCM/CBC) | **Done** |
+| 18e | TIGER_STYLE audit | Precondition assertions in 45+ @trusted functions across all builtins and engine backends | **Done** |
+| 18f | DIP1000 scope | `scope` annotations on 8 IJSEngine interface methods + all backend implementations | **Done** |
