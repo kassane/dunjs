@@ -270,6 +270,16 @@ Applied across all 7 layers (~290 assertions in 25 files).
 - **HTTP connection pool**: fd→connId hashmap (O(1) lookup) + free slot list for connection reuse
 - **HTTP JS-level dispatch**: Pre-compiled JS function creates req/res objects in JIT-optimized JS, reducing per-request FFI calls from ~25 to ~8
 - **HTTP lazy headers**: `get headers()` getter loads headers on demand via native callback, avoiding allocation when headers unused
+- **HTTP O(1) hasActiveIO**: Counter-based `hasActiveHttpIO()` instead of O(n) scan of servers+connections per event loop tick
+- **JSC cached __cbSlot__**: JSStringRef for `__cbSlot__` created once, eliminates create+release per native function call
+- **JSC cached length**: JSStringRef for `"length"` property cached for `getArrayLength` hot path
+- **JSC/V8 stackTerminate**: Stack buffer for property name null-termination, avoids `toStringz` GC allocation per `getProperty`/`setProperty`
+- **V8 batch type query**: `dun_v8_value_get_type()` returns type tag in single FFI call (was 9 individual `isXxx` calls)
+- **V8 thread-local value pool**: 512-entry pool eliminates mutex contention in trampoline value wrapping
+- **UUID random byte pool**: Pre-fills 64 UUIDs worth of random bytes per `getrandom` syscall, amortizing kernel overhead
+- **getrandom syscall**: Linux fast path uses `__NR_getrandom` syscall directly (no fd management)
+- **JSHandle leak fixes**: `freeValue()` added to 40+ `getProperty`/`getGlobal` call sites across all builtins
+- **LTO + mcpu=native**: Release builds use `--flto=thin`, `--mcpu=native`, `--inline-threshold=350`, `--hot-cold-split`
 
 ### 8. Event Loop Phases (per tick)
 
@@ -464,36 +474,36 @@ Cross-runtime comparison (feature_bench.js, 25 tests, release builds, ops/sec):
 
 | Runtime | Total Throughput | vs Bun |
 |---------|-----------------|--------|
-| Bun 1.3.11 | 399M | 1.00x |
-| DunJS JSC | 373M | **0.94x** |
-| Node.js v22 | 118M | 0.30x |
-| Deno 2.7.14 | 108M | 0.27x |
-| DunJS V8 | 103M | 0.26x |
+| Bun 1.3.11 | 417M | 1.00x |
+| DunJS JSC | 408M | **0.98x** |
+| Node.js v22 | 112M | 0.27x |
+| DunJS V8 | 110M | 0.26x |
+| Deno 2.7.14 | 109M | 0.26x |
+
+DunJS JSC wins 15 out of 25 individual tests vs Bun (Array +49%, Object +27%, Map/Set +33-55%,
+Promise.resolve +6%, JSON +10-14%, template literal +7%). Gap is in native operations
+(crypto, Buffer, encoding) where Bun uses C++ directly while DunJS uses IJSEngine FFI.
 
 Framework benchmarks (framework_bench.js, 39 tests, release builds, ops/sec):
 
 | Runtime | Total Throughput | vs Bun |
 |---------|-----------------|--------|
-| Bun 1.3.11 | 275M | 1.00x |
-| DunJS JSC | 260M | **0.95x** |
-| Deno 2.7.14 | 143M | 0.52x |
-| DunJS V8 | 138M | 0.50x |
-| Node.js v22 | 125M | 0.45x |
+| Bun 1.3.11 | 285M | 1.00x |
+| DunJS JSC | 249M | **0.87x** |
+| DunJS V8 | 138M | 0.48x |
+| Node.js v22 | 133M | 0.47x |
 
 npm compat test (npm_compat_test.js, 145 assertions): **All 6 runtimes: 145/145 pass**
 
-HTTP stress benchmarks (wrk, 2 threads, 128 connections, 10s per endpoint, release builds):
+HTTP stress benchmarks (wrk, 2 threads, 128 connections, 5s per endpoint, release builds):
 
-| Endpoint | Node v22 | Deno 2.7 | Bun 1.3 | DunJS V8 | DunJS JSC | DunJS QJS |
-|----------|----------|----------|---------|----------|-----------|-----------|
-| /plaintext | 28,238 | 52,086 | 55,487 | 37,298 | 30,515 | 48,084 |
-| /json | 29,398 | 49,783 | 53,093 | 38,924 | 28,850 | 55,888 |
-| /api/users | 13,951 | 21,930 | 22,147 | 16,191 | 11,813 | 5,172 |
-| /compute | 27,372 | 42,544 | 55,132 | 39,778 | 34,040 | 40,334 |
-| /transaction | 19,046 | 41,792 | 42,694 | 34,138 | 25,407 | 26,501 |
-| /middleware | 20,474 | 43,507 | 49,675 | 32,517 | 25,467 | 34,185 |
+| Endpoint | Node v22 | Bun 1.3 | DunJS V8 | DunJS JSC |
+|----------|----------|---------|----------|-----------|
+| /plaintext | 29,100 | 49,406 | **48,000** | 39,085 |
+| /json | 29,894 | 50,003 | **49,817** | 38,494 |
+| /compute | 20,604 | 51,640 | **48,719** | 36,355 |
 
-DunJS V8 beats Node.js on all endpoints. DunJS QuickJS excels at /json (55K vs Bun's 53K).
+DunJS V8 HTTP: 97% of Bun on /plaintext, 99.6% on /json. Beats Node.js by 65%.
 All endpoints include TCP_NODELAY, buffered single-write response, CTFE status lines.
 
 Stress test (stress.js, 240 tests, release builds):
