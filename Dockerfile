@@ -8,6 +8,7 @@
 #
 # Multi-platform:
 #   docker buildx build --platform linux/amd64,linux/arm64 --build-arg BACKEND=quickjs -t dunjs:quickjs .
+#   docker buildx build --platform linux/amd64,linux/arm64 --build-arg BACKEND=v8 -t dunjs:v8 .
 
 # ─── Stage 1: Build ───────────────────────────────────────────
 FROM debian:bookworm-slim AS build
@@ -17,6 +18,10 @@ ARG LDC_VERSION=1.42.0
 # TARGETARCH is set automatically by buildx: "amd64" or "arm64"
 ARG TARGETARCH
 
+# g++ is required to compile vendor/v8shim/v8shim.cpp (V8 C++ shim)
+# V8 14.9+ uses CREL relocations; linking handled by LDC --link-internally (LLVM 21)
+# build.d auto-detects CRT paths for Debian/Ubuntu/Arch/RHEL via gcc -dumpmachine
+# kassane/libv8 provides prebuilt binaries for both linux-x64 and linux-arm64
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates curl xz-utils tar gcc g++ cmake make pkg-config git bash \
     libxml2-dev libssl-dev \
@@ -39,27 +44,10 @@ WORKDIR /src
 COPY . .
 RUN mkdir -p vendor/sqlite vendor/v8/lib vendor/v8/include
 
-# Download and compile vendor deps
-# V8 prebuilt is x86_64-only; fall back to quickjs on arm64 if v8 requested
-RUN case "${TARGETARCH}" in \
-      arm64) \
-        case "${BACKEND}" in \
-          v8) echo "V8 not available on arm64, building quickjs instead" \
-              && ldc2 -run build.d --backend=quickjs --force ;; \
-          *)  ldc2 -run build.d --backend=${BACKEND} --force ;; \
-        esac ;; \
-      *) ldc2 -run build.d --backend=${BACKEND} --force ;; \
-    esac
+# Download and compile vendor deps (build.d selects linux-x64 or linux-arm64 prebuilt automatically)
+RUN ldc2 -run build.d --backend=${BACKEND} --force
 
-# Build the selected backend (fall back to quickjs on arm64 for v8)
-RUN case "${TARGETARCH}" in \
-      arm64) \
-        case "${BACKEND}" in \
-          v8) dub build -c quickjs -b release ;; \
-          *)  dub build -c ${BACKEND} -b release ;; \
-        esac ;; \
-      *) dub build -c ${BACKEND} -b release ;; \
-    esac \
+RUN dub build -c ${BACKEND} -b release \
     && strip build/dun \
     && ls -la build/dun
 
