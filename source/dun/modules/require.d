@@ -116,8 +116,7 @@ JSHandle jsRequire(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
     if (specifier.length == 0)
         return engine.throwTypeError("require() argument must be a string");
 
-    if (specifier.endsWith(".mjs") || specifier.endsWith(".mts"))
-        return engine.throwTypeError("Cannot require() an ES module (.mjs/.mts). Use import instead.");
+    // .mjs/.mts files are handled via ESM shim transpilation (Node 22+ compat)
 
     if (specifier.startsWith("node:"))
         specifier = "dun:" ~ specifier[5 .. $];
@@ -368,13 +367,23 @@ JSHandle jsRequire(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
             string sourceMap;
             source = stripTypes(source, true, sourceMap);
 
-            // Append inline source map
             if (sourceMap.length > 0)
             {
                 auto encoded = Base64.encode(cast(const(ubyte)[]) sourceMap);
                 source ~= "\n//# sourceMappingURL=data:application/json;base64,"
                     ~ cast(string) encoded;
             }
+        }
+        else if (resolved.endsWith(".mjs") || resolved.endsWith(".mts"))
+        {
+            import dun.modules.esm_shim : transpileESM;
+            if (resolved.endsWith(".mts"))
+            {
+                import dun.ts.strip : stripTypes, generateSourceMap;
+                string sourceMap;
+                source = stripTypes(source, true, sourceMap);
+            }
+            source = transpileESM(source, resolved);
         }
     }
     catch (Exception) {}

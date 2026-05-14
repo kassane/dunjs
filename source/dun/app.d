@@ -149,8 +149,7 @@ int runScript(T)(T config)
         auto eabs = abs.replace(`\`, `\\`).replace(`"`, `\"`);
         auto edir = dir.replace(`\`, `\\`).replace(`"`, `\"`);
         string initCode = `var __filename="` ~ eabs ~ `";var __dirname="` ~ edir ~ `";`;
-        if (!esm)
-            initCode ~= `__dunCjsStack__.push("` ~ eabs ~ `");`;
+        initCode ~= `__dunCjsStack__.push("` ~ eabs ~ `");`;
         auto initRes = engine.eval(initCode, "<init>");
         if (!initRes.isError)
             engine.freeValue(initRes.value);

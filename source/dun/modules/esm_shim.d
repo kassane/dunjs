@@ -29,6 +29,12 @@ string transpileESM(string source, string filename) @safe pure
             if (parsed.length > 0)
             {
                 preamble ~= parsed;
+                auto trailing = importTrailing(trimmed);
+                if (trailing.length > 0)
+                {
+                    result ~= trailing;
+                    result ~= '\n';
+                }
                 continue;
             }
         }
@@ -118,6 +124,32 @@ string transpileESM(string source, string filename) @safe pure
         output ~= '\n';
     }
     output ~= body_;
+
+    // Emit module.exports for CJS interop (require() of .mjs files)
+    if (exportNames.length > 0 || hasDefaultExport)
+    {
+        output ~= "\nif(typeof module!=='undefined'){";
+        if (hasDefaultExport && exportNames.length == 0)
+        {
+            output ~= "module.exports=__esm_default__;";
+        }
+        else
+        {
+            output ~= "module.exports={";
+            foreach (i, name; exportNames)
+            {
+                if (i > 0) output ~= ',';
+                output ~= name;
+            }
+            if (hasDefaultExport)
+            {
+                if (exportNames.length > 0) output ~= ',';
+                output ~= "default:__esm_default__";
+            }
+            output ~= "};";
+        }
+        output ~= "}\n";
+    }
 
     return (() @trusted => cast(string) output[])();
 }
@@ -283,6 +315,51 @@ private string dirOfPath(string path) @safe pure nothrow
     return ".";
 }
 
+private string importTrailing(string line) @safe pure nothrow
+{
+    auto rest = line[7 .. $];
+    auto fromIdx = findFrom(rest);
+    if (fromIdx < 0) return "";
+    auto afterFrom = rest[fromIdx + 4 .. $];
+    auto t = stripLeft(afterFrom);
+    if (t.length < 2) return "";
+    char q = t[0];
+    if (q != '\'' && q != '"') return "";
+    foreach (i; 1 .. t.length)
+    {
+        if (t[i] == q)
+        {
+            auto afterQuote = stripLeft(t[i + 1 .. $]);
+            if (afterQuote.length > 0 && afterQuote[0] == ';')
+                afterQuote = stripLeft(afterQuote[1 .. $]);
+            // Skip import attributes: with {...} or assert {...}
+            if (startsWith(afterQuote, "with ") || startsWith(afterQuote, "assert "))
+            {
+                auto braceStart = findChar(afterQuote, '{');
+                if (braceStart >= 0)
+                {
+                    auto braceEnd = findChar(afterQuote[braceStart .. $], '}');
+                    if (braceEnd >= 0)
+                    {
+                        afterQuote = stripLeft(afterQuote[braceStart + braceEnd + 1 .. $]);
+                        if (afterQuote.length > 0 && afterQuote[0] == ';')
+                            afterQuote = stripLeft(afterQuote[1 .. $]);
+                    }
+                }
+            }
+            return afterQuote;
+        }
+    }
+    return "";
+}
+
+private int findChar(string s, char c) @safe pure nothrow
+{
+    foreach (i, ch; s)
+        if (ch == c) return cast(int) i;
+    return -1;
+}
+
 private string parseImportLine(string line) @safe pure
 {
     if (line.length < 7) return "";
@@ -343,23 +420,23 @@ private string parseImportLine(string line) @safe pure
 
 private string builtinGlobalProp(string specifier) @safe pure nothrow
 {
-    if (specifier == "dun:fs" || specifier == "node:fs") return "__dun_cjs_fs__";
-    if (specifier == "dun:path" || specifier == "node:path") return "__dun_cjs_path__";
-    if (specifier == "dun:crypto" || specifier == "node:crypto") return "__dun_cjs_crypto__";
-    if (specifier == "dun:net" || specifier == "node:net") return "__dun_cjs_net__";
-    if (specifier == "dun:http" || specifier == "node:http") return "__dun_cjs_http__";
+    if (specifier == "dun:fs" || specifier == "node:fs" || specifier == "fs") return "__dun_cjs_fs__";
+    if (specifier == "dun:path" || specifier == "node:path" || specifier == "path") return "__dun_cjs_path__";
+    if (specifier == "dun:crypto" || specifier == "node:crypto" || specifier == "crypto") return "__dun_cjs_crypto__";
+    if (specifier == "dun:net" || specifier == "node:net" || specifier == "net") return "__dun_cjs_net__";
+    if (specifier == "dun:http" || specifier == "node:http" || specifier == "http") return "__dun_cjs_http__";
     if (specifier == "dun:https" || specifier == "node:https" || specifier == "https") return "__dun_cjs_https__";
-    if (specifier == "dun:http2" || specifier == "node:http2") return "__dun_cjs_http2__";
-    if (specifier == "dun:http3" || specifier == "node:http3") return "__dun_cjs_http3__";
-    if (specifier == "dun:os" || specifier == "node:os") return "__dun_cjs_os__";
-    if (specifier == "dun:buffer" || specifier == "node:buffer") return "__dun_cjs_buffer__";
-    if (specifier == "dun:events" || specifier == "node:events") return "__dun_cjs_events__";
-    if (specifier == "dun:url" || specifier == "node:url") return "__dun_cjs_url__";
-    if (specifier == "dun:util" || specifier == "node:util") return "__dun_cjs_util__";
-    if (specifier == "dun:assert" || specifier == "node:assert") return "__dun_cjs_assert__";
-    if (specifier == "dun:querystring" || specifier == "node:querystring") return "__dun_cjs_querystring__";
-    if (specifier == "dun:string_decoder" || specifier == "node:string_decoder") return "__dun_cjs_string_decoder__";
-    if (specifier == "dun:timers/promises" || specifier == "node:timers/promises") return "__dun_cjs_timers_promises__";
+    if (specifier == "dun:http2" || specifier == "node:http2" || specifier == "http2") return "__dun_cjs_http2__";
+    if (specifier == "dun:http3" || specifier == "node:http3" || specifier == "http3") return "__dun_cjs_http3__";
+    if (specifier == "dun:os" || specifier == "node:os" || specifier == "os") return "__dun_cjs_os__";
+    if (specifier == "dun:buffer" || specifier == "node:buffer" || specifier == "buffer") return "__dun_cjs_buffer__";
+    if (specifier == "dun:events" || specifier == "node:events" || specifier == "events") return "__dun_cjs_events__";
+    if (specifier == "dun:url" || specifier == "node:url" || specifier == "url") return "__dun_cjs_url__";
+    if (specifier == "dun:util" || specifier == "node:util" || specifier == "util") return "__dun_cjs_util__";
+    if (specifier == "dun:assert" || specifier == "node:assert" || specifier == "assert") return "__dun_cjs_assert__";
+    if (specifier == "dun:querystring" || specifier == "node:querystring" || specifier == "querystring") return "__dun_cjs_querystring__";
+    if (specifier == "dun:string_decoder" || specifier == "node:string_decoder" || specifier == "string_decoder") return "__dun_cjs_string_decoder__";
+    if (specifier == "dun:timers/promises" || specifier == "node:timers/promises" || specifier == "timers/promises") return "__dun_cjs_timers_promises__";
     if (specifier == "dun:fs/promises" || specifier == "node:fs/promises" || specifier == "fs/promises") return "__dun_cjs_fs_promises__";
     if (specifier == "dun:tls" || specifier == "node:tls" || specifier == "tls") return "__dun_cjs_tls__";
     if (specifier == "dun:dgram" || specifier == "node:dgram" || specifier == "dgram") return "__dun_cjs_dgram__";
@@ -374,6 +451,16 @@ private string builtinGlobalProp(string specifier) @safe pure nothrow
     if (specifier == "dun:timers" || specifier == "node:timers" || specifier == "timers") return "__dun_cjs_timers__";
     if (specifier == "dun:process" || specifier == "node:process" || specifier == "process") return "__dun_cjs_process__";
     if (specifier == "dun:console" || specifier == "node:console" || specifier == "console") return "__dun_cjs_console__";
+    if (specifier == "dun:child_process" || specifier == "node:child_process" || specifier == "child_process") return "__dun_cjs_child_process__";
+    if (specifier == "dun:stream" || specifier == "node:stream" || specifier == "stream") return "__dun_cjs_stream__";
+    if (specifier == "dun:zlib" || specifier == "node:zlib" || specifier == "zlib") return "__dun_cjs_zlib__";
+    if (specifier == "dun:dns" || specifier == "node:dns" || specifier == "dns") return "__dun_cjs_dns__";
+    if (specifier == "dun:ws" || specifier == "node:ws" || specifier == "ws") return "__dun_cjs_ws__";
+    if (specifier == "dun:sqlite" || specifier == "node:sqlite" || specifier == "sqlite") return "__dun_cjs_sqlite__";
+    if (specifier == "dun:worker_threads" || specifier == "node:worker_threads" || specifier == "worker_threads") return "__dun_cjs_worker_threads__";
+    if (specifier == "dun:cluster" || specifier == "node:cluster" || specifier == "cluster") return "__dun_cjs_cluster__";
+    if (specifier == "dun:vm" || specifier == "node:vm" || specifier == "vm") return "__dun_cjs_vm__";
+    if (specifier == "dun:async_hooks" || specifier == "node:async_hooks" || specifier == "async_hooks") return "__dun_cjs_async_hooks__";
     return "";
 }
 

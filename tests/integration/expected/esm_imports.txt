@@ -1,0 +1,5 @@
+a/b
+/foo
+true
+z.txt
+32
