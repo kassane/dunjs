@@ -14,6 +14,8 @@ void registerChildProcessModule(IJSEngine engine) @trusted
     engine.setProperty(obj, "execSync", engine.newFunction(&jsExecSync, "execSync", 1));
     engine.setProperty(obj, "spawnSync", engine.newFunction(&jsSpawnSync, "spawnSync", 2));
     engine.setProperty(obj, "exec", engine.newFunction(&jsExec, "exec", 2));
+    engine.setProperty(obj, "spawn", engine.newFunction(&jsSpawn, "spawn", 2));
+    engine.setProperty(obj, "execFile", engine.newFunction(&jsExecFile, "execFile", 3));
 
     auto global = engine.getGlobal();
     engine.setProperty(global, "__dun_cjs_child_process__", obj);
@@ -32,7 +34,7 @@ version (EngineQuickJS)
         auto ctx = cast(JSContext*) engine.rawContext();
         auto m = JS_NewCModule(ctx, "dun:child_process", &cpModuleInit);
         if (m is null) return;
-        foreach (name; ["execSync", "spawnSync", "exec"])
+        foreach (name; ["execSync", "spawnSync", "exec", "spawn", "execFile"])
             JS_AddModuleExport(ctx, m, name.ptr);
     }
 
@@ -42,7 +44,7 @@ version (EngineQuickJS)
         assert(m !is null, "Null JSModuleDef in cpModuleInit");
         auto global = JS_GetGlobalObject(ctx);
         auto cpObj = JS_GetPropertyStr(ctx, global, "__dun_cjs_child_process__");
-        foreach (name; ["execSync", "spawnSync", "exec"])
+        foreach (name; ["execSync", "spawnSync", "exec", "spawn", "execFile"])
         {
             auto fn = JS_GetPropertyStr(ctx, cpObj, name.ptr);
             JS_SetModuleExport(ctx, m, name.ptr, fn);
@@ -401,5 +403,411 @@ JSHandle jsExec(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
             return engine.newUndefined();
         }
         return engine.throwTypeError("exec failed: " ~ msg);
+    }
+}
+
+/// JS helper source for creating ChildProcess objects with EventEmitter-like behavior.
+/// Evaluated once per engine context, returns the ChildProcess constructor.
+private immutable string childProcessHelperSource = `(function() {
+  function mkEmitter() {
+    var e = { _events: {} };
+    e.on = function(ev, cb) { if (!this._events[ev]) this._events[ev] = []; this._events[ev].push(cb); return this; };
+    e.emit = function(ev) { var a = Array.prototype.slice.call(arguments, 1); var cbs = this._events[ev]; if (cbs) { for (var i = 0; i < cbs.length; i++) cbs[i].apply(this, a); } };
+    return e;
+  }
+  function ChildProcess() {
+    this._events = {};
+    this.pid = 0;
+    this.exitCode = null;
+    this.signalCode = null;
+    this.killed = false;
+    this.connected = false;
+    this.stdout = mkEmitter();
+    this.stderr = mkEmitter();
+    this.stdin = { write: function() {}, end: function() {} };
+  }
+  ChildProcess.prototype.on = function(ev, cb) { if (!this._events[ev]) this._events[ev] = []; this._events[ev].push(cb); return this; };
+  ChildProcess.prototype.once = function(ev, cb) { var self = this; function w() { self.removeListener(ev, w); cb.apply(this, arguments); } w._orig = cb; this.on(ev, w); return this; };
+  ChildProcess.prototype.emit = function(ev) { var a = Array.prototype.slice.call(arguments, 1); var cbs = this._events[ev]; if (cbs) { var cc = cbs.slice(); for (var i = 0; i < cc.length; i++) cc[i].apply(this, a); } };
+  ChildProcess.prototype.removeListener = function(ev, cb) { var cbs = this._events[ev]; if (cbs) { for (var i = cbs.length - 1; i >= 0; i--) { if (cbs[i] === cb || cbs[i]._orig === cb) cbs.splice(i, 1); } } return this; };
+  ChildProcess.prototype.removeAllListeners = function(ev) { if (ev) this._events[ev] = []; else this._events = {}; return this; };
+  ChildProcess.prototype.kill = function(sig) { this.killed = true; return true; };
+  return new ChildProcess();
+})()`;
+
+JSHandle jsSpawn(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+{
+    import dun.loop.agnostic_pending : pushAgnosticPending;
+
+    assert(ctx !is null, "Null ctx in jsSpawn");
+    auto state = cast(DunState*) ctx;
+    assert(state !is null, "Null DunState in jsSpawn");
+    auto engine = state.engine;
+    assert(engine !is null, "Null engine in jsSpawn");
+
+    if (args.length < 1)
+        return engine.throwTypeError("spawn requires a command argument");
+
+    auto command = engine.extractString(args[0]);
+    if (command.length == 0)
+        return engine.throwTypeError("spawn: command must be a non-empty string");
+
+    if (!checkPerm(state, Permission.run, command))
+        return throwPermError(engine, command);
+
+    // Parse args array (optional second argument)
+    string[] cmdArgs;
+    int optsIdx = 1;
+    if (args.length >= 2 && engine.isArray(args[1]))
+    {
+        int len = engine.getArrayLength(args[1]);
+        for (int i = 0; i < len; i++)
+        {
+            auto elem = engine.getPropertyIndex(args[1], cast(uint) i);
+            cmdArgs ~= engine.extractString(elem);
+            engine.freeValue(elem);
+        }
+        optsIdx = 2;
+    }
+
+    // Parse options (optional)
+    string cwd = "";
+    if (args.length > optsIdx && engine.isObject(args[optsIdx]))
+        cwd = extractOptString(engine, args[optsIdx], "cwd");
+
+    // Create ChildProcess object via JS helper
+    auto cpResult = engine.eval(childProcessHelperSource, "<spawn>");
+    if (cpResult.isError)
+    {
+        engine.freeValue(cpResult.value);
+        return engine.throwTypeError("spawn: failed to create ChildProcess object");
+    }
+    auto cp = cpResult.value;
+
+    try
+    {
+        import std.process : pipeProcess, Redirect, wait, Config;
+        import std.file : getcwd, chdir;
+
+        string origDir;
+        if (cwd.length > 0)
+        {
+            origDir = getcwd();
+            chdir(cwd);
+        }
+
+        string[] fullCmd = [command] ~ cmdArgs;
+        auto pipes = pipeProcess(fullCmd, Redirect.stdout | Redirect.stderr);
+
+        if (origDir.length > 0)
+            chdir(origDir);
+
+        // Set the real PID on the ChildProcess object
+        int pid = 0;
+        version (Posix)
+        {
+            import core.sys.posix.unistd;
+            pid = pipes.pid.osHandle;
+        }
+        engine.setProperty(cp, "pid", engine.newInt(pid));
+
+        // Read stdout
+        string stdoutStr = "";
+        try
+        {
+            import std.array : Appender;
+            Appender!(char[]) outBuf;
+            foreach (line; pipes.stdout.byLineCopy)
+            {
+                if (outBuf[].length > 0) outBuf.put('\n');
+                outBuf.put(line);
+            }
+            stdoutStr = cast(string) outBuf[];
+        }
+        catch (Exception) {}
+
+        // Read stderr
+        string stderrStr = "";
+        try
+        {
+            import std.array : Appender;
+            Appender!(char[]) errBuf;
+            foreach (line; pipes.stderr.byLineCopy)
+            {
+                if (errBuf[].length > 0) errBuf.put('\n');
+                errBuf.put(line);
+            }
+            stderrStr = cast(string) errBuf[];
+        }
+        catch (Exception) {}
+
+        // Wait for exit
+        int status = wait(pipes.pid);
+
+        // Set exitCode
+        engine.setProperty(cp, "exitCode", engine.newInt(status));
+
+        // Schedule async delivery of stdout data, stderr data, and close/exit events
+        // via pushAgnosticPending so callbacks registered after spawn() returns are invoked.
+
+        // Get stdout.emit and stderr.emit
+        auto cpStdout = engine.getProperty(cp, "stdout");
+        auto cpStderr = engine.getProperty(cp, "stderr");
+        auto stdoutEmit = engine.getProperty(cpStdout, "emit");
+        auto stderrEmit = engine.getProperty(cpStderr, "emit");
+        auto cpEmit = engine.getProperty(cp, "emit");
+
+        // Schedule: stdout.emit('data', data)
+        if (stdoutStr.length > 0)
+        {
+            JSHandle[3] sdArgs = [engine.newString("data"), engine.newString(stdoutStr), engine.newUndefined()];
+            pushAgnosticPending(engine, stdoutEmit, sdArgs[0 .. 2]);
+        }
+
+        // Schedule: stdout.emit('end')
+        {
+            JSHandle[2] seArgs = [engine.newString("end"), engine.newUndefined()];
+            pushAgnosticPending(engine, stdoutEmit, seArgs[0 .. 1]);
+        }
+
+        // Schedule: stderr.emit('data', data)
+        if (stderrStr.length > 0)
+        {
+            JSHandle[3] edArgs = [engine.newString("data"), engine.newString(stderrStr), engine.newUndefined()];
+            pushAgnosticPending(engine, stderrEmit, edArgs[0 .. 2]);
+        }
+
+        // Schedule: stderr.emit('end')
+        {
+            JSHandle[2] eeArgs = [engine.newString("end"), engine.newUndefined()];
+            pushAgnosticPending(engine, stderrEmit, eeArgs[0 .. 1]);
+        }
+
+        // Schedule: cp.emit('exit', code)
+        {
+            JSHandle[3] exArgs = [engine.newString("exit"), engine.newInt(status), engine.newUndefined()];
+            pushAgnosticPending(engine, cpEmit, exArgs[0 .. 2]);
+        }
+
+        // Schedule: cp.emit('close', code)
+        {
+            JSHandle[3] clArgs = [engine.newString("close"), engine.newInt(status), engine.newUndefined()];
+            pushAgnosticPending(engine, cpEmit, clArgs[0 .. 2]);
+        }
+
+        engine.freeValue(stdoutEmit);
+        engine.freeValue(stderrEmit);
+        engine.freeValue(cpEmit);
+        engine.freeValue(cpStdout);
+        engine.freeValue(cpStderr);
+
+        return cp;
+    }
+    catch (Exception e)
+    {
+        string msg = "";
+        try { msg = e.msg; } catch (Exception) {}
+
+        // Set error state on the ChildProcess object
+        engine.setProperty(cp, "exitCode", engine.newNull());
+
+        // Schedule: cp.emit('error', errObj)
+        auto cpEmit = engine.getProperty(cp, "emit");
+        auto errObj = engine.newObject();
+        engine.setProperty(errObj, "message", engine.newString(msg));
+        engine.setProperty(errObj, "code", engine.newString("ENOENT"));
+        engine.setProperty(errObj, "errno", engine.newString("ENOENT"));
+        engine.setProperty(errObj, "syscall", engine.newString("spawn " ~ command));
+        engine.setProperty(errObj, "path", engine.newString(command));
+        {
+            JSHandle[3] errArgs = [engine.newString("error"), errObj, engine.newUndefined()];
+            pushAgnosticPending(engine, cpEmit, errArgs[0 .. 2]);
+        }
+        engine.freeValue(cpEmit);
+
+        return cp;
+    }
+}
+
+JSHandle jsExecFile(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+{
+    import dun.engine.iface : PromiseHandles;
+
+    assert(ctx !is null, "Null ctx in jsExecFile");
+    auto state = cast(DunState*) ctx;
+    assert(state !is null, "Null DunState in jsExecFile");
+    auto engine = state.engine;
+    assert(engine !is null, "Null engine in jsExecFile");
+
+    if (args.length < 1)
+        return engine.throwTypeError("execFile requires a file argument");
+
+    auto file = engine.extractString(args[0]);
+    if (file.length == 0)
+        return engine.throwTypeError("execFile: file must be a non-empty string");
+
+    if (!checkPerm(state, Permission.run, file))
+        return throwPermError(engine, file);
+
+    // Parse: execFile(file, args?, options?, callback?)
+    string[] cmdArgs;
+    int nextIdx = 1;
+
+    // Second argument can be args array, options object, or callback function
+    if (args.length >= 2 && engine.isArray(args[1]))
+    {
+        int len = engine.getArrayLength(args[1]);
+        for (int i = 0; i < len; i++)
+        {
+            auto elem = engine.getPropertyIndex(args[1], cast(uint) i);
+            cmdArgs ~= engine.extractString(elem);
+            engine.freeValue(elem);
+        }
+        nextIdx = 2;
+    }
+
+    // Options object (optional)
+    string cwd = "";
+    int maxBuffer = MAX_BUFFER;
+    if (args.length > nextIdx && engine.isObject(args[nextIdx]) && !engine.isFunction(args[nextIdx]))
+    {
+        cwd = extractOptString(engine, args[nextIdx], "cwd");
+        maxBuffer = extractOptInt(engine, args[nextIdx], "maxBuffer", MAX_BUFFER);
+        nextIdx++;
+    }
+
+    // Callback (optional, last argument)
+    bool hasCallback = args.length > nextIdx && engine.isFunction(args[nextIdx]);
+    JSHandle callbackFn;
+    if (hasCallback)
+        callbackFn = args[nextIdx];
+
+    // Also check if the second arg is a function (execFile(file, callback) form)
+    if (!hasCallback && args.length >= 2 && engine.isFunction(args[1]))
+    {
+        hasCallback = true;
+        callbackFn = args[1];
+    }
+
+    try
+    {
+        import std.process : pipeProcess, Redirect, wait, Config;
+        import std.file : getcwd, chdir;
+
+        string origDir;
+        if (cwd.length > 0)
+        {
+            origDir = getcwd();
+            chdir(cwd);
+        }
+
+        string[] fullCmd = [file] ~ cmdArgs;
+        auto pipes = pipeProcess(fullCmd, Redirect.stdout | Redirect.stderr);
+
+        string stdoutStr = "";
+        try
+        {
+            import std.array : Appender;
+            Appender!(char[]) outBuf;
+            foreach (line; pipes.stdout.byLineCopy)
+            {
+                if (outBuf[].length > 0) outBuf.put('\n');
+                outBuf.put(line);
+            }
+            stdoutStr = cast(string) outBuf[];
+        }
+        catch (Exception) {}
+
+        string stderrStr = "";
+        try
+        {
+            import std.array : Appender;
+            Appender!(char[]) errBuf;
+            foreach (line; pipes.stderr.byLineCopy)
+            {
+                if (errBuf[].length > 0) errBuf.put('\n');
+                errBuf.put(line);
+            }
+            stderrStr = cast(string) errBuf[];
+        }
+        catch (Exception) {}
+
+        int status = wait(pipes.pid);
+
+        if (origDir.length > 0)
+            chdir(origDir);
+
+        stdoutStr = truncateToMaxBuffer(stdoutStr, maxBuffer);
+        stderrStr = truncateToMaxBuffer(stderrStr, maxBuffer);
+
+        if (hasCallback)
+        {
+            if (status != 0)
+            {
+                import std.conv : to;
+                auto errObj = engine.newObject();
+                engine.setProperty(errObj, "message",
+                    engine.newString("Command failed: " ~ file));
+                engine.setProperty(errObj, "code", engine.newInt(status));
+                engine.setProperty(errObj, "killed", engine.newBool(false));
+                engine.setProperty(errObj, "cmd", engine.newString(file));
+                JSHandle[] cbArgs = [errObj, engine.newString(stdoutStr), engine.newString(stderrStr)];
+                engine.callFunction(callbackFn, engine.newUndefined(), cbArgs);
+            }
+            else
+            {
+                JSHandle[] cbArgs = [engine.newNull(), engine.newString(stdoutStr), engine.newString(stderrStr)];
+                engine.callFunction(callbackFn, engine.newUndefined(), cbArgs);
+            }
+            return engine.newUndefined();
+        }
+
+        // No callback — return a Promise
+        auto ph = engine.newPromise();
+        engine.dupValue(ph.resolve);
+        engine.dupValue(ph.reject);
+
+        if (status != 0)
+        {
+            import std.conv : to;
+            auto errObj = engine.newObject();
+            engine.setProperty(errObj, "message",
+                engine.newString("Command failed: " ~ file));
+            engine.setProperty(errObj, "code", engine.newInt(status));
+            engine.setProperty(errObj, "stdout", engine.newString(stdoutStr));
+            engine.setProperty(errObj, "stderr", engine.newString(stderrStr));
+            engine.setProperty(errObj, "cmd", engine.newString(file));
+            JSHandle[] rejArgs = [errObj];
+            engine.callFunction(ph.reject, engine.newUndefined(), rejArgs);
+        }
+        else
+        {
+            auto resObj = engine.newObject();
+            engine.setProperty(resObj, "stdout", engine.newString(stdoutStr));
+            engine.setProperty(resObj, "stderr", engine.newString(stderrStr));
+            JSHandle[] resArgs = [resObj];
+            engine.callFunction(ph.resolve, engine.newUndefined(), resArgs);
+        }
+
+        return ph.promise;
+    }
+    catch (Exception e)
+    {
+        string msg = "";
+        try { msg = e.msg; } catch (Exception) {}
+
+        if (hasCallback)
+        {
+            auto errObj = engine.newObject();
+            engine.setProperty(errObj, "message", engine.newString(msg));
+            engine.setProperty(errObj, "code", engine.newString("ENOENT"));
+            engine.setProperty(errObj, "errno", engine.newString("ENOENT"));
+            engine.setProperty(errObj, "syscall", engine.newString("spawn"));
+            engine.setProperty(errObj, "path", engine.newString(file));
+            JSHandle[] cbArgs = [errObj, engine.newString(""), engine.newString("")];
+            engine.callFunction(callbackFn, engine.newUndefined(), cbArgs);
+            return engine.newUndefined();
+        }
+        return engine.throwTypeError("execFile failed: " ~ msg);
     }
 }

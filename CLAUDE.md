@@ -148,8 +148,8 @@ All runtime globals are **engine-agnostic** (use `IJSEngine` + `NativeCallback`)
 | `https` | `registerHttpsModule(engine)` | `require('https')`, ESM `import from 'dun:https'` |
 | `fs/promises` | `registerFsPromisesModule(engine)` | `require('fs/promises')`, ESM `import from 'dun:fs/promises'` |
 | `readline` | `registerReadlineModule(engine)` | `require('readline')`, ESM `import from 'dun:readline'` |
-| `tls` | stub (globalThis) | `require('tls')`, ESM `import from 'dun:tls'` |
-| `dgram` | stub (globalThis) | `require('dgram')`, ESM `import from 'dun:dgram'` |
+| `tls` | `registerTlsModule(engine)` | `require('tls')`, ESM `import from 'dun:tls'` — connect, getCiphers, TLSSocket, constants |
+| `dgram` | `registerDgramModule(engine)` | `require('dgram')`, ESM `import from 'dun:dgram'` — createSocket, bind, send, close |
 | `perf_hooks` | stub (globalThis) | `require('perf_hooks')`, ESM `import from 'dun:perf_hooks'` |
 | `punycode` | stub (globalThis) | `require('punycode')`, ESM `import from 'dun:punycode'` |
 | `domain` | stub (globalThis) | `require('domain')`, ESM `import from 'dun:domain'` |
@@ -429,7 +429,7 @@ dub test -c unittest    # All unit tests
 | V8 TMP bridge | `source/dun/engine/v8/cppbindings.d` | compile-time | V8TypeName coverage, tag->name mapping |
 | JSC TMP bridge | `source/dun/engine/jsc/cppbindings.d` | compile-time | JSCTypeName coverage, kJSType* alignment |
 
-### Integration Tests (77 tests)
+### Integration Tests (81 tests)
 
 ```sh
 # Run against a specific backend
@@ -468,8 +468,12 @@ dub build -c v8  && BACKEND=v8  ./tests/integration/run.sh
 | Readline | `readline_api` | 18 checks: createInterface, events, write/line, punycode, domain, diagnostics_channel |
 | Env Proxy | `process_env_proxy` | 8 checks: set/delete/in/keys, NODE_ENV pattern |
 | npm compat | `npm_compat_modules` | 119 checks: 35 modules, key API surface, globals, http/https client |
+| UDP/dgram | `dgram_api` | 25 checks: createSocket, bind, address, setBroadcast, setTTL, on/close, Socket alias |
+| spawn/execFile | `spawn_api` | 19 checks: spawn pid/stdout/stderr/stdin/on/kill, execFile with callback |
+| TLS module | `tls_api` | 24 checks: connect, getCiphers, TLSSocket constructor/methods, constants |
+| DNS enhanced | `dns_enhanced` | 18 checks: resolve, getServers, dns.promises, lookupSync, resolve with rrtype |
 
-Backend test scores: **QuickJS 77/77**, **JSC 77/77**, **V8 77/77** (full parity across all 3 backends).
+Backend test scores: **QuickJS 81/81**, **JSC 81/81**, **V8 81/81** (full parity across all 3 backends).
 
 Test pattern: fixtures in `tests/integration/fixtures/*.{js,mjs,ts}`, expected stdout in `tests/integration/expected/*.txt`.
 
@@ -761,3 +765,8 @@ Benchmark impact (25 benchmarks, feature_bench.js):
 | 15s | Socket addresses | remoteAddress/remotePort/localAddress/localPort on net.Socket via accept()/getsockname() | **Done** |
 | 15t | process.stdout | cork/uncork/cursorTo/clearLine/moveCursor/getWindowSize, process.argv0/execArgv/mainModule | **Done** |
 | 15u | aarch64 + Docker | stat_t __traits(hasMember) for aarch64, Docker buildx multiplatform (amd64+arm64), non-root user | **Done** |
+| 16a | child_process.spawn | spawn() with ChildProcess object (pid/stdout/stderr/stdin/on/kill), async event delivery | **Done** |
+| 16b | child_process.execFile | execFile() direct process spawn without shell, callback and Promise modes | **Done** |
+| 16c | dgram (UDP) | dgram.createSocket with bind/send/close/address/setBroadcast/setTTL, IPv4/IPv6, event callbacks | **Done** |
+| 16d | TLS module | tls.connect with OpenSSL, TLSSocket class, getCiphers, event loop integration, SNI/hostname verify | **Done** |
+| 16e | DNS enhanced | dns.resolve with rrtype, dns.getServers (/etc/resolv.conf), dns.promises (lookup/resolve4/resolve6) | **Done** |

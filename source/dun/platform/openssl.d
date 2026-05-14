@@ -127,6 +127,18 @@ int SSL_select_next_proto(
 enum OPENSSL_NPN_NEGOTIATED = 1;
 enum OPENSSL_NPN_NO_OVERLAP = 2;
 
+// --- Pending data ---
+
+int SSL_pending(const(SSL)* ssl);
+int SSL_has_pending(const(SSL)* ssl);
+
+// --- Cipher info ---
+
+const(char)* SSL_CIPHER_get_name(const(void)* cipher);
+void* SSL_get_ciphers(const(SSL)* ssl);
+int OPENSSL_sk_num(const(void)* stack);
+void* OPENSSL_sk_value(const(void)* stack, int idx);
+
 // --- BIO (for hostname verification) ---
 
 int SSL_set1_host(SSL* ssl, const(char)* hostname);

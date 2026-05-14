@@ -56,7 +56,11 @@ void installGlobals(IJSEngine engine, DunState* state) @trusted
     import dun.builtins.worker_threads : registerWorkerThreadsModule;
     import dun.builtins.readline : registerReadlineModule;
     import dun.builtins.tty : registerTtyModule;
+    import dun.builtins.dgram : registerDgramModule;
     import dun.modules.require : installRequire;
+
+    version (Posix)
+        import dun.builtins.tls : registerTlsModule;
 
     installConsole(engine);
     installTimers(engine);
@@ -92,6 +96,11 @@ void installGlobals(IJSEngine engine, DunState* state) @trusted
     registerWorkerThreadsModule(engine);
     registerReadlineModule(engine);
     registerTtyModule(engine);
+    registerDgramModule(engine);
+
+    version (Posix)
+        registerTlsModule(engine);
+
     registerStubModules(engine);
 
     version (Posix)
@@ -122,11 +131,6 @@ void installGlobals(IJSEngine engine, DunState* state) @trusted
 private void registerStubModules(IJSEngine engine) @trusted
 {
     auto result = engine.eval(`(function() {
-  var tls = { createServer: function() { throw new Error('tls.createServer not implemented'); },
-    connect: function() { throw new Error('tls.connect not implemented'); },
-    TLSSocket: function() { throw new Error('TLSSocket not implemented'); },
-    DEFAULT_MIN_VERSION: 'TLSv1.2', DEFAULT_MAX_VERSION: 'TLSv1.3' };
-  var dgram = { createSocket: function() { throw new Error('dgram.createSocket not implemented'); } };
   var perf_hooks = {
     performance: typeof performance !== 'undefined' ? performance : { now: function() { return Date.now(); } },
     PerformanceObserver: function() { this.observe = function(){}; this.disconnect = function(){}; }
@@ -188,8 +192,6 @@ private void registerStubModules(IJSEngine engine) @trusted
   var consoleMod = typeof console !== 'undefined' ? console : {};
 
   if (typeof globalThis !== 'undefined') {
-    globalThis.__dun_cjs_tls__ = tls;
-    globalThis.__dun_cjs_dgram__ = dgram;
     globalThis.__dun_cjs_perf_hooks__ = perf_hooks;
     globalThis.__dun_cjs_punycode__ = punycode;
     globalThis.__dun_cjs_diagnostics_channel__ = diagnostics_channel;

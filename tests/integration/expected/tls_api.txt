@@ -1,0 +1,26 @@
+PASS: tls module exists
+PASS: tls.connect is function
+PASS: tls.getCiphers is function
+PASS: tls.TLSSocket is function
+PASS: tls.createServer is function
+PASS: DEFAULT_MIN_VERSION is TLSv1.2
+PASS: DEFAULT_MAX_VERSION is TLSv1.3
+PASS: DEFAULT_CIPHERS is string
+PASS: getCiphers returns array
+PASS: getCiphers has entries
+PASS: cipher names are lowercase strings
+PASS: TLSSocket creates object
+PASS: TLSSocket has encrypted
+PASS: TLSSocket has write method
+PASS: TLSSocket has end method
+PASS: TLSSocket has destroy method
+PASS: TLSSocket has on method
+PASS: TLSSocket has once method
+PASS: TLSSocket has setEncoding method
+PASS: TLSSocket has setTimeout method
+PASS: TLSSocket has getPeerCertificate method
+PASS: TLSSocket has getCipher method
+PASS: TLSSocket has getProtocol method
+PASS: createServer throws
+
+24/24 tls checks passed

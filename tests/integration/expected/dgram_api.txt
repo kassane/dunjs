@@ -1,0 +1,27 @@
+PASS: dgram module exists
+PASS: dgram.createSocket is function
+PASS: createSocket returns object
+PASS: socket has bind method
+PASS: socket has send method
+PASS: socket has close method
+PASS: socket has address method
+PASS: socket has setBroadcast method
+PASS: socket has setTTL method
+PASS: socket has on method
+PASS: socket has once method
+PASS: socket has removeAllListeners method
+PASS: socket has ref method
+PASS: socket has unref method
+PASS: socket type is udp4
+PASS: createSocket with options object
+PASS: address returns object after bind
+PASS: address has port
+PASS: address has family
+PASS: address has address
+PASS: on returns socket for chaining
+PASS: setBroadcast does not throw
+PASS: setTTL does not throw
+PASS: close does not throw
+PASS: dgram.Socket exists
+
+25/25 dgram checks passed

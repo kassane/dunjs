@@ -65,6 +65,12 @@ struct EventLoop
             if (hasActiveHttp2IO()) { pollHttp2IO(); anyIO = true; }
             if (hasActiveWsIO()) { pollWsIO(); anyIO = true; }
 
+            version (Posix)
+            {
+                import dun.builtins.tls : pollTlsIO, hasActiveTlsIO;
+                if (hasActiveTlsIO()) { pollTlsIO(); anyIO = true; }
+            }
+
             if (asyncDrain() > 0)
                 drainNextTicksAndMicrotasks();
 
@@ -135,6 +141,12 @@ struct EventLoop
             || hasActiveClusterWorkers()
             || hasAgnosticPending()
             || asyncHasWork();
+
+        version (Posix)
+        {
+            import dun.builtins.tls : hasActiveTlsIO;
+            base = base || hasActiveTlsIO();
+        }
 
         version (EngineQuickJS)
         {
