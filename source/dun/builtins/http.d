@@ -181,10 +181,35 @@ HttpConnState[] httpConns;
 int nextHttpServerId;
 int nextHttpConnId;
 
+// Free list for connection slot reuse (avoids unbounded array growth)
+int[] httpFreeSlots;
+
 // Direct dispatch queue — bypasses agnostic pending for lower latency
 enum MAX_HTTP_READY = 256;
 int[MAX_HTTP_READY] httpReadyConns;
 int httpReadyCount;
+
+// Allocate or reuse a connection slot
+int allocConnSlot() nothrow @trusted
+{
+    if (httpFreeSlots.length > 0)
+    {
+        try
+        {
+            int slot = httpFreeSlots[$ - 1];
+            httpFreeSlots = httpFreeSlots[0 .. $ - 1];
+            return slot;
+        }
+        catch (Throwable) {}
+    }
+    return nextHttpConnId++;
+}
+
+// Return a connection slot to the free list
+void freeConnSlot(int slot) nothrow @trusted
+{
+    try { httpFreeSlots ~= slot; } catch (Throwable) {}
+}
 
 JSHandle jsHttpCreateServer(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
@@ -641,6 +666,7 @@ JSHandle jsResEnd(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
                 close(conn.fd);
                 conn.fd = -1;
             }
+            freeConnSlot(connId);
         }
         return engine.newUndefined();
     }
@@ -730,11 +756,11 @@ void flushResponse(HttpConnState* conn) nothrow @trusted
     version (Posix)
     {
         if (conn.fd < 0 || conn.respLen == 0) return;
-        import core.sys.posix.unistd : write;
+        import core.sys.posix.sys.socket : send, MSG_NOSIGNAL;
         size_t sent = 0;
         while (sent < conn.respLen)
         {
-            auto n = write(conn.fd, conn.respBuf.ptr + sent, conn.respLen - sent);
+            auto n = send(conn.fd, conn.respBuf.ptr + sent, conn.respLen - sent, MSG_NOSIGNAL);
             if (n <= 0) break;
             sent += n;
         }
@@ -742,7 +768,7 @@ void flushResponse(HttpConnState* conn) nothrow @trusted
     }
 }
 
-void sendError(HttpConnState* conn, int status, string text) nothrow @trusted
+void sendError(HttpConnState* conn, int status, string text, int connSlot = -1) nothrow @trusted
 {
     assert(conn !is null, "Null HttpConnState in sendError");
     import std.conv : to;
@@ -757,23 +783,29 @@ void sendError(HttpConnState* conn, int status, string text) nothrow @trusted
     version (Posix)
     {
         import core.sys.posix.unistd : close;
+        conn.closed = true;
         version (linux) if (conn.fd >= 0) gHttpPoller.unwatch(conn.fd);
-        if (conn.fd >= 0) { fdToConnId.remove(conn.fd); close(conn.fd); conn.fd = -1; }
+        if (conn.fd >= 0)
+        {
+            try { fdToConnId.remove(conn.fd); } catch (Exception) {}
+            close(conn.fd);
+            conn.fd = -1;
+        }
+        if (connSlot >= 0) freeConnSlot(connSlot);
     }
 }
 
-// Legacy sendRaw for res.write() (streaming case)
 void sendRaw(HttpConnState* conn, string data) nothrow @trusted
 {
     assert(conn !is null, "Null HttpConnState in sendRaw");
     version (Posix)
     {
         if (conn.fd < 0 || data.length == 0) return;
-        import core.sys.posix.unistd : write;
+        import core.sys.posix.sys.socket : send, MSG_NOSIGNAL;
         size_t sent = 0;
         while (sent < data.length)
         {
-            auto n = write(conn.fd, data.ptr + sent, data.length - sent);
+            auto n = send(conn.fd, data.ptr + sent, data.length - sent, MSG_NOSIGNAL);
             if (n <= 0) break;
             sent += n;
         }
@@ -901,7 +933,7 @@ void acceptHttpConnection(int srvId) nothrow @trusted
             int one = 1;
             setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &one, one.sizeof);
 
-            int cid = nextHttpConnId++;
+            int cid = allocConnSlot();
             try
             {
                 HttpConnState c;
@@ -909,7 +941,10 @@ void acceptHttpConnection(int srvId) nothrow @trusted
                 c.srvId = srvId;
                 c.fd = fd;
                 c.statusCode = 200;
-                httpConns ~= c;
+                if (cid < cast(int) httpConns.length)
+                    httpConns[cid] = c;
+                else
+                    httpConns ~= c;
                 fdToConnId[fd] = cid;
             }
             catch (Throwable)
@@ -966,6 +1001,7 @@ void readHttpData(int cid) nothrow @trusted
             try { fdToConnId.remove(conn.fd); } catch (Exception) {}
             close(conn.fd);
             conn.fd = -1;
+            freeConnSlot(cid);
             return;
         }
 
@@ -1009,7 +1045,7 @@ void tryParseHeaders(HttpConnState* conn, int cid) nothrow @trusted
 
     if (hasTE && hasCL)
     {
-        sendError(conn, 400, "Bad Request");
+        sendError(conn, 400, "Bad Request", cid);
         return;
     }
 
@@ -1022,7 +1058,7 @@ void tryParseHeaders(HttpConnState* conn, int cid) nothrow @trusted
     // Reject requests with Content-Length exceeding buffer capacity
     if (conn.contentLength > MAX_BUF || conn.bodyStart + conn.contentLength > MAX_BUF)
     {
-        sendError(conn, 413, "Payload Too Large");
+        sendError(conn, 413, "Payload Too Large", cid);
         return;
     }
 
