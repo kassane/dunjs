@@ -130,9 +130,9 @@ for 24 hours. `dun install` checks packages before download. See [SECURITY.md](S
 
 | Backend | Tests | Notes |
 |---------|-------|-------|
-| QuickJS-NG | 62/62 | Default. Interpreter, ES2023, smallest binary (4.6MB) |
-| JavaScriptCore | 62/62 | JIT. Same engine as Safari/Bun |
-| V8 | 62/62 | JIT. Same engine as Chrome/Node.js (V8 14.9). Via C++ shim |
+| QuickJS-NG | 63/63 | Default. Interpreter, ES2023, smallest binary (4.6MB) |
+| JavaScriptCore | 63/63 | JIT. Same engine as Safari/Bun |
+| V8 | 63/63 | JIT. Same engine as Chrome/Node.js (V8 14.9). Via C++ shim |
 
 All 24 built-in modules, Workers, SharedArrayBuffer, Atomics, fetch, Deno compat, and web globals work identically on every backend.
 
@@ -157,7 +157,7 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for the full design.
 
 ```sh
 dub test -c unittest                    # ~175 unit tests
-./tests/integration/run.sh              # 62 integration tests (all 3 backends)
+./tests/integration/run.sh              # 63 integration tests (all 3 backends)
 ```
 
 | Suite | Tests |
@@ -167,7 +167,8 @@ dub test -c unittest                    # ~175 unit tests
 | TypeScript strip | 20 (annotations, interfaces, as, declare, arrow types) |
 | Security | 38 (permissions 27 + CVE audit 8 + security tests 3) |
 | HTTP/2 | 15 (frame encoding, HPACK, static table, settings) |
-| Integration | 62 fixtures (core JS, async, ES2023+, modules, 24 builtins, Workers, Deno compat, TypeScript, fetch Response, import.meta, real-world) |
+| HTTP/3 | 12 (QUIC varint encode/decode, H3 frame header, SETTINGS payload) |
+| Integration | 63 tests (core JS, async, ES2023+, modules, 24 builtins, Workers, Deno compat, TypeScript, fetch Response, import.meta, REPL, CLI, real-world) |
 
 ## Comparison
 
@@ -189,25 +190,32 @@ Feature benchmarks (25 tests, ops/sec — higher is better):
 
 | Runtime | Total Throughput | Relative |
 |---------|-----------------|----------|
-| Bun 1.3.11 | 761M | 1.00x |
-| DunJS V8 | 545M | 0.72x |
-| DunJS JSC | 534M | 0.70x |
-| Node.js v22 | 158M | 0.21x |
-| Deno 2.7.14 | 136M | 0.18x |
+| Bun 1.3.11 | 422M | 1.00x |
+| DunJS JSC | 371M | 0.88x |
+| Node.js v22 | 112M | 0.26x |
+| Deno 2.7.14 | 109M | 0.26x |
+| DunJS V8 | 105M | 0.25x |
 
 Framework benchmarks (39 tests, ops/sec):
 
 | Runtime | Total Throughput | Relative |
 |---------|-----------------|----------|
-| Bun 1.3.11 | 373M | 1.00x |
-| DunJS JSC | 318M | 0.85x |
-| Node.js v22 | 160M | 0.43x |
-| Deno 2.7.14 | 159M | 0.43x |
-| DunJS V8 | 161M | 0.43x |
+| Bun 1.3.11 | 266M | 1.00x |
+| DunJS JSC | 242M | 0.91x |
+| Node.js v22 | 130M | 0.49x |
+| DunJS V8 | 129M | 0.48x |
+| Deno 2.7.14 | 126M | 0.47x |
 
-DunJS JSC and V8 are competitive with Bun on feature and framework benchmarks.
-DunJS V8 is competitive with Node.js and Deno.
-React/framework compat: **81/81 checks** pass across all 6 runtimes.
+HTTP stress (wrk, 128 connections, req/sec — higher is better):
+
+| Endpoint | Bun | Deno | DunJS V8 | DunJS QJS | Node.js |
+|----------|-----|------|----------|-----------|---------|
+| /plaintext | 55,487 | 52,086 | 37,298 | 48,084 | 28,238 |
+| /json | 53,093 | 49,783 | 38,924 | **55,888** | 29,398 |
+| /compute | 55,132 | 42,544 | 39,778 | 40,334 | 27,372 |
+| /transaction | 42,694 | 41,792 | 34,138 | 26,501 | 19,046 |
+
+DunJS JSC is 88-91% of Bun on JS compute. DunJS V8 beats Node.js on all HTTP endpoints.
 npm compat: **145/145** pass across all 6 runtimes.
 
 ## License

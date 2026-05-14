@@ -17,6 +17,10 @@ private enum : ushort {
     WS_DEFAULT_TLS_PORT   = 443,
     WS_DEFAULT_SERVER_PORT = 8080,
 }
+private enum {
+    WS_LISTEN_BACKLOG    = 1024,
+    IO_POLL_BATCH_SIZE   = 64,
+}
 
 void registerWsModule(IJSEngine engine) @trusted
 {
@@ -396,7 +400,7 @@ JSHandle jsWsServerListen(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
             if (hasCb) engine.freeValue(listenCb);
             return engine.throwTypeError("WebSocketServer: bind() failed");
         }
-        if (listen(lfd, 128) < 0)
+        if (listen(lfd, WS_LISTEN_BACKLOG) < 0)
         {
             import core.sys.posix.unistd : close;
             close(lfd);
@@ -724,7 +728,7 @@ public void pollWsIO() nothrow @trusted
     version (linux)
     {
         ensureWsPoller();
-        IOEvent[64] evBuf;
+        IOEvent[IO_POLL_BATCH_SIZE] evBuf;
         auto events = gWsPoller.poll(0, evBuf[]);
         foreach (ref ev; events)
         {
@@ -1010,6 +1014,20 @@ void closeConn(WsConnState* conn) nothrow @trusted
     version (Posix)
     {
         import core.sys.posix.unistd : close;
+
+        // Free JS callback handles to prevent leaks
+        if (conn.engine !is null)
+        {
+            try
+            {
+                if (conn.hasOnopen)  { conn.engine.freeValue(conn.onopen);    conn.hasOnopen = false; }
+                if (conn.hasOnmessage) { conn.engine.freeValue(conn.onmessage); conn.hasOnmessage = false; }
+                if (conn.hasOnclose) { conn.engine.freeValue(conn.onclose);   conn.hasOnclose = false; }
+                if (conn.hasOnerror) { conn.engine.freeValue(conn.onerror);   conn.hasOnerror = false; }
+            }
+            catch (Throwable) {}
+        }
+
         if (conn.fd >= 0)
         {
             version (linux) gWsPoller.unwatch(conn.fd);

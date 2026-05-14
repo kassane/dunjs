@@ -6,8 +6,8 @@ import dun.loop.agnostic_pending : pushAgnosticPending;
 
 private enum : size_t {
     SOCKET_READ_BUF_SIZE = 4096,
-    LISTEN_BACKLOG       = 128,
-    IO_EVENT_BUF_SIZE    = 64,
+    LISTEN_BACKLOG       = 1024,
+    IO_POLL_BATCH_SIZE   = 64,
 }
 
 void registerNetModule(IJSEngine engine) @trusted
@@ -541,6 +541,20 @@ JSHandle jsSocketEnd(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
             JSHandle[0] noArgs;
             pushAgnosticPending(engine, sock.onClose, noArgs[]);
         }
+
+        // Free JS callback handles to prevent leaks
+        if (sock.eventsSet)
+        {
+            try
+            {
+                engine.freeValue(sock.onData);
+                engine.freeValue(sock.onEnd);
+                engine.freeValue(sock.onClose);
+                engine.freeValue(sock.onError);
+            }
+            catch (Throwable) {}
+            sock.eventsSet = false;
+        }
         return engine.newUndefined();
     }
     else
@@ -556,7 +570,7 @@ public void pollNetIO() nothrow @trusted
     version (linux)
     {
         ensurePoller();
-        IOEvent[IO_EVENT_BUF_SIZE] evBuf;
+        IOEvent[IO_POLL_BATCH_SIZE] evBuf;
         auto events = gNetPoller.poll(0, evBuf[]);
         foreach (ref ev; events)
         {

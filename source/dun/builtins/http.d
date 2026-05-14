@@ -9,6 +9,7 @@ private enum {
     HTTP_DEFAULT_PORT = 80,
     HTTP_LISTEN_BACKLOG = 1024,
     HTTP_MAX_HEADER_NAME = 128,
+    IO_POLL_BATCH_SIZE = 64,
 }
 
 private string sanitizeHeaderValue(string s) @safe pure
@@ -679,34 +680,35 @@ JSHandle jsResEnd(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     }
 }
 
+// CTFE pre-computed status lines — zero allocation in hot path
+string statusLine(int code) pure nothrow @safe @nogc
+{
+    switch (code)
+    {
+        case 200: return "HTTP/1.1 200 OK\r\n";
+        case 201: return "HTTP/1.1 201 Created\r\n";
+        case 204: return "HTTP/1.1 204 No Content\r\n";
+        case 301: return "HTTP/1.1 301 Moved Permanently\r\n";
+        case 302: return "HTTP/1.1 302 Found\r\n";
+        case 304: return "HTTP/1.1 304 Not Modified\r\n";
+        case 400: return "HTTP/1.1 400 Bad Request\r\n";
+        case 401: return "HTTP/1.1 401 Unauthorized\r\n";
+        case 403: return "HTTP/1.1 403 Forbidden\r\n";
+        case 404: return "HTTP/1.1 404 Not Found\r\n";
+        case 413: return "HTTP/1.1 413 Payload Too Large\r\n";
+        case 500: return "HTTP/1.1 500 Internal Server Error\r\n";
+        default: return "HTTP/1.1 200 OK\r\n";
+    }
+}
+
 void bufferStatusLine(HttpConnState* conn) nothrow @trusted
 {
     assert(conn !is null, "Null HttpConnState in bufferStatusLine");
     if (conn.headersSent || conn.fd < 0) return;
     conn.headersSent = true;
 
-    string statusText = "OK";
-    switch (conn.statusCode)
-    {
-        case 200: statusText = "OK"; break;
-        case 201: statusText = "Created"; break;
-        case 204: statusText = "No Content"; break;
-        case 301: statusText = "Moved Permanently"; break;
-        case 302: statusText = "Found"; break;
-        case 304: statusText = "Not Modified"; break;
-        case 400: statusText = "Bad Request"; break;
-        case 401: statusText = "Unauthorized"; break;
-        case 403: statusText = "Forbidden"; break;
-        case 404: statusText = "Not Found"; break;
-        case 500: statusText = "Internal Server Error"; break;
-        default: statusText = "Unknown"; break;
-    }
-
     try
     {
-        import std.conv : to;
-
-        // Build status line + headers into response buffer (no write() yet)
         void bufAppend(const(char)[] s) nothrow @trusted {
             size_t avail = MAX_BUF - conn.respLen;
             size_t n = s.length < avail ? s.length : avail;
@@ -716,11 +718,7 @@ void bufferStatusLine(HttpConnState* conn) nothrow @trusted
             }
         }
 
-        bufAppend("HTTP/1.1 ");
-        bufAppend(conn.statusCode.to!string);
-        bufAppend(" ");
-        bufAppend(statusText);
-        bufAppend("\r\n");
+        bufAppend(statusLine(conn.statusCode));
 
         if ("Content-Type" !in conn.respHeaders)
             conn.respHeaders["Content-Type"] = "text/plain";
@@ -773,15 +771,9 @@ void flushResponse(HttpConnState* conn) nothrow @trusted
 void sendError(HttpConnState* conn, int status, string text, int connSlot = -1) nothrow @trusted
 {
     assert(conn !is null, "Null HttpConnState in sendError");
-    import std.conv : to;
-    try
-    {
-        auto errResp = "HTTP/1.1 " ~ status.to!string ~ " " ~ text
-            ~ "\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
-        bufferData(conn, errResp);
-        flushResponse(conn);
-    }
-    catch (Exception) {}
+    bufferData(conn, statusLine(status));
+    bufferData(conn, "Content-Length: 0\r\nConnection: close\r\n\r\n");
+    flushResponse(conn);
     version (Posix)
     {
         import core.sys.posix.unistd : close;
@@ -820,7 +812,7 @@ public void pollHttpIO() nothrow @trusted
     version (linux)
     {
         ensureHttpPoller();
-        IOEvent[64] evBuf;
+        IOEvent[IO_POLL_BATCH_SIZE] evBuf;
         auto events = gHttpPoller.poll(0, evBuf[]);
         foreach (ref ev; events)
         {

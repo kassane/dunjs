@@ -253,6 +253,12 @@ Applied across all 7 layers (~290 assertions in 25 files).
 - **ESM shim O(n) strings**: `escapeJsString`, `splitLines`, `parseImportLine` use `Appender` instead of `~=`/`~` concatenation
 - **Arena allocator**: `dun.platform.arena` re-exports `std.experimental.allocator` (`Region!Mallocator`, `BorrowedRegion`, `InSituRegion`) for `@nogc pure` bump allocation
 - **GC tuning**: `rt_options = ["gcopt=minPoolSize:16"]` reduces GC collections ~11x
+- **HTTP TCP_NODELAY**: Disables Nagle's algorithm on accepted sockets, eliminating 40ms delayed-ACK latency
+- **HTTP buffered response**: Headers + body combined in `char[MAX_BUF]` stack buffer, flushed in single `send()` call
+- **HTTP CTFE status lines**: `statusLine()` returns pre-computed `"HTTP/1.1 200 OK\r\n"` strings — `pure nothrow @safe @nogc`, zero allocation
+- **HTTP connection pool**: fd→connId hashmap (O(1) lookup) + free slot list for connection reuse
+- **HTTP JS-level dispatch**: Pre-compiled JS function creates req/res objects in JIT-optimized JS, reducing per-request FFI calls from ~25 to ~8
+- **HTTP lazy headers**: `get headers()` getter loads headers on demand via native callback, avoiding allocation when headers unused
 
 ### 8. Event Loop Phases (per tick)
 
@@ -387,7 +393,7 @@ dub test -c unittest    # All unit tests
 | V8 TMP bridge | `source/dun/engine/v8/cppbindings.d` | compile-time | V8TypeName coverage, tag->name mapping |
 | JSC TMP bridge | `source/dun/engine/jsc/cppbindings.d` | compile-time | JSCTypeName coverage, kJSType* alignment |
 
-### Integration Tests (63 fixtures)
+### Integration Tests (63 tests)
 
 ```sh
 # Run against a specific backend
@@ -440,47 +446,43 @@ All 51 integration tests pass under AddressSanitizer with zero memory errors.
 | `tests/benchmarks/framework_bench.js` | 39 | Framework patterns (routing, middleware, JSON API, templates, SQL, validation, concurrency) |
 | `tests/benchmarks/npm_compat_test.js` | 145 | Simulated npm packages (lodash, express, moment, uuid, chalk, dotenv, minimist, semver, etc.) |
 | `tests/benchmarks/sqlite_bench.js` | 5 | SQLite performance (bulk insert/read, aggregation, update) |
+| `tests/benchmarks/http_bench/stress.sh` | 9 endpoints | HTTP wrk stress (plaintext, json, users API, compute, transaction, middleware, echo) |
 
-Cross-runtime comparison (feature_bench.js, 25 tests, ops/sec):
+Cross-runtime comparison (feature_bench.js, 25 tests, release builds, ops/sec):
 
 | Runtime | Total Throughput | vs Bun |
 |---------|-----------------|--------|
-| Bun 1.3.11 | 458M | 1.00x |
-| DunJS JSC (release) | 426M | **0.93x** |
-| DunJS JSC (debug) | 412M | 0.90x |
-| Node.js v22 (V8 12.4) | 168M | 0.37x |
-| Deno 2.7.14 (V8 14.7) | 157M | 0.34x |
-| DunJS V8 14.9 (release) | 127M | 0.28x |
-| DunJS QuickJS | 7.4M | 0.02x |
+| Bun 1.3.11 | 422M | 1.00x |
+| DunJS JSC | 371M | **0.88x** |
+| Node.js v22 | 112M | 0.26x |
+| Deno 2.7.14 | 109M | 0.26x |
+| DunJS V8 | 105M | 0.25x |
 
-Framework benchmarks (framework_bench.js, 39 tests, ops/sec):
+Framework benchmarks (framework_bench.js, 39 tests, release builds, ops/sec):
 
-| Runtime | Total Throughput |
-|---------|-----------------|
-| **DunJS JSC** | **332M** |
-| Bun | 323M |
-| Node.js v22 | 179M |
-| DunJS V8 14.9 | 172M |
-| Deno 2.7.14 | 159M |
+| Runtime | Total Throughput | vs Bun |
+|---------|-----------------|--------|
+| Bun 1.3.11 | 266M | 1.00x |
+| DunJS JSC | 242M | **0.91x** |
+| Node.js v22 | 130M | 0.49x |
+| DunJS V8 | 129M | 0.48x |
+| Deno 2.7.14 | 126M | 0.47x |
 
 npm compat test (npm_compat_test.js, 145 assertions): **All 6 runtimes: 145/145 pass**
 
-Performance comparison (stress.js 240 tests, release builds):
+HTTP stress benchmarks (wrk, 2 threads, 128 connections, 10s per endpoint, release builds):
 
-| Runtime | Wall Time | Notes |
-|---------|-----------|-------|
-| DunJS JSC | 90s | All 240 pass |
-| Bun | 89s | All 240 pass |
-| Deno | 172s | All 240 pass |
-| DunJS V8 | 219s | All 240 pass |
+| Endpoint | Node v22 | Deno 2.7 | Bun 1.3 | DunJS V8 | DunJS JSC | DunJS QJS |
+|----------|----------|----------|---------|----------|-----------|-----------|
+| /plaintext | 28,238 | 52,086 | 55,487 | 37,298 | 30,515 | 48,084 |
+| /json | 29,398 | 49,783 | 53,093 | 38,924 | 28,850 | 55,888 |
+| /api/users | 13,951 | 21,930 | 22,147 | 16,191 | 11,813 | 5,172 |
+| /compute | 27,372 | 42,544 | 55,132 | 39,778 | 34,040 | 40,334 |
+| /transaction | 19,046 | 41,792 | 42,694 | 34,138 | 25,407 | 26,501 |
+| /middleware | 20,474 | 43,507 | 49,675 | 32,517 | 25,467 | 34,185 |
 
-npm stress (npm_stress.js 189 tests, 45+ real packages):
-
-| Runtime | Wall Time | Pass Rate |
-|---------|-----------|-----------|
-| DunJS V8 | 29.5s | 182/189 |
-| Bun | 30s | 184/189 |
-| DunJS JSC | 46s | 182/189 |
+DunJS V8 beats Node.js on all endpoints. DunJS QuickJS excels at /json (55K vs Bun's 53K).
+All endpoints include TCP_NODELAY, buffered single-write response, CTFE status lines.
 
 ### Concurrency & SIMD Comparison
 

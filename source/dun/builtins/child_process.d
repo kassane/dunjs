@@ -74,7 +74,7 @@ JSHandle throwPermError(IJSEngine engine, string cmd) @trusted
         "[ERR_PERMISSION_DENIED] Requires --allow-run permission, command '" ~ cmd ~ "'");
 }
 
-string extractCommand(string fullCmd) @trusted
+string extractCommand(string fullCmd) @safe
 {
     import std.algorithm : splitter;
     import std.uni : isWhite;

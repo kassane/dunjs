@@ -115,6 +115,10 @@ enum H2_MAX_FRAME_SIZE = 16_777_215;
 enum H2_CONNECTION_PREFACE_LEN = 24;
 enum H2_SETTING_ENTRY_SIZE = 6;
 enum H2_SETTINGS_COUNT = 3;
+enum H2_DEFAULT_MAX_CONCURRENT_STREAMS = 100;
+enum H2_DEFAULT_TLS_PORT = 443;
+enum H2_LISTEN_BACKLOG = 1024;
+enum IO_POLL_BATCH_SIZE = 64;
 
 enum : ubyte {
     HPACK_INDEXED_PREFIX     = 0x80,
@@ -865,7 +869,7 @@ struct H2Settings
 {
     uint headerTableSize = H2_DEFAULT_HEADER_TABLE_SIZE;
     bool enablePush = true;
-    uint maxConcurrentStreams = 100;
+    uint maxConcurrentStreams = H2_DEFAULT_MAX_CONCURRENT_STREAMS;
     uint initialWindowSize = H2_DEFAULT_WINDOW_SIZE;
     uint maxFrameSize = H2_DEFAULT_MAX_FRAME_SIZE;
     uint maxHeaderListSize = uint.max;
@@ -1646,7 +1650,7 @@ JSHandle jsH2ServerListen(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
             return engine.throwTypeError("h2 server.listen: invalid server");
 
         auto srv = &h2Servers[idVal];
-        int port = 443;
+        int port = H2_DEFAULT_TLS_PORT;
         JSHandle listenCb;
         bool hasCb = false;
 
@@ -1684,7 +1688,7 @@ JSHandle jsH2ServerListen(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
             if (hasCb) engine.freeValue(listenCb);
             return engine.throwTypeError("h2 server: bind() failed");
         }
-        if (listen(lfd, 128) < 0)
+        if (listen(lfd, H2_LISTEN_BACKLOG) < 0)
         {
             import core.sys.posix.unistd : close;
             close(lfd);
@@ -1952,7 +1956,7 @@ public void pollHttp2IO() nothrow @trusted
     version (linux)
     {
         ensureH2Poller();
-        IOEvent[64] evBuf;
+        IOEvent[IO_POLL_BATCH_SIZE] evBuf;
         auto events = gH2Poller.poll(0, evBuf[]);
         foreach (ref ev; events)
         {
@@ -2040,7 +2044,7 @@ void readH2Data(ref H2Connection conn) nothrow @trusted
 {
     version (Posix)
     {
-        ubyte[16384] buf;
+        ubyte[H2_DEFAULT_MAX_FRAME_SIZE] buf;
         while (true)
         {
             int n;
