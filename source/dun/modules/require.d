@@ -46,8 +46,8 @@ JSHandle jsRequireResolve(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     if (specifier.startsWith("node:") || specifier.startsWith("dun:"))
         return engine.newString(specifier);
 
-    string[24] builtins = ["fs", "path", "crypto", "net", "http", "http2",
-        "os", "buffer", "events", "url", "child_process", "stream",
+    string[25] builtins = ["fs", "path", "crypto", "net", "http", "http2",
+        "http3", "os", "buffer", "events", "url", "child_process", "stream",
         "zlib", "dns", "ws", "sqlite", "util", "assert", "querystring",
         "string_decoder", "timers/promises", "tls", "dgram", "vm"];
     foreach (b; builtins)
@@ -123,6 +123,7 @@ JSHandle jsRequire(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     else if (specifier == "net") specifier = "dun:net";
     else if (specifier == "http") specifier = "dun:http";
     else if (specifier == "http2") specifier = "dun:http2";
+    else if (specifier == "http3") specifier = "dun:http3";
     else if (specifier == "os") specifier = "dun:os";
     else if (specifier == "buffer") specifier = "dun:buffer";
     else if (specifier == "events") specifier = "dun:events";
@@ -150,6 +151,7 @@ JSHandle jsRequire(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
         else if (specifier == "dun:net") propName = "__dun_cjs_net__";
         else if (specifier == "dun:http") propName = "__dun_cjs_http__";
         else if (specifier == "dun:http2") propName = "__dun_cjs_http2__";
+        else if (specifier == "dun:http3") propName = "__dun_cjs_http3__";
         else if (specifier == "dun:os") propName = "__dun_cjs_os__";
         else if (specifier == "dun:buffer") propName = "__dun_cjs_buffer__";
         else if (specifier == "dun:events") propName = "__dun_cjs_events__";

@@ -51,7 +51,7 @@ DFLAGS="--fsanitize=address" dub build -c quickjs  # Alternative ASan via DFLAGS
 Layer 7: CLI & REPL           source/dun/cli/
 Layer 6: Runtime API           source/dun/runtime/     (console, timers, process, Deno.*)
 Layer 5: Module System         source/dun/modules/     (ES modules, resolver, loader, npm installer)
-Layer 4: Built-in Modules      source/dun/builtins/    (dun:fs, dun:path, dun:net, dun:http, dun:http2, dun:os, dun:buffer, dun:events, dun:url, dun:zlib, dun:dns, dun:ws, dun:child_process, dun:stream, dun:sqlite, fetch)
+Layer 4: Built-in Modules      source/dun/builtins/    (dun:fs, dun:path, dun:net, dun:http, dun:http2, dun:http3, dun:os, dun:buffer, dun:events, dun:url, dun:zlib, dun:dns, dun:ws, dun:child_process, dun:stream, dun:sqlite, fetch)
 Layer 3: Event Loop            source/dun/loop/        (epoll/kqueue/poll, timer wheel, microtasks)
 Layer 2: JS Engine Abstraction source/dun/engine/      (IJSEngine interface + backends)
 Layer 1: Platform Abstraction  source/dun/platform/    (memory, threading, OS I/O, arena allocator)
@@ -101,6 +101,7 @@ source/dun/ts/           # TypeScript type stripping
 source/dun/platform/
 +-- arena.d              # Arena/bump allocator (std.experimental.allocator Region, BorrowedRegion, InSituRegion, Mallocator)
 +-- openssl.d            # extern(C) OpenSSL bindings (libssl, libcrypto, ALPN, SSL_accept, cert/key loading)
++-- lsquic.d             # extern(C) lsquic bindings (QUIC/HTTP3, litespeedtech/lsquic)
 
 source/dun/security/
 +-- permissions.d        # PermissionRegistry (default-deny model)
@@ -127,6 +128,7 @@ All runtime globals are **engine-agnostic** (use `IJSEngine` + `NativeCallback`)
 | `net` | `registerNetModule(engine)` | `require('net')`, ESM `import from 'dun:net'` |
 | `http` | `registerHttpModule(engine)` | `require('http')`, ESM `import from 'dun:http'` |
 | `http2` | `registerHttp2Module(engine)` | `require('http2')`, ESM `import from 'dun:http2'` |
+| `http3` | `registerHttp3Module(engine)` | `require('http3')`, ESM `import from 'dun:http3'` |
 | `child_process` | `registerChildProcessModule(engine)` | `require('child_process')`, ESM `import from 'dun:child_process'` |
 | `stream` | `registerStreamModule(engine)` | `require('stream')`, ESM `import from 'dun:stream'` |
 | `zlib` | `registerZlibModule(engine)` | `require('zlib')`, ESM `import from 'dun:zlib'` |
@@ -381,10 +383,11 @@ dub test -c unittest    # All unit tests
 | CVE audit | `source/dun/security/cve_db.d` | 8 | semver, CVSS parsing, severity mapping, JSON escaping, cache round-trip |
 | SQLite | `source/dun/builtins/sqlite.d` | 4 | ImportC bindings, open/close, exec/query, bind parameters |
 | HTTP/2 | `source/dun/builtins/http2.d` | 15 | frame encoding, HPACK encode/decode, static table, settings |
+| HTTP/3 | `source/dun/builtins/http3.d` | 12 | QUIC varint encode/decode, H3 frame header, SETTINGS payload |
 | V8 TMP bridge | `source/dun/engine/v8/cppbindings.d` | compile-time | V8TypeName coverage, tag->name mapping |
 | JSC TMP bridge | `source/dun/engine/jsc/cppbindings.d` | compile-time | JSCTypeName coverage, kJSType* alignment |
 
-### Integration Tests (62 fixtures)
+### Integration Tests (63 fixtures)
 
 ```sh
 # Run against a specific backend
@@ -401,7 +404,7 @@ dub build -c v8  && BACKEND=v8  ./tests/integration/run.sh
 | Errors | `error_handling` | try/catch, Error subtypes, Error.cause, finally |
 | Modules | `module_esm`, `module_cjs`, `module_chain`, `json_pipeline`, `npm_compat` | ESM import/export, CJS require, chained deps, JSON import |
 | Builtins | `fs_ops`, `path_ops`, `crypto_ops`, `stat_file`, `env_access` | readFile, join/resolve, hash/randomBytes, stat, process.env |
-| Node APIs | `buffer_api`, `event_emitter`, `url_api`, `os_api`, `http2_api` | Buffer.from/alloc/concat, EventEmitter on/emit/once, URL/URLSearchParams, os.platform/cpus/totalmem, HTTP/2 API (20 checks) |
+| Node APIs | `buffer_api`, `event_emitter`, `url_api`, `os_api`, `http2_api`, `http3_api` | Buffer.from/alloc/concat, EventEmitter on/emit/once, URL/URLSearchParams, os.platform/cpus/totalmem, HTTP/2 API (20 checks), HTTP/3 API (22 checks) |
 | New Modules | `child_process_api`, `stream_api`, `zlib_api`, `dns_api`, `ws_api` | execSync/spawnSync, Readable/Writable/Transform/pipeline, deflate/gzip round-trip, DNS lookup/resolve, WebSocket API |
 | Database | `sqlite_api` | open, exec, run, get, all, close, NULL handling, types (20 checks) |
 | Web APIs | `web_apis` | 91 checks: performance, EventTarget/Event, AbortController, Blob, FormData, Headers, Request/Response, MessageChannel, BroadcastChannel, ReadableStream, WritableStream, TransformStream, crypto.getRandomValues, navigator, Promise.withResolvers, require.resolve |
@@ -412,7 +415,7 @@ dub build -c v8  && BACKEND=v8  ./tests/integration/run.sh
 | import.meta | `import_meta` | 6 checks: url, filename, dirname, main (all 3 backends) |
 | Real-world | 7 end-to-end scenarios | Config loading, task runner, file processing, events, promise pool, nested require, ESM pipeline |
 
-Backend test scores: **QuickJS 62/62**, **JSC 62/62**, **V8 62/62** (full parity across all 3 backends).
+Backend test scores: **QuickJS 63/63**, **JSC 63/63**, **V8 63/63** (full parity across all 3 backends).
 
 Test pattern: fixtures in `tests/integration/fixtures/*.{js,mjs,ts}`, expected stdout in `tests/integration/expected/*.txt`.
 
@@ -661,3 +664,4 @@ Benchmark impact (25 benchmarks, feature_bench.js):
 | 12b | process.stdin | process.stdin with non-blocking read, fd, isTTY, setEncoding | **Done** |
 | 12c | import.meta all backends | import.meta.url/filename/dirname/main on QuickJS (native) + JSC/V8 (ESM shim polyfill) | **Done** |
 | 12d | D FFI bindgen tests | 27 tests: -HCf, -H, ImportC, @nogc alloc, clang AST, FFI linkage, --extern-std | **Done** |
+| 13a | HTTP/3 | dun:http3 module, RFC 9114 constants, QUIC varint encoding, lsquic bindings, API stubs | **Done** |

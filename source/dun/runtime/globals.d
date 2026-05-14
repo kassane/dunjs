@@ -47,6 +47,7 @@ void installGlobals(IJSEngine engine, DunState* state) @trusted
     import dun.builtins.querystring : registerQuerystringModule;
     import dun.builtins.string_decoder : registerStringDecoderModule;
     import dun.builtins.timers_promises : registerTimersPromisesModule;
+    import dun.builtins.http3 : registerHttp3Module;
     import dun.modules.require : installRequire;
 
     installConsole(engine);
@@ -74,6 +75,7 @@ void installGlobals(IJSEngine engine, DunState* state) @trusted
     registerQuerystringModule(engine);
     registerStringDecoderModule(engine);
     registerTimersPromisesModule(engine);
+    registerHttp3Module(engine);
 
     version (Posix)
         registerFetchGlobal(engine);

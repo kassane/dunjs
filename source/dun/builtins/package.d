@@ -1,6 +1,6 @@
 /// Layer 4: Built-in modules.
 ///
-/// Native implementations of dun:fs, dun:path, dun:net, dun:http,
+/// Native implementations of dun:fs, dun:path, dun:net, dun:http, dun:http2, dun:http3,
 /// dun:crypto, dun:os, dun:url, dun:events, dun:buffer, dun:zlib, dun:dns, fetch.
 /// Registered via IJSEngine interface (engine-agnostic).
 module dun.builtins;
@@ -27,3 +27,4 @@ public import dun.builtins.assert_;
 public import dun.builtins.querystring;
 public import dun.builtins.string_decoder;
 public import dun.builtins.timers_promises;
+public import dun.builtins.http3;
