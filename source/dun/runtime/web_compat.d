@@ -42,7 +42,29 @@ void installWebCompat(IJSEngine engine) @trusted
     engine.freeValue(tdProto);
     engine.freeValue(tdCtor);
 
+    // Error.captureStackTrace + Error.stackTraceLimit (V8/Node compat)
+    auto errRes = engine.eval(errorCapturePolyfill(), "<error-compat>");
+    if (!errRes.isError)
+        engine.freeValue(errRes.value);
+
     engine.freeValue(global);
+}
+
+private string errorCapturePolyfill() pure nothrow @safe
+{
+    return
+        "(function(){"
+        ~ "if(!Error.captureStackTrace){"
+        ~   "Error.captureStackTrace=function(obj,ctor){"
+        ~     "var e=new Error();"
+        ~     "Object.defineProperty(obj,'stack',{"
+        ~       "get:function(){return e.stack;},"
+        ~       "configurable:true"
+        ~     "});"
+        ~   "};"
+        ~ "}"
+        ~ "if(Error.stackTraceLimit===undefined)Error.stackTraceLimit=10;"
+        ~ "})();";
 }
 
 private string textEncoderSetup() pure nothrow @safe

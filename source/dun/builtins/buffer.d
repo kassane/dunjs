@@ -206,7 +206,7 @@ void ensureBufferFnsCached(IJSEngine engine) @trusted
 __gshared JSHandle _bufFactory;
 __gshared JSHandle _bufFactoryThis;
 
-JSHandle makeBufferObj(IJSEngine engine, const(ubyte)[] data) @trusted
+package JSHandle makeBufferObj(IJSEngine engine, const(ubyte)[] data) @trusted
 {
     ensureBufferFnsCached(engine);
     auto u8 = engine.newUint8Array(data);
@@ -277,7 +277,7 @@ ubyte hexDigit(char c) pure @safe
     return 0;
 }
 
-ubyte[] extractBytes(IJSEngine engine, JSHandle obj) @trusted
+package ubyte[] extractBytes(IJSEngine engine, JSHandle obj) @trusted
 {
     auto u8 = engine.getProperty(obj, "__u8");
     auto bytes = engine.getTypedArrayBytes(u8);
@@ -319,6 +319,42 @@ JSHandle jsBufferFrom(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trust
             {
                 return makeBufferObj(engine, cast(ubyte[]) []);
             }
+        }
+        else if (encoding == "base64url")
+        {
+            try
+            {
+                auto padded = base64urlToBase64(str);
+                import std.base64 : Base64;
+                auto bytes = Base64.decode(padded);
+                return makeBufferObj(engine, bytes);
+            }
+            catch (Exception)
+            {
+                return makeBufferObj(engine, cast(ubyte[]) []);
+            }
+        }
+        else if (encoding == "latin1" || encoding == "binary")
+        {
+            // Latin1: each JS char's charCode (0-255) maps to one byte.
+            // extractString gives UTF-8, so decode codepoints and take low byte.
+            ubyte[] bytes;
+            size_t i = 0;
+            auto raw = cast(const(ubyte)[]) str;
+            while (i < raw.length)
+            {
+                uint cp;
+                if (raw[i] < 0x80) { cp = raw[i]; i += 1; }
+                else if ((raw[i] & 0xE0) == 0xC0 && i + 1 < raw.length) {
+                    cp = ((raw[i] & 0x1F) << 6) | (raw[i+1] & 0x3F); i += 2;
+                }
+                else if ((raw[i] & 0xF0) == 0xE0 && i + 2 < raw.length) {
+                    cp = ((raw[i] & 0x0F) << 12) | ((raw[i+1] & 0x3F) << 6) | (raw[i+2] & 0x3F); i += 3;
+                }
+                else { cp = raw[i]; i += 1; }
+                bytes ~= cast(ubyte)(cp & 0xFF);
+            }
+            return makeBufferObj(engine, bytes);
         }
         else
         {
@@ -549,6 +585,23 @@ JSHandle jsBufferToString(void* ctx, JSHandle thisVal, scope JSHandle[] args) @t
         }
         catch (Exception) { return engine.newString(""); }
     }
+    else if (encoding == "base64url")
+    {
+        try
+        {
+            import std.base64 : Base64;
+            auto b64 = (() @trusted => cast(string) Base64.encode(slice))();
+            return engine.newString(base64ToBase64url(b64));
+        }
+        catch (Exception) { return engine.newString(""); }
+    }
+    else if (encoding == "latin1" || encoding == "binary")
+    {
+        auto chars = new char[slice.length];
+        foreach (i, b; slice)
+            chars[i] = cast(char) b;
+        return engine.newString(cast(string) chars);
+    }
     else
     {
         return engine.newString(cast(string) slice.idup);
@@ -749,8 +802,8 @@ JSHandle jsBufferIsEncoding(void* ctx, JSHandle thisVal, scope JSHandle[] args) 
     if (args.length < 1 || !engine.isString(args[0])) return engine.newBool(false);
     auto enc = engine.extractString(args[0]);
     if (enc == "utf8" || enc == "utf-8" || enc == "ascii" || enc == "latin1" ||
-        enc == "binary" || enc == "hex" || enc == "base64" || enc == "ucs2" ||
-        enc == "ucs-2" || enc == "utf16le" || enc == "utf-16le")
+        enc == "binary" || enc == "hex" || enc == "base64" || enc == "base64url" ||
+        enc == "ucs2" || enc == "ucs-2" || enc == "utf16le" || enc == "utf-16le")
         return engine.newBool(true);
     return engine.newBool(false);
 }
@@ -1244,4 +1297,35 @@ JSHandle jsBufferSubarray(void* ctx, JSHandle thisVal, scope JSHandle[] args) @t
     if (end > cast(int) bytes.length) end = cast(int) bytes.length;
     if (start >= end) return makeBufferObj(engine, []);
     return makeBufferObj(engine, bytes[start .. end]);
+}
+
+private string base64urlToBase64(string s) @safe pure
+{
+    import dun.platform.arena : Appender;
+    Appender!(char[]) buf;
+    buf.reserve(s.length + 4);
+    foreach (c; s)
+    {
+        if (c == '-') buf ~= '+';
+        else if (c == '_') buf ~= '/';
+        else buf ~= c;
+    }
+    while (buf[].length % 4 != 0)
+        buf ~= '=';
+    return (() @trusted => cast(string) buf[])();
+}
+
+private string base64ToBase64url(string s) @safe pure
+{
+    import dun.platform.arena : Appender;
+    Appender!(char[]) buf;
+    buf.reserve(s.length);
+    foreach (c; s)
+    {
+        if (c == '+') buf ~= '-';
+        else if (c == '/') buf ~= '_';
+        else if (c == '=') {}
+        else buf ~= c;
+    }
+    return (() @trusted => cast(string) buf[])();
 }

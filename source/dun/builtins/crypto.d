@@ -418,6 +418,11 @@ private __gshared JSHandle _cachedUpdateFn;
 private __gshared JSHandle _cachedDigestFn;
 private __gshared bool _hashFnsCached = false;
 
+// D-side buffer registry for binary-safe hash accumulation
+private __gshared ubyte[][int] _hashBuffers;
+private __gshared int _nextHashId = 0;
+enum MAX_HASH_SLOTS = 32_767;
+
 JSHandle jsCryptoCreateHash(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsCryptoCreateHash");
@@ -426,8 +431,6 @@ JSHandle jsCryptoCreateHash(void* ctx, JSHandle thisVal, scope JSHandle[] args) 
     auto engine = state.engine;
     if (args.length < 1) return engine.throwTypeError("createHash requires an algorithm argument");
     auto algo = engine.extractString(args[0]);
-    if (algo != "md5" && algo != "sha1" && algo != "sha224" && algo != "sha256" && algo != "sha384" && algo != "sha512")
-        return engine.throwTypeError("Unsupported hash algorithm");
 
     if (!_hashFnsCached)
     {
@@ -436,9 +439,13 @@ JSHandle jsCryptoCreateHash(void* ctx, JSHandle thisVal, scope JSHandle[] args) 
         _hashFnsCached = true;
     }
 
+    auto id = _nextHashId++;
+    assert(_nextHashId < MAX_HASH_SLOTS, "Hash slot overflow");
+    _hashBuffers[id] = [];
+
     auto obj = engine.newObject();
     engine.setProperty(obj, "_algo", engine.newString(algo));
-    engine.setProperty(obj, "_data", engine.newString(""));
+    engine.setProperty(obj, "_hid", engine.newInt(id));
     engine.setProperty(obj, "update", engine.dupValue(_cachedUpdateFn));
     engine.setProperty(obj, "digest", engine.dupValue(_cachedDigestFn));
     return obj;
@@ -453,11 +460,37 @@ JSHandle jsHashUpdate(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trust
     if (args.length < 1) return engine.dupValue(thisVal);
     try
     {
-        auto dataProp = engine.getProperty(thisVal, "_data");
-        auto prev = engine.extractString(dataProp);
-        engine.freeValue(dataProp);
-        auto chunk = engine.extractString(args[0]);
-        engine.setProperty(thisVal, "_data", engine.newString(prev ~ chunk));
+        auto hidProp = engine.getProperty(thisVal, "_hid");
+        int hid = engine.extractInt(hidProp);
+        engine.freeValue(hidProp);
+
+        ubyte[] chunk;
+        // Check if arg is a Buffer (has __u8 Uint8Array)
+        if (engine.isObject(args[0]))
+        {
+            auto isBuf = engine.getProperty(args[0], "__isBuffer");
+            bool isBuffer = engine.isBool(isBuf) && engine.extractBool(isBuf);
+            engine.freeValue(isBuf);
+            if (isBuffer)
+            {
+                import dun.builtins.buffer : extractBytes;
+                chunk = extractBytes(engine, args[0]).dup;
+            }
+            else
+            {
+                // Try as Uint8Array
+                auto u8 = engine.extractString(args[0]);
+                chunk = cast(ubyte[]) u8.dup;
+            }
+        }
+        else
+        {
+            auto str = engine.extractString(args[0]);
+            chunk = cast(ubyte[]) str.dup;
+        }
+
+        if (auto p = hid in _hashBuffers)
+            *p ~= chunk;
     }
     catch (Exception) {}
     return engine.dupValue(thisVal);
@@ -474,10 +507,36 @@ JSHandle jsHashDigest(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trust
         auto algoProp = engine.getProperty(thisVal, "_algo");
         auto algo = engine.extractString(algoProp);
         engine.freeValue(algoProp);
-        auto dataProp = engine.getProperty(thisVal, "_data");
-        auto data = engine.extractString(dataProp);
-        engine.freeValue(dataProp);
-        return engine.newString(computeHash(algo, data));
+
+        auto hidProp = engine.getProperty(thisVal, "_hid");
+        int hid = engine.extractInt(hidProp);
+        engine.freeValue(hidProp);
+
+        ubyte[] data;
+        if (auto p = hid in _hashBuffers)
+        {
+            data = *p;
+            _hashBuffers.remove(hid);
+        }
+
+        string encoding = "hex";
+        if (args.length >= 1 && engine.isString(args[0]))
+            encoding = engine.extractString(args[0]);
+
+        auto result = computeHashBinary(algo, data);
+        if (encoding == "hex")
+            return engine.newString(bytesToHexStr(result));
+        else if (encoding == "base64")
+        {
+            import std.base64 : Base64;
+            return engine.newString((() @trusted => cast(string) Base64.encode(result))());
+        }
+        else if (encoding == "buffer" || encoding == "binary")
+        {
+            import dun.builtins.buffer : makeBufferObj;
+            return makeBufferObj(engine, result);
+        }
+        return engine.newString(bytesToHexStr(result));
     }
     catch (Exception) { return engine.throwTypeError("Failed to compute hash"); }
 }
@@ -1382,17 +1441,46 @@ private ubyte[] osRandomBytes(int n) @trusted
 
 private string computeHash(string algo, string data) @trusted
 {
+    return bytesToHexStr(computeHashBinary(algo, cast(const(ubyte)[]) data));
+}
+
+private ubyte[] computeHashBinary(string algo, const(ubyte)[] data) @trusted
+{
+    auto md = getEvpMd(algo);
+    if (md !is null)
+    {
+        ubyte[64] outBuf;
+        uint outLen = 0;
+        auto result = EVP_Digest(data.ptr, data.length, outBuf.ptr, &outLen, md, null);
+        if (result == 1 && outLen > 0)
+            return outBuf[0 .. outLen].dup;
+    }
+    // Fallback to std.digest for basic algorithms
     import std.digest : toHexString, LetterCase;
     switch (algo)
     {
-        case "md5": { import std.digest.md : MD5, digest; return toHexString!(LetterCase.lower)(digest!MD5(data)).idup; }
-        case "sha1": { import std.digest.sha : SHA1, digest; return toHexString!(LetterCase.lower)(digest!SHA1(data)).idup; }
-        case "sha224": { import std.digest.sha : SHA224, digest; return toHexString!(LetterCase.lower)(digest!SHA224(data)).idup; }
-        case "sha256": { import std.digest.sha : SHA256, digest; return toHexString!(LetterCase.lower)(digest!SHA256(data)).idup; }
-        case "sha384": { import std.digest.sha : SHA384, digest; return toHexString!(LetterCase.lower)(digest!SHA384(data)).idup; }
-        case "sha512": { import std.digest.sha : SHA512, digest; return toHexString!(LetterCase.lower)(digest!SHA512(data)).idup; }
-        default: return "";
+        case "md5": { import std.digest.md : MD5, digest; auto r = digest!MD5(data); return (cast(ubyte[]) r[]).dup; }
+        case "sha1": { import std.digest.sha : SHA1, digest; auto r = digest!SHA1(data); return (cast(ubyte[]) r[]).dup; }
+        case "sha256": { import std.digest.sha : SHA256, digest; auto r = digest!SHA256(data); return (cast(ubyte[]) r[]).dup; }
+        case "sha384": { import std.digest.sha : SHA384, digest; auto r = digest!SHA384(data); return (cast(ubyte[]) r[]).dup; }
+        case "sha512": { import std.digest.sha : SHA512, digest; auto r = digest!SHA512(data); return (cast(ubyte[]) r[]).dup; }
+        default: return [];
     }
+}
+
+private string bytesToHexStr(const(ubyte)[] data) @safe pure
+{
+    if (data.length == 0) return "";
+    import dun.platform.arena : Appender;
+    Appender!(char[]) buf;
+    buf.reserve(data.length * 2);
+    static immutable hexChars = "0123456789abcdef";
+    foreach (b; data)
+    {
+        buf ~= hexChars[b >> 4];
+        buf ~= hexChars[b & 0xF];
+    }
+    return (() @trusted => cast(string) buf[])();
 }
 
 private string computeHmac(string algo, string key, string data) @trusted
