@@ -4,6 +4,11 @@ import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
 import dun.runtime.globals : DunState;
 import dun.loop.agnostic_pending : pushAgnosticPending;
 
+version (linux)
+{
+    private extern (C) int accept4(int, void*, void*, int) nothrow @nogc;
+}
+
 private enum {
     HTTP_STATUS_OK    = 200,
     HTTP_DEFAULT_PORT = 80,
@@ -327,6 +332,7 @@ JSHandle jsHttpServerListen(void* ctx, JSHandle thisVal, JSHandle[] args) @trust
 
         int one = 1;
         setsockopt(lfd, SOL_SOCKET, SO_REUSEADDR, &one, one.sizeof);
+        setsockopt(lfd, SOL_SOCKET, SO_REUSEPORT, &one, one.sizeof);
 
         int fl = fcntl(lfd, F_GETFL, 0);
         fcntl(lfd, F_SETFL, fl | O_NONBLOCK);
@@ -950,11 +956,25 @@ void acceptHttpConnection(int srvId) nothrow @trusted
 
         while (true)
         {
-            int fd = accept(srv.listenFd, null, null);
+            int fd;
+            version (linux)
+            {
+                // accept4: sets NONBLOCK+CLOEXEC atomically, saves 2 syscalls per connection
+                enum SOCK_NONBLOCK = 0x800;
+                enum SOCK_CLOEXEC  = 0x80000;
+                fd = accept4(srv.listenFd, null, null, SOCK_NONBLOCK | SOCK_CLOEXEC);
+            }
+            else
+            {
+                fd = accept(srv.listenFd, null, null);
+            }
             if (fd < 0) { if (errno == EAGAIN || errno == EWOULDBLOCK) break; break; }
 
-            int fl = fcntl(fd, F_GETFL, 0);
-            fcntl(fd, F_SETFL, fl | O_NONBLOCK);
+            version (linux) {} else
+            {
+                int fl = fcntl(fd, F_GETFL, 0);
+                fcntl(fd, F_SETFL, fl | O_NONBLOCK);
+            }
 
             // TCP_NODELAY: disable Nagle's algorithm to prevent 40ms delayed-ACK latency
             enum TCP_NODELAY = 1;
