@@ -17,6 +17,31 @@ private enum {
     IO_POLL_BATCH_SIZE = 64,
 }
 
+private string sizeToStr(size_t n) nothrow @trusted
+{
+    if (n < 100)
+    {
+        static immutable string[100] SMALL = () {
+            string[100] t;
+            foreach (i; 0 .. 100)
+            {
+                char[3] buf;
+                int pos = 3;
+                size_t v = i;
+                if (v == 0) { buf[--pos] = '0'; }
+                else while (v > 0) { buf[--pos] = cast(char)('0' + v % 10); v /= 10; }
+                t[i] = buf[pos .. 3].idup;
+            }
+            return t;
+        }();
+        return SMALL[n];
+    }
+    char[20] buf;
+    int pos = 20;
+    while (n > 0) { buf[--pos] = cast(char)('0' + n % 10); n /= 10; }
+    try return buf[pos .. 20].idup; catch (Exception) return "0";
+}
+
 // Interned header names — returns compile-time string for known headers,
 // avoiding GC allocation (.idup) on every request
 private string internHeaderName(const(char)[] raw) nothrow @trusted
@@ -650,14 +675,22 @@ JSHandle jsResEnd(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
         auto conn = &httpConns[connId];
         if (conn.closed) return engine.newUndefined();
 
-        // Buffer headers if not yet sent
-        if (!conn.headersSent) bufferStatusLine(conn);
-
         // Buffer body data
         if (args.length >= 1)
         {
             auto body_ = engine.extractString(args[0]);
+            // Auto-set Content-Length if not already set
+            if (!conn.headersSent && "Content-Length" !in conn.respHeaders
+                && "content-length" !in conn.respHeaders)
+            {
+                conn.respHeaders["Content-Length"] = sizeToStr(body_.length);
+            }
+            if (!conn.headersSent) bufferStatusLine(conn);
             bufferData(conn, body_);
+        }
+        else
+        {
+            if (!conn.headersSent) bufferStatusLine(conn);
         }
 
         // Flush everything in ONE write() — avoids Nagle+delayed-ACK latency
