@@ -208,6 +208,37 @@ string streamSource() pure @safe nothrow
     return this;
   };
 
+  Readable.prototype[Symbol.asyncIterator] = function() {
+    var self = this;
+    var done = false;
+    self.on('end', function() { done = true; });
+    return {
+      next: function() {
+        if (done) return Promise.resolve({ value: undefined, done: true });
+        var chunk = self.read();
+        if (chunk !== null) return Promise.resolve({ value: chunk, done: false });
+        return new Promise(function(resolve) {
+          function onData(d) { cleanup(); resolve({ value: d, done: false }); }
+          function onEnd() { cleanup(); resolve({ value: undefined, done: true }); }
+          function cleanup() { self.removeListener('data', onData); self.removeListener('end', onEnd); }
+          self.once('data', onData);
+          self.once('end', onEnd);
+        });
+      }
+    };
+  };
+
+  Readable.from = function(iterable, opts) {
+    var r = new Readable(opts);
+    var items = Array.isArray(iterable) ? iterable : Array.from(iterable);
+    var idx = 0;
+    r._read = function() {
+      if (idx < items.length) r.push(items[idx++]);
+      else r.push(null);
+    };
+    return r;
+  };
+
   // --- Writable ---
   function Writable(options) {
     EventEmitter.call(this);

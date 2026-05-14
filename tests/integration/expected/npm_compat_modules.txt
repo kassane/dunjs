@@ -1,0 +1,99 @@
+PASS: fs module
+PASS: path module
+PASS: crypto module
+PASS: net module
+PASS: http module
+PASS: https module
+PASS: os module
+PASS: buffer module
+PASS: events module
+PASS: url module
+PASS: stream module
+PASS: util module
+PASS: assert module
+PASS: querystring module
+PASS: string_decoder module
+PASS: child_process module
+PASS: zlib module
+PASS: dns module
+PASS: readline module
+PASS: vm module
+PASS: tls module
+PASS: dgram module
+PASS: perf_hooks module
+PASS: punycode module
+PASS: domain module
+PASS: diagnostics_channel module
+PASS: cluster module
+PASS: async_hooks module
+PASS: worker_threads module
+PASS: fs.readFileSync
+PASS: fs.writeFileSync
+PASS: fs.existsSync
+PASS: fs.mkdirSync
+PASS: fs.statSync
+PASS: fs.createReadStream
+PASS: fs.createWriteStream
+PASS: path.join
+PASS: path.resolve
+PASS: path.relative
+PASS: path.dirname
+PASS: path.basename
+PASS: path.extname
+PASS: path.parse
+PASS: path.sep
+PASS: crypto.createHash
+PASS: crypto.createHmac
+PASS: crypto.randomBytes
+PASS: crypto.randomUUID
+PASS: crypto.createCipheriv
+PASS: crypto.createDecipheriv
+PASS: crypto.timingSafeEqual
+PASS: crypto.pbkdf2Sync
+PASS: crypto.scryptSync
+PASS: net.createServer
+PASS: net.createConnection
+PASS: net.isIP
+PASS: net.isIPv4
+PASS: net.isIPv6
+PASS: isIP 127.0.0.1
+PASS: isIP ::1
+PASS: isIP invalid
+PASS: isIPv4 true
+PASS: isIPv4 false
+PASS: stream.Readable
+PASS: stream.Writable
+PASS: stream.Transform
+PASS: stream.pipeline
+PASS: stream.finished
+PASS: Readable.from
+PASS: util.format
+PASS: util.inspect
+PASS: util.promisify
+PASS: util.inherits
+PASS: util.types
+PASS: util.debuglog
+PASS: util.deprecate
+PASS: process.nextTick
+PASS: process.env
+PASS: process.cwd
+PASS: process.exit
+PASS: process.hrtime
+PASS: process.memoryUsage
+PASS: process.cpuUsage
+PASS: process.emitWarning
+PASS: process.kill
+PASS: process.pid
+PASS: process.platform
+PASS: process.arch
+PASS: process.version
+PASS: process.versions
+PASS: Buffer
+PASS: setTimeout
+PASS: setInterval
+PASS: clearTimeout
+PASS: console.log
+PASS: console.error
+PASS: console.warn
+---
+Total: 97/97 passed

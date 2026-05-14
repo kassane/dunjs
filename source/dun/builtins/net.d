@@ -18,6 +18,9 @@ void registerNetModule(IJSEngine engine) @trusted
     engine.setProperty(obj, "createServer", engine.newFunction(&jsCreateServer, "createServer", 1));
     engine.setProperty(obj, "createConnection", engine.newFunction(&jsCreateConnection, "createConnection", 2));
     engine.setProperty(obj, "connect", engine.newFunction(&jsCreateConnection, "connect", 2));
+    engine.setProperty(obj, "isIP", engine.newFunction(&jsNetIsIP, "isIP", 1));
+    engine.setProperty(obj, "isIPv4", engine.newFunction(&jsNetIsIPv4, "isIPv4", 1));
+    engine.setProperty(obj, "isIPv6", engine.newFunction(&jsNetIsIPv6, "isIPv6", 1));
 
     auto global = engine.getGlobal();
     engine.setProperty(global, "__dun_cjs_net__", obj);
@@ -36,9 +39,8 @@ version (EngineQuickJS)
         auto ctx = cast(JSContext*) engine.rawContext();
         auto m = JS_NewCModule(ctx, "dun:net", &netModuleInit);
         if (m is null) return;
-        JS_AddModuleExport(ctx, m, "createServer");
-        JS_AddModuleExport(ctx, m, "createConnection");
-        JS_AddModuleExport(ctx, m, "connect");
+        foreach (name; ["createServer", "createConnection", "connect", "isIP", "isIPv4", "isIPv6"])
+            JS_AddModuleExport(ctx, m, name.ptr);
     }
 
     private extern (C) int netModuleInit(JSContext* ctx, JSModuleDef* m) nothrow @trusted
@@ -47,7 +49,7 @@ version (EngineQuickJS)
         assert(m !is null, "Null JSModuleDef in netModuleInit");
         auto global = JS_GetGlobalObject(ctx);
         auto netObj = JS_GetPropertyStr(ctx, global, "__dun_cjs_net__");
-        foreach (name; ["createServer", "createConnection", "connect"])
+        foreach (name; ["createServer", "createConnection", "connect", "isIP", "isIPv4", "isIPv6"])
         {
             auto fn = JS_GetPropertyStr(ctx, netObj, name.ptr);
             JS_SetModuleExport(ctx, m, name.ptr, fn);
@@ -733,6 +735,83 @@ void readSocketData(int sockId) nothrow @trusted
             catch (Throwable) {}
         }
     }
+}
+
+JSHandle jsNetIsIP(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+{
+    assert(ctx !is null, "Null ctx in net.isIP");
+    auto state = cast(DunState*) ctx;
+    auto engine = state.engine;
+    if (args.length < 1 || !engine.isString(args[0]))
+        return engine.newInt(0);
+    auto addr = engine.extractString(args[0]);
+    if (isIPv4(addr)) return engine.newInt(4);
+    if (isIPv6(addr)) return engine.newInt(6);
+    return engine.newInt(0);
+}
+
+JSHandle jsNetIsIPv4(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+{
+    assert(ctx !is null, "Null ctx in net.isIPv4");
+    auto state = cast(DunState*) ctx;
+    auto engine = state.engine;
+    if (args.length < 1 || !engine.isString(args[0]))
+        return engine.newBool(false);
+    return engine.newBool(isIPv4(engine.extractString(args[0])));
+}
+
+JSHandle jsNetIsIPv6(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+{
+    assert(ctx !is null, "Null ctx in net.isIPv6");
+    auto state = cast(DunState*) ctx;
+    auto engine = state.engine;
+    if (args.length < 1 || !engine.isString(args[0]))
+        return engine.newBool(false);
+    return engine.newBool(isIPv6(engine.extractString(args[0])));
+}
+
+private bool isIPv4(string addr) @safe pure nothrow
+{
+    int dots = 0;
+    int digitCount = 0;
+    int val = 0;
+    foreach (c; addr)
+    {
+        if (c == '.')
+        {
+            if (digitCount == 0 || val > 255) return false;
+            dots++;
+            digitCount = 0;
+            val = 0;
+        }
+        else if (c >= '0' && c <= '9')
+        {
+            val = val * 10 + (c - '0');
+            digitCount++;
+            if (digitCount > 3) return false;
+        }
+        else return false;
+    }
+    return dots == 3 && digitCount > 0 && val <= 255;
+}
+
+private bool isIPv6(string addr) @safe pure nothrow
+{
+    if (addr.length < 2) return false;
+    int colons = 0;
+    bool hasDoubleColon = false;
+    foreach (i, c; addr)
+    {
+        if (c == ':')
+        {
+            colons++;
+            if (i + 1 < addr.length && addr[i + 1] == ':')
+                hasDoubleColon = true;
+        }
+        else if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')))
+            return false;
+    }
+    return colons >= 2 && colons <= 7;
 }
 
 public bool hasActiveNetIO() @safe nothrow
