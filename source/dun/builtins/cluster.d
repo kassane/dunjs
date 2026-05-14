@@ -33,6 +33,11 @@ void registerClusterModule(IJSEngine engine) @trusted
     engine.setProperty(obj, "isPrimary", engine.newBool(!isWorker));
     engine.setProperty(obj, "isWorker", engine.newBool(isWorker));
     engine.setProperty(obj, "isMaster", engine.newBool(!isWorker)); // Node.js compat
+    engine.setProperty(obj, "schedulingPolicy", engine.newInt(2)); // SCHED_RR
+    engine.setProperty(obj, "settings", engine.newObject());
+    engine.setProperty(obj, "setupPrimary", engine.newFunction(&jsClusterSetupPrimary, "setupPrimary", 1));
+    engine.setProperty(obj, "setupMaster", engine.newFunction(&jsClusterSetupPrimary, "setupMaster", 1)); // alias
+    engine.setProperty(obj, "disconnect", engine.newFunction(&jsClusterDisconnect, "disconnect", 0));
 
     if (!isWorker)
     {
@@ -40,6 +45,10 @@ void registerClusterModule(IJSEngine engine) @trusted
         engine.setProperty(obj, "on", engine.newFunction(&jsClusterOn, "on", 2));
         engine.setProperty(obj, "workers", engine.newObject());
         gClusterEngine = engine;
+    }
+    else
+    {
+        engine.setProperty(obj, "worker", makeWorkerSelf(engine));
     }
 
     auto global = engine.getGlobal();
@@ -231,18 +240,23 @@ JSHandle jsClusterFork(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
             auto workerObj = engine.newObject();
             engine.setProperty(workerObj, "pid", engine.newInt(pid));
+            engine.setProperty(workerObj, "id", engine.newInt(gWorkerCount));
+            engine.setProperty(workerObj, "send", engine.newFunction(&jsWorkerSend, "send", 1));
+            engine.setProperty(workerObj, "on", engine.newFunction(&jsWorkerOn, "on", 2));
+            engine.setProperty(workerObj, "disconnect", engine.newFunction(&jsWorkerDisconnect, "disconnect", 0));
+            engine.setProperty(workerObj, "kill", engine.newFunction(&jsWorkerKill, "kill", 0));
+            engine.setProperty(workerObj, "isConnected", engine.newFunction(&jsWorkerIsConnected, "isConnected", 0));
+            engine.setProperty(workerObj, "isDead", engine.newFunction(&jsWorkerIsDead, "isDead", 0));
+            engine.setProperty(workerObj, "process", engine.newObject());
 
             import std.conv : to;
-            engine.setProperty(workersObj, pid.to!string, workerObj);
+            engine.setProperty(workersObj, pid.to!string, engine.dupValue(workerObj));
 
             engine.freeValue(workersObj);
             engine.freeValue(clusterObj);
             engine.freeValue(global);
 
-            // Return worker info with pid
-            auto retObj = engine.newObject();
-            engine.setProperty(retObj, "pid", engine.newInt(pid));
-            return retObj;
+            return workerObj;
         }
     }
     else
@@ -285,4 +299,85 @@ JSHandle jsClusterOn(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     auto clusterObj = engine.getProperty(global, "__dun_cjs_cluster__");
     engine.freeValue(global);
     return clusterObj;
+}
+
+JSHandle jsClusterSetupPrimary(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+{
+    assert(ctx !is null);
+    auto state = cast(DunState*) ctx;
+    auto engine = state.engine;
+    auto global = engine.getGlobal();
+    auto clusterObj = engine.getProperty(global, "__dun_cjs_cluster__");
+    if (args.length >= 1 && engine.isObject(args[0]))
+        engine.setProperty(clusterObj, "settings", engine.dupValue(args[0]));
+    engine.freeValue(clusterObj);
+    engine.freeValue(global);
+    return engine.newUndefined();
+}
+
+JSHandle jsClusterDisconnect(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+{
+    assert(ctx !is null);
+    auto state = cast(DunState*) ctx;
+    return state.engine.newUndefined();
+}
+
+JSHandle makeWorkerSelf(IJSEngine engine) @trusted
+{
+    auto w = engine.newObject();
+    engine.setProperty(w, "id", engine.newInt(1));
+    version (Posix)
+    {
+        import core.sys.posix.unistd : getpid;
+        engine.setProperty(w, "pid", engine.newInt(getpid()));
+    }
+    engine.setProperty(w, "send", engine.newFunction(&jsWorkerSend, "send", 1));
+    engine.setProperty(w, "on", engine.newFunction(&jsWorkerOn, "on", 2));
+    engine.setProperty(w, "disconnect", engine.newFunction(&jsWorkerDisconnect, "disconnect", 0));
+    engine.setProperty(w, "kill", engine.newFunction(&jsWorkerKill, "kill", 0));
+    engine.setProperty(w, "isConnected", engine.newFunction(&jsWorkerIsConnected, "isConnected", 0));
+    engine.setProperty(w, "isDead", engine.newFunction(&jsWorkerIsDead, "isDead", 0));
+    return w;
+}
+
+JSHandle jsWorkerSend(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+{
+    assert(ctx !is null);
+    auto state = cast(DunState*) ctx;
+    return state.engine.newBool(true);
+}
+
+JSHandle jsWorkerOn(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+{
+    assert(ctx !is null);
+    auto state = cast(DunState*) ctx;
+    return thisVal;
+}
+
+JSHandle jsWorkerDisconnect(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+{
+    assert(ctx !is null);
+    auto state = cast(DunState*) ctx;
+    return state.engine.newUndefined();
+}
+
+JSHandle jsWorkerKill(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+{
+    assert(ctx !is null);
+    auto state = cast(DunState*) ctx;
+    return state.engine.newUndefined();
+}
+
+JSHandle jsWorkerIsConnected(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+{
+    assert(ctx !is null);
+    auto state = cast(DunState*) ctx;
+    return state.engine.newBool(true);
+}
+
+JSHandle jsWorkerIsDead(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+{
+    assert(ctx !is null);
+    auto state = cast(DunState*) ctx;
+    return state.engine.newBool(false);
 }

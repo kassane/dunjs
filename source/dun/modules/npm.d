@@ -138,11 +138,91 @@ bool installPackage(string spec, AuditMode auditMode = AuditMode.warn) @trusted
         catch (Exception) {}
     }
 
+    runLifecycleScripts(nmDir, name);
+
     writefln("installed %s@%s", name, version_);
     return true;
 }
 
+/// Run a named script from the project's package.json.
+/// Returns true if the script was found and executed, false if not found.
+bool runPackageScript(string scriptName) @trusted
+{
+    import std.file : exists, readText;
+    import std.json : parseJSON, JSONType;
+    import std.process : spawnShell, wait;
+
+    auto pkgPath = "package.json";
+    if (!exists(pkgPath))
+    {
+        writefln("error: no package.json found");
+        return false;
+    }
+
+    try
+    {
+        auto j = parseJSON(readText(pkgPath));
+        if ("scripts" !in j || j["scripts"].type != JSONType.object)
+        {
+            writefln("error: no scripts in package.json");
+            return false;
+        }
+        auto scripts = j["scripts"].object;
+        if (scriptName !in scripts)
+        {
+            writefln("error: script '%s' not found in package.json", scriptName);
+            writeln("available scripts:");
+            foreach (k; scripts.byKey())
+                writefln("  %s", k);
+            return false;
+        }
+        auto cmd = scripts[scriptName].str;
+        writefln("$ %s", cmd);
+        auto pid = spawnShell(cmd);
+        auto rc = wait(pid);
+        return rc == 0;
+    }
+    catch (Exception e)
+    {
+        writefln("error: %s", e.msg);
+        return false;
+    }
+}
+
 private:
+
+void runLifecycleScripts(string pkgDir, string pkgName) @trusted
+{
+    import std.file : exists, readText;
+    import std.json : parseJSON, JSONType;
+    import std.path : buildNormalizedPath;
+    import std.process : spawnShell, wait, Config;
+
+    auto pkgJson = buildNormalizedPath(pkgDir, "package.json");
+    if (!exists(pkgJson)) return;
+
+    try
+    {
+        auto j = parseJSON(readText(pkgJson));
+        if ("scripts" !in j || j["scripts"].type != JSONType.object) return;
+
+        auto scripts = j["scripts"].object;
+        static immutable phases = ["preinstall", "install", "postinstall"];
+        foreach (phase; phases)
+        {
+            if (phase in scripts)
+            {
+                auto cmd = scripts[phase].str;
+                writefln("  running %s script for %s: %s", phase, pkgName, cmd);
+                auto pid = spawnShell(cmd, null, Config.none, pkgDir);
+                auto rc = wait(pid);
+                if (rc != 0)
+                    writefln("  warning: %s script exited with code %d", phase, rc);
+            }
+        }
+    }
+    catch (Exception) {}
+}
 
 struct PackageMeta
 {

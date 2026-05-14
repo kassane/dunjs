@@ -649,5 +649,29 @@ check('Symbol.asyncIterator', typeof Symbol.asyncIterator === 'symbol');
 check('Symbol.iterator', typeof Symbol.iterator === 'symbol');
 check('Symbol.hasInstance', typeof Symbol.hasInstance === 'symbol');
 
+// Intl API
+check('Intl exists', typeof Intl === 'object');
+check('Intl.DateTimeFormat', typeof Intl.DateTimeFormat === 'function');
+check('Intl.NumberFormat', typeof Intl.NumberFormat === 'function');
+check('Intl.Collator', typeof Intl.Collator === 'function');
+check('Intl.PluralRules', typeof Intl.PluralRules === 'function');
+check('Intl.RelativeTimeFormat', typeof Intl.RelativeTimeFormat === 'function');
+check('Intl.ListFormat', typeof Intl.ListFormat === 'function');
+check('Intl.DisplayNames', typeof Intl.DisplayNames === 'function');
+check('Intl.Segmenter', typeof Intl.Segmenter === 'function');
+check('Intl.Locale', typeof Intl.Locale === 'function');
+check('Intl.getCanonicalLocales', typeof Intl.getCanonicalLocales === 'function');
+check('Intl.supportedValuesOf', typeof Intl.supportedValuesOf === 'function');
+check('NumberFormat.format', new Intl.NumberFormat('en', {style:'currency',currency:'USD'}).format(42.5) === '$42.50');
+check('PluralRules.select', new Intl.PluralRules('en').select(1) === 'one');
+check('Collator.compare', new Intl.Collator('en').compare('a','b') < 0);
+check('ListFormat.format', new Intl.ListFormat('en', {type:'conjunction'}).format(['a','b','c']).indexOf('and') >= 0);
+check('RelativeTimeFormat.format', new Intl.RelativeTimeFormat('en').format(-1,'day').indexOf('ago') >= 0);
+check('DisplayNames.of', new Intl.DisplayNames('en', {type:'language'}).of('en') === 'English');
+check('Segmenter.segment', Array.from(new Intl.Segmenter('en', {granularity:'word'}).segment('hello world')).length >= 2);
+check('Locale.language', new Intl.Locale('en-US').language === 'en');
+check('getCanonicalLocales', Intl.getCanonicalLocales('en')[0] === 'en');
+check('supportedValuesOf calendar', Intl.supportedValuesOf('calendar').indexOf('gregory') >= 0);
+
 console.log('---');
 console.log('Total: ' + passed + '/' + checks + ' passed');

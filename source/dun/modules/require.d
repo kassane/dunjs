@@ -80,7 +80,7 @@ JSHandle jsRequireResolve(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
         if (exists(resolved) && isFile(resolved))
             return engine.newString(resolved);
 
-        static immutable exts = [".js", ".ts", ".cjs", ".cts", ".json"];
+        static immutable exts = [".js", ".ts", ".cjs", ".cts", ".json", ".node"];
         foreach (ext; exts)
             if (exists(resolved ~ ext) && isFile(resolved ~ ext))
                 return engine.newString(resolved ~ ext);
@@ -245,7 +245,7 @@ JSHandle jsRequire(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
         import std.file : exists, isDir, isFile;
         if (!exists(resolved))
         {
-            static immutable exts = [".js", ".ts", ".cjs", ".cts", ".json"];
+            static immutable exts = [".js", ".ts", ".cjs", ".cts", ".json", ".node"];
             bool found = false;
             foreach (ext; exts)
             {
@@ -325,6 +325,29 @@ JSHandle jsRequire(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
         return engine.throwTypeError("Failed to parse JSON module");
     }
 
+    // Native .node addons (N-API)
+    if (resolved.endsWith(".node"))
+    {
+        version (Posix)
+        {
+            if (!checkPerm(state, Permission.run, resolved))
+            {
+                engine.freeValue(cache);
+                return engine.throwTypeError("require() denied: loading .node addons requires --allow-run");
+            }
+            import dun.napi.loader : loadNativeAddon;
+            auto addonResult = loadNativeAddon(engine, state, resolved);
+            engine.setProperty(cache, resolved, engine.dupValue(addonResult));
+            engine.freeValue(cache);
+            return addonResult;
+        }
+        else
+        {
+            engine.freeValue(cache);
+            return engine.throwTypeError("Native addons not supported on this platform");
+        }
+    }
+
     string source;
     try
     {
@@ -337,8 +360,19 @@ JSHandle jsRequire(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     {
         if (resolved.endsWith(".ts") || resolved.endsWith(".cts"))
         {
-            import dun.ts.strip : stripTypes;
-            source = stripTypes(source);
+            import dun.ts.strip : stripTypes, generateSourceMap;
+            import std.base64 : Base64;
+
+            string sourceMap;
+            source = stripTypes(source, true, sourceMap);
+
+            // Append inline source map
+            if (sourceMap.length > 0)
+            {
+                auto encoded = Base64.encode(cast(const(ubyte)[]) sourceMap);
+                source ~= "\n//# sourceMappingURL=data:application/json;base64,"
+                    ~ cast(string) encoded;
+            }
         }
     }
     catch (Exception) {}

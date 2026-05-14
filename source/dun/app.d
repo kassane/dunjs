@@ -68,7 +68,22 @@ int runScript(T)(T config)
     string source;
     try
     {
-        import std.file : readText;
+        import std.file : readText, exists;
+        if (!exists(config.scriptPath) && !looksLikeFilePath(config.scriptPath))
+        {
+            version (Posix)
+            {
+                import dun.modules.npm : runPackageScript;
+                return runPackageScript(config.scriptPath) ? 0 : 1;
+            }
+            else
+            {
+                writeStderr("Error: Cannot read '");
+                writeStderr(config.scriptPath);
+                writeStderr("': file not found\n");
+                return 1;
+            }
+        }
         source = readText(config.scriptPath);
     }
     catch (Exception e)
@@ -89,6 +104,15 @@ int runScript(T)(T config)
 
     auto engine = createEngine();
     engine.initialize(EngineConfig(config.memoryLimit, config.stackSize));
+
+    version (Posix)
+    {
+        if (config.inspect)
+        {
+            import dun.cli.inspector : startInspector;
+            startInspector(engine, config.inspectPort);
+        }
+    }
 
     DunState state;
     state.engine = engine;
@@ -862,6 +886,14 @@ bool isESM(string path, string source) @safe pure nothrow
                 return true;
         }
     }
+    return false;
+}
+
+bool looksLikeFilePath(string arg) @safe pure nothrow @nogc
+{
+    foreach (c; arg)
+        if (c == '.' || c == '/' || c == '\\')
+            return true;
     return false;
 }
 

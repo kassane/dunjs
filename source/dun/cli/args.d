@@ -46,6 +46,9 @@ struct CliConfig
     string testFilter;
     string initName;
     string[] fmtFiles;
+    bool inspect;
+    bool inspectBrk;
+    ushort inspectPort = 9229;
 }
 
 /// Parse command-line arguments into a CliConfig.
@@ -307,6 +310,31 @@ CliConfig parseArgs(string[] args) @safe
             continue;
         }
 
+        if (arg == "--inspect" || arg.startsWith("--inspect="))
+        {
+            config.inspect = true;
+            if (arg.startsWith("--inspect="))
+            {
+                try { config.inspectPort = arg["--inspect=".length .. $].to!ushort; }
+                catch (Exception) {}
+            }
+            i++;
+            continue;
+        }
+
+        if (arg == "--inspect-brk" || arg.startsWith("--inspect-brk="))
+        {
+            config.inspect = true;
+            config.inspectBrk = true;
+            if (arg.startsWith("--inspect-brk="))
+            {
+                try { config.inspectPort = arg["--inspect-brk=".length .. $].to!ushort; }
+                catch (Exception) {}
+            }
+            i++;
+            continue;
+        }
+
         // Eval source
         if (config.command == Command.eval_ && config.evalSource.length == 0)
         {
@@ -352,7 +380,9 @@ private bool isKnownFlag(string arg) @safe pure nothrow @nogc
         || arg.startsWith("--max-stack=")
         || arg.startsWith("--eval-file=")
         || arg.startsWith("--audit=")
-        || arg.startsWith("--filter=");
+        || arg.startsWith("--filter=")
+        || arg.startsWith("--inspect")
+        || arg.startsWith("--inspect-brk");
 }
 
 private bool looksLikeFile(string arg) @safe pure nothrow @nogc

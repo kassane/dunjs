@@ -116,6 +116,9 @@ void installGlobals(IJSEngine engine, DunState* state) @trusted
     // perf_hooks must come after installWebAPIs so global performance object exists
     registerPerfHooksModule(engine);
 
+    import dun.runtime.intl : installIntl;
+    installIntl(engine);
+
     import dun.runtime.deno_compat : installDenoCompat;
     installDenoCompat(engine);
 

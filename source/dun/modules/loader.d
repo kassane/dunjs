@@ -122,8 +122,19 @@ version (EngineQuickJS)
         {
             try
             {
-                import dun.ts.strip : stripTypes;
-                source = stripTypes(source);
+                import dun.ts.strip : stripTypes, generateSourceMap;
+                import std.base64 : Base64;
+
+                string sourceMap;
+                source = stripTypes(source, true, sourceMap);
+
+                // Append inline source map
+                if (sourceMap.length > 0)
+                {
+                    auto encoded = Base64.encode(cast(const(ubyte)[]) sourceMap);
+                    source ~= "\n//# sourceMappingURL=data:application/json;base64,"
+                        ~ cast(string) encoded;
+                }
             }
             catch (Exception) {}
         }

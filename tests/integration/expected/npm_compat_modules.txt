@@ -450,5 +450,27 @@ PASS: Reflect
 PASS: Symbol.asyncIterator
 PASS: Symbol.iterator
 PASS: Symbol.hasInstance
+PASS: Intl exists
+PASS: Intl.DateTimeFormat
+PASS: Intl.NumberFormat
+PASS: Intl.Collator
+PASS: Intl.PluralRules
+PASS: Intl.RelativeTimeFormat
+PASS: Intl.ListFormat
+PASS: Intl.DisplayNames
+PASS: Intl.Segmenter
+PASS: Intl.Locale
+PASS: Intl.getCanonicalLocales
+PASS: Intl.supportedValuesOf
+PASS: NumberFormat.format
+PASS: PluralRules.select
+PASS: Collator.compare
+PASS: ListFormat.format
+PASS: RelativeTimeFormat.format
+PASS: DisplayNames.of
+PASS: Segmenter.segment
+PASS: Locale.language
+PASS: getCanonicalLocales
+PASS: supportedValuesOf calendar
 ---
-Total: 452/452 passed
+Total: 474/474 passed
