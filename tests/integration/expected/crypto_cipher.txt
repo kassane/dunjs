@@ -1,0 +1,12 @@
+1: encrypted is string: true
+2: encrypted not empty: true
+3: decrypted matches: true
+4: aes-128-cbc round-trip: true
+5: getCiphers array: true
+6: has aes-256-cbc: true
+7: has aes-128-gcm: true
+8: getHashes array: true
+9: has sha256: true
+10: timingSafeEqual same: true
+11: timingSafeEqual diff: true
+12: hmac result: true

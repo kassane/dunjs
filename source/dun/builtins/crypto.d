@@ -38,6 +38,35 @@ private extern (C) @nogc nothrow
 
     // Timing-safe comparison
     int CRYPTO_memcmp(const(void)* a, const(void)* b, size_t len);
+
+    // Cipher API (EVP)
+    alias EVP_CIPHER_CTX = void;
+    alias EVP_CIPHER = void;
+    EVP_CIPHER_CTX* EVP_CIPHER_CTX_new();
+    void EVP_CIPHER_CTX_free(EVP_CIPHER_CTX* ctx);
+    int EVP_CIPHER_CTX_ctrl(EVP_CIPHER_CTX* ctx, int type, int arg, void* ptr);
+
+    const(EVP_CIPHER)* EVP_aes_128_cbc();
+    const(EVP_CIPHER)* EVP_aes_192_cbc();
+    const(EVP_CIPHER)* EVP_aes_256_cbc();
+    const(EVP_CIPHER)* EVP_aes_128_gcm();
+    const(EVP_CIPHER)* EVP_aes_256_gcm();
+
+    int EVP_EncryptInit_ex(EVP_CIPHER_CTX* ctx, const(EVP_CIPHER)* type,
+        void* impl, const(ubyte)* key, const(ubyte)* iv);
+    int EVP_EncryptUpdate(EVP_CIPHER_CTX* ctx, ubyte* outbuf, int* outl,
+        const(ubyte)* inbuf, int inl);
+    int EVP_EncryptFinal_ex(EVP_CIPHER_CTX* ctx, ubyte* outbuf, int* outl);
+
+    int EVP_DecryptInit_ex(EVP_CIPHER_CTX* ctx, const(EVP_CIPHER)* type,
+        void* impl, const(ubyte)* key, const(ubyte)* iv);
+    int EVP_DecryptUpdate(EVP_CIPHER_CTX* ctx, ubyte* outbuf, int* outl,
+        const(ubyte)* inbuf, int inl);
+    int EVP_DecryptFinal_ex(EVP_CIPHER_CTX* ctx, ubyte* outbuf, int* outl);
+
+    enum EVP_CTRL_GCM_SET_IVLEN = 0x9;
+    enum EVP_CTRL_GCM_GET_TAG = 0x10;
+    enum EVP_CTRL_GCM_SET_TAG = 0x11;
 }
 
 private const(EVP_MD)* getEvpMd(string algo) @trusted nothrow @nogc
@@ -62,6 +91,8 @@ void registerCryptoModule(IJSEngine engine) @trusted
     engine.setProperty(obj, "randomInt", engine.newFunction(&jsCryptoRandomInt, "randomInt", 2));
     engine.setProperty(obj, "pbkdf2Sync", engine.newFunction(&jsCryptoPbkdf2Sync, "pbkdf2Sync", 5));
     engine.setProperty(obj, "scryptSync", engine.newFunction(&jsCryptoScryptSync, "scryptSync", 3));
+    engine.setProperty(obj, "createCipheriv", engine.newFunction(&jsCryptoCreateCipheriv, "createCipheriv", 3));
+    engine.setProperty(obj, "createDecipheriv", engine.newFunction(&jsCryptoCreateDecipheriv, "createDecipheriv", 3));
     engine.setProperty(obj, "getHashes", engine.newFunction(&jsCryptoGetHashes, "getHashes", 0));
     engine.setProperty(obj, "getCiphers", engine.newFunction(&jsCryptoGetCiphers, "getCiphers", 0));
 
@@ -84,6 +115,7 @@ version (EngineQuickJS)
         if (m is null) return;
         foreach (name; ["randomBytes", "randomUUID", "createHash", "createHmac",
                         "timingSafeEqual", "randomInt", "pbkdf2Sync", "scryptSync",
+                        "createCipheriv", "createDecipheriv",
                         "getHashes", "getCiphers"])
             JS_AddModuleExport(ctx, m, name.ptr);
     }
@@ -96,6 +128,7 @@ version (EngineQuickJS)
         auto cryptoObj = JS_GetPropertyStr(ctx, global, "__dun_cjs_crypto__");
         foreach (name; ["randomBytes", "randomUUID", "createHash", "createHmac",
                         "timingSafeEqual", "randomInt", "pbkdf2Sync", "scryptSync",
+                        "createCipheriv", "createDecipheriv",
                         "getHashes", "getCiphers"])
         {
             auto fn = JS_GetPropertyStr(ctx, cryptoObj, name.ptr);
@@ -529,6 +562,311 @@ JSHandle jsCryptoScryptSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trust
         return engine.newString(toHexString!(LetterCase.lower)(outbuf).idup);
     }
     catch (Exception) { return engine.throwTypeError("scryptSync failed"); }
+}
+
+// --- createCipheriv / createDecipheriv ---
+
+private const(EVP_CIPHER)* getEvpCipher(string algo) @trusted nothrow @nogc
+{
+    if (algo == "aes-128-cbc") return EVP_aes_128_cbc();
+    if (algo == "aes-192-cbc") return EVP_aes_192_cbc();
+    if (algo == "aes-256-cbc") return EVP_aes_256_cbc();
+    if (algo == "aes-128-gcm") return EVP_aes_128_gcm();
+    if (algo == "aes-256-gcm") return EVP_aes_256_gcm();
+    return null;
+}
+
+private bool isGcmCipher(string algo) @safe pure nothrow
+{
+    return algo == "aes-128-gcm" || algo == "aes-256-gcm";
+}
+
+private __gshared JSHandle _cachedCipherUpdateFn;
+private __gshared JSHandle _cachedCipherFinalFn;
+private __gshared JSHandle _cachedCipherGetAuthTagFn;
+private __gshared JSHandle _cachedDecipherUpdateFn;
+private __gshared JSHandle _cachedDecipherFinalFn;
+private __gshared JSHandle _cachedDecipherSetAuthTagFn;
+private __gshared bool _cipherFnsCached = false;
+
+private void ensureCipherFnsCached(IJSEngine engine) @trusted
+{
+    if (_cipherFnsCached) return;
+    _cachedCipherUpdateFn = engine.newFunction(&jsCipherUpdate, "update", 1);
+    _cachedCipherFinalFn = engine.newFunction(&jsCipherFinal, "final", 0);
+    _cachedCipherGetAuthTagFn = engine.newFunction(&jsCipherGetAuthTag, "getAuthTag", 0);
+    _cachedDecipherUpdateFn = engine.newFunction(&jsDecipherUpdate, "update", 1);
+    _cachedDecipherFinalFn = engine.newFunction(&jsDecipherFinal, "final", 0);
+    _cachedDecipherSetAuthTagFn = engine.newFunction(&jsDecipherSetAuthTag, "setAuthTag", 1);
+    _cipherFnsCached = true;
+}
+
+JSHandle jsCryptoCreateCipheriv(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+{
+    assert(ctx !is null, "Null ctx in createCipheriv");
+    auto state = cast(DunState*) ctx;
+    auto engine = state.engine;
+    if (args.length < 3)
+        return engine.throwTypeError("createCipheriv requires algorithm, key, iv");
+    auto algo = engine.extractString(args[0]);
+    auto cipher = getEvpCipher(algo);
+    if (cipher is null)
+        return engine.throwTypeError("Unsupported cipher: " ~ algo);
+    auto key = engine.extractString(args[1]);
+    auto iv = engine.extractString(args[2]);
+
+    auto evpCtx = EVP_CIPHER_CTX_new();
+    if (evpCtx is null)
+        return engine.throwTypeError("Failed to create cipher context");
+
+    if (EVP_EncryptInit_ex(evpCtx, cipher, null,
+        cast(const(ubyte)*) key.ptr, cast(const(ubyte)*) iv.ptr) != 1)
+    {
+        EVP_CIPHER_CTX_free(evpCtx);
+        return engine.throwTypeError("Failed to initialize cipher");
+    }
+
+    ensureCipherFnsCached(engine);
+    auto obj = engine.newObject();
+    engine.setProperty(obj, "_algo", engine.newString(algo));
+    engine.setProperty(obj, "_evpCtx", engine.newFloat(cast(double) cast(size_t) evpCtx));
+    engine.setProperty(obj, "_output", engine.newString(""));
+    engine.setProperty(obj, "update", engine.dupValue(_cachedCipherUpdateFn));
+    engine.setProperty(obj, "final", engine.dupValue(_cachedCipherFinalFn));
+    if (isGcmCipher(algo))
+        engine.setProperty(obj, "getAuthTag", engine.dupValue(_cachedCipherGetAuthTagFn));
+    return obj;
+}
+
+JSHandle jsCipherUpdate(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+{
+    assert(ctx !is null, "Null ctx in cipher.update");
+    auto state = cast(DunState*) ctx;
+    auto engine = state.engine;
+    if (args.length < 1) return engine.dupValue(thisVal);
+
+    auto ctxProp = engine.getProperty(thisVal, "_evpCtx");
+    auto evpCtx = cast(EVP_CIPHER_CTX*) cast(size_t) engine.extractFloat(ctxProp);
+    engine.freeValue(ctxProp);
+    if (evpCtx is null) return engine.throwTypeError("Cipher already finalized");
+
+    try
+    {
+        auto input = engine.extractString(args[0]);
+        auto outbuf = new ubyte[input.length + 16];
+        int outlen = 0;
+        if (EVP_EncryptUpdate(evpCtx, outbuf.ptr, &outlen,
+            cast(const(ubyte)*) input.ptr, cast(int) input.length) != 1)
+            return engine.throwTypeError("Cipher update failed");
+
+        import std.digest : toHexString, LetterCase;
+        auto prevProp = engine.getProperty(thisVal, "_output");
+        auto prev = engine.extractString(prevProp);
+        engine.freeValue(prevProp);
+        auto hex = toHexString!(LetterCase.lower)(outbuf[0 .. outlen]).idup;
+        engine.setProperty(thisVal, "_output", engine.newString(prev ~ hex));
+    }
+    catch (Exception) {}
+    return engine.dupValue(thisVal);
+}
+
+JSHandle jsCipherFinal(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+{
+    assert(ctx !is null, "Null ctx in cipher.final");
+    auto state = cast(DunState*) ctx;
+    auto engine = state.engine;
+
+    auto ctxProp = engine.getProperty(thisVal, "_evpCtx");
+    auto evpCtx = cast(EVP_CIPHER_CTX*) cast(size_t) engine.extractFloat(ctxProp);
+    engine.freeValue(ctxProp);
+    if (evpCtx is null) return engine.throwTypeError("Cipher already finalized");
+
+    ubyte[32] outbuf;
+    int outlen = 0;
+    auto rc = EVP_EncryptFinal_ex(evpCtx, outbuf.ptr, &outlen);
+
+    auto algoProp = engine.getProperty(thisVal, "_algo");
+    auto algo = engine.extractString(algoProp);
+    engine.freeValue(algoProp);
+
+    if (isGcmCipher(algo))
+    {
+        ubyte[16] tag;
+        EVP_CIPHER_CTX_ctrl(evpCtx, EVP_CTRL_GCM_GET_TAG, 16, tag.ptr);
+        import std.digest : toHexString, LetterCase;
+        engine.setProperty(thisVal, "_authTag", engine.newString(
+            toHexString!(LetterCase.lower)(tag[]).idup));
+    }
+
+    EVP_CIPHER_CTX_free(evpCtx);
+    engine.setProperty(thisVal, "_evpCtx", engine.newFloat(0));
+
+    if (rc != 1)
+        return engine.throwTypeError("Cipher final failed");
+
+    auto prevProp = engine.getProperty(thisVal, "_output");
+    auto prev = engine.extractString(prevProp);
+    engine.freeValue(prevProp);
+
+    if (outlen > 0)
+    {
+        import std.digest : toHexString, LetterCase;
+        return engine.newString(prev ~ toHexString!(LetterCase.lower)(outbuf[0 .. outlen]).idup);
+    }
+    return engine.newString(prev);
+}
+
+JSHandle jsCipherGetAuthTag(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+{
+    assert(ctx !is null, "Null ctx in cipher.getAuthTag");
+    auto state = cast(DunState*) ctx;
+    auto engine = state.engine;
+    auto tagProp = engine.getProperty(thisVal, "_authTag");
+    if (engine.isUndefined(tagProp) || engine.isNull(tagProp))
+    {
+        engine.freeValue(tagProp);
+        return engine.throwTypeError("Auth tag not available — call .final() first");
+    }
+    return tagProp;
+}
+
+// --- Decipher ---
+
+JSHandle jsCryptoCreateDecipheriv(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+{
+    assert(ctx !is null, "Null ctx in createDecipheriv");
+    auto state = cast(DunState*) ctx;
+    auto engine = state.engine;
+    if (args.length < 3)
+        return engine.throwTypeError("createDecipheriv requires algorithm, key, iv");
+    auto algo = engine.extractString(args[0]);
+    auto cipher = getEvpCipher(algo);
+    if (cipher is null)
+        return engine.throwTypeError("Unsupported cipher: " ~ algo);
+    auto key = engine.extractString(args[1]);
+    auto iv = engine.extractString(args[2]);
+
+    auto evpCtx = EVP_CIPHER_CTX_new();
+    if (evpCtx is null)
+        return engine.throwTypeError("Failed to create decipher context");
+
+    if (EVP_DecryptInit_ex(evpCtx, cipher, null,
+        cast(const(ubyte)*) key.ptr, cast(const(ubyte)*) iv.ptr) != 1)
+    {
+        EVP_CIPHER_CTX_free(evpCtx);
+        return engine.throwTypeError("Failed to initialize decipher");
+    }
+
+    ensureCipherFnsCached(engine);
+    auto obj = engine.newObject();
+    engine.setProperty(obj, "_algo", engine.newString(algo));
+    engine.setProperty(obj, "_evpCtx", engine.newFloat(cast(double) cast(size_t) evpCtx));
+    engine.setProperty(obj, "_output", engine.newString(""));
+    engine.setProperty(obj, "update", engine.dupValue(_cachedDecipherUpdateFn));
+    engine.setProperty(obj, "final", engine.dupValue(_cachedDecipherFinalFn));
+    if (isGcmCipher(algo))
+        engine.setProperty(obj, "setAuthTag", engine.dupValue(_cachedDecipherSetAuthTagFn));
+    return obj;
+}
+
+JSHandle jsDecipherUpdate(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+{
+    assert(ctx !is null, "Null ctx in decipher.update");
+    auto state = cast(DunState*) ctx;
+    auto engine = state.engine;
+    if (args.length < 1) return engine.dupValue(thisVal);
+
+    auto ctxProp = engine.getProperty(thisVal, "_evpCtx");
+    auto evpCtx = cast(EVP_CIPHER_CTX*) cast(size_t) engine.extractFloat(ctxProp);
+    engine.freeValue(ctxProp);
+    if (evpCtx is null) return engine.throwTypeError("Decipher already finalized");
+
+    try
+    {
+        auto input = engine.extractString(args[0]);
+        // Parse hex input to bytes
+        if (input.length % 2 != 0)
+            return engine.throwTypeError("Invalid hex input");
+        auto inBytes = new ubyte[input.length / 2];
+        foreach (i; 0 .. inBytes.length)
+        {
+            inBytes[i] = cast(ubyte)(hexVal(input[i * 2]) << 4 | hexVal(input[i * 2 + 1]));
+        }
+
+        auto outbuf = new ubyte[inBytes.length + 16];
+        int outlen = 0;
+        if (EVP_DecryptUpdate(evpCtx, outbuf.ptr, &outlen,
+            inBytes.ptr, cast(int) inBytes.length) != 1)
+            return engine.throwTypeError("Decipher update failed");
+
+        auto prevProp = engine.getProperty(thisVal, "_output");
+        auto prev = engine.extractString(prevProp);
+        engine.freeValue(prevProp);
+        engine.setProperty(thisVal, "_output",
+            engine.newString(prev ~ (() @trusted => cast(string) outbuf[0 .. outlen])()));
+    }
+    catch (Exception) {}
+    return engine.dupValue(thisVal);
+}
+
+JSHandle jsDecipherFinal(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+{
+    assert(ctx !is null, "Null ctx in decipher.final");
+    auto state = cast(DunState*) ctx;
+    auto engine = state.engine;
+
+    auto ctxProp = engine.getProperty(thisVal, "_evpCtx");
+    auto evpCtx = cast(EVP_CIPHER_CTX*) cast(size_t) engine.extractFloat(ctxProp);
+    engine.freeValue(ctxProp);
+    if (evpCtx is null) return engine.throwTypeError("Decipher already finalized");
+
+    ubyte[32] outbuf;
+    int outlen = 0;
+    auto rc = EVP_DecryptFinal_ex(evpCtx, outbuf.ptr, &outlen);
+    EVP_CIPHER_CTX_free(evpCtx);
+    engine.setProperty(thisVal, "_evpCtx", engine.newFloat(0));
+
+    if (rc != 1)
+        return engine.throwTypeError("Decipher final failed (bad padding or auth tag)");
+
+    auto prevProp = engine.getProperty(thisVal, "_output");
+    auto prev = engine.extractString(prevProp);
+    engine.freeValue(prevProp);
+
+    if (outlen > 0)
+        return engine.newString(prev ~ (() @trusted => cast(string) outbuf[0 .. outlen])());
+    return engine.newString(prev);
+}
+
+JSHandle jsDecipherSetAuthTag(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+{
+    assert(ctx !is null, "Null ctx in decipher.setAuthTag");
+    auto state = cast(DunState*) ctx;
+    auto engine = state.engine;
+    if (args.length < 1) return engine.throwTypeError("setAuthTag requires a tag");
+
+    auto ctxProp = engine.getProperty(thisVal, "_evpCtx");
+    auto evpCtx = cast(EVP_CIPHER_CTX*) cast(size_t) engine.extractFloat(ctxProp);
+    engine.freeValue(ctxProp);
+    if (evpCtx is null) return engine.throwTypeError("Decipher already finalized");
+
+    auto tagHex = engine.extractString(args[0]);
+    if (tagHex.length % 2 != 0)
+        return engine.throwTypeError("Invalid auth tag hex");
+    auto tagBytes = new ubyte[tagHex.length / 2];
+    foreach (i; 0 .. tagBytes.length)
+        tagBytes[i] = cast(ubyte)(hexVal(tagHex[i * 2]) << 4 | hexVal(tagHex[i * 2 + 1]));
+
+    EVP_CIPHER_CTX_ctrl(evpCtx, EVP_CTRL_GCM_SET_TAG, cast(int) tagBytes.length, tagBytes.ptr);
+    return engine.dupValue(thisVal);
+}
+
+private ubyte hexVal(char c) @safe pure nothrow
+{
+    if (c >= '0' && c <= '9') return cast(ubyte)(c - '0');
+    if (c >= 'a' && c <= 'f') return cast(ubyte)(c - 'a' + 10);
+    if (c >= 'A' && c <= 'F') return cast(ubyte)(c - 'A' + 10);
+    return 0;
 }
 
 // --- getHashes / getCiphers ---
