@@ -699,6 +699,7 @@ JSHandle jsBufferReadUInt16LE(void* ctx, JSHandle thisVal, JSHandle[] args) @tru
 
 JSHandle jsBufferReadUInt16BE(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
+    import dun.platform.simd : bswap16;
     assert(ctx !is null, "Null ctx in jsBufferReadUInt16BE");
     auto state = cast(DunState*) ctx;
     assert(state.engine !is null, "Null engine in jsBufferReadUInt16BE");
@@ -707,8 +708,8 @@ JSHandle jsBufferReadUInt16BE(void* ctx, JSHandle thisVal, JSHandle[] args) @tru
     int offset = 0;
     if (args.length >= 1 && engine.isNumber(args[0])) offset = engine.extractInt(args[0]);
     if (offset < 0 || offset + 1 >= cast(int) bytes.length) return engine.throwRangeError("Offset out of range");
-    int val = (cast(int) bytes[offset] << 8) | cast(int) bytes[offset + 1];
-    return engine.newInt(val);
+    ushort le = *cast(ushort*)(bytes.ptr + offset);
+    return engine.newInt(cast(int) bswap16(le));
 }
 
 JSHandle jsBufferReadUInt32LE(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
@@ -727,6 +728,7 @@ JSHandle jsBufferReadUInt32LE(void* ctx, JSHandle thisVal, JSHandle[] args) @tru
 
 JSHandle jsBufferReadUInt32BE(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
+    import dun.platform.simd : bswap32;
     assert(ctx !is null, "Null ctx in jsBufferReadUInt32BE");
     auto state = cast(DunState*) ctx;
     assert(state.engine !is null, "Null engine in jsBufferReadUInt32BE");
@@ -735,8 +737,8 @@ JSHandle jsBufferReadUInt32BE(void* ctx, JSHandle thisVal, JSHandle[] args) @tru
     int offset = 0;
     if (args.length >= 1 && engine.isNumber(args[0])) offset = engine.extractInt(args[0]);
     if (offset < 0 || offset + 3 >= cast(int) bytes.length) return engine.throwRangeError("Offset out of range");
-    uint val = (cast(uint) bytes[offset] << 24) | (cast(uint) bytes[offset+1] << 16) | (cast(uint) bytes[offset+2] << 8) | cast(uint) bytes[offset+3];
-    return engine.newFloat(cast(double) val);
+    uint le = *cast(uint*)(bytes.ptr + offset);
+    return engine.newFloat(cast(double) bswap32(le));
 }
 
 JSHandle jsBufferReadInt8(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
@@ -768,6 +770,7 @@ JSHandle jsBufferReadInt16LE(void* ctx, JSHandle thisVal, JSHandle[] args) @trus
 
 JSHandle jsBufferReadInt16BE(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
+    import dun.platform.simd : bswap16;
     assert(ctx !is null, "Null ctx in jsBufferReadInt16BE");
     auto state = cast(DunState*) ctx;
     assert(state.engine !is null, "Null engine in jsBufferReadInt16BE");
@@ -776,8 +779,8 @@ JSHandle jsBufferReadInt16BE(void* ctx, JSHandle thisVal, JSHandle[] args) @trus
     int offset = 0;
     if (args.length >= 1 && engine.isNumber(args[0])) offset = engine.extractInt(args[0]);
     if (offset < 0 || offset + 1 >= cast(int) bytes.length) return engine.throwRangeError("Offset out of range");
-    short val = cast(short)((cast(ushort) bytes[offset] << 8) | cast(ushort) bytes[offset + 1]);
-    return engine.newInt(cast(int) val);
+    ushort le = *cast(ushort*)(bytes.ptr + offset);
+    return engine.newInt(cast(int) cast(short) bswap16(le));
 }
 
 JSHandle jsBufferReadInt32LE(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
@@ -796,6 +799,7 @@ JSHandle jsBufferReadInt32LE(void* ctx, JSHandle thisVal, JSHandle[] args) @trus
 
 JSHandle jsBufferReadInt32BE(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
+    import dun.platform.simd : bswap32;
     assert(ctx !is null, "Null ctx in jsBufferReadInt32BE");
     auto state = cast(DunState*) ctx;
     assert(state.engine !is null, "Null engine in jsBufferReadInt32BE");
@@ -804,8 +808,8 @@ JSHandle jsBufferReadInt32BE(void* ctx, JSHandle thisVal, JSHandle[] args) @trus
     int offset = 0;
     if (args.length >= 1 && engine.isNumber(args[0])) offset = engine.extractInt(args[0]);
     if (offset < 0 || offset + 3 >= cast(int) bytes.length) return engine.throwRangeError("Offset out of range");
-    int val = cast(int)((cast(uint) bytes[offset] << 24) | (cast(uint) bytes[offset+1] << 16) | (cast(uint) bytes[offset+2] << 8) | cast(uint) bytes[offset+3]);
-    return engine.newInt(val);
+    uint le = *cast(uint*)(bytes.ptr + offset);
+    return engine.newInt(cast(int) bswap32(le));
 }
 
 JSHandle jsBufferReadFloatLE(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
@@ -825,6 +829,7 @@ JSHandle jsBufferReadFloatLE(void* ctx, JSHandle thisVal, JSHandle[] args) @trus
 
 JSHandle jsBufferReadFloatBE(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
+    import dun.platform.simd : bswap32;
     assert(ctx !is null, "Null ctx in jsBufferReadFloatBE");
     auto state = cast(DunState*) ctx;
     assert(state.engine !is null, "Null engine in jsBufferReadFloatBE");
@@ -833,8 +838,9 @@ JSHandle jsBufferReadFloatBE(void* ctx, JSHandle thisVal, JSHandle[] args) @trus
     int offset = 0;
     if (args.length >= 1 && engine.isNumber(args[0])) offset = engine.extractInt(args[0]);
     if (offset < 0 || offset + 3 >= cast(int) bytes.length) return engine.throwRangeError("Offset out of range");
-    ubyte[4] buf = [bytes[offset+3], bytes[offset+2], bytes[offset+1], bytes[offset]];
-    float val = *(cast(float*) buf.ptr);
+    uint le = *cast(uint*)(bytes.ptr + offset);
+    uint swapped = bswap32(le);
+    float val = *cast(float*)&swapped;
     return engine.newFloat(cast(double) val);
 }
 
@@ -856,6 +862,7 @@ JSHandle jsBufferReadDoubleLE(void* ctx, JSHandle thisVal, JSHandle[] args) @tru
 
 JSHandle jsBufferReadDoubleBE(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
+    import dun.platform.simd : bswap64;
     assert(ctx !is null, "Null ctx in jsBufferReadDoubleBE");
     auto state = cast(DunState*) ctx;
     assert(state.engine !is null, "Null engine in jsBufferReadDoubleBE");
@@ -864,9 +871,9 @@ JSHandle jsBufferReadDoubleBE(void* ctx, JSHandle thisVal, JSHandle[] args) @tru
     int offset = 0;
     if (args.length >= 1 && engine.isNumber(args[0])) offset = engine.extractInt(args[0]);
     if (offset < 0 || offset + 7 >= cast(int) bytes.length) return engine.throwRangeError("Offset out of range");
-    ubyte[8] buf;
-    foreach (i; 0 .. 8) buf[i] = bytes[offset + 7 - i];
-    double val = *(cast(double*) buf.ptr);
+    ulong le = *cast(ulong*)(bytes.ptr + offset);
+    ulong swapped = bswap64(le);
+    double val = *cast(double*)&swapped;
     return engine.newFloat(val);
 }
 
@@ -889,6 +896,7 @@ JSHandle jsBufferWriteUInt16LE(void* ctx, JSHandle thisVal, JSHandle[] args) @tr
 
 JSHandle jsBufferWriteUInt16BE(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
+    import dun.platform.simd : bswap16;
     assert(ctx !is null, "Null ctx in jsBufferWriteUInt16BE");
     auto state = cast(DunState*) ctx;
     assert(state.engine !is null, "Null engine in jsBufferWriteUInt16BE");
@@ -899,8 +907,7 @@ JSHandle jsBufferWriteUInt16BE(void* ctx, JSHandle thisVal, JSHandle[] args) @tr
     int offset = 0;
     if (args.length >= 2 && engine.isNumber(args[1])) offset = engine.extractInt(args[1]);
     if (offset < 0 || offset + 1 >= cast(int) bytes.length) return engine.throwRangeError("Offset out of range");
-    bytes[offset] = cast(ubyte)((value >> 8) & 0xFF);
-    bytes[offset + 1] = cast(ubyte)(value & 0xFF);
+    *cast(ushort*)(bytes.ptr + offset) = bswap16(cast(ushort) value);
     return engine.newInt(offset + 2);
 }
 
@@ -925,6 +932,7 @@ JSHandle jsBufferWriteUInt32LE(void* ctx, JSHandle thisVal, JSHandle[] args) @tr
 
 JSHandle jsBufferWriteUInt32BE(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
+    import dun.platform.simd : bswap32;
     assert(ctx !is null, "Null ctx in jsBufferWriteUInt32BE");
     auto state = cast(DunState*) ctx;
     assert(state.engine !is null, "Null engine in jsBufferWriteUInt32BE");
@@ -935,10 +943,7 @@ JSHandle jsBufferWriteUInt32BE(void* ctx, JSHandle thisVal, JSHandle[] args) @tr
     int offset = 0;
     if (args.length >= 2 && engine.isNumber(args[1])) offset = engine.extractInt(args[1]);
     if (offset < 0 || offset + 3 >= cast(int) bytes.length) return engine.throwRangeError("Offset out of range");
-    bytes[offset] = cast(ubyte)((value >> 24) & 0xFF);
-    bytes[offset+1] = cast(ubyte)((value >> 16) & 0xFF);
-    bytes[offset+2] = cast(ubyte)((value >> 8) & 0xFF);
-    bytes[offset+3] = cast(ubyte)(value & 0xFF);
+    *cast(uint*)(bytes.ptr + offset) = bswap32(value);
     return engine.newInt(offset + 4);
 }
 
@@ -961,6 +966,7 @@ JSHandle jsBufferWriteInt16LE(void* ctx, JSHandle thisVal, JSHandle[] args) @tru
 
 JSHandle jsBufferWriteInt16BE(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
+    import dun.platform.simd : bswap16;
     assert(ctx !is null, "Null ctx in jsBufferWriteInt16BE");
     auto state = cast(DunState*) ctx;
     assert(state.engine !is null, "Null engine in jsBufferWriteInt16BE");
@@ -971,8 +977,7 @@ JSHandle jsBufferWriteInt16BE(void* ctx, JSHandle thisVal, JSHandle[] args) @tru
     int offset = 0;
     if (args.length >= 2 && engine.isNumber(args[1])) offset = engine.extractInt(args[1]);
     if (offset < 0 || offset + 1 >= cast(int) bytes.length) return engine.throwRangeError("Offset out of range");
-    bytes[offset] = cast(ubyte)((uval >> 8) & 0xFF);
-    bytes[offset + 1] = cast(ubyte)(uval & 0xFF);
+    *cast(ushort*)(bytes.ptr + offset) = bswap16(uval);
     return engine.newInt(offset + 2);
 }
 
@@ -997,6 +1002,7 @@ JSHandle jsBufferWriteInt32LE(void* ctx, JSHandle thisVal, JSHandle[] args) @tru
 
 JSHandle jsBufferWriteInt32BE(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
+    import dun.platform.simd : bswap32;
     assert(ctx !is null, "Null ctx in jsBufferWriteInt32BE");
     auto state = cast(DunState*) ctx;
     assert(state.engine !is null, "Null engine in jsBufferWriteInt32BE");
@@ -1007,10 +1013,7 @@ JSHandle jsBufferWriteInt32BE(void* ctx, JSHandle thisVal, JSHandle[] args) @tru
     int offset = 0;
     if (args.length >= 2 && engine.isNumber(args[1])) offset = engine.extractInt(args[1]);
     if (offset < 0 || offset + 3 >= cast(int) bytes.length) return engine.throwRangeError("Offset out of range");
-    bytes[offset] = cast(ubyte)((uval >> 24) & 0xFF);
-    bytes[offset+1] = cast(ubyte)((uval >> 16) & 0xFF);
-    bytes[offset+2] = cast(ubyte)((uval >> 8) & 0xFF);
-    bytes[offset+3] = cast(ubyte)(uval & 0xFF);
+    *cast(uint*)(bytes.ptr + offset) = bswap32(uval);
     return engine.newInt(offset + 4);
 }
 
@@ -1033,6 +1036,7 @@ JSHandle jsBufferWriteFloatLE(void* ctx, JSHandle thisVal, JSHandle[] args) @tru
 
 JSHandle jsBufferWriteFloatBE(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
+    import dun.platform.simd : bswap32;
     assert(ctx !is null, "Null ctx in jsBufferWriteFloatBE");
     auto state = cast(DunState*) ctx;
     assert(state.engine !is null, "Null engine in jsBufferWriteFloatBE");
@@ -1043,8 +1047,8 @@ JSHandle jsBufferWriteFloatBE(void* ctx, JSHandle thisVal, JSHandle[] args) @tru
     int offset = 0;
     if (args.length >= 2 && engine.isNumber(args[1])) offset = engine.extractInt(args[1]);
     if (offset < 0 || offset + 3 >= cast(int) bytes.length) return engine.throwRangeError("Offset out of range");
-    ubyte* fp = cast(ubyte*)&value;
-    foreach (i; 0 .. 4) bytes[offset + i] = fp[3 - i];
+    uint le = *cast(uint*)&value;
+    *cast(uint*)(bytes.ptr + offset) = bswap32(le);
     return engine.newInt(offset + 4);
 }
 
@@ -1067,6 +1071,7 @@ JSHandle jsBufferWriteDoubleLE(void* ctx, JSHandle thisVal, JSHandle[] args) @tr
 
 JSHandle jsBufferWriteDoubleBE(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
+    import dun.platform.simd : bswap64;
     assert(ctx !is null, "Null ctx in jsBufferWriteDoubleBE");
     auto state = cast(DunState*) ctx;
     assert(state.engine !is null, "Null engine in jsBufferWriteDoubleBE");
@@ -1077,8 +1082,8 @@ JSHandle jsBufferWriteDoubleBE(void* ctx, JSHandle thisVal, JSHandle[] args) @tr
     int offset = 0;
     if (args.length >= 2 && engine.isNumber(args[1])) offset = engine.extractInt(args[1]);
     if (offset < 0 || offset + 7 >= cast(int) bytes.length) return engine.throwRangeError("Offset out of range");
-    ubyte* dp = cast(ubyte*)&value;
-    foreach (i; 0 .. 8) bytes[offset + i] = dp[7 - i];
+    ulong le = *cast(ulong*)&value;
+    *cast(ulong*)(bytes.ptr + offset) = bswap64(le);
     return engine.newInt(offset + 8);
 }
 

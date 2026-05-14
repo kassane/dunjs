@@ -13,7 +13,7 @@ timers/promises, vm, cluster, async_hooks, worker_threads, tls) are engine-agnos
 Workers, SharedArrayBuffer, and Atomics work on all backends.
 HTTPS via OpenSSL, npm package install, 30+ Deno APIs, web standard globals, POSIX signal handling.
 fetch() returns proper Response objects. import.meta works on all backends. process.stdin available.
-core.simd SIMD acceleration for hex encoding, HTTP header parsing, and byte search.
+core.simd + LDC intrinsics (shufflevector, llvm_bswap, llvm_cttz, llvm_prefetch) for hex encoding, HTTP header parsing, byte search, and Buffer endian operations.
 
 Reference: [Bun's Zig->Rust port](https://github.com/oven-sh/bun/pull/30412) -- modular
 workspace with `bun_jsc` engine layer, `*_jsc` suffix pattern for engine-specific modules,
@@ -560,7 +560,7 @@ tests/
 
 source/dun/engine/
 +-- test.d              # ~50 BDD-style engine contract tests
-+-- fuzz.d              # ~50 fuzz/stress tests
++-- fuzz.d              # ~71 fuzz/stress tests
 
 source/dun/ts/
 +-- strip.d             # 20 TypeScript stripper tests (inline)

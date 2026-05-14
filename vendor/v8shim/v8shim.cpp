@@ -63,8 +63,35 @@ static_assert(sizeof(DunV8Value*) == sizeof(void*),
     "opaque pointer size mismatch");
 static_assert(sizeof(int) == 4, "int must be 32-bit for D interop");
 
+// Value pool: reuse DunV8Value objects to avoid malloc/free per JS value
+namespace {
+constexpr size_t kValuePoolCapacity = 256;
+struct ValuePool {
+    DunV8Value* free_list[kValuePoolCapacity];
+    size_t count = 0;
+    std::mutex mu;
+
+    DunV8Value* acquire() {
+        std::lock_guard<std::mutex> lock(mu);
+        if (count > 0)
+            return free_list[--count];
+        return new DunV8Value();
+    }
+
+    void release(DunV8Value* v) {
+        v->value.Reset();
+        std::lock_guard<std::mutex> lock(mu);
+        if (count < kValuePoolCapacity)
+            free_list[count++] = v;
+        else
+            delete v;
+    }
+};
+static ValuePool g_value_pool;
+} // anon namespace
+
 [[nodiscard]] static DunV8Value* wrapValue(DunV8Isolate* iw, v8::Local<v8::Value> val) {
-    auto* wrapped = new DunV8Value();
+    auto* wrapped = g_value_pool.acquire();
     wrapped->value.Reset(iw->isolate, val);
     wrapped->isolate_wrapper = iw;
     wrapped->ref_count = 1;
@@ -456,8 +483,7 @@ void dun_v8_value_ref(DunV8Value* vw) {
 void dun_v8_value_unref(DunV8Value* vw) {
     if (!vw) return;
     if (--vw->ref_count <= 0) {
-        vw->value.Reset();
-        delete vw;
+        g_value_pool.release(vw);
     }
 }
 

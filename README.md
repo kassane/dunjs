@@ -167,7 +167,7 @@ dub test -c unittest                    # ~175 unit tests
 | Suite | Tests |
 |-------|-------|
 | Engine contract | ~50 BDD-style (eval, types, properties, exceptions, promises) |
-| Fuzz/stress | ~50 (rapid create/destroy, string stress, exception recovery) |
+| Fuzz/stress | ~71 (rapid create/destroy, string stress, exception recovery, ES2023+, typed arrays, JSON, classes, regex, proxy, symbols) |
 | TypeScript strip | 20 (annotations, interfaces, as, declare, arrow types) |
 | Security | 38 (permissions 27 + CVE audit 8 + security tests 3) |
 | HTTP/2 | 15 (frame encoding, HPACK, static table, settings) |

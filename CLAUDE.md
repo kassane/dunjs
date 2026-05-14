@@ -68,7 +68,7 @@ source/dun/engine/
 +-- callbacks.d      # Global NativeCallback registry (register/get by slot ID)
 +-- package.d        # Re-exports iface + factory
 +-- test.d           # BDD-style engine contract tests (~50 cases)
-+-- fuzz.d           # Fuzz/stress tests (~50 cases)
++-- fuzz.d           # Fuzz/stress tests (~71 cases)
 +-- quickjs/         # QuickJS-NG backend
 |   +-- backend.d    # QuickJSEngine : IJSEngine
 |   +-- bindings.d   # extern(C) declarations for quickjs.h
@@ -100,7 +100,7 @@ source/dun/ts/           # TypeScript type stripping
 
 source/dun/platform/
 +-- arena.d              # Arena/bump allocator (std.experimental.allocator Region, BorrowedRegion, InSituRegion, Mallocator)
-+-- simd.d               # core.simd SIMD primitives (toLower16, hexEncode, findByte; SSE2/NEON)
++-- simd.d               # SIMD primitives + LDC intrinsics (loadUnaligned, shufflevector, bswap, cttz, prefetch)
 +-- openssl.d            # extern(C) OpenSSL bindings (libssl, libcrypto, ALPN, SSL_accept, cert/key loading)
 +-- lsquic.d             # extern(C) lsquic bindings (QUIC/HTTP3, litespeedtech/lsquic)
 
@@ -253,9 +253,12 @@ Applied across all 7 layers (~290 assertions in 25 files).
 - **V8 indexed properties**: Native `dun_v8_get/set_property_index` via `Object::Get(context, idx)` — no int-to-string conversion
 - **Crypto cached fd**: `/dev/urandom` opened once, reused for all `randomBytes`/`randomUUID` calls
 - **UUID fast format**: CTFE hex LUT instead of `std.format` for UUID formatting
-- **SIMD hex encoding**: `dun.platform.simd.hexEncodeBuf` uses `core.simd` ubyte16 to encode 16 bytes → 32 hex chars per cycle (used by `buffer.d` `bytesToHex`)
+- **SIMD hex encoding**: `hexEncodeBuf` uses `core.simd` + LDC `shufflevector` for zero-copy interleave (16 bytes → 32 hex chars/cycle, no scalar loop)
 - **SIMD HTTP toLower**: `asciiToLowerBuf` lowercases HTTP header names 16 bytes/cycle via SIMD masks (used by `http.d` `parseRequestHeaders`)
-- **SIMD byte search**: `findByte` scans buffers for delimiters 16 bytes/cycle via SIMD equality check
+- **SIMD byte search**: `findByte` scans buffers 16 bytes/cycle; LDC path uses `llvm_cttz` for O(1) first-match extraction
+- **LDC load/store**: `ldc.simd.loadUnaligned`/`storeUnaligned` for correct unaligned SIMD access (no undefined behavior)
+- **LDC prefetch**: `llvm_prefetch` hints for data cache warming in large buffer operations
+- **Buffer bswap**: `bswap16`/`bswap32`/`bswap64` (LDC: single `llvm_bswap` instruction) for all Buffer BE read/write ops
 - **CTFE hex LUT**: Fallback 512-byte lookup table for non-SIMD paths and tail bytes
 - **Pre-allocated buffers**: WebSocket frames, ESM shim use `Appender` with `reserve()`
 - **ESM shim O(n) strings**: `escapeJsString`, `splitLines`, `parseImportLine` use `Appender` instead of `~=`/`~` concatenation
@@ -391,7 +394,7 @@ dub test -c unittest    # All unit tests
 | Suite | File | Tests | Coverage |
 |-------|------|-------|----------|
 | Engine contract | `source/dun/engine/test.d` | ~50 | eval, types, properties, exceptions, promises |
-| Fuzz/stress | `source/dun/engine/fuzz.d` | ~50 | rapid create/destroy, string stress, exception recovery |
+| Fuzz/stress | `source/dun/engine/fuzz.d` | ~71 | rapid create/destroy, string stress, exception recovery, ES2023+, typed arrays, JSON, classes, closures, regex, proxy, symbols, destructuring |
 | TypeScript strip | `source/dun/ts/strip.d` | 20 | annotations, interfaces, as, declare, arrow types |
 | Security perms | `source/dun/security/test.d` | 27 | default deny, scoped grants, deny overrides, parseFlag |
 | CVE audit | `source/dun/security/cve_db.d` | 8 | semver, CVSS parsing, severity mapping, JSON escaping, cache round-trip |
@@ -519,10 +522,12 @@ Stress test (stress.js, 240 tests, release builds):
 
 D's `core.simd` maps to SSE2/AVX (x86) and NEON (ARM) at compile time, similar to
 Zig's `@Vector`. V8/JSC use their own internal SIMD for JIT-compiled code.
-DunJS uses `core.simd` in hot paths (`dun.platform.simd`):
-- **`hexEncodeBuf`**: SIMD hex encoding (16 bytes → 32 hex chars/cycle) used by `buffer.d`
-- **`asciiToLowerBuf`**: SIMD ASCII toLower (16 bytes/cycle) used by HTTP header parsing
-- **`findByte`**: SIMD byte search (16 bytes/cycle) for delimiter scanning
+DunJS uses `core.simd` + LDC-exclusive intrinsics in hot paths (`dun.platform.simd`):
+- **`hexEncodeBuf`**: SIMD hex encoding (16 bytes → 32 hex chars/cycle) + LDC `shufflevector` for zero-copy interleave
+- **`asciiToLowerBuf`**: SIMD ASCII toLower (16 bytes/cycle) with `ldc.simd.loadUnaligned`/`storeUnaligned`
+- **`findByte`**: SIMD byte search (16 bytes/cycle) + LDC `llvm_cttz` for O(1) first-match extraction
+- **`bswap16`/`bswap32`/`bswap64`**: LDC `llvm_bswap` for Buffer BE read/write (single instruction vs 4 shifts+ORs)
+- **`prefetchRead`**: LDC `llvm_prefetch` for data cache warming
 - Scalar fallback via `version(D_SIMD)` for platforms without SIMD
 
 ### Docker Support
@@ -696,3 +701,6 @@ Benchmark impact (25 benchmarks, feature_bench.js):
 | 14d | worker_threads | dun:worker_threads — isMainThread, threadId, Worker (delegates to existing Worker API) | **Done** |
 | 14e | Signal handling | POSIX SIGTERM/SIGINT handlers, process.on('SIGTERM'/'SIGINT', cb), event loop drain | **Done** |
 | 14f | core.simd | SIMD hex encoding (16B/cycle), ASCII toLower (16B/cycle), byte search; SSE2/NEON | **Done** |
+| 14g | LDC intrinsics | loadUnaligned/storeUnaligned, shufflevector interleave, llvm_bswap, llvm_cttz, llvm_prefetch | **Done** |
+| 14h | V8 value pool | DunV8Value free-list allocator (256-entry pool), eliminates malloc/free per JS value | **Done** |
+| 14i | Fuzz coverage | 21 new fuzz tests: ES2023+, typed arrays, JSON, classes, closures, regex, proxy, symbols, destructuring | **Done** |

@@ -636,6 +636,358 @@ void fuzzManyUniqueProperties(IJSEngine e)
     e.freeValue(r.value);
 }
 
+// --- ES2023+ feature stress ------------------------------------------------
+
+@Describe("fuzz: ES2023+ features")
+@Test("handles Promise.all stress")
+void fuzzPromiseAllStress(IJSEngine e)
+{
+    auto r = e.eval(
+        "var ps = []; for(var i=0;i<100;i++) ps.push(Promise.resolve(i));" ~
+        "Promise.all(ps).then(a => globalThis.__promAll = a.length)",
+        "<fuzz>"
+    );
+    assert(!r.isError);
+    e.freeValue(r.value);
+    e.drainJobs();
+    auto r2 = e.eval("globalThis.__promAll", "<fuzz>");
+    assert(!r2.isError);
+    assert(e.extractInt(r2.value) == 100);
+    e.freeValue(r2.value);
+}
+
+@Describe("fuzz: ES2023+ features")
+@Test("handles Map stress")
+void fuzzMapStress(IJSEngine e)
+{
+    auto r = e.eval(
+        "var m = new Map(); for(var i=0;i<1000;i++) m.set('k'+i, i);" ~
+        "m.size",
+        "<fuzz>"
+    );
+    assert(!r.isError);
+    assert(e.extractInt(r.value) == 1000);
+    e.freeValue(r.value);
+}
+
+@Describe("fuzz: ES2023+ features")
+@Test("handles Set stress")
+void fuzzSetStress(IJSEngine e)
+{
+    auto r = e.eval(
+        "var s = new Set(); for(var i=0;i<1000;i++) s.add(i);" ~
+        "s.size",
+        "<fuzz>"
+    );
+    assert(!r.isError);
+    assert(e.extractInt(r.value) == 1000);
+    e.freeValue(r.value);
+}
+
+@Describe("fuzz: ES2023+ features")
+@Test("handles WeakRef and FinalizationRegistry")
+void fuzzWeakRefFinalization(IJSEngine e)
+{
+    auto r = e.eval(
+        "var obj = {x:1}; var wr = new WeakRef(obj);" ~
+        "var fr = new FinalizationRegistry(v => {});" ~
+        "fr.register(obj, 'token');" ~
+        "wr.deref().x",
+        "<fuzz>"
+    );
+    assert(!r.isError);
+    assert(e.extractInt(r.value) == 1);
+    e.freeValue(r.value);
+}
+
+@Describe("fuzz: ES2023+ features")
+@Test("handles generator stress")
+void fuzzGeneratorStress(IJSEngine e)
+{
+    auto r = e.eval(
+        "function* gen(n) { for(var i=0;i<n;i++) yield i; }" ~
+        "var sum=0; for(var v of gen(500)) sum+=v; sum",
+        "<fuzz>"
+    );
+    assert(!r.isError);
+    assert(e.extractInt(r.value) == 124750);
+    e.freeValue(r.value);
+}
+
+@Describe("fuzz: ES2023+ features")
+@Test("handles async generator")
+void fuzzAsyncGenerator(IJSEngine e)
+{
+    auto r = e.eval(
+        "async function* agen() { yield 1; yield 2; yield 3; }" ~
+        "var total = 0;" ~
+        "(async () => { for await (var v of agen()) total += v; " ~
+        "globalThis.__agenResult = total; })()",
+        "<fuzz>"
+    );
+    assert(!r.isError);
+    e.freeValue(r.value);
+    e.drainJobs();
+    auto r2 = e.eval("globalThis.__agenResult", "<fuzz>");
+    assert(!r2.isError);
+    assert(e.extractInt(r2.value) == 6);
+    e.freeValue(r2.value);
+}
+
+// --- typed array stress ----------------------------------------------------
+
+@Describe("fuzz: typed arrays")
+@Test("handles Uint8Array creation and access")
+void fuzzUint8Array(IJSEngine e)
+{
+    auto r = e.eval(
+        "var a = new Uint8Array(256);" ~
+        "for(var i=0;i<256;i++) a[i]=i;" ~
+        "a[0]+a[127]+a[255]",
+        "<fuzz>"
+    );
+    assert(!r.isError);
+    assert(e.extractInt(r.value) == 0 + 127 + 255);
+    e.freeValue(r.value);
+}
+
+@Describe("fuzz: typed arrays")
+@Test("handles ArrayBuffer and DataView")
+void fuzzDataView(IJSEngine e)
+{
+    auto r = e.eval(
+        "var buf = new ArrayBuffer(8);" ~
+        "var dv = new DataView(buf);" ~
+        "dv.setUint32(0, 0xDEADBEEF);" ~
+        "dv.getUint32(0).toString(16)",
+        "<fuzz>"
+    );
+    assert(!r.isError);
+    assert(e.extractString(r.value) == "deadbeef");
+    e.freeValue(r.value);
+}
+
+@Describe("fuzz: typed arrays")
+@Test("handles SharedArrayBuffer")
+void fuzzSharedArrayBuffer(IJSEngine e)
+{
+    auto r = e.eval(
+        "var sab = new SharedArrayBuffer(16);" ~
+        "var i32 = new Int32Array(sab);" ~
+        "Atomics.store(i32, 0, 42);" ~
+        "Atomics.load(i32, 0)",
+        "<fuzz>"
+    );
+    assert(!r.isError);
+    assert(e.extractInt(r.value) == 42);
+    e.freeValue(r.value);
+}
+
+// --- JSON stress -----------------------------------------------------------
+
+@Describe("fuzz: JSON stress")
+@Test("handles deeply nested JSON")
+void fuzzDeepJSON(IJSEngine e)
+{
+    auto r = e.eval(
+        "var s = '42'; for(var i=0;i<50;i++) s='['+s+']';" ~
+        "var v = JSON.parse(s); for(var i=0;i<50;i++) v=v[0]; v",
+        "<fuzz>"
+    );
+    assert(!r.isError);
+    assert(e.extractInt(r.value) == 42);
+    e.freeValue(r.value);
+}
+
+@Describe("fuzz: JSON stress")
+@Test("handles JSON stringify/parse round-trip")
+void fuzzJSONRoundTrip(IJSEngine e)
+{
+    auto r = e.eval(
+        "var obj = {a:1, b:'hello', c:[1,2,3], d:{e:true, f:null}};" ~
+        "JSON.stringify(JSON.parse(JSON.stringify(obj))) === JSON.stringify(obj)",
+        "<fuzz>"
+    );
+    assert(!r.isError);
+    assert(e.extractBool(r.value));
+    e.freeValue(r.value);
+}
+
+// --- class and prototype stress --------------------------------------------
+
+@Describe("fuzz: class features")
+@Test("handles private fields")
+void fuzzPrivateFields(IJSEngine e)
+{
+    auto r = e.eval(
+        "class Counter { #n = 0; inc() { this.#n++; } get() { return this.#n; } }" ~
+        "var c = new Counter(); for(var i=0;i<100;i++) c.inc(); c.get()",
+        "<fuzz>"
+    );
+    assert(!r.isError);
+    assert(e.extractInt(r.value) == 100);
+    e.freeValue(r.value);
+}
+
+@Describe("fuzz: class features")
+@Test("handles deep inheritance chain")
+void fuzzDeepInheritance(IJSEngine e)
+{
+    auto r = e.eval(
+        "class A { val() { return 1; } }" ~
+        "class B extends A { val() { return super.val() + 1; } }" ~
+        "class C extends B { val() { return super.val() + 1; } }" ~
+        "class D extends C { val() { return super.val() + 1; } }" ~
+        "class E extends D { val() { return super.val() + 1; } }" ~
+        "new E().val()",
+        "<fuzz>"
+    );
+    assert(!r.isError);
+    assert(e.extractInt(r.value) == 5);
+    e.freeValue(r.value);
+}
+
+@Describe("fuzz: class features")
+@Test("handles static methods and properties")
+void fuzzStaticMembers(IJSEngine e)
+{
+    auto r = e.eval(
+        "class Config { static count = 0; static inc() { Config.count++; } }" ~
+        "for(var i=0;i<50;i++) Config.inc(); Config.count",
+        "<fuzz>"
+    );
+    assert(!r.isError);
+    assert(e.extractInt(r.value) == 50);
+    e.freeValue(r.value);
+}
+
+// --- closure and scope stress ----------------------------------------------
+
+@Describe("fuzz: closures")
+@Test("handles closure variable capture stress")
+void fuzzClosureCapture(IJSEngine e)
+{
+    auto r = e.eval(
+        "var fns = []; for(var i=0;i<100;i++) { let x=i; fns.push(()=>x); }" ~
+        "fns.reduce((s,f)=>s+f(), 0)",
+        "<fuzz>"
+    );
+    assert(!r.isError);
+    assert(e.extractInt(r.value) == 4950);
+    e.freeValue(r.value);
+}
+
+// --- regex stress ----------------------------------------------------------
+
+@Describe("fuzz: regex")
+@Test("handles complex regex matching")
+void fuzzComplexRegex(IJSEngine e)
+{
+    auto r = e.eval(
+        "var re = /^([a-z]+)(\\d+)([A-Z]+)$/;" ~
+        "'abc123XYZ'.match(re)[2]",
+        "<fuzz>"
+    );
+    assert(!r.isError);
+    assert(e.extractString(r.value) == "123");
+    e.freeValue(r.value);
+}
+
+@Describe("fuzz: regex")
+@Test("handles matchAll iteration")
+void fuzzMatchAll(IJSEngine e)
+{
+    auto r = e.eval(
+        "var count = 0; for(var m of 'aaa bbb ccc'.matchAll(/[a-z]+/g)) count++; count",
+        "<fuzz>"
+    );
+    assert(!r.isError);
+    assert(e.extractInt(r.value) == 3);
+    e.freeValue(r.value);
+}
+
+// --- error subclass stress -------------------------------------------------
+
+@Describe("fuzz: error types")
+@Test("handles all Error subtypes")
+void fuzzErrorSubtypes(IJSEngine e)
+{
+    static immutable errs = [
+        "new TypeError('t')", "new RangeError('r')",
+        "new ReferenceError('ref')", "new SyntaxError('s')",
+        "new URIError('u')", "new EvalError('e')",
+    ];
+    foreach (expr; errs)
+    {
+        auto r = e.eval("try { throw " ~ expr ~ "; } catch(e) { e.message }", "<fuzz>");
+        assert(!r.isError);
+        e.freeValue(r.value);
+    }
+}
+
+// --- proxy and reflect stress ----------------------------------------------
+
+@Describe("fuzz: proxy")
+@Test("handles Proxy trap stress")
+void fuzzProxyTraps(IJSEngine e)
+{
+    auto r = e.eval(
+        "var log = [];" ~
+        "var p = new Proxy({}, { get(t,k) { log.push(k); return 42; } });" ~
+        "for(var i=0;i<50;i++) p['prop'+i];" ~
+        "log.length",
+        "<fuzz>"
+    );
+    assert(!r.isError);
+    assert(e.extractInt(r.value) == 50);
+    e.freeValue(r.value);
+}
+
+// --- symbol stress ---------------------------------------------------------
+
+@Describe("fuzz: symbols")
+@Test("handles Symbol creation and property keying")
+void fuzzSymbolStress(IJSEngine e)
+{
+    auto r = e.eval(
+        "var syms = []; for(var i=0;i<100;i++) syms.push(Symbol('s'+i));" ~
+        "var o = {}; syms.forEach((s,i) => o[s] = i);" ~
+        "o[syms[99]]",
+        "<fuzz>"
+    );
+    assert(!r.isError);
+    assert(e.extractInt(r.value) == 99);
+    e.freeValue(r.value);
+}
+
+// --- destructuring stress --------------------------------------------------
+
+@Describe("fuzz: destructuring")
+@Test("handles deep destructuring")
+void fuzzDeepDestructuring(IJSEngine e)
+{
+    auto r = e.eval(
+        "var {a:{b:{c:{d:{e}}}}} = {a:{b:{c:{d:{e:42}}}}}; e",
+        "<fuzz>"
+    );
+    assert(!r.isError);
+    assert(e.extractInt(r.value) == 42);
+    e.freeValue(r.value);
+}
+
+@Describe("fuzz: destructuring")
+@Test("handles array destructuring with rest")
+void fuzzArrayDestructuringRest(IJSEngine e)
+{
+    auto r = e.eval(
+        "var [a, b, ...rest] = [1,2,3,4,5,6,7,8,9,10]; rest.length",
+        "<fuzz>"
+    );
+    assert(!r.isError);
+    assert(e.extractInt(r.value) == 8);
+    e.freeValue(r.value);
+}
+
 // ---------------------------------------------------------------------------
 // Per-backend fuzz test instantiation via EngineTestRunner
 // ---------------------------------------------------------------------------

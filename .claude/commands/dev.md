@@ -54,7 +54,7 @@ source/dun/
                      #   dns, ws, sqlite, util, assert, querystring, string_decoder,
                      #   vm, cluster, async_hooks, worker_threads, tls
   modules/           # ES modules, CJS require, npm resolver
-  platform/          # OpenSSL bindings, memory, threading, SIMD (core.simd)
+  platform/          # OpenSSL bindings, memory, threading, SIMD (core.simd + LDC intrinsics)
 
 vendor/v8shim/       # V8 C++ shim (~300 LOC, uses TMP templates)
 ```
