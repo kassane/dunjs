@@ -25,6 +25,11 @@ void registerZlibModule(IJSEngine engine) @trusted
     engine.setProperty(global, "__dun_cjs_zlib__", obj);
     engine.freeValue(global);
 
+    // Evaluate JS extension for async wrappers, stream classes, and constants
+    auto extResult = engine.eval(zlibExtensionSource(), "<zlib-ext>");
+    if (!extResult.isError)
+        engine.freeValue(extResult.value);
+
     version (EngineQuickJS)
         registerQuickJSModule(engine);
 }
@@ -33,13 +38,25 @@ version (EngineQuickJS)
 {
     import dun.engine.quickjs.bindings;
 
+    private enum zlibExportNames = [
+        "deflateSync", "inflateSync", "gzipSync",
+        "gunzipSync", "deflateRawSync", "inflateRawSync",
+        "deflate", "inflate", "gzip", "gunzip",
+        "deflateRaw", "inflateRaw",
+        "brotliCompress", "brotliDecompress",
+        "createDeflate", "createInflate",
+        "createGzip", "createGunzip",
+        "createDeflateRaw", "createInflateRaw",
+        "createBrotliCompress", "createBrotliDecompress",
+        "constants",
+    ];
+
     private void registerQuickJSModule(IJSEngine engine) @trusted
     {
         auto ctx = cast(JSContext*) engine.rawContext();
         auto m = JS_NewCModule(ctx, "dun:zlib", &zlibModuleInit);
         if (m is null) return;
-        foreach (name; ["deflateSync", "inflateSync", "gzipSync",
-                        "gunzipSync", "deflateRawSync", "inflateRawSync"])
+        foreach (name; zlibExportNames)
             JS_AddModuleExport(ctx, m, name.ptr);
     }
 
@@ -49,8 +66,7 @@ version (EngineQuickJS)
         assert(m !is null, "Null JSModuleDef in zlibModuleInit");
         auto global = JS_GetGlobalObject(ctx);
         auto zlibObj = JS_GetPropertyStr(ctx, global, "__dun_cjs_zlib__");
-        foreach (name; ["deflateSync", "inflateSync", "gzipSync",
-                        "gunzipSync", "deflateRawSync", "inflateRawSync"])
+        foreach (name; zlibExportNames)
         {
             auto fn = JS_GetPropertyStr(ctx, zlibObj, name.ptr);
             JS_SetModuleExport(ctx, m, name.ptr, fn);
@@ -204,4 +220,200 @@ JSHandle jsDeflateRawSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 JSHandle jsInflateRawSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 {
     return doDecompress(ctx, args, ZLIB_RAW_WINDOW);
+}
+
+string zlibExtensionSource() pure @safe nothrow
+{
+    return `(function() {
+    var zlib = globalThis.__dun_cjs_zlib__;
+    if (!zlib) return;
+
+    // --- Async wrapper helper ---
+    function asyncWrap(syncFn) {
+        return function(input, opts, callback) {
+            if (typeof opts === 'function') { callback = opts; opts = {}; }
+            Promise.resolve().then(function() {
+                try {
+                    var result = syncFn(input, opts);
+                    if (callback) callback(null, result);
+                } catch(e) {
+                    if (callback) callback(e);
+                }
+            });
+        };
+    }
+
+    // --- Async callback versions ---
+    zlib.deflate = asyncWrap(zlib.deflateSync);
+    zlib.inflate = asyncWrap(zlib.inflateSync);
+    zlib.gzip = asyncWrap(zlib.gzipSync);
+    zlib.gunzip = asyncWrap(zlib.gunzipSync);
+    zlib.deflateRaw = asyncWrap(zlib.deflateRawSync);
+    zlib.inflateRaw = asyncWrap(zlib.inflateRawSync);
+
+    // Brotli stubs (passthrough, brotli not available)
+    zlib.brotliCompress = function(input, opts, callback) {
+        if (typeof opts === 'function') { callback = opts; opts = {}; }
+        Promise.resolve().then(function() {
+            try {
+                var buf;
+                if (typeof input === 'string') {
+                    buf = new Uint8Array(input.length);
+                    for (var i = 0; i < input.length; i++) buf[i] = input.charCodeAt(i);
+                } else {
+                    buf = input;
+                }
+                if (callback) callback(null, buf);
+            } catch(e) {
+                if (callback) callback(e);
+            }
+        });
+    };
+    zlib.brotliDecompress = function(input, opts, callback) {
+        if (typeof opts === 'function') { callback = opts; opts = {}; }
+        Promise.resolve().then(function() {
+            try {
+                var buf;
+                if (typeof input === 'string') {
+                    buf = new Uint8Array(input.length);
+                    for (var i = 0; i < input.length; i++) buf[i] = input.charCodeAt(i);
+                } else {
+                    buf = input;
+                }
+                if (callback) callback(null, buf);
+            } catch(e) {
+                if (callback) callback(e);
+            }
+        });
+    };
+
+    // --- Stream classes ---
+    var Transform;
+    try {
+        var streamMod = globalThis.__dun_cjs_stream__;
+        if (streamMod && streamMod.Transform) Transform = streamMod.Transform;
+    } catch(e) {}
+
+    if (Transform) {
+        zlib.createDeflate = function(opts) {
+            var t = new Transform({
+                transform: function(chunk, enc, cb) {
+                    try { cb(null, zlib.deflateSync(chunk, opts)); }
+                    catch(e) { cb(e); }
+                }
+            });
+            return t;
+        };
+        zlib.createInflate = function(opts) {
+            var t = new Transform({
+                transform: function(chunk, enc, cb) {
+                    try { cb(null, zlib.inflateSync(chunk, opts)); }
+                    catch(e) { cb(e); }
+                }
+            });
+            return t;
+        };
+        zlib.createGzip = function(opts) {
+            var t = new Transform({
+                transform: function(chunk, enc, cb) {
+                    try { cb(null, zlib.gzipSync(chunk, opts)); }
+                    catch(e) { cb(e); }
+                }
+            });
+            return t;
+        };
+        zlib.createGunzip = function(opts) {
+            var t = new Transform({
+                transform: function(chunk, enc, cb) {
+                    try { cb(null, zlib.gunzipSync(chunk, opts)); }
+                    catch(e) { cb(e); }
+                }
+            });
+            return t;
+        };
+        zlib.createDeflateRaw = function(opts) {
+            var t = new Transform({
+                transform: function(chunk, enc, cb) {
+                    try { cb(null, zlib.deflateRawSync(chunk, opts)); }
+                    catch(e) { cb(e); }
+                }
+            });
+            return t;
+        };
+        zlib.createInflateRaw = function(opts) {
+            var t = new Transform({
+                transform: function(chunk, enc, cb) {
+                    try { cb(null, zlib.inflateRawSync(chunk, opts)); }
+                    catch(e) { cb(e); }
+                }
+            });
+            return t;
+        };
+        zlib.createBrotliCompress = function(opts) {
+            var t = new Transform({
+                transform: function(chunk, enc, cb) { cb(null, chunk); }
+            });
+            return t;
+        };
+        zlib.createBrotliDecompress = function(opts) {
+            var t = new Transform({
+                transform: function(chunk, enc, cb) { cb(null, chunk); }
+            });
+            return t;
+        };
+    } else {
+        // Minimal stubs if Transform is not available
+        zlib.createDeflate = function() { return {}; };
+        zlib.createInflate = function() { return {}; };
+        zlib.createGzip = function() { return {}; };
+        zlib.createGunzip = function() { return {}; };
+        zlib.createDeflateRaw = function() { return {}; };
+        zlib.createInflateRaw = function() { return {}; };
+        zlib.createBrotliCompress = function() { return {}; };
+        zlib.createBrotliDecompress = function() { return {}; };
+    }
+
+    // --- zlib.constants ---
+    zlib.constants = {
+        Z_NO_FLUSH: 0,
+        Z_PARTIAL_FLUSH: 1,
+        Z_SYNC_FLUSH: 2,
+        Z_FULL_FLUSH: 3,
+        Z_FINISH: 4,
+        Z_BLOCK: 5,
+        Z_OK: 0,
+        Z_STREAM_END: 1,
+        Z_NEED_DICT: 2,
+        Z_ERRNO: -1,
+        Z_STREAM_ERROR: -2,
+        Z_DATA_ERROR: -3,
+        Z_MEM_ERROR: -4,
+        Z_BUF_ERROR: -5,
+        Z_VERSION_ERROR: -6,
+        Z_NO_COMPRESSION: 0,
+        Z_BEST_SPEED: 1,
+        Z_BEST_COMPRESSION: 9,
+        Z_DEFAULT_COMPRESSION: -1,
+        Z_FILTERED: 1,
+        Z_HUFFMAN_ONLY: 2,
+        Z_RLE: 3,
+        Z_FIXED: 4,
+        Z_DEFAULT_STRATEGY: 0,
+        Z_DEFAULT_WINDOWBITS: 15,
+        Z_MIN_WINDOWBITS: 8,
+        Z_MAX_WINDOWBITS: 15,
+        Z_MIN_CHUNK: 64,
+        Z_MAX_CHUNK: Infinity,
+        Z_DEFAULT_CHUNK: 16384,
+        Z_MIN_MEMLEVEL: 1,
+        Z_MAX_MEMLEVEL: 9,
+        Z_DEFAULT_MEMLEVEL: 8,
+        Z_MIN_LEVEL: -1,
+        Z_MAX_LEVEL: 9,
+        BROTLI_OPERATION_PROCESS: 0,
+        BROTLI_OPERATION_FLUSH: 1,
+        BROTLI_OPERATION_FINISH: 2,
+        BROTLI_OPERATION_EMIT_METADATA: 3
+    };
+})()`;
 }

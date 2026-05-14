@@ -18,6 +18,7 @@ private extern (C) @nogc nothrow
     const(EVP_MD)* EVP_md5();
     const(EVP_MD)* EVP_sha1();
     const(EVP_MD)* EVP_sha256();
+    const(EVP_MD)* EVP_sha384();
     const(EVP_MD)* EVP_sha512();
 
     // HMAC: returns pointer to result buffer (static internal), outLen set to digest length
@@ -67,6 +68,28 @@ private extern (C) @nogc nothrow
     enum EVP_CTRL_GCM_SET_IVLEN = 0x9;
     enum EVP_CTRL_GCM_GET_TAG = 0x10;
     enum EVP_CTRL_GCM_SET_TAG = 0x11;
+
+    // EVP signing/verification
+    alias EVP_MD_CTX = void;
+    EVP_MD_CTX* EVP_MD_CTX_new();
+    void EVP_MD_CTX_free(EVP_MD_CTX* ctx);
+    int EVP_DigestSignInit(EVP_MD_CTX* ctx, void** pctx, const(EVP_MD)* type, void* e, EVP_PKEY* pkey);
+    int EVP_DigestSignUpdate(EVP_MD_CTX* ctx, const(void)* d, size_t cnt);
+    int EVP_DigestSignFinal(EVP_MD_CTX* ctx, ubyte* sig, size_t* siglen);
+    int EVP_DigestVerifyInit(EVP_MD_CTX* ctx, void** pctx, const(EVP_MD)* type, void* e, EVP_PKEY* pkey);
+    int EVP_DigestVerifyUpdate(EVP_MD_CTX* ctx, const(void)* d, size_t cnt);
+    int EVP_DigestVerifyFinal(EVP_MD_CTX* ctx, const(ubyte)* sig, size_t siglen);
+
+    // PEM key reading
+    alias EVP_PKEY = void;
+    EVP_PKEY* PEM_read_bio_PrivateKey(void* bp, EVP_PKEY** x, void* cb, void* u);
+    EVP_PKEY* PEM_read_bio_PUBKEY(void* bp, EVP_PKEY** x, void* cb, void* u);
+    void EVP_PKEY_free(EVP_PKEY* pkey);
+
+    // BIO for reading PEM from memory
+    alias BIO = void;
+    BIO* BIO_new_mem_buf(const(void)* buf, int len);
+    int BIO_free(BIO* a);
 }
 
 private const(EVP_MD)* getEvpMd(string algo) @trusted nothrow @nogc
@@ -74,7 +97,33 @@ private const(EVP_MD)* getEvpMd(string algo) @trusted nothrow @nogc
     if (algo == "md5") return EVP_md5();
     if (algo == "sha1") return EVP_sha1();
     if (algo == "sha256") return EVP_sha256();
+    if (algo == "sha384") return EVP_sha384();
     if (algo == "sha512") return EVP_sha512();
+    return null;
+}
+
+/// Normalize algorithm name: accept "SHA256", "RSA-SHA256", etc.
+private string normalizeAlgo(string algo) @safe pure nothrow
+{
+    // Convert to lowercase
+    char[64] buf = void;
+    if (algo.length > buf.length) return null;
+    foreach (i, c; algo)
+        buf[i] = (c >= 'A' && c <= 'Z') ? cast(char)(c + 32) : c;
+    auto lower = (() @trusted => cast(string) buf[0 .. algo.length])();
+
+    // Strip "rsa-" or "ecdsa-" prefix
+    if (lower.length > 4 && lower[0 .. 4] == "rsa-")
+        lower = lower[4 .. $];
+    else if (lower.length > 6 && lower[0 .. 6] == "ecdsa-")
+        lower = lower[6 .. $];
+
+    // Match known algorithms
+    if (lower == "md5") return "md5";
+    if (lower == "sha1") return "sha1";
+    if (lower == "sha256") return "sha256";
+    if (lower == "sha384") return "sha384";
+    if (lower == "sha512") return "sha512";
     return null;
 }
 
@@ -95,6 +144,8 @@ void registerCryptoModule(IJSEngine engine) @trusted
     engine.setProperty(obj, "createDecipheriv", engine.newFunction(&jsCryptoCreateDecipheriv, "createDecipheriv", 3));
     engine.setProperty(obj, "getHashes", engine.newFunction(&jsCryptoGetHashes, "getHashes", 0));
     engine.setProperty(obj, "getCiphers", engine.newFunction(&jsCryptoGetCiphers, "getCiphers", 0));
+    engine.setProperty(obj, "createSign", engine.newFunction(&jsCryptoCreateSign, "createSign", 1));
+    engine.setProperty(obj, "createVerify", engine.newFunction(&jsCryptoCreateVerify, "createVerify", 1));
 
     auto global = engine.getGlobal();
     engine.setProperty(global, "__dun_cjs_crypto__", obj);
@@ -103,7 +154,7 @@ void registerCryptoModule(IJSEngine engine) @trusted
     if (!cryptoExtResult.isError)
     {
         foreach (name; ["pbkdf2", "scrypt", "randomFillSync", "randomFill",
-                        "createSign", "createVerify", "generateKeyPairSync",
+                        "generateKeyPairSync",
                         "createDiffieHellman", "constants"])
         {
             auto prop = engine.getProperty(cryptoExtResult.value, name);
@@ -888,6 +939,313 @@ private ubyte hexVal(char c) @safe pure nothrow
     return 0;
 }
 
+// --- createSign / createVerify ---
+
+private __gshared JSHandle _cachedSignUpdateFn;
+private __gshared JSHandle _cachedSignSignFn;
+private __gshared JSHandle _cachedVerifyUpdateFn;
+private __gshared JSHandle _cachedVerifyVerifyFn;
+private __gshared bool _signFnsCached = false;
+
+private void ensureSignFnsCached(IJSEngine engine) @trusted
+{
+    if (_signFnsCached) return;
+    _cachedSignUpdateFn = engine.newFunction(&jsSignUpdate, "update", 1);
+    _cachedSignSignFn = engine.newFunction(&jsSignSign, "sign", 2);
+    _cachedVerifyUpdateFn = engine.newFunction(&jsVerifyUpdate, "update", 1);
+    _cachedVerifyVerifyFn = engine.newFunction(&jsVerifyVerify, "verify", 3);
+    _signFnsCached = true;
+}
+
+JSHandle jsCryptoCreateSign(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+{
+    assert(ctx !is null, "Null ctx in jsCryptoCreateSign");
+    auto state = cast(DunState*) ctx;
+    assert(state !is null, "Null DunState in jsCryptoCreateSign");
+    auto engine = state.engine;
+    if (args.length < 1) return engine.throwTypeError("createSign requires an algorithm argument");
+    auto rawAlgo = engine.extractString(args[0]);
+    auto algo = normalizeAlgo(rawAlgo);
+    if (algo is null)
+        return engine.throwTypeError("Unsupported sign algorithm: " ~ rawAlgo);
+
+    ensureSignFnsCached(engine);
+    auto obj = engine.newObject();
+    engine.setProperty(obj, "_algo", engine.newString(algo));
+    engine.setProperty(obj, "_data", engine.newString(""));
+    engine.setProperty(obj, "update", engine.dupValue(_cachedSignUpdateFn));
+    engine.setProperty(obj, "sign", engine.dupValue(_cachedSignSignFn));
+    return obj;
+}
+
+JSHandle jsSignUpdate(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+{
+    assert(ctx !is null, "Null ctx in jsSignUpdate");
+    auto state = cast(DunState*) ctx;
+    assert(state !is null, "Null DunState in jsSignUpdate");
+    auto engine = state.engine;
+    if (args.length < 1) return engine.dupValue(thisVal);
+    try
+    {
+        auto dataProp = engine.getProperty(thisVal, "_data");
+        auto prev = engine.extractString(dataProp);
+        engine.freeValue(dataProp);
+        auto chunk = engine.extractString(args[0]);
+        engine.setProperty(thisVal, "_data", engine.newString(prev ~ chunk));
+    }
+    catch (Exception) {}
+    return engine.dupValue(thisVal);
+}
+
+JSHandle jsSignSign(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+{
+    assert(ctx !is null, "Null ctx in jsSignSign");
+    auto state = cast(DunState*) ctx;
+    assert(state !is null, "Null DunState in jsSignSign");
+    auto engine = state.engine;
+    if (args.length < 1)
+        return engine.throwTypeError("sign() requires a private key argument");
+    try
+    {
+        // Extract algorithm
+        auto algoProp = engine.getProperty(thisVal, "_algo");
+        auto algo = engine.extractString(algoProp);
+        engine.freeValue(algoProp);
+
+        // Extract accumulated data
+        auto dataProp = engine.getProperty(thisVal, "_data");
+        auto data = engine.extractString(dataProp);
+        engine.freeValue(dataProp);
+
+        // Extract private key (string or object with 'key' property)
+        string pemKey;
+        if (engine.isObject(args[0]))
+        {
+            auto keyProp = engine.getProperty(args[0], "key");
+            pemKey = engine.extractString(keyProp);
+            engine.freeValue(keyProp);
+        }
+        else
+            pemKey = engine.extractString(args[0]);
+
+        // Extract output encoding (default: 'buffer')
+        string outputEncoding = "buffer";
+        if (args.length >= 2 && engine.isString(args[1]))
+            outputEncoding = engine.extractString(args[1]);
+
+        // Perform the signing via OpenSSL
+        auto signature = evpSign(algo, pemKey, data);
+        if (signature is null)
+            return engine.throwTypeError("Signing failed — invalid key or algorithm");
+
+        return encodeOutput(engine, signature, outputEncoding);
+    }
+    catch (Exception e) { return engine.throwTypeError("sign() failed: " ~ e.msg); }
+}
+
+JSHandle jsCryptoCreateVerify(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+{
+    assert(ctx !is null, "Null ctx in jsCryptoCreateVerify");
+    auto state = cast(DunState*) ctx;
+    assert(state !is null, "Null DunState in jsCryptoCreateVerify");
+    auto engine = state.engine;
+    if (args.length < 1) return engine.throwTypeError("createVerify requires an algorithm argument");
+    auto rawAlgo = engine.extractString(args[0]);
+    auto algo = normalizeAlgo(rawAlgo);
+    if (algo is null)
+        return engine.throwTypeError("Unsupported verify algorithm: " ~ rawAlgo);
+
+    ensureSignFnsCached(engine);
+    auto obj = engine.newObject();
+    engine.setProperty(obj, "_algo", engine.newString(algo));
+    engine.setProperty(obj, "_data", engine.newString(""));
+    engine.setProperty(obj, "update", engine.dupValue(_cachedVerifyUpdateFn));
+    engine.setProperty(obj, "verify", engine.dupValue(_cachedVerifyVerifyFn));
+    return obj;
+}
+
+JSHandle jsVerifyUpdate(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+{
+    assert(ctx !is null, "Null ctx in jsVerifyUpdate");
+    auto state = cast(DunState*) ctx;
+    assert(state !is null, "Null DunState in jsVerifyUpdate");
+    auto engine = state.engine;
+    if (args.length < 1) return engine.dupValue(thisVal);
+    try
+    {
+        auto dataProp = engine.getProperty(thisVal, "_data");
+        auto prev = engine.extractString(dataProp);
+        engine.freeValue(dataProp);
+        auto chunk = engine.extractString(args[0]);
+        engine.setProperty(thisVal, "_data", engine.newString(prev ~ chunk));
+    }
+    catch (Exception) {}
+    return engine.dupValue(thisVal);
+}
+
+JSHandle jsVerifyVerify(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+{
+    assert(ctx !is null, "Null ctx in jsVerifyVerify");
+    auto state = cast(DunState*) ctx;
+    assert(state !is null, "Null DunState in jsVerifyVerify");
+    auto engine = state.engine;
+    if (args.length < 2)
+        return engine.throwTypeError("verify() requires a public key and signature");
+    try
+    {
+        // Extract algorithm
+        auto algoProp = engine.getProperty(thisVal, "_algo");
+        auto algo = engine.extractString(algoProp);
+        engine.freeValue(algoProp);
+
+        // Extract accumulated data
+        auto dataProp = engine.getProperty(thisVal, "_data");
+        auto data = engine.extractString(dataProp);
+        engine.freeValue(dataProp);
+
+        // Extract public key (string or object with 'key' property)
+        string pemKey;
+        if (engine.isObject(args[0]))
+        {
+            auto keyProp = engine.getProperty(args[0], "key");
+            pemKey = engine.extractString(keyProp);
+            engine.freeValue(keyProp);
+        }
+        else
+            pemKey = engine.extractString(args[0]);
+
+        // Extract signature
+        auto sigStr = engine.extractString(args[1]);
+
+        // Extract signature encoding (default: 'buffer')
+        string sigEncoding = "buffer";
+        if (args.length >= 3 && engine.isString(args[2]))
+            sigEncoding = engine.extractString(args[2]);
+
+        // Decode the signature
+        auto sigBytes = decodeInput(sigStr, sigEncoding);
+        if (sigBytes is null && sigStr.length > 0)
+            return engine.throwTypeError("Invalid signature encoding");
+
+        // Perform the verification via OpenSSL
+        auto result = evpVerify(algo, pemKey, data, sigBytes);
+        return engine.newBool(result);
+    }
+    catch (Exception e) { return engine.throwTypeError("verify() failed: " ~ e.msg); }
+}
+
+/// Sign data using OpenSSL EVP_DigestSign
+private ubyte[] evpSign(string algo, string pemKey, string data) @trusted nothrow
+{
+    assert(pemKey.length > 0, "Empty PEM key in evpSign");
+
+    // Load private key from PEM
+    auto bio = BIO_new_mem_buf(cast(const(void)*) pemKey.ptr, cast(int) pemKey.length);
+    if (bio is null) return null;
+
+    auto pkey = PEM_read_bio_PrivateKey(bio, null, null, null);
+    BIO_free(bio);
+    if (pkey is null) return null;
+    scope(exit) EVP_PKEY_free(pkey);
+
+    auto md = getEvpMd(algo);
+    if (md is null) return null;
+
+    auto mdCtx = EVP_MD_CTX_new();
+    if (mdCtx is null) return null;
+    scope(exit) EVP_MD_CTX_free(mdCtx);
+
+    if (EVP_DigestSignInit(mdCtx, null, md, null, pkey) != 1)
+        return null;
+    if (EVP_DigestSignUpdate(mdCtx, cast(const(void)*) data.ptr, data.length) != 1)
+        return null;
+
+    // First call: get required signature length
+    size_t sigLen = 0;
+    if (EVP_DigestSignFinal(mdCtx, null, &sigLen) != 1)
+        return null;
+
+    // Allocate and sign
+    ubyte[] sig;
+    try { sig = new ubyte[sigLen]; } catch (Exception) { return null; }
+
+    if (EVP_DigestSignFinal(mdCtx, sig.ptr, &sigLen) != 1)
+        return null;
+
+    return sig[0 .. sigLen];
+}
+
+/// Verify signature using OpenSSL EVP_DigestVerify
+private bool evpVerify(string algo, string pemKey, string data, const(ubyte)[] signature) @trusted nothrow
+{
+    assert(pemKey.length > 0, "Empty PEM key in evpVerify");
+
+    // Load public key from PEM
+    auto bio = BIO_new_mem_buf(cast(const(void)*) pemKey.ptr, cast(int) pemKey.length);
+    if (bio is null) return false;
+
+    auto pkey = PEM_read_bio_PUBKEY(bio, null, null, null);
+    BIO_free(bio);
+    if (pkey is null) return false;
+    scope(exit) EVP_PKEY_free(pkey);
+
+    auto md = getEvpMd(algo);
+    if (md is null) return false;
+
+    auto mdCtx = EVP_MD_CTX_new();
+    if (mdCtx is null) return false;
+    scope(exit) EVP_MD_CTX_free(mdCtx);
+
+    if (EVP_DigestVerifyInit(mdCtx, null, md, null, pkey) != 1)
+        return false;
+    if (EVP_DigestVerifyUpdate(mdCtx, cast(const(void)*) data.ptr, data.length) != 1)
+        return false;
+
+    return EVP_DigestVerifyFinal(mdCtx, signature.ptr, signature.length) == 1;
+}
+
+/// Encode binary data to the requested output encoding
+private JSHandle encodeOutput(IJSEngine engine, const(ubyte)[] data, string encoding) @trusted
+{
+    if (encoding == "hex")
+    {
+        import std.digest : toHexString, LetterCase;
+        return engine.newString(toHexString!(LetterCase.lower)(data).idup);
+    }
+    else if (encoding == "base64")
+    {
+        import std.base64 : Base64;
+        return engine.newString(Base64.encode(data));
+    }
+    else // "buffer" — return as Uint8Array
+    {
+        return engine.newUint8Array(cast(ubyte[]) data);
+    }
+}
+
+/// Decode input string from the given encoding to bytes
+private ubyte[] decodeInput(string input, string encoding) @trusted
+{
+    if (encoding == "hex")
+    {
+        if (input.length % 2 != 0) return null;
+        auto result = new ubyte[input.length / 2];
+        foreach (i; 0 .. result.length)
+            result[i] = cast(ubyte)(hexVal(input[i * 2]) << 4 | hexVal(input[i * 2 + 1]));
+        return result;
+    }
+    else if (encoding == "base64")
+    {
+        import std.base64 : Base64;
+        try { return Base64.decode(input); }
+        catch (Exception) { return null; }
+    }
+    else // "buffer" — raw bytes
+    {
+        return cast(ubyte[]) input.dup;
+    }
+}
+
 // --- getHashes / getCiphers ---
 
 JSHandle jsCryptoGetHashes(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
@@ -1033,28 +1391,6 @@ string cryptoExtensionSource() pure @safe nothrow
     });
   }
 
-  function createSign(algorithm) {
-    return {
-      _algo: algorithm,
-      _data: '',
-      update: function(data) { this._data += data; return this; },
-      sign: function(key, outputEncoding) {
-        throw new Error('crypto.createSign requires OpenSSL key operations (not yet implemented)');
-      }
-    };
-  }
-
-  function createVerify(algorithm) {
-    return {
-      _algo: algorithm,
-      _data: '',
-      update: function(data) { this._data += data; return this; },
-      verify: function(key, signature, inputEncoding) {
-        throw new Error('crypto.createVerify requires OpenSSL key operations (not yet implemented)');
-      }
-    };
-  }
-
   function generateKeyPairSync(type, options) {
     throw new Error('crypto.generateKeyPairSync requires OpenSSL key generation (not yet implemented)');
   }
@@ -1081,8 +1417,6 @@ string cryptoExtensionSource() pure @safe nothrow
     scrypt: scrypt,
     randomFillSync: randomFillSync,
     randomFill: randomFill,
-    createSign: createSign,
-    createVerify: createVerify,
     generateKeyPairSync: generateKeyPairSync,
     createDiffieHellman: createDiffieHellman,
     constants: constants

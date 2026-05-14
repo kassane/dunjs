@@ -178,6 +178,33 @@ check('stream.promises', typeof stream.promises === 'object');
 check('stream.promises.pipeline', typeof stream.promises.pipeline === 'function');
 check('Readable.toWeb', typeof stream.Readable.toWeb === 'function');
 
+// New: os enhancements
+var os = require('os');
+check('os.networkInterfaces', typeof os.networkInterfaces === 'function');
+check('os.userInfo', typeof os.userInfo === 'function');
+check('os.loadavg', typeof os.loadavg === 'function');
+check('os.version', typeof os.version === 'function');
+check('os.machine', typeof os.machine === 'function');
+var ui = os.userInfo();
+check('os.userInfo().uid', typeof ui.uid === 'number');
+check('os.userInfo().username', typeof ui.username === 'string');
+check('os.userInfo().homedir', typeof ui.homedir === 'string');
+var la = os.loadavg();
+check('os.loadavg() is array', Array.isArray(la) && la.length === 3);
+check('os.networkInterfaces() is object', typeof os.networkInterfaces() === 'object');
+
+// New: perf_hooks
+var perf_hooks = require('perf_hooks');
+check('perf_hooks.performance', typeof perf_hooks.performance === 'object');
+check('perf_hooks.performance.mark', typeof perf_hooks.performance.mark === 'function');
+check('perf_hooks.performance.measure', typeof perf_hooks.performance.measure === 'function');
+check('perf_hooks.PerformanceObserver', typeof perf_hooks.PerformanceObserver === 'function');
+check('perf_hooks.constants', typeof perf_hooks.constants === 'object');
+
+// New: fs.watchFile/unwatchFile
+check('fs.watchFile', typeof fs.watchFile === 'function');
+check('fs.unwatchFile', typeof fs.unwatchFile === 'function');
+
 // Globals
 check('Buffer', typeof Buffer !== 'undefined');
 check('setTimeout', typeof setTimeout === 'function');

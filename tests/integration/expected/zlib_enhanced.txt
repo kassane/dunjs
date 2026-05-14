@@ -1,0 +1,34 @@
+PASS: deflate is function
+PASS: inflate is function
+PASS: gzip is function
+PASS: gunzip is function
+PASS: deflateRaw is function
+PASS: inflateRaw is function
+PASS: brotliCompress is function
+PASS: brotliDecompress is function
+PASS: createDeflate is function
+PASS: createInflate is function
+PASS: createGzip is function
+PASS: createGunzip is function
+PASS: createDeflateRaw is function
+PASS: createInflateRaw is function
+PASS: createBrotliCompress is function
+PASS: createBrotliDecompress is function
+PASS: constants is object
+PASS: Z_BEST_COMPRESSION === 9
+PASS: Z_DEFAULT_COMPRESSION === -1
+PASS: Z_NO_FLUSH === 0
+PASS: Z_FINISH === 4
+PASS: Z_OK === 0
+PASS: Z_STREAM_ERROR === -2
+PASS: Z_DEFAULT_CHUNK === 16384
+PASS: BROTLI_OPERATION_FINISH === 2
+PASS: async deflate no error
+PASS: async deflate produced data
+PASS: async inflate no error
+PASS: async deflate/inflate round-trip
+PASS: async gzip no error
+PASS: async gzip produced data
+PASS: async gunzip no error
+PASS: async gzip/gunzip round-trip
+33/33 checks passed

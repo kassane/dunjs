@@ -126,6 +126,23 @@ PASS: stream.addAbortSignal
 PASS: stream.promises
 PASS: stream.promises.pipeline
 PASS: Readable.toWeb
+PASS: os.networkInterfaces
+PASS: os.userInfo
+PASS: os.loadavg
+PASS: os.version
+PASS: os.machine
+PASS: os.userInfo().uid
+PASS: os.userInfo().username
+PASS: os.userInfo().homedir
+PASS: os.loadavg() is array
+PASS: os.networkInterfaces() is object
+PASS: perf_hooks.performance
+PASS: perf_hooks.performance.mark
+PASS: perf_hooks.performance.measure
+PASS: perf_hooks.PerformanceObserver
+PASS: perf_hooks.constants
+PASS: fs.watchFile
+PASS: fs.unwatchFile
 PASS: Buffer
 PASS: setTimeout
 PASS: setInterval
@@ -134,4 +151,4 @@ PASS: console.log
 PASS: console.error
 PASS: console.warn
 ---
-Total: 135/135 passed
+Total: 152/152 passed

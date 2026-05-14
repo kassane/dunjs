@@ -1,0 +1,21 @@
+PASS: createSign is function
+PASS: createVerify is function
+PASS: sign object created
+PASS: sign.update is function
+PASS: sign.sign is function
+PASS: sign.update returns this
+PASS: verify object created
+PASS: verify.update is function
+PASS: verify.verify is function
+PASS: verify.update returns this
+PASS: SHA256 uppercase works
+PASS: RSA-SHA256 prefix works
+PASS: sign produces hex output
+PASS: verify valid signature
+PASS: verify wrong data returns false
+PASS: sign base64 output
+PASS: verify base64 signature
+PASS: sign with key object
+PASS: hmac still works
+---
+Total: 19/19 passed

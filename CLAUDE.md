@@ -122,7 +122,7 @@ All runtime globals are **engine-agnostic** (use `IJSEngine` + `NativeCallback`)
 | `Buffer` | `registerBufferModule(engine)` | Global `Buffer`, `require('buffer')` |
 | `EventEmitter` | `registerEventsModule(engine)` | Global `EventEmitter`, `require('events')` |
 | `URL` / `URLSearchParams` | `registerUrlModule(engine)` | Global `URL`/`URLSearchParams`, `require('url')` |
-| `os` | `registerOsModule(engine)` | `require('os')` |
+| `os` | `registerOsModule(engine)` | `require('os')` — platform, cpus, totalmem, freemem, networkInterfaces, userInfo, loadavg, version, machine |
 | `fs` | `registerFsModule(engine)` | `require('fs')`, ESM `import from 'dun:fs'` |
 | `path` | `registerPathModule(engine)` | `require('path')`, ESM `import from 'dun:path'` |
 | `crypto` | `registerCryptoModule(engine)` | `require('crypto')`, ESM `import from 'dun:crypto'` |
@@ -429,7 +429,7 @@ dub test -c unittest    # All unit tests
 | V8 TMP bridge | `source/dun/engine/v8/cppbindings.d` | compile-time | V8TypeName coverage, tag->name mapping |
 | JSC TMP bridge | `source/dun/engine/jsc/cppbindings.d` | compile-time | JSCTypeName coverage, kJSType* alignment |
 
-### Integration Tests (81 tests, 135 npm compat checks)
+### Integration Tests (83 tests, 152 npm compat checks)
 
 ```sh
 # Run against a specific backend
@@ -467,13 +467,16 @@ dub build -c v8  && BACKEND=v8  ./tests/integration/run.sh
 | Util | `util_enhanced` | 27 checks: types (20+), debuglog, _extend, format, inherits, promisify, callbackify |
 | Readline | `readline_api` | 18 checks: createInterface, events, write/line, punycode, domain, diagnostics_channel |
 | Env Proxy | `process_env_proxy` | 8 checks: set/delete/in/keys, NODE_ENV pattern |
-| npm compat | `npm_compat_modules` | 135 checks: 35 modules, key API surface, globals, http/https, stream/tls/dns/dgram/spawn |
+| npm compat | `npm_compat_modules` | 152 checks: 35 modules, key API surface, globals, http/https, stream/tls/dns/dgram/spawn, os, perf_hooks |
 | UDP/dgram | `dgram_api` | 25 checks: createSocket, bind, address, setBroadcast, setTTL, on/close, Socket alias |
 | spawn/execFile | `spawn_api` | 19 checks: spawn pid/stdout/stderr/stdin/on/kill, execFile with callback |
 | TLS module | `tls_api` | 24 checks: connect, getCiphers, TLSSocket constructor/methods, constants |
 | DNS enhanced | `dns_enhanced` | 18 checks: resolve, getServers, dns.promises, lookupSync, resolve with rrtype |
 
-Backend test scores: **QuickJS 81/81**, **JSC 81/81**, **V8 81/81** (full parity across all 3 backends).
+| Crypto | `crypto_sign` | 19 checks: createSign/createVerify with OpenSSL, RSA/ECDSA, hex/base64 encoding |
+| Zlib | `zlib_enhanced` | 33 checks: async deflate/inflate/gzip/gunzip, createDeflate/createGzip streams, constants |
+
+Backend test scores: **QuickJS 83/83**, **JSC 83/83**, **V8 83/83** (full parity across all 3 backends).
 
 Test pattern: fixtures in `tests/integration/fixtures/*.{js,mjs,ts}`, expected stdout in `tests/integration/expected/*.txt`.
 
@@ -773,3 +776,6 @@ Benchmark impact (25 benchmarks, feature_bench.js):
 | 16f | perf_hooks | performance.mark/measure/getEntries/clearMarks, PerformanceObserver, timerify, monitorEventLoopDelay, constants | **Done** |
 | 16g | stream enhanced | Stream base class, addAbortSignal, promises.pipeline/finished, Readable.toWeb, Writable.toWeb | **Done** |
 | 16h | fs.watchFile | fs.watchFile/unwatchFile (stat-polling), fs.watch enhanced (options, FSWatcher events) | **Done** |
+| 16i | Async zlib | deflate/inflate/gzip/gunzip async, createDeflate/createGzip streams, zlib.constants (35), brotli stubs | **Done** |
+| 16j | Crypto sign/verify | createSign/createVerify with OpenSSL EVP_DigestSign, RSA/ECDSA, hex/base64/buffer encoding | **Done** |
+| 16k | os enhancements | os.networkInterfaces (getifaddrs), os.userInfo (getpwuid), os.loadavg, os.version, os.machine | **Done** |

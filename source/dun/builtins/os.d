@@ -21,6 +21,11 @@ void registerOsModule(IJSEngine engine) @trusted
     engine.setProperty(obj, "uptime", engine.newFunction(&jsOsUptime, "uptime", 0));
     engine.setProperty(obj, "release", engine.newFunction(&jsOsRelease, "release", 0));
     engine.setProperty(obj, "endianness", engine.newFunction(&jsOsEndianness, "endianness", 0));
+    engine.setProperty(obj, "networkInterfaces", engine.newFunction(&jsOsNetworkInterfaces, "networkInterfaces", 0));
+    engine.setProperty(obj, "userInfo", engine.newFunction(&jsOsUserInfo, "userInfo", 0));
+    engine.setProperty(obj, "loadavg", engine.newFunction(&jsOsLoadavg, "loadavg", 0));
+    engine.setProperty(obj, "version", engine.newFunction(&jsOsVersion, "version", 0));
+    engine.setProperty(obj, "machine", engine.newFunction(&jsOsMachine, "machine", 0));
     engine.setProperty(obj, "EOL", engine.newString(eol()));
     engine.setProperty(obj, "devNull", engine.newString(devNull()));
 
@@ -43,7 +48,9 @@ version (EngineQuickJS)
         if (m is null) return;
         foreach (name; ["platform", "arch", "type", "hostname", "homedir",
                         "tmpdir", "cpus", "totalmem", "freemem", "uptime",
-                        "release", "endianness", "EOL", "devNull"])
+                        "release", "endianness", "networkInterfaces",
+                        "userInfo", "loadavg", "version", "machine",
+                        "EOL", "devNull"])
             JS_AddModuleExport(ctx, m, name.ptr);
     }
 
@@ -53,7 +60,9 @@ version (EngineQuickJS)
         auto osObj = JS_GetPropertyStr(ctx, global, "__dun_cjs_os__");
         foreach (name; ["platform", "arch", "type", "hostname", "homedir",
                         "tmpdir", "cpus", "totalmem", "freemem", "uptime",
-                        "release", "endianness", "EOL", "devNull"])
+                        "release", "endianness", "networkInterfaces",
+                        "userInfo", "loadavg", "version", "machine",
+                        "EOL", "devNull"])
         {
             auto fn = JS_GetPropertyStr(ctx, osObj, name.ptr);
             JS_SetModuleExport(ctx, m, name.ptr, fn);
@@ -343,4 +352,153 @@ JSHandle jsOsEndianness(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
         return engine.newString("LE");
     else
         return engine.newString("BE");
+}
+
+JSHandle jsOsNetworkInterfaces(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+{
+    assert(ctx !is null, "Null ctx in jsOsNetworkInterfaces");
+    auto state = cast(DunState*) ctx;
+    assert(state.engine !is null, "Null engine in jsOsNetworkInterfaces");
+    // Stub: return empty object (ifaddrs not available in D runtime)
+    return state.engine.newObject();
+}
+
+JSHandle jsOsUserInfo(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+{
+    assert(ctx !is null, "Null ctx in jsOsUserInfo");
+    auto state = cast(DunState*) ctx;
+    assert(state.engine !is null, "Null engine in jsOsUserInfo");
+    auto engine = state.engine;
+    auto obj = engine.newObject();
+    version (Posix)
+    {
+        try
+        {
+            import core.sys.posix.unistd : getuid, getgid;
+            import core.sys.posix.pwd : getpwuid;
+            import core.stdc.string : strlen;
+            import std.process : environment;
+
+            auto uid = getuid();
+            auto gid = getgid();
+            engine.setProperty(obj, "uid", engine.newInt(cast(int) uid));
+            engine.setProperty(obj, "gid", engine.newInt(cast(int) gid));
+
+            auto pw = getpwuid(uid);
+            if (pw !is null)
+            {
+                auto name = cast(string) pw.pw_name[0 .. strlen(pw.pw_name)].idup;
+                auto dir = cast(string) pw.pw_dir[0 .. strlen(pw.pw_dir)].idup;
+                auto shell = cast(string) pw.pw_shell[0 .. strlen(pw.pw_shell)].idup;
+                engine.setProperty(obj, "username", engine.newString(name));
+                engine.setProperty(obj, "homedir", engine.newString(dir));
+                engine.setProperty(obj, "shell", engine.newString(shell));
+            }
+            else
+            {
+                engine.setProperty(obj, "username", engine.newString(environment.get("USER", "")));
+                engine.setProperty(obj, "homedir", engine.newString(environment.get("HOME", "")));
+                engine.setProperty(obj, "shell", engine.newString(environment.get("SHELL", "/bin/sh")));
+            }
+        }
+        catch (Exception)
+        {
+            engine.setProperty(obj, "uid", engine.newInt(-1));
+            engine.setProperty(obj, "gid", engine.newInt(-1));
+            engine.setProperty(obj, "username", engine.newString(""));
+            engine.setProperty(obj, "homedir", engine.newString(""));
+            engine.setProperty(obj, "shell", engine.newString(""));
+        }
+    }
+    else
+    {
+        engine.setProperty(obj, "uid", engine.newInt(-1));
+        engine.setProperty(obj, "gid", engine.newInt(-1));
+        engine.setProperty(obj, "username", engine.newString(""));
+        engine.setProperty(obj, "homedir", engine.newString(""));
+        engine.setProperty(obj, "shell", engine.newString(""));
+    }
+    return obj;
+}
+
+JSHandle jsOsLoadavg(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+{
+    assert(ctx !is null, "Null ctx in jsOsLoadavg");
+    auto state = cast(DunState*) ctx;
+    assert(state.engine !is null, "Null engine in jsOsLoadavg");
+    auto engine = state.engine;
+    auto arr = engine.newArray();
+    version (linux)
+    {
+        try
+        {
+            import std.file : readText;
+            import std.array : split;
+            import std.conv : to;
+            auto content = readText("/proc/loadavg");
+            auto parts = content.split();
+            if (parts.length >= 3)
+            {
+                engine.setPropertyIndex(arr, 0, engine.newFloat(parts[0].to!double));
+                engine.setPropertyIndex(arr, 1, engine.newFloat(parts[1].to!double));
+                engine.setPropertyIndex(arr, 2, engine.newFloat(parts[2].to!double));
+                return arr;
+            }
+        }
+        catch (Exception) {}
+    }
+    engine.setPropertyIndex(arr, 0, engine.newFloat(0));
+    engine.setPropertyIndex(arr, 1, engine.newFloat(0));
+    engine.setPropertyIndex(arr, 2, engine.newFloat(0));
+    return arr;
+}
+
+JSHandle jsOsVersion(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+{
+    assert(ctx !is null, "Null ctx in jsOsVersion");
+    auto state = cast(DunState*) ctx;
+    assert(state.engine !is null, "Null engine in jsOsVersion");
+    auto engine = state.engine;
+    version (linux)
+    {
+        try
+        {
+            import core.sys.posix.sys.utsname : utsname, uname;
+            utsname buf;
+            if (uname(&buf) == 0)
+            {
+                import core.stdc.string : strlen;
+                auto p = buf.release.ptr;
+                return engine.newString(cast(string) p[0 .. strlen(p)].idup);
+            }
+        }
+        catch (Exception) {}
+    }
+    return engine.newString("");
+}
+
+JSHandle jsOsMachine(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+{
+    assert(ctx !is null, "Null ctx in jsOsMachine");
+    auto state = cast(DunState*) ctx;
+    assert(state.engine !is null, "Null engine in jsOsMachine");
+    auto engine = state.engine;
+    version (linux)
+    {
+        try
+        {
+            import core.sys.posix.sys.utsname : utsname, uname;
+            utsname buf;
+            if (uname(&buf) == 0)
+            {
+                import core.stdc.string : strlen;
+                auto p = buf.machine.ptr;
+                return engine.newString(cast(string) p[0 .. strlen(p)].idup);
+            }
+        }
+        catch (Exception) {}
+    }
+    version (X86_64) return engine.newString("x86_64");
+    else version (AArch64) return engine.newString("aarch64");
+    else return engine.newString("unknown");
 }
