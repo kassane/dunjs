@@ -484,6 +484,16 @@ HTTP stress benchmarks (wrk, 2 threads, 128 connections, 10s per endpoint, relea
 DunJS V8 beats Node.js on all endpoints. DunJS QuickJS excels at /json (55K vs Bun's 53K).
 All endpoints include TCP_NODELAY, buffered single-write response, CTFE status lines.
 
+Stress test (stress.js, 240 tests, release builds):
+
+| Runtime | Wall Time | Status |
+|---------|-----------|--------|
+| Bun 1.3.11 | 90s | 240/240 |
+| DunJS JSC | 99s | 240/240 |
+| DunJS V8 | 211s | 240/240 |
+| Node.js v22 | 220s | 240/240 |
+| Deno 2.7.14 | 222s | 240/240 |
+
 ### Concurrency & SIMD Comparison
 
 | Feature | DunJS | Bun | Deno | Node.js |
