@@ -417,6 +417,7 @@ class QuickJSEngine : IJSEngine
 
     void registerNativeModule(string name, void* initFunc) @trusted
     {
+        assert(ctx !is null, "Engine not initialized in registerNativeModule");
         import std.string : toStringz;
         JS_NewCModule(ctx, name.toStringz,
             cast(JSModuleInitFunc) initFunc);

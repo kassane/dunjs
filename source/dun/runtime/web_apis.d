@@ -26,7 +26,8 @@ void installWebAPIs(IJSEngine engine) @trusted
 
 private void bindNativeCryptoOnGlobal(IJSEngine engine) @trusted
 {
-    import dun.builtins.crypto : jsCryptoRandomUUID, jsCryptoRandomBytes;
+    import dun.builtins.crypto : jsCryptoRandomUUID, jsCryptoRandomBytes,
+                                  installSubtleOnGlobalCrypto;
     auto global = engine.getGlobal();
     auto cryptoObj = engine.getProperty(global, "crypto");
     if (!engine.isUndefined(cryptoObj) && !engine.isNull(cryptoObj))
@@ -38,6 +39,9 @@ private void bindNativeCryptoOnGlobal(IJSEngine engine) @trusted
     }
     engine.freeValue(cryptoObj);
     engine.freeValue(global);
+
+    // Install native crypto.subtle on the global crypto object
+    installSubtleOnGlobalCrypto(engine);
 }
 
 private JSHandle jsNativeGetRandomValues(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
@@ -419,6 +423,29 @@ private string webAPIsSource() pure nothrow @safe
     ~ "write:function(chunk){if(transformer.transform)transformer.transform(chunk,tc);else tc.enqueue(chunk);},"
     ~ "close:function(){if(transformer.flush)transformer.flush(tc);readable_closed=true;}"
     ~ "});"
+    ~ "};"
+    ~ "}"
+
+    // ═══════════════════════════════════
+    // CompressionStream / DecompressionStream (Web Compression API)
+    // ═══════════════════════════════════
+    ~ "if(typeof globalThis.CompressionStream==='undefined'){"
+    ~ "globalThis.CompressionStream=function CompressionStream(format){"
+    ~ "if(format!=='gzip'&&format!=='deflate'&&format!=='deflate-raw')"
+    ~ "throw new TypeError(\"Unsupported compression format: \"+format);"
+    ~ "this.format=format;"
+    ~ "this.readable=new ReadableStream({});"
+    ~ "this.writable=new WritableStream({});"
+    ~ "};"
+    ~ "}"
+
+    ~ "if(typeof globalThis.DecompressionStream==='undefined'){"
+    ~ "globalThis.DecompressionStream=function DecompressionStream(format){"
+    ~ "if(format!=='gzip'&&format!=='deflate'&&format!=='deflate-raw')"
+    ~ "throw new TypeError(\"Unsupported compression format: \"+format);"
+    ~ "this.format=format;"
+    ~ "this.readable=new ReadableStream({});"
+    ~ "this.writable=new WritableStream({});"
     ~ "};"
     ~ "}"
 

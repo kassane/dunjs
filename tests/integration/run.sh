@@ -182,4 +182,67 @@ else
   fails=$((fails+1))
 fi
 
+# --- .env auto-loading tests ---
+dotenv_fails=0
+
+# Set up temp directory with .env file and test script
+dotenv_dir=$(mktemp -d)
+cat > "$dotenv_dir/.env" <<'ENVEOF'
+# .env test file
+DUN_TEST_FOO=hello_from_dotenv
+DUN_TEST_BAR="quoted value"
+DUN_TEST_BAZ='single quoted'
+DUN_TEST_EMPTY=
+DUN_TEST_SPACES=  spaced
+
+  DUN_TEST_PADDED=padded_key
+ENVEOF
+
+cat > "$dotenv_dir/dotenv_test.js" <<'JSEOF'
+// Verify .env variables were loaded into process.env
+console.log("FOO:" + process.env.DUN_TEST_FOO);
+console.log("BAR:" + process.env.DUN_TEST_BAR);
+console.log("BAZ:" + process.env.DUN_TEST_BAZ);
+console.log("EMPTY:" + (process.env.DUN_TEST_EMPTY === "" ? "empty" : "missing"));
+console.log("SPACES:" + process.env.DUN_TEST_SPACES);
+console.log("PADDED:" + process.env.DUN_TEST_PADDED);
+JSEOF
+
+dotenv_expected="FOO:hello_from_dotenv
+BAR:quoted value
+BAZ:single quoted
+EMPTY:empty
+SPACES:spaced
+PADDED:padded_key"
+
+dotenv_out=$(cd "$dotenv_dir" && "$_absdun" run --allow-env dotenv_test.js 2>/dev/null || true)
+if [ "$dotenv_out" = "$dotenv_expected" ]; then
+  : # pass
+else
+  echo "FAIL dotenv_load"
+  diff -u <(printf '%s\n' "$dotenv_expected") <(printf '%s\n' "$dotenv_out") || true
+  dotenv_fails=1
+fi
+
+# Test: existing env vars are NOT overridden by .env
+export DUN_TEST_FOO="already_set"
+dotenv_out2=$(cd "$dotenv_dir" && "$_absdun" run --allow-env dotenv_test.js 2>/dev/null || true)
+echo "$dotenv_out2" | head -1 | grep -q "FOO:already_set" || { echo "FAIL dotenv_no_override"; dotenv_fails=1; }
+unset DUN_TEST_FOO
+
+# Test: no .env file does not cause error
+no_env_dir=$(mktemp -d)
+echo 'console.log("ok")' > "$no_env_dir/test.js"
+no_env_out=$(cd "$no_env_dir" && "$_absdun" run "$no_env_dir/test.js" 2>/dev/null || true)
+echo "$no_env_out" | grep -q "ok" || { echo "FAIL dotenv_missing_ok"; dotenv_fails=1; }
+rm -rf "$no_env_dir"
+
+rm -rf "$dotenv_dir"
+
+if [ "$dotenv_fails" -eq 0 ]; then
+  echo "PASS dotenv_loading (3 checks)"
+else
+  fails=$((fails+1))
+fi
+
 exit $((fails > 0 ? 1 : 0))

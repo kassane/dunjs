@@ -229,6 +229,7 @@ version (EngineQuickJS)
 
     private void registerQuickJSModule(IJSEngine engine) @trusted
     {
+        assert(engine !is null, "Null engine in registerQuickJSModule");
         auto ctx = cast(JSContext*) engine.rawContext();
         auto m = JS_NewCModule(ctx, "dun:fs", &fsModuleInit);
         if (m is null) return;

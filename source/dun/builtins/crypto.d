@@ -9,6 +9,15 @@ private enum {
     SCRYPT_DEFAULT_P      = 1,
     SCRYPT_DEFAULT_MAXMEM = 32 * 1024 * 1024,
     SCRYPT_MAX_KEYLEN     = 1024,
+
+    // WebCrypto subtle constants
+    SUBTLE_MAX_DIGEST_SIZE = 64,  // SHA-512 = 64 bytes
+    SUBTLE_HMAC_MAX_KEY    = 1024,
+    SUBTLE_AES_BLOCK_SIZE  = 16,
+    SUBTLE_AES_GCM_IV_LEN = 12,
+    SUBTLE_AES_GCM_TAG_LEN = 16,
+    SUBTLE_AES_CBC_IV_LEN  = 16,
+    SUBTLE_MAX_DATA_SIZE   = 64 * 1024 * 1024,  // 64 MiB max input
 }
 
 // OpenSSL bindings for HMAC, PBKDF2, scrypt
@@ -40,6 +49,11 @@ private extern (C) @nogc nothrow
 
     // Timing-safe comparison
     int CRYPTO_memcmp(const(void)* a, const(void)* b, size_t len);
+
+    // One-shot digest (for WebCrypto subtle.digest)
+    int EVP_Digest(const(void)* data, size_t count, ubyte* md, uint* size,
+                   const(EVP_MD)* type, void* impl);
+    int EVP_MD_get_size(const(EVP_MD)* md);
 
     // Cipher API (EVP)
     alias EVP_CIPHER_CTX = void;
@@ -218,6 +232,9 @@ void registerCryptoModule(IJSEngine engine) @trusted
         }
     }
     engine.freeValue(cryptoExtResult.value);
+
+    installNativeSubtle(engine, obj);
+
     engine.freeValue(global);
 
     version (EngineQuickJS)
@@ -230,6 +247,7 @@ version (EngineQuickJS)
 
     private void registerQuickJSModule(IJSEngine engine) @trusted
     {
+        assert(engine !is null, "Null engine in registerQuickJSModule");
         auto ctx = cast(JSContext*) engine.rawContext();
         auto m = JS_NewCModule(ctx, "dun:crypto", &cryptoModuleInit);
         if (m is null) return;
@@ -1716,6 +1734,852 @@ JSHandle jsDHGetGenerator(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     auto g = DH_get0_g(dh);
     if (g is null) return engine.throwTypeError("No generator available");
     return engine.newString(bnToHex(g));
+}
+
+// ═══════════════════════════════════════════════════
+// WebCrypto subtle — native implementations (OpenSSL)
+// ═══════════════════════════════════════════════════
+
+private __gshared JSHandle _cachedSubtleDigestFn;
+private __gshared JSHandle _cachedSubtleImportKeyFn;
+private __gshared JSHandle _cachedSubtleSignFn;
+private __gshared JSHandle _cachedSubtleVerifyFn;
+private __gshared JSHandle _cachedSubtleEncryptFn;
+private __gshared JSHandle _cachedSubtleDecryptFn;
+private __gshared bool _subtleFnsCached = false;
+
+private void ensureSubtleFnsCached(IJSEngine engine) @trusted
+{
+    if (_subtleFnsCached) return;
+    _cachedSubtleDigestFn = engine.newFunction(&jsSubtleDigest, "digest", 2);
+    _cachedSubtleImportKeyFn = engine.newFunction(&jsSubtleImportKey, "importKey", 5);
+    _cachedSubtleSignFn = engine.newFunction(&jsSubtleSign, "sign", 3);
+    _cachedSubtleVerifyFn = engine.newFunction(&jsSubtleVerify, "verify", 4);
+    _cachedSubtleEncryptFn = engine.newFunction(&jsSubtleEncrypt, "encrypt", 3);
+    _cachedSubtleDecryptFn = engine.newFunction(&jsSubtleDecrypt, "decrypt", 3);
+    _subtleFnsCached = true;
+}
+
+/// Install native subtle object on the crypto module and webcrypto property
+void installNativeSubtle(IJSEngine engine, JSHandle cryptoObj) @trusted
+{
+    assert(engine !is null, "Null engine in installNativeSubtle");
+
+    ensureSubtleFnsCached(engine);
+
+    auto subtle = engine.newObject();
+    engine.setProperty(subtle, "digest", engine.dupValue(_cachedSubtleDigestFn));
+    engine.setProperty(subtle, "importKey", engine.dupValue(_cachedSubtleImportKeyFn));
+    engine.setProperty(subtle, "sign", engine.dupValue(_cachedSubtleSignFn));
+    engine.setProperty(subtle, "verify", engine.dupValue(_cachedSubtleVerifyFn));
+    engine.setProperty(subtle, "encrypt", engine.dupValue(_cachedSubtleEncryptFn));
+    engine.setProperty(subtle, "decrypt", engine.dupValue(_cachedSubtleDecryptFn));
+
+    // Stubs for unimplemented methods (return rejected promises)
+    auto stubNames = [
+        "generateKey", "exportKey", "deriveBits", "deriveKey", "wrapKey", "unwrapKey"
+    ];
+    foreach (name; stubNames)
+        engine.setProperty(subtle, name, engine.newFunction(&jsSubtleNotImplemented, name, 0));
+
+    // Set subtle directly on the crypto module
+    engine.setProperty(cryptoObj, "subtle", engine.dupValue(subtle));
+
+    // Update webcrypto.subtle if webcrypto property already exists
+    auto webcrypto = engine.getProperty(cryptoObj, "webcrypto");
+    if (!engine.isUndefined(webcrypto) && !engine.isNull(webcrypto))
+        engine.setProperty(webcrypto, "subtle", engine.dupValue(subtle));
+    engine.freeValue(webcrypto);
+
+    engine.freeValue(subtle);
+}
+
+/// Install subtle on the global crypto object (called from web_apis.d)
+public void installSubtleOnGlobalCrypto(IJSEngine engine) @trusted
+{
+    assert(engine !is null, "Null engine in installSubtleOnGlobalCrypto");
+
+    ensureSubtleFnsCached(engine);
+
+    auto global = engine.getGlobal();
+    auto cryptoObj = engine.getProperty(global, "crypto");
+    if (!engine.isUndefined(cryptoObj) && !engine.isNull(cryptoObj))
+    {
+        auto subtle = engine.newObject();
+        engine.setProperty(subtle, "digest", engine.dupValue(_cachedSubtleDigestFn));
+        engine.setProperty(subtle, "importKey", engine.dupValue(_cachedSubtleImportKeyFn));
+        engine.setProperty(subtle, "sign", engine.dupValue(_cachedSubtleSignFn));
+        engine.setProperty(subtle, "verify", engine.dupValue(_cachedSubtleVerifyFn));
+        engine.setProperty(subtle, "encrypt", engine.dupValue(_cachedSubtleEncryptFn));
+        engine.setProperty(subtle, "decrypt", engine.dupValue(_cachedSubtleDecryptFn));
+
+        auto stubNames = [
+            "generateKey", "exportKey", "deriveBits", "deriveKey", "wrapKey", "unwrapKey"
+        ];
+        foreach (name; stubNames)
+            engine.setProperty(subtle, name, engine.newFunction(&jsSubtleNotImplemented, name, 0));
+
+        engine.setProperty(cryptoObj, "subtle", subtle);
+    }
+    engine.freeValue(cryptoObj);
+    engine.freeValue(global);
+}
+
+/// Normalize WebCrypto algorithm name to OpenSSL-compatible name
+/// Accepts: "SHA-256", "SHA-384", "SHA-512", "SHA-1", or {name: "SHA-256"}
+private string normalizeSubtleAlgo(IJSEngine engine, JSHandle algoArg) @trusted
+{
+    assert(engine !is null, "Null engine in normalizeSubtleAlgo");
+    string raw;
+    if (engine.isString(algoArg))
+    {
+        raw = engine.extractString(algoArg);
+    }
+    else if (engine.isObject(algoArg))
+    {
+        auto nameProp = engine.getProperty(algoArg, "name");
+        if (engine.isString(nameProp))
+            raw = engine.extractString(nameProp);
+        engine.freeValue(nameProp);
+    }
+    if (raw is null || raw.length == 0) return null;
+
+    // Normalize: strip dashes, lowercase
+    // "SHA-256" -> "sha256", "SHA-1" -> "sha1"
+    char[32] buf = void;
+    size_t pos = 0;
+    foreach (c; raw)
+    {
+        if (c == '-') continue;
+        if (pos >= buf.length) return null;
+        buf[pos++] = (c >= 'A' && c <= 'Z') ? cast(char)(c + 32) : c;
+    }
+    auto lower = (() @trusted => cast(string) buf[0 .. pos])();
+
+    if (lower == "sha1") return "sha1";
+    if (lower == "sha256") return "sha256";
+    if (lower == "sha384") return "sha384";
+    if (lower == "sha512") return "sha512";
+    return null;
+}
+
+/// Extract the HMAC hash algorithm from a WebCrypto algorithm descriptor
+/// Accepts: {name: "HMAC", hash: "SHA-256"} or {name: "HMAC", hash: {name: "SHA-256"}}
+private string extractHmacHash(IJSEngine engine, JSHandle algoArg) @trusted
+{
+    assert(engine !is null, "Null engine in extractHmacHash");
+    if (!engine.isObject(algoArg)) return null;
+
+    auto hashProp = engine.getProperty(algoArg, "hash");
+    scope(exit) engine.freeValue(hashProp);
+
+    if (engine.isString(hashProp))
+        return normalizeSubtleAlgo(engine, hashProp);
+    else if (engine.isObject(hashProp))
+        return normalizeSubtleAlgo(engine, hashProp);
+    return null;
+}
+
+/// Extract algorithm name from a WebCrypto algorithm descriptor
+private string extractAlgoName(IJSEngine engine, JSHandle algoArg) @trusted
+{
+    assert(engine !is null, "Null engine in extractAlgoName");
+    if (engine.isString(algoArg))
+        return engine.extractString(algoArg);
+    if (engine.isObject(algoArg))
+    {
+        auto nameProp = engine.getProperty(algoArg, "name");
+        scope(exit) engine.freeValue(nameProp);
+        if (engine.isString(nameProp))
+            return engine.extractString(nameProp);
+    }
+    return null;
+}
+
+/// Extract data from a JS argument: TypedArray, ArrayBuffer, or string
+/// Returns empty slice (not null) for empty typed arrays on JSC/V8
+private ubyte[] extractDataArg(IJSEngine engine, JSHandle arg) @trusted
+{
+    assert(engine !is null, "Null engine in extractDataArg");
+    auto bytes = engine.getTypedArrayBytes(arg);
+    if (bytes !is null)
+        return bytes;
+    // getTypedArrayBytes returns null for empty typed arrays on some backends
+    // Check if it's an object with length === 0 (empty TypedArray/ArrayBuffer)
+    if (engine.isObject(arg))
+    {
+        auto lenProp = engine.getProperty(arg, "length");
+        scope(exit) engine.freeValue(lenProp);
+        if (engine.isNumber(lenProp) && engine.extractInt(lenProp) == 0)
+            return [];  // Empty slice (non-null .ptr is not guaranteed, but length is 0)
+    }
+    // Try string
+    if (engine.isString(arg))
+    {
+        auto str = engine.extractString(arg);
+        return cast(ubyte[]) str;
+    }
+    return null;
+}
+
+/// Helper: create a resolved promise wrapping a value
+private JSHandle resolvedPromise(IJSEngine engine, JSHandle value) @trusted
+{
+    import dun.engine.iface : PromiseHandles;
+    auto ph = engine.newPromise();
+    engine.callFunction(ph.resolve, engine.newUndefined(), [value]);
+    engine.freeValue(ph.resolve);
+    engine.freeValue(ph.reject);
+    return ph.promise;
+}
+
+/// Helper: create a rejected promise with an error message
+private JSHandle rejectedPromise(IJSEngine engine, string msg) @trusted
+{
+    import dun.engine.iface : PromiseHandles;
+    auto ph = engine.newPromise();
+    auto errResult = engine.eval("new Error('" ~ escapeJsStr(msg) ~ "')", "<subtle-err>");
+    if (!errResult.isError)
+    {
+        engine.callFunction(ph.reject, engine.newUndefined(), [errResult.value]);
+        engine.freeValue(errResult.value);
+    }
+    else
+    {
+        auto fallback = engine.newString(msg);
+        engine.callFunction(ph.reject, engine.newUndefined(), [fallback]);
+        engine.freeValue(fallback);
+        engine.freeValue(errResult.value);
+    }
+    engine.freeValue(ph.resolve);
+    engine.freeValue(ph.reject);
+    return ph.promise;
+}
+
+/// Simple JS string escaping for error messages
+private string escapeJsStr(string s) @safe pure nothrow
+{
+    import dun.platform.arena : Appender;
+    Appender!(char[]) buf;
+    buf.reserve(s.length + 8);
+    foreach (c; s)
+    {
+        if (c == '\'') { buf ~= '\\'; buf ~= '\''; }
+        else if (c == '\\') { buf ~= '\\'; buf ~= '\\'; }
+        else if (c == '\n') { buf ~= '\\'; buf ~= 'n'; }
+        else buf ~= c;
+    }
+    return (() @trusted => cast(string) buf[])();
+}
+
+// ── subtle.digest(algorithm, data) ──
+
+JSHandle jsSubtleDigest(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+{
+    assert(ctx !is null, "Null ctx in subtle.digest");
+    auto state = cast(DunState*) ctx;
+    assert(state !is null, "Null DunState in subtle.digest");
+    auto engine = state.engine;
+    assert(engine !is null, "Null engine in subtle.digest");
+
+    if (args.length < 2)
+        return rejectedPromise(engine, "subtle.digest requires algorithm and data arguments");
+
+    auto algo = normalizeSubtleAlgo(engine, args[0]);
+    if (algo is null)
+        return rejectedPromise(engine, "Unsupported digest algorithm");
+
+    auto md = getEvpMd(algo);
+    if (md is null)
+        return rejectedPromise(engine, "Unsupported digest algorithm: " ~ algo);
+
+    auto inputBytes = extractDataArg(engine, args[1]);
+
+    int mdSize = EVP_MD_get_size(md);
+    assert(mdSize > 0 && mdSize <= SUBTLE_MAX_DIGEST_SIZE, "Invalid digest size from EVP_MD_get_size");
+
+    ubyte[SUBTLE_MAX_DIGEST_SIZE] outBuf = void;
+    uint outLen = 0;
+
+    int rc = EVP_Digest(
+        inputBytes.ptr, inputBytes.length,
+        outBuf.ptr, &outLen,
+        md, null);
+
+    if (rc != 1 || outLen == 0)
+        return rejectedPromise(engine, "Digest computation failed");
+
+    auto result = engine.newUint8Array(outBuf[0 .. outLen]);
+    return resolvedPromise(engine, result);
+}
+
+// ── subtle.importKey(format, keyData, algorithm, extractable, usages) ──
+
+JSHandle jsSubtleImportKey(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+{
+    assert(ctx !is null, "Null ctx in subtle.importKey");
+    auto state = cast(DunState*) ctx;
+    assert(state !is null, "Null DunState in subtle.importKey");
+    auto engine = state.engine;
+    assert(engine !is null, "Null engine in subtle.importKey");
+
+    if (args.length < 5)
+        return rejectedPromise(engine, "subtle.importKey requires format, keyData, algorithm, extractable, usages");
+
+    auto format = engine.extractString(args[0]);
+    if (format != "raw")
+        return rejectedPromise(engine, "Only 'raw' format is supported for importKey");
+
+    auto keyBytes = extractDataArg(engine, args[1]);
+    if (keyBytes is null)
+        return rejectedPromise(engine, "subtle.importKey: keyData must be ArrayBuffer or TypedArray");
+
+    auto algoName = extractAlgoName(engine, args[2]);
+    if (algoName is null)
+        return rejectedPromise(engine, "subtle.importKey: algorithm must specify a name");
+
+    // Normalize algo name to uppercase for comparison
+    char[32] nameBuf = void;
+    size_t nameLen = 0;
+    foreach (c; algoName)
+    {
+        if (nameLen >= nameBuf.length) break;
+        nameBuf[nameLen++] = (c >= 'a' && c <= 'z') ? cast(char)(c - 32) : c;
+    }
+    auto upperName = (() @trusted => cast(string) nameBuf[0 .. nameLen])();
+
+    // Create a CryptoKey-like object that stores the raw key material
+    auto keyObj = engine.newObject();
+    engine.setProperty(keyObj, "type", engine.newString("secret"));
+    engine.setProperty(keyObj, "extractable", engine.newBool(engine.extractBool(args[3])));
+
+    // Store algorithm info
+    auto algoObj = engine.newObject();
+    engine.setProperty(algoObj, "name", engine.newString(upperName));
+
+    // Store the hash sub-algorithm if HMAC
+    if (upperName == "HMAC")
+    {
+        auto hashAlgo = extractHmacHash(engine, args[2]);
+        if (hashAlgo !is null)
+        {
+            auto hashObj = engine.newObject();
+            string hashName = subtleHashName(hashAlgo);
+            engine.setProperty(hashObj, "name", engine.newString(hashName));
+            engine.setProperty(algoObj, "hash", hashObj);
+        }
+    }
+    engine.setProperty(keyObj, "algorithm", algoObj);
+
+    // Store raw key data as a Uint8Array property
+    auto keyData = new ubyte[keyBytes.length];
+    keyData[] = keyBytes[];
+    engine.setProperty(keyObj, "_keyData", engine.newUint8Array(keyData));
+
+    // Store usages
+    engine.setProperty(keyObj, "usages", engine.dupValue(args[4]));
+
+    return resolvedPromise(engine, keyObj);
+}
+
+/// Convert internal hash name to WebCrypto format
+private string subtleHashName(string algo) @safe pure nothrow
+{
+    if (algo == "sha1") return "SHA-1";
+    if (algo == "sha256") return "SHA-256";
+    if (algo == "sha384") return "SHA-384";
+    if (algo == "sha512") return "SHA-512";
+    return "SHA-256";
+}
+
+// ── subtle.sign(algorithm, key, data) ──
+
+JSHandle jsSubtleSign(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+{
+    assert(ctx !is null, "Null ctx in subtle.sign");
+    auto state = cast(DunState*) ctx;
+    assert(state !is null, "Null DunState in subtle.sign");
+    auto engine = state.engine;
+    assert(engine !is null, "Null engine in subtle.sign");
+
+    if (args.length < 3)
+        return rejectedPromise(engine, "subtle.sign requires algorithm, key, and data arguments");
+
+    auto algoName = extractAlgoName(engine, args[0]);
+    if (algoName is null)
+        return rejectedPromise(engine, "subtle.sign: algorithm must specify a name");
+
+    // Normalize to uppercase
+    char[32] nameBuf = void;
+    size_t nameLen = 0;
+    foreach (c; algoName)
+    {
+        if (nameLen >= nameBuf.length) break;
+        nameBuf[nameLen++] = (c >= 'a' && c <= 'z') ? cast(char)(c - 32) : c;
+    }
+    auto upperName = (() @trusted => cast(string) nameBuf[0 .. nameLen])();
+
+    if (upperName != "HMAC")
+        return rejectedPromise(engine, "subtle.sign: only HMAC is supported");
+
+    // Get hash algorithm: from the sign() algorithm arg or from the key's algorithm
+    string hashAlgo = extractHmacHash(engine, args[0]);
+    if (hashAlgo is null)
+    {
+        // Try to get hash from the key's algorithm
+        auto keyAlgo = engine.getProperty(args[1], "algorithm");
+        if (!engine.isUndefined(keyAlgo) && !engine.isNull(keyAlgo))
+            hashAlgo = extractHmacHash(engine, keyAlgo);
+        engine.freeValue(keyAlgo);
+    }
+    if (hashAlgo is null)
+        return rejectedPromise(engine, "subtle.sign: could not determine hash algorithm");
+
+    auto md = getEvpMd(hashAlgo);
+    if (md is null)
+        return rejectedPromise(engine, "subtle.sign: unsupported hash algorithm");
+
+    // Extract key data from CryptoKey
+    auto keyDataProp = engine.getProperty(args[1], "_keyData");
+    auto keyBytes = engine.getTypedArrayBytes(keyDataProp);
+    engine.freeValue(keyDataProp);
+    if (keyBytes is null || keyBytes.length == 0)
+        return rejectedPromise(engine, "subtle.sign: invalid key");
+
+    // Extract input data
+    auto inputBytes = extractDataArg(engine, args[2]);
+    if (inputBytes is null)
+        return rejectedPromise(engine, "subtle.sign: data must be ArrayBuffer or TypedArray");
+
+    // Compute HMAC using OpenSSL
+    ubyte[SUBTLE_MAX_DIGEST_SIZE] outBuf = void;
+    uint outLen = 0;
+
+    auto result = HMAC(md,
+        cast(const(void)*) keyBytes.ptr, cast(int) keyBytes.length,
+        inputBytes.ptr, inputBytes.length,
+        outBuf.ptr, &outLen);
+
+    if (result is null || outLen == 0)
+        return rejectedPromise(engine, "HMAC sign failed");
+
+    auto sig = engine.newUint8Array(outBuf[0 .. outLen]);
+    return resolvedPromise(engine, sig);
+}
+
+// ── subtle.verify(algorithm, key, signature, data) ──
+
+JSHandle jsSubtleVerify(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+{
+    assert(ctx !is null, "Null ctx in subtle.verify");
+    auto state = cast(DunState*) ctx;
+    assert(state !is null, "Null DunState in subtle.verify");
+    auto engine = state.engine;
+    assert(engine !is null, "Null engine in subtle.verify");
+
+    if (args.length < 4)
+        return rejectedPromise(engine, "subtle.verify requires algorithm, key, signature, and data arguments");
+
+    auto algoName = extractAlgoName(engine, args[0]);
+    if (algoName is null)
+        return rejectedPromise(engine, "subtle.verify: algorithm must specify a name");
+
+    // Normalize to uppercase
+    char[32] nameBuf = void;
+    size_t nameLen = 0;
+    foreach (c; algoName)
+    {
+        if (nameLen >= nameBuf.length) break;
+        nameBuf[nameLen++] = (c >= 'a' && c <= 'z') ? cast(char)(c - 32) : c;
+    }
+    auto upperName = (() @trusted => cast(string) nameBuf[0 .. nameLen])();
+
+    if (upperName != "HMAC")
+        return rejectedPromise(engine, "subtle.verify: only HMAC is supported");
+
+    // Get hash algorithm
+    string hashAlgo = extractHmacHash(engine, args[0]);
+    if (hashAlgo is null)
+    {
+        auto keyAlgo = engine.getProperty(args[1], "algorithm");
+        if (!engine.isUndefined(keyAlgo) && !engine.isNull(keyAlgo))
+            hashAlgo = extractHmacHash(engine, keyAlgo);
+        engine.freeValue(keyAlgo);
+    }
+    if (hashAlgo is null)
+        return rejectedPromise(engine, "subtle.verify: could not determine hash algorithm");
+
+    auto md = getEvpMd(hashAlgo);
+    if (md is null)
+        return rejectedPromise(engine, "subtle.verify: unsupported hash algorithm");
+
+    // Extract key data
+    auto keyDataProp = engine.getProperty(args[1], "_keyData");
+    auto keyBytes = engine.getTypedArrayBytes(keyDataProp);
+    engine.freeValue(keyDataProp);
+    if (keyBytes is null || keyBytes.length == 0)
+        return rejectedPromise(engine, "subtle.verify: invalid key");
+
+    // Extract provided signature
+    auto sigBytes = engine.getTypedArrayBytes(args[2]);
+    if (sigBytes is null || sigBytes.length == 0)
+        return rejectedPromise(engine, "subtle.verify: signature must be ArrayBuffer or TypedArray");
+
+    // Extract data
+    auto inputBytes = extractDataArg(engine, args[3]);
+    if (inputBytes is null)
+        return rejectedPromise(engine, "subtle.verify: data must be ArrayBuffer or TypedArray");
+
+    // Compute expected HMAC
+    ubyte[SUBTLE_MAX_DIGEST_SIZE] outBuf = void;
+    uint outLen = 0;
+
+    auto hmacResult = HMAC(md,
+        cast(const(void)*) keyBytes.ptr, cast(int) keyBytes.length,
+        inputBytes.ptr, inputBytes.length,
+        outBuf.ptr, &outLen);
+
+    if (hmacResult is null || outLen == 0)
+        return rejectedPromise(engine, "HMAC verify failed");
+
+    // Timing-safe comparison
+    bool isValid = false;
+    if (sigBytes.length == outLen)
+        isValid = CRYPTO_memcmp(sigBytes.ptr, outBuf.ptr, outLen) == 0;
+
+    auto boolResult = engine.newBool(isValid);
+    return resolvedPromise(engine, boolResult);
+}
+
+// ── subtle.encrypt(algorithm, key, data) ──
+
+JSHandle jsSubtleEncrypt(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+{
+    assert(ctx !is null, "Null ctx in subtle.encrypt");
+    auto state = cast(DunState*) ctx;
+    assert(state !is null, "Null DunState in subtle.encrypt");
+    auto engine = state.engine;
+    assert(engine !is null, "Null engine in subtle.encrypt");
+
+    if (args.length < 3)
+        return rejectedPromise(engine, "subtle.encrypt requires algorithm, key, and data arguments");
+
+    auto algoName = extractAlgoName(engine, args[0]);
+    if (algoName is null)
+        return rejectedPromise(engine, "subtle.encrypt: algorithm must specify a name");
+
+    // Normalize name
+    char[32] nameBuf = void;
+    size_t nameLen = 0;
+    foreach (c; algoName)
+    {
+        if (nameLen >= nameBuf.length) break;
+        nameBuf[nameLen++] = (c >= 'a' && c <= 'z') ? cast(char)(c - 32) : c;
+    }
+    auto upperName = (() @trusted => cast(string) nameBuf[0 .. nameLen])();
+
+    if (upperName == "AES-GCM" || upperName == "AESGCM")
+        return subtleAesGcmEncrypt(engine, args);
+    else if (upperName == "AES-CBC" || upperName == "AESCBC")
+        return subtleAesCbcEncrypt(engine, args);
+    else
+        return rejectedPromise(engine, "subtle.encrypt: unsupported algorithm '" ~ algoName ~ "'");
+}
+
+// ── subtle.decrypt(algorithm, key, data) ──
+
+JSHandle jsSubtleDecrypt(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+{
+    assert(ctx !is null, "Null ctx in subtle.decrypt");
+    auto state = cast(DunState*) ctx;
+    assert(state !is null, "Null DunState in subtle.decrypt");
+    auto engine = state.engine;
+    assert(engine !is null, "Null engine in subtle.decrypt");
+
+    if (args.length < 3)
+        return rejectedPromise(engine, "subtle.decrypt requires algorithm, key, and data arguments");
+
+    auto algoName = extractAlgoName(engine, args[0]);
+    if (algoName is null)
+        return rejectedPromise(engine, "subtle.decrypt: algorithm must specify a name");
+
+    char[32] nameBuf = void;
+    size_t nameLen = 0;
+    foreach (c; algoName)
+    {
+        if (nameLen >= nameBuf.length) break;
+        nameBuf[nameLen++] = (c >= 'a' && c <= 'z') ? cast(char)(c - 32) : c;
+    }
+    auto upperName = (() @trusted => cast(string) nameBuf[0 .. nameLen])();
+
+    if (upperName == "AES-GCM" || upperName == "AESGCM")
+        return subtleAesGcmDecrypt(engine, args);
+    else if (upperName == "AES-CBC" || upperName == "AESCBC")
+        return subtleAesCbcDecrypt(engine, args);
+    else
+        return rejectedPromise(engine, "subtle.decrypt: unsupported algorithm '" ~ algoName ~ "'");
+}
+
+// ── AES-GCM encrypt ──
+private JSHandle subtleAesGcmEncrypt(IJSEngine engine, JSHandle[] args) @trusted
+{
+    assert(engine !is null, "Null engine in subtleAesGcmEncrypt");
+
+    // Extract IV from algorithm descriptor
+    auto ivProp = engine.getProperty(args[0], "iv");
+    auto iv = engine.getTypedArrayBytes(ivProp);
+    engine.freeValue(ivProp);
+    if (iv is null || iv.length == 0)
+        return rejectedPromise(engine, "AES-GCM requires an 'iv' in the algorithm object");
+
+    // Extract key data
+    auto keyDataProp = engine.getProperty(args[1], "_keyData");
+    auto keyBytes = engine.getTypedArrayBytes(keyDataProp);
+    engine.freeValue(keyDataProp);
+    if (keyBytes is null || keyBytes.length == 0)
+        return rejectedPromise(engine, "AES-GCM encrypt: invalid key");
+
+    // Select cipher based on key length
+    const(EVP_CIPHER)* cipher;
+    if (keyBytes.length == 16)
+        cipher = EVP_aes_128_gcm();
+    else if (keyBytes.length == 32)
+        cipher = EVP_aes_256_gcm();
+    else
+        return rejectedPromise(engine, "AES-GCM: key must be 128 or 256 bits");
+
+    // Extract plaintext data
+    auto plaintext = extractDataArg(engine, args[2]);
+    if (plaintext is null)
+        return rejectedPromise(engine, "AES-GCM encrypt: data must be ArrayBuffer or TypedArray");
+    if (plaintext.length > SUBTLE_MAX_DATA_SIZE)
+        return rejectedPromise(engine, "AES-GCM encrypt: data too large");
+
+    auto evpCtx = EVP_CIPHER_CTX_new();
+    if (evpCtx is null)
+        return rejectedPromise(engine, "AES-GCM encrypt: failed to create cipher context");
+    scope(exit) EVP_CIPHER_CTX_free(evpCtx);
+
+    if (EVP_EncryptInit_ex(evpCtx, cipher, null, null, null) != 1)
+        return rejectedPromise(engine, "AES-GCM encrypt: init failed");
+
+    // Set IV length
+    if (EVP_CIPHER_CTX_ctrl(evpCtx, EVP_CTRL_GCM_SET_IVLEN, cast(int) iv.length, null) != 1)
+        return rejectedPromise(engine, "AES-GCM encrypt: failed to set IV length");
+
+    if (EVP_EncryptInit_ex(evpCtx, null, null, keyBytes.ptr, iv.ptr) != 1)
+        return rejectedPromise(engine, "AES-GCM encrypt: key/iv init failed");
+
+    // Encrypt
+    auto outBuf = new ubyte[plaintext.length + SUBTLE_AES_BLOCK_SIZE];
+    int outLen = 0;
+    if (EVP_EncryptUpdate(evpCtx, outBuf.ptr, &outLen, plaintext.ptr, cast(int) plaintext.length) != 1)
+        return rejectedPromise(engine, "AES-GCM encrypt: update failed");
+
+    int finalLen = 0;
+    if (EVP_EncryptFinal_ex(evpCtx, outBuf.ptr + outLen, &finalLen) != 1)
+        return rejectedPromise(engine, "AES-GCM encrypt: final failed");
+    outLen += finalLen;
+
+    // Get auth tag
+    ubyte[SUBTLE_AES_GCM_TAG_LEN] tag = void;
+    if (EVP_CIPHER_CTX_ctrl(evpCtx, EVP_CTRL_GCM_GET_TAG, SUBTLE_AES_GCM_TAG_LEN, tag.ptr) != 1)
+        return rejectedPromise(engine, "AES-GCM encrypt: failed to get auth tag");
+
+    // Result = ciphertext + tag (WebCrypto spec)
+    auto result = new ubyte[outLen + SUBTLE_AES_GCM_TAG_LEN];
+    result[0 .. outLen] = outBuf[0 .. outLen];
+    result[outLen .. outLen + SUBTLE_AES_GCM_TAG_LEN] = tag[];
+
+    auto resultArr = engine.newUint8Array(result);
+    return resolvedPromise(engine, resultArr);
+}
+
+// ── AES-GCM decrypt ──
+private JSHandle subtleAesGcmDecrypt(IJSEngine engine, JSHandle[] args) @trusted
+{
+    assert(engine !is null, "Null engine in subtleAesGcmDecrypt");
+
+    auto ivProp = engine.getProperty(args[0], "iv");
+    auto iv = engine.getTypedArrayBytes(ivProp);
+    engine.freeValue(ivProp);
+    if (iv is null || iv.length == 0)
+        return rejectedPromise(engine, "AES-GCM requires an 'iv' in the algorithm object");
+
+    auto keyDataProp = engine.getProperty(args[1], "_keyData");
+    auto keyBytes = engine.getTypedArrayBytes(keyDataProp);
+    engine.freeValue(keyDataProp);
+    if (keyBytes is null || keyBytes.length == 0)
+        return rejectedPromise(engine, "AES-GCM decrypt: invalid key");
+
+    const(EVP_CIPHER)* cipher;
+    if (keyBytes.length == 16)
+        cipher = EVP_aes_128_gcm();
+    else if (keyBytes.length == 32)
+        cipher = EVP_aes_256_gcm();
+    else
+        return rejectedPromise(engine, "AES-GCM: key must be 128 or 256 bits");
+
+    auto cipherData = extractDataArg(engine, args[2]);
+    if (cipherData is null)
+        return rejectedPromise(engine, "AES-GCM decrypt: data must be ArrayBuffer or TypedArray");
+    if (cipherData.length < SUBTLE_AES_GCM_TAG_LEN)
+        return rejectedPromise(engine, "AES-GCM decrypt: data too short (missing auth tag)");
+
+    // Split ciphertext and tag (tag is appended at end per WebCrypto spec)
+    auto ciphertext = cipherData[0 .. $ - SUBTLE_AES_GCM_TAG_LEN];
+    auto tag = cipherData[$ - SUBTLE_AES_GCM_TAG_LEN .. $];
+
+    auto evpCtx = EVP_CIPHER_CTX_new();
+    if (evpCtx is null)
+        return rejectedPromise(engine, "AES-GCM decrypt: failed to create cipher context");
+    scope(exit) EVP_CIPHER_CTX_free(evpCtx);
+
+    if (EVP_DecryptInit_ex(evpCtx, cipher, null, null, null) != 1)
+        return rejectedPromise(engine, "AES-GCM decrypt: init failed");
+
+    if (EVP_CIPHER_CTX_ctrl(evpCtx, EVP_CTRL_GCM_SET_IVLEN, cast(int) iv.length, null) != 1)
+        return rejectedPromise(engine, "AES-GCM decrypt: failed to set IV length");
+
+    if (EVP_DecryptInit_ex(evpCtx, null, null, keyBytes.ptr, iv.ptr) != 1)
+        return rejectedPromise(engine, "AES-GCM decrypt: key/iv init failed");
+
+    auto outBuf = new ubyte[ciphertext.length + SUBTLE_AES_BLOCK_SIZE];
+    int outLen = 0;
+    if (EVP_DecryptUpdate(evpCtx, outBuf.ptr, &outLen, ciphertext.ptr, cast(int) ciphertext.length) != 1)
+        return rejectedPromise(engine, "AES-GCM decrypt: update failed");
+
+    // Set expected tag
+    if (EVP_CIPHER_CTX_ctrl(evpCtx, EVP_CTRL_GCM_SET_TAG, SUBTLE_AES_GCM_TAG_LEN, cast(void*) tag.ptr) != 1)
+        return rejectedPromise(engine, "AES-GCM decrypt: failed to set auth tag");
+
+    int finalLen = 0;
+    if (EVP_DecryptFinal_ex(evpCtx, outBuf.ptr + outLen, &finalLen) != 1)
+        return rejectedPromise(engine, "AES-GCM decrypt: authentication failed");
+    outLen += finalLen;
+
+    auto resultArr = engine.newUint8Array(outBuf[0 .. outLen]);
+    return resolvedPromise(engine, resultArr);
+}
+
+// ── AES-CBC encrypt ──
+private JSHandle subtleAesCbcEncrypt(IJSEngine engine, JSHandle[] args) @trusted
+{
+    assert(engine !is null, "Null engine in subtleAesCbcEncrypt");
+
+    auto ivProp = engine.getProperty(args[0], "iv");
+    auto iv = engine.getTypedArrayBytes(ivProp);
+    engine.freeValue(ivProp);
+    if (iv is null || iv.length != SUBTLE_AES_CBC_IV_LEN)
+        return rejectedPromise(engine, "AES-CBC requires a 16-byte 'iv'");
+
+    auto keyDataProp = engine.getProperty(args[1], "_keyData");
+    auto keyBytes = engine.getTypedArrayBytes(keyDataProp);
+    engine.freeValue(keyDataProp);
+    if (keyBytes is null || keyBytes.length == 0)
+        return rejectedPromise(engine, "AES-CBC encrypt: invalid key");
+
+    const(EVP_CIPHER)* cipher;
+    if (keyBytes.length == 16)
+        cipher = EVP_aes_128_cbc();
+    else if (keyBytes.length == 24)
+        cipher = EVP_aes_192_cbc();
+    else if (keyBytes.length == 32)
+        cipher = EVP_aes_256_cbc();
+    else
+        return rejectedPromise(engine, "AES-CBC: key must be 128, 192, or 256 bits");
+
+    auto plaintext = extractDataArg(engine, args[2]);
+    if (plaintext is null)
+        return rejectedPromise(engine, "AES-CBC encrypt: data must be ArrayBuffer or TypedArray");
+    if (plaintext.length > SUBTLE_MAX_DATA_SIZE)
+        return rejectedPromise(engine, "AES-CBC encrypt: data too large");
+
+    auto evpCtx = EVP_CIPHER_CTX_new();
+    if (evpCtx is null)
+        return rejectedPromise(engine, "AES-CBC encrypt: failed to create cipher context");
+    scope(exit) EVP_CIPHER_CTX_free(evpCtx);
+
+    if (EVP_EncryptInit_ex(evpCtx, cipher, null, keyBytes.ptr, iv.ptr) != 1)
+        return rejectedPromise(engine, "AES-CBC encrypt: init failed");
+
+    // Output can be up to input + one block of padding
+    auto outBuf = new ubyte[plaintext.length + SUBTLE_AES_BLOCK_SIZE];
+    int outLen = 0;
+    if (EVP_EncryptUpdate(evpCtx, outBuf.ptr, &outLen, plaintext.ptr, cast(int) plaintext.length) != 1)
+        return rejectedPromise(engine, "AES-CBC encrypt: update failed");
+
+    int finalLen = 0;
+    if (EVP_EncryptFinal_ex(evpCtx, outBuf.ptr + outLen, &finalLen) != 1)
+        return rejectedPromise(engine, "AES-CBC encrypt: final failed");
+    outLen += finalLen;
+
+    auto resultArr = engine.newUint8Array(outBuf[0 .. outLen]);
+    return resolvedPromise(engine, resultArr);
+}
+
+// ── AES-CBC decrypt ──
+private JSHandle subtleAesCbcDecrypt(IJSEngine engine, JSHandle[] args) @trusted
+{
+    assert(engine !is null, "Null engine in subtleAesCbcDecrypt");
+
+    auto ivProp = engine.getProperty(args[0], "iv");
+    auto iv = engine.getTypedArrayBytes(ivProp);
+    engine.freeValue(ivProp);
+    if (iv is null || iv.length != SUBTLE_AES_CBC_IV_LEN)
+        return rejectedPromise(engine, "AES-CBC requires a 16-byte 'iv'");
+
+    auto keyDataProp = engine.getProperty(args[1], "_keyData");
+    auto keyBytes = engine.getTypedArrayBytes(keyDataProp);
+    engine.freeValue(keyDataProp);
+    if (keyBytes is null || keyBytes.length == 0)
+        return rejectedPromise(engine, "AES-CBC decrypt: invalid key");
+
+    const(EVP_CIPHER)* cipher;
+    if (keyBytes.length == 16)
+        cipher = EVP_aes_128_cbc();
+    else if (keyBytes.length == 24)
+        cipher = EVP_aes_192_cbc();
+    else if (keyBytes.length == 32)
+        cipher = EVP_aes_256_cbc();
+    else
+        return rejectedPromise(engine, "AES-CBC: key must be 128, 192, or 256 bits");
+
+    auto ciphertext = extractDataArg(engine, args[2]);
+    if (ciphertext is null)
+        return rejectedPromise(engine, "AES-CBC decrypt: data must be ArrayBuffer or TypedArray");
+
+    auto evpCtx = EVP_CIPHER_CTX_new();
+    if (evpCtx is null)
+        return rejectedPromise(engine, "AES-CBC decrypt: failed to create cipher context");
+    scope(exit) EVP_CIPHER_CTX_free(evpCtx);
+
+    if (EVP_DecryptInit_ex(evpCtx, cipher, null, keyBytes.ptr, iv.ptr) != 1)
+        return rejectedPromise(engine, "AES-CBC decrypt: init failed");
+
+    auto outBuf = new ubyte[ciphertext.length + SUBTLE_AES_BLOCK_SIZE];
+    int outLen = 0;
+    if (EVP_DecryptUpdate(evpCtx, outBuf.ptr, &outLen, ciphertext.ptr, cast(int) ciphertext.length) != 1)
+        return rejectedPromise(engine, "AES-CBC decrypt: update failed");
+
+    int finalLen = 0;
+    if (EVP_DecryptFinal_ex(evpCtx, outBuf.ptr + outLen, &finalLen) != 1)
+        return rejectedPromise(engine, "AES-CBC decrypt: decryption failed (bad padding or wrong key)");
+    outLen += finalLen;
+
+    auto resultArr = engine.newUint8Array(outBuf[0 .. outLen]);
+    return resolvedPromise(engine, resultArr);
+}
+
+// ── subtle stub for unimplemented methods ──
+JSHandle jsSubtleNotImplemented(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+{
+    assert(ctx !is null, "Null ctx in subtle stub");
+    auto state = cast(DunState*) ctx;
+    assert(state !is null, "Null DunState in subtle stub");
+    auto engine = state.engine;
+    assert(engine !is null, "Null engine in subtle stub");
+    return rejectedPromise(engine, "Not implemented");
 }
 
 string cryptoExtensionSource() pure @safe nothrow

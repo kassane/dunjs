@@ -7,6 +7,7 @@ private enum HOSTNAME_BUF_SIZE = 256;
 
 void registerOsModule(IJSEngine engine) @trusted
 {
+    assert(engine !is null, "Null engine in registerOsModule");
     auto obj = engine.newObject();
 
     engine.setProperty(obj, "platform", engine.newFunction(&jsOsPlatform, "platform", 0));
@@ -54,6 +55,7 @@ version (EngineQuickJS)
 
     private void registerQuickJSModule(IJSEngine engine) @trusted
     {
+        assert(engine !is null, "Null engine in registerQuickJSModule");
         auto ctx = cast(JSContext*) engine.rawContext();
         auto m = JS_NewCModule(ctx, "dun:os", &osModuleInit);
         if (m is null) return;

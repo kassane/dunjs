@@ -13,6 +13,7 @@ private enum : size_t {
 
 void registerFetchGlobal(IJSEngine engine) @trusted
 {
+    assert(engine !is null, "Null engine in registerFetchGlobal");
     auto global = engine.getGlobal();
     engine.setProperty(global, "fetch",
         engine.newFunction(&jsFetch, "fetch", 1));

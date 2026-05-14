@@ -113,6 +113,7 @@ version (EngineQuickJS)
 
 private void installJSRejectionTracker(IJSEngine engine, DunState* state) @trusted
 {
+    assert(engine !is null, "Null engine in installJSRejectionTracker");
     auto global = engine.getGlobal();
 
     engine.setProperty(global, "__dunReportRejection__",

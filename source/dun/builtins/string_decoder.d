@@ -33,6 +33,7 @@ version (EngineQuickJS)
 
     private void registerQuickJSModule(IJSEngine engine) @trusted
     {
+        assert(engine !is null, "Null engine in registerQuickJSModule");
         auto ctx = cast(JSContext*) engine.rawContext();
         assert(ctx !is null, "Null context in string_decoder registerQuickJSModule");
         auto m = JS_NewCModule(ctx, "dun:string_decoder", &stringDecoderModuleInit);

@@ -49,6 +49,7 @@ struct CliConfig
     bool inspect;
     bool inspectBrk;
     ushort inspectPort = 9229;
+    bool watchMode;
 }
 
 /// Parse command-line arguments into a CliConfig.
@@ -310,6 +311,13 @@ CliConfig parseArgs(string[] args) @safe
             continue;
         }
 
+        if (arg == "--watch" || arg == "-w")
+        {
+            config.watchMode = true;
+            i++;
+            continue;
+        }
+
         if (arg == "--inspect" || arg.startsWith("--inspect="))
         {
             config.inspect = true;
@@ -382,7 +390,8 @@ private bool isKnownFlag(string arg) @safe pure nothrow @nogc
         || arg.startsWith("--audit=")
         || arg.startsWith("--filter=")
         || arg.startsWith("--inspect")
-        || arg.startsWith("--inspect-brk");
+        || arg.startsWith("--inspect-brk")
+        || arg == "--watch" || arg == "-w";
 }
 
 private bool looksLikeFile(string arg) @safe pure nothrow @nogc

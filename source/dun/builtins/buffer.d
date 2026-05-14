@@ -7,6 +7,7 @@ private enum BUFFER_MAX_SIZE = 1024 * 1024 * 1024;
 
 void registerBufferModule(IJSEngine engine) @trusted
 {
+    assert(engine !is null, "Null engine in registerBufferModule");
     auto bufferClass = engine.newObject();
 
     engine.setProperty(bufferClass, "from", engine.newFunction(&jsBufferFrom, "from", 1));
@@ -35,6 +36,7 @@ version (EngineQuickJS)
 
     private void registerQuickJSModule(IJSEngine engine) @trusted
     {
+        assert(engine !is null, "Null engine in registerQuickJSModule");
         auto ctx = cast(JSContext*) engine.rawContext();
         auto m = JS_NewCModule(ctx, "dun:buffer", &bufferModuleInit);
         if (m is null) return;

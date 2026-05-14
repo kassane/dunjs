@@ -7,6 +7,10 @@ extern(C) __gshared string[] rt_options = ["gcopt=minPoolSize:16"];
 version (unittest) {} else
 int main(string[] args)
 {
+    // Load .env file from cwd before anything else (Bun-compatible behavior)
+    version (Posix)
+        loadDotEnv();
+
     import dun.cli.args : parseArgs, Command;
 
     auto config = parseArgs(args);
@@ -22,6 +26,8 @@ int main(string[] args)
     final switch (config.command)
     {
         case Command.run:
+            if (config.watchMode)
+                return runWatchMode(config);
             return runScript(config);
         case Command.repl:
             return runRepl(config);
@@ -182,6 +188,59 @@ int runScript(T)(T config)
     auto exitCode = state.eventLoop.exitCode;
     engine.shutdown();
     return exitCode;
+}
+
+int runWatchMode(T)(T config) @trusted
+{
+    version (Posix)
+    {
+        import core.sys.posix.sys.stat : stat_t, stat;
+        import core.stdc.string : strlen;
+        import core.thread : Thread;
+        import core.time : dur;
+        import std.stdio : writeln, stderr;
+        import std.string : toStringz;
+
+        assert(config.scriptPath.length > 0, "watchMode requires a script path");
+
+        auto pathz = config.scriptPath.toStringz();
+
+        long getMtime()
+        {
+            stat_t st;
+            if (stat(pathz, &st) == 0)
+                return st.st_mtime;
+            return -1;
+        }
+
+        writeln("[watch] watching ", config.scriptPath, " for changes...");
+
+        // Run the script once first
+        int lastExitCode = runScript(config);
+        long lastMtime = getMtime();
+
+        // Poll loop: check mtime every 500ms
+        while (true)
+        {
+            Thread.sleep(dur!"msecs"(500));
+
+            long currentMtime = getMtime();
+            if (currentMtime == -1)
+                continue; // File disappeared, keep waiting
+
+            if (currentMtime != lastMtime)
+            {
+                lastMtime = currentMtime;
+                writeln("\nRestarting due to changes...");
+                lastExitCode = runScript(config);
+            }
+        }
+    }
+    else
+    {
+        writeStderr("--watch is not yet supported on this platform\n");
+        return 1;
+    }
 }
 
 int runRepl(T)(T config)
@@ -353,7 +412,8 @@ void printUsage()
         ~ "Runtime options:\n"
         ~ "  --max-memory=<bytes>   JS heap memory limit (default: 256MB)\n"
         ~ "  --max-stack=<bytes>    Max stack size (default: 8MB)\n"
-        ~ "  --eval-file=<path>     Execute file before entering REPL\n\n"
+        ~ "  --eval-file=<path>     Execute file before entering REPL\n"
+        ~ "  --watch / -w           Restart script on file changes\n\n"
         ~ "REPL environment variables:\n"
         ~ "  DUN_REPL_HISTORY       Path to history file (~/.dun_repl_history)\n"
         ~ "  DUN_REPL_HISTORY_SIZE  Max history entries (default: 1000)\n\n"
@@ -895,6 +955,79 @@ bool looksLikeFilePath(string arg) @safe pure nothrow @nogc
         if (c == '.' || c == '/' || c == '\\')
             return true;
     return false;
+}
+
+/**
+ * Load .env file from the current working directory, injecting variables into
+ * the process environment BEFORE engine initialization.  Follows Bun semantics:
+ *   - Skips blank lines and `# comment` lines
+ *   - Parses KEY=VALUE, KEY="VALUE", KEY='VALUE'
+ *   - Strips surrounding quotes from values
+ *   - Does NOT override already-set environment variables
+ */
+void loadDotEnv() @trusted
+{
+    import std.file : exists, readText;
+    import std.process : environment;
+    import std.string : strip, indexOf;
+
+    enum DOT_ENV_FILENAME = ".env";
+    enum COMMENT_CHAR = '#';
+    enum MAX_LINE_LENGTH = 8192; // Defensive: skip unreasonably long lines
+
+    if (!exists(DOT_ENV_FILENAME))
+        return;
+
+    string content;
+    try
+        content = readText(DOT_ENV_FILENAME);
+    catch (Exception)
+        return; // Silently skip unreadable .env files
+
+    foreach (rawLine; content.lineSplitter())
+    {
+        auto line = strip(rawLine);
+
+        // Skip empty lines and comments
+        if (line.length == 0)
+            continue;
+        if (line[0] == COMMENT_CHAR)
+            continue;
+
+        // Defensive: skip absurdly long lines
+        if (line.length > MAX_LINE_LENGTH)
+            continue;
+
+        // Find the first '=' separator
+        auto eqPos = indexOf(line, '=');
+        if (eqPos < 1) // No '=' found, or '=' at position 0
+            continue;
+
+        auto key = strip(line[0 .. eqPos]);
+        if (key.length == 0)
+            continue;
+
+        auto value = strip(line[eqPos + 1 .. $]);
+
+        // Strip surrounding quotes (single or double)
+        if (value.length >= 2)
+        {
+            if ((value[0] == '"' && value[$ - 1] == '"') ||
+                (value[0] == '\'' && value[$ - 1] == '\''))
+            {
+                value = value[1 .. $ - 1];
+            }
+        }
+
+        // Do not override existing environment variables
+        if (environment.get(key, null) !is null)
+            continue;
+
+        try
+            environment[key] = value;
+        catch (Exception)
+            continue; // Skip vars that cannot be set
+    }
 }
 
 void writeStderr(const(char)[] msg) @trusted

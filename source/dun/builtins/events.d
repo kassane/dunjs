@@ -5,6 +5,7 @@ import dun.runtime.globals : DunState;
 
 void registerEventsModule(IJSEngine engine) @trusted
 {
+    assert(engine !is null, "Null engine in registerEventsModule");
     auto global = engine.getGlobal();
 
     // EventEmitter is implemented in JS since it's mostly data structure logic.
@@ -33,6 +34,7 @@ version (EngineQuickJS)
 
     private void registerQuickJSModule(IJSEngine engine) @trusted
     {
+        assert(engine !is null, "Null engine in registerQuickJSModule");
         auto ctx = cast(JSContext*) engine.rawContext();
         auto m = JS_NewCModule(ctx, "dun:events", &eventsModuleInit);
         if (m is null) return;

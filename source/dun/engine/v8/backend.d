@@ -380,11 +380,13 @@ class V8Engine : IJSEngine
 
     void setContextOpaque(void* ptr) @trusted
     {
+        assert(ctx !is null, "V8 context not initialized");
         dun_v8_set_context_data(ctx, ptr);
     }
 
     void* getContextOpaque() @trusted
     {
+        assert(ctx !is null, "V8 context not initialized");
         return dun_v8_get_context_data(ctx);
     }
 
