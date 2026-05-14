@@ -5,6 +5,7 @@ import dun.engine.iface : IJSEngine, JSHandle;
 struct NextTickQueue
 {
     private Entry[] queue;
+    private size_t head;
 
     private struct Entry
     {
@@ -21,23 +22,27 @@ struct NextTickQueue
 
     void drain() @trusted
     {
-        while (queue.length > 0)
+        while (head < queue.length)
         {
-            auto entry = queue[0];
-            queue = queue[1 .. $];
+            auto entry = queue[head];
+            head++;
             auto undef = entry.engine.newUndefined();
             auto ret = entry.engine.callFunction(entry.func, undef, null);
             entry.engine.freeValue(ret);
             entry.engine.freeValue(entry.func);
         }
+        queue.length = 0;
+        queue.assumeSafeAppend();
+        head = 0;
     }
 
-    bool empty() const @safe { return queue.length == 0; }
+    bool empty() const @safe { return head >= queue.length; }
 }
 
 struct MicrotaskQueue
 {
     private Entry[] queue;
+    private size_t head;
 
     private struct Entry
     {
@@ -54,19 +59,22 @@ struct MicrotaskQueue
 
     void drain() @trusted
     {
-        while (queue.length > 0)
+        while (head < queue.length)
         {
-            auto entry = queue[0];
-            queue = queue[1 .. $];
+            auto entry = queue[head];
+            head++;
             auto undef = entry.engine.newUndefined();
             auto ret = entry.engine.callFunction(entry.func, undef, null);
             entry.engine.freeValue(ret);
             entry.engine.freeValue(entry.func);
         }
+        queue.length = 0;
+        queue.assumeSafeAppend();
+        head = 0;
     }
 
     bool empty() const @safe
     {
-        return queue.length == 0;
+        return head >= queue.length;
     }
 }

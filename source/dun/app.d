@@ -44,7 +44,7 @@ int main(string[] args)
 
 private:
 
-enum VERSION = "0.1.0-dev";
+enum VERSION = "0.2.0";
 
 int runScript(T)(T config)
 {
@@ -202,10 +202,40 @@ int evalInline(T)(T config)
     return exitCode;
 }
 
-void printVersion()
+void printVersion() @trusted
 {
     import std.stdio : writeln;
+    import core.stdc.string : strlen;
     writeln("dun ", VERSION);
+
+    version (EngineJSC)
+        writeln("engine: JavaScriptCore");
+    else version (EngineV8)
+    {
+        try
+        {
+            import dun.engine.v8.cppbindings : dun_v8_version;
+            auto vp = dun_v8_version();
+            if (vp !is null)
+                writeln("engine: V8 ", vp[0 .. strlen(vp)]);
+            else
+                writeln("engine: V8");
+        }
+        catch (Exception) { writeln("engine: V8"); }
+    }
+    else
+    {
+        try
+        {
+            import dun.engine.quickjs.bindings : JS_GetVersion;
+            auto vp = JS_GetVersion();
+            if (vp !is null)
+                writeln("engine: QuickJS-NG ", vp[0 .. strlen(vp)]);
+            else
+                writeln("engine: QuickJS-NG");
+        }
+        catch (Exception) { writeln("engine: QuickJS-NG"); }
+    }
 }
 
 int runInstall(T)(T config)
@@ -621,7 +651,7 @@ int runInit(T)(T config)
     write(buildPath(dir, "dun.json"),
         "{\n"
         ~ "  \"name\": \"" ~ name ~ "\",\n"
-        ~ "  \"version\": \"0.1.0\",\n"
+        ~ "  \"version\": \"0.2.0\",\n"
         ~ "  \"main\": \"main.ts\",\n"
         ~ "  \"tasks\": {\n"
         ~ "    \"start\": \"dun run main.ts\",\n"

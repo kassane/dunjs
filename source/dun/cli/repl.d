@@ -83,7 +83,7 @@ int runReplImpl(T)(T config)
     auto lineEd = LineEditor(color);
     lineEd.loadHistory();
 
-    writeln("dun 0.1.0-dev  (type .help for commands, .exit or Ctrl-D to quit)");
+    writeln("dun 0.2.0  (type .help for commands, .exit or Ctrl-D to quit)");
 
     string accumulator;
     string[] sessionLines;

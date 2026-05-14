@@ -134,7 +134,7 @@ private string webAPIsSource() pure nothrow @safe
     // navigator
     // ═══════════════════════════════════
     ~ "if(typeof globalThis.navigator==='undefined'){"
-    ~ "globalThis.navigator={userAgent:'DunJS/0.1.0',platform:typeof process!=='undefined'?process.platform:'unknown',"
+    ~ "globalThis.navigator={userAgent:'DunJS/0.2.0',platform:typeof process!=='undefined'?process.platform:'unknown',"
     ~ "language:'en-US',languages:['en-US','en'],onLine:true,"
     ~ "hardwareConcurrency:typeof require==='function'?(function(){try{return require('os').cpus().length}catch(e){return 1}}()):1};"
     ~ "}"

@@ -297,7 +297,7 @@
 	"toolchainRequirements": {
 		"frontend": ">=2.112.0"
 	},
-	"version": "0.1.0",
+	"version": "0.2.0",
 	"description": "A secure JavaScript runtime written in D",
 	"dependencies": {},
 	"targetType": "executable",

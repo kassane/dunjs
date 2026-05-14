@@ -14,7 +14,7 @@ private enum {
     HTTP_DEFAULT_PORT = 80,
     HTTP_LISTEN_BACKLOG = 1024,
     HTTP_MAX_HEADER_NAME = 128,
-    IO_POLL_BATCH_SIZE = 64,
+    IO_POLL_BATCH_SIZE = 256,
 }
 
 private string sizeToStr(size_t n) nothrow @trusted
