@@ -200,6 +200,12 @@ void installProcess(IJSEngine engine) @trusted
     engine.setProperty(stdoutObj, "on", engine.newFunction(&jsNoop, "on", 2));
     engine.setProperty(stdoutObj, "once", engine.newFunction(&jsNoop, "once", 2));
     engine.setProperty(stdoutObj, "emit", engine.newFunction(&jsNoop, "emit", 1));
+    engine.setProperty(stdoutObj, "cork", engine.newFunction(&jsNoop, "cork", 0));
+    engine.setProperty(stdoutObj, "uncork", engine.newFunction(&jsNoop, "uncork", 0));
+    engine.setProperty(stdoutObj, "cursorTo", engine.newFunction(&jsNoop, "cursorTo", 2));
+    engine.setProperty(stdoutObj, "clearLine", engine.newFunction(&jsNoop, "clearLine", 1));
+    engine.setProperty(stdoutObj, "moveCursor", engine.newFunction(&jsNoop, "moveCursor", 2));
+    engine.setProperty(stdoutObj, "getWindowSize", engine.newFunction(&jsGetWindowSize, "getWindowSize", 0));
     engine.setProperty(stdoutObj, "columns", engine.newInt(80));
     engine.setProperty(stdoutObj, "rows", engine.newInt(24));
     engine.setProperty(process, "stdout", stdoutObj);
@@ -214,6 +220,10 @@ void installProcess(IJSEngine engine) @trusted
     engine.setProperty(stderrObj, "on", engine.newFunction(&jsNoop, "on", 2));
     engine.setProperty(stderrObj, "once", engine.newFunction(&jsNoop, "once", 2));
     engine.setProperty(stderrObj, "emit", engine.newFunction(&jsNoop, "emit", 1));
+    engine.setProperty(stderrObj, "cork", engine.newFunction(&jsNoop, "cork", 0));
+    engine.setProperty(stderrObj, "uncork", engine.newFunction(&jsNoop, "uncork", 0));
+    engine.setProperty(stderrObj, "columns", engine.newInt(80));
+    engine.setProperty(stderrObj, "rows", engine.newInt(24));
     engine.setProperty(process, "stderr", stderrObj);
 
     // process.stdin
@@ -252,6 +262,15 @@ void installProcess(IJSEngine engine) @trusted
     {
         engine.setProperty(process, "execPath", engine.newString("/usr/local/bin/dun"));
     }
+
+    // process.argv0
+    engine.setProperty(process, "argv0", engine.newString("dun"));
+
+    // process.execArgv (empty — no Node-style exec args)
+    engine.setProperty(process, "execArgv", engine.newArray());
+
+    // process.mainModule (deprecated but still used)
+    engine.setProperty(process, "mainModule", engine.newUndefined());
 
     // process.title
     engine.setProperty(process, "title", engine.newString("dun"));
@@ -328,6 +347,18 @@ JSHandle jsNoop(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     auto state = cast(DunState*) ctx;
     assert(state.engine !is null, "Null engine in jsNoop");
     return state.engine.newUndefined();
+}
+
+JSHandle jsGetWindowSize(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+{
+    assert(ctx !is null, "Null ctx in jsGetWindowSize");
+    auto state = cast(DunState*) ctx;
+    assert(state.engine !is null, "Null engine in jsGetWindowSize");
+    auto engine = state.engine;
+    auto arr = engine.newArray();
+    engine.setPropertyIndex(arr, 0, engine.newInt(80));
+    engine.setPropertyIndex(arr, 1, engine.newInt(24));
+    return arr;
 }
 
 JSHandle jsCwd(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
