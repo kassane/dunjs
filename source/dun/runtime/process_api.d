@@ -337,6 +337,9 @@ void installProcess(IJSEngine engine) @trusted
 
     engine.setProperty(global, "process", process);
     engine.freeValue(global);
+
+    auto enhRes = engine.eval(processEnhanceSource(), "<process-enhance>");
+    engine.freeValue(enhRes.value);
 }
 
 private:
@@ -769,4 +772,82 @@ JSHandle jsStdinSetEncoding(void* ctx, JSHandle thisVal, JSHandle[] args) @trust
     assert(ctx !is null, "Null ctx in process.stdin.setEncoding");
     auto state = cast(DunState*) ctx;
     return state.engine.dupValue(thisVal);
+}
+
+string processEnhanceSource() pure @safe nothrow
+{
+    return `(function() {
+  var p = process;
+  if (!p) return;
+  var _events = {};
+  var _origOn = p.on;
+  p.on = function(ev, cb) {
+    if (typeof ev !== 'string' || typeof cb !== 'function') return p;
+    if (ev === 'uncaughtException' || ev === 'unhandledRejection' ||
+        ev === 'SIGTERM' || ev === 'SIGINT') {
+      return _origOn.call(p, ev, cb);
+    }
+    if (!_events[ev]) _events[ev] = [];
+    _events[ev].push(cb);
+    return p;
+  };
+  p.addListener = p.on;
+  p.once = function(ev, cb) {
+    if (typeof cb !== 'function') return p;
+    function w() {
+      p.removeListener(ev, w);
+      cb.apply(p, arguments);
+    }
+    w._orig = cb;
+    return p.on(ev, w);
+  };
+  p.off = p.removeListener = function(ev, cb) {
+    var cbs = _events[ev];
+    if (!cbs) return p;
+    for (var i = cbs.length - 1; i >= 0; i--) {
+      if (cbs[i] === cb || cbs[i]._orig === cb) cbs.splice(i, 1);
+    }
+    return p;
+  };
+  p.removeAllListeners = function(ev) {
+    if (ev) _events[ev] = [];
+    else _events = {};
+    return p;
+  };
+  p.listeners = function(ev) {
+    return (_events[ev] || []).slice();
+  };
+  p.listenerCount = function(ev) {
+    return (_events[ev] || []).length;
+  };
+  p.rawListeners = function(ev) {
+    return (_events[ev] || []).slice();
+  };
+  p.eventNames = function() {
+    return Object.keys(_events).filter(function(k) { return _events[k].length > 0; });
+  };
+  p.prependListener = function(ev, cb) {
+    if (!_events[ev]) _events[ev] = [];
+    _events[ev].unshift(cb);
+    return p;
+  };
+  p.prependOnceListener = function(ev, cb) {
+    function w() {
+      p.removeListener(ev, w);
+      cb.apply(p, arguments);
+    }
+    w._orig = cb;
+    return p.prependListener(ev, w);
+  };
+  p.emit = function(ev) {
+    var cbs = _events[ev];
+    if (!cbs || cbs.length === 0) return false;
+    var args = Array.prototype.slice.call(arguments, 1);
+    var cc = cbs.slice();
+    for (var i = 0; i < cc.length; i++) cc[i].apply(p, args);
+    return true;
+  };
+  p.setMaxListeners = function() { return p; };
+  p.getMaxListeners = function() { return 10; };
+})()`;
 }

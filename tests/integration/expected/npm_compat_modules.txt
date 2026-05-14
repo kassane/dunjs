@@ -94,6 +94,25 @@ PASS: process.platform
 PASS: process.arch
 PASS: process.version
 PASS: process.versions
+PASS: process.uptime
+PASS: process.chdir
+PASS: process.execPath
+PASS: process.argv0
+PASS: process.title
+PASS: process.ppid
+PASS: process.on
+PASS: process.once
+PASS: process.off
+PASS: process.removeListener
+PASS: process.removeAllListeners
+PASS: process.listeners
+PASS: process.listenerCount
+PASS: process.emit
+PASS: process.prependListener
+PASS: process.eventNames
+PASS: process.setMaxListeners
+PASS: process.listenerCount exit
+PASS: process.on exit fires
 PASS: http.createServer
 PASS: http.request
 PASS: http.get
@@ -181,4 +200,4 @@ PASS: console.log
 PASS: console.error
 PASS: console.warn
 ---
-Total: 182/182 passed
+Total: 201/201 passed

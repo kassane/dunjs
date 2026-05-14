@@ -122,6 +122,31 @@ check('process.platform', typeof process.platform === 'string');
 check('process.arch', typeof process.arch === 'string');
 check('process.version', typeof process.version === 'string');
 check('process.versions', typeof process.versions === 'object');
+check('process.uptime', typeof process.uptime === 'function');
+check('process.chdir', typeof process.chdir === 'function');
+check('process.execPath', typeof process.execPath === 'string');
+check('process.argv0', typeof process.argv0 === 'string');
+check('process.title', typeof process.title === 'string');
+check('process.ppid', typeof process.ppid === 'number');
+check('process.on', typeof process.on === 'function');
+check('process.once', typeof process.once === 'function');
+check('process.off', typeof process.off === 'function');
+check('process.removeListener', typeof process.removeListener === 'function');
+check('process.removeAllListeners', typeof process.removeAllListeners === 'function');
+check('process.listeners', typeof process.listeners === 'function');
+check('process.listenerCount', typeof process.listenerCount === 'function');
+check('process.emit', typeof process.emit === 'function');
+check('process.prependListener', typeof process.prependListener === 'function');
+check('process.eventNames', typeof process.eventNames === 'function');
+check('process.setMaxListeners', typeof process.setMaxListeners === 'function');
+
+// process.on('exit') test
+var exitCalled = false;
+process.on('exit', function() { exitCalled = true; });
+check('process.listenerCount exit', process.listenerCount('exit') === 1);
+process.emit('exit', 0);
+check('process.on exit fires', exitCalled === true);
+process.removeAllListeners('exit');
 
 var http = require('http');
 check('http.createServer', typeof http.createServer === 'function');
