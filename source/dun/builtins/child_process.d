@@ -16,6 +16,8 @@ void registerChildProcessModule(IJSEngine engine) @trusted
     engine.setProperty(obj, "exec", engine.newFunction(&jsExec, "exec", 2));
     engine.setProperty(obj, "spawn", engine.newFunction(&jsSpawn, "spawn", 2));
     engine.setProperty(obj, "execFile", engine.newFunction(&jsExecFile, "execFile", 3));
+    engine.setProperty(obj, "execFileSync", engine.newFunction(&jsExecFileSync, "execFileSync", 2));
+    engine.setProperty(obj, "fork", engine.newFunction(&jsFork, "fork", 2));
 
     auto global = engine.getGlobal();
     engine.setProperty(global, "__dun_cjs_child_process__", obj);
@@ -29,12 +31,17 @@ version (EngineQuickJS)
 {
     import dun.engine.quickjs.bindings;
 
+    private static immutable cpExportNames = [
+        "execSync", "spawnSync", "exec", "spawn", "execFile",
+        "execFileSync", "fork"
+    ];
+
     private void registerQuickJSModule(IJSEngine engine) @trusted
     {
         auto ctx = cast(JSContext*) engine.rawContext();
         auto m = JS_NewCModule(ctx, "dun:child_process", &cpModuleInit);
         if (m is null) return;
-        foreach (name; ["execSync", "spawnSync", "exec", "spawn", "execFile"])
+        foreach (name; cpExportNames)
             JS_AddModuleExport(ctx, m, name.ptr);
     }
 
@@ -44,7 +51,7 @@ version (EngineQuickJS)
         assert(m !is null, "Null JSModuleDef in cpModuleInit");
         auto global = JS_GetGlobalObject(ctx);
         auto cpObj = JS_GetPropertyStr(ctx, global, "__dun_cjs_child_process__");
-        foreach (name; ["execSync", "spawnSync", "exec", "spawn", "execFile"])
+        foreach (name; cpExportNames)
         {
             auto fn = JS_GetPropertyStr(ctx, cpObj, name.ptr);
             JS_SetModuleExport(ctx, m, name.ptr, fn);
@@ -810,4 +817,70 @@ JSHandle jsExecFile(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
         }
         return engine.throwTypeError("execFile failed: " ~ msg);
     }
+}
+
+JSHandle jsExecFileSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+{
+    assert(ctx !is null);
+    auto state = cast(DunState*) ctx;
+    assert(state.engine !is null);
+    auto engine = state.engine;
+
+    if (args.length < 1 || !engine.isString(args[0]))
+        return engine.throwTypeError("execFileSync requires a file argument");
+
+    auto file = engine.extractString(args[0]);
+    if (file.length == 0)
+        return engine.throwTypeError("execFileSync: file must be a non-empty string");
+
+    string[] cmdArgs;
+    if (args.length >= 2 && engine.isArray(args[1]))
+    {
+        auto len = engine.getArrayLength(args[1]);
+        for (uint i = 0; i < len; i++)
+        {
+            auto elem = engine.getPropertyIndex(args[1], i);
+            if (engine.isString(elem))
+                cmdArgs ~= engine.extractString(elem);
+            engine.freeValue(elem);
+        }
+    }
+
+    if (!hasGlobalRun(state))
+        return engine.throwTypeError("Requires --allow-run permission");
+
+    version (Posix)
+    {
+        try
+        {
+            import std.process : execute;
+            auto result = execute([file] ~ cmdArgs);
+            if (result.status != 0)
+                return engine.throwTypeError("Command failed with code " ~ intToStr(result.status));
+            return engine.newString(result.output);
+        }
+        catch (Exception e)
+            return engine.throwTypeError("execFileSync: " ~ e.msg);
+    }
+    else
+        return engine.throwTypeError("execFileSync not available on this platform");
+}
+
+JSHandle jsFork(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+{
+    assert(ctx !is null);
+    auto state = cast(DunState*) ctx;
+    assert(state.engine !is null);
+    return state.engine.throwTypeError("fork() is not supported; use worker_threads instead");
+}
+
+private string intToStr(int val) @trusted nothrow
+{
+    try
+    {
+        import std.conv : to;
+        return val.to!string;
+    }
+    catch (Exception)
+        return "?";
 }

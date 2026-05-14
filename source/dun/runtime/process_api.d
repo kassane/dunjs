@@ -337,6 +337,20 @@ void installProcess(IJSEngine engine) @trusted
     engine.setProperty(process, "umask",
         engine.newFunction(&jsProcessUmask, "umask", 1));
 
+    version (Posix)
+    {
+        engine.setProperty(process, "getuid",
+            engine.newFunction(&jsProcessGetuid, "getuid", 0));
+        engine.setProperty(process, "getgid",
+            engine.newFunction(&jsProcessGetgid, "getgid", 0));
+        engine.setProperty(process, "geteuid",
+            engine.newFunction(&jsProcessGeteuid, "geteuid", 0));
+        engine.setProperty(process, "getegid",
+            engine.newFunction(&jsProcessGetegid, "getegid", 0));
+        engine.setProperty(process, "getgroups",
+            engine.newFunction(&jsProcessGetgroups, "getgroups", 0));
+    }
+
     engine.setProperty(global, "process", process);
     engine.freeValue(global);
 
@@ -730,6 +744,65 @@ JSHandle jsProcessUmask(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     }
     else
         return engine.newInt(0);
+}
+
+version (Posix)
+{
+    JSHandle jsProcessGetuid(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+    {
+        assert(ctx !is null);
+        auto state = cast(DunState*) ctx;
+        assert(state.engine !is null);
+        import core.sys.posix.unistd : getuid;
+        return state.engine.newInt(cast(int) getuid());
+    }
+
+    JSHandle jsProcessGetgid(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+    {
+        assert(ctx !is null);
+        auto state = cast(DunState*) ctx;
+        assert(state.engine !is null);
+        import core.sys.posix.unistd : getgid;
+        return state.engine.newInt(cast(int) getgid());
+    }
+
+    JSHandle jsProcessGeteuid(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+    {
+        assert(ctx !is null);
+        auto state = cast(DunState*) ctx;
+        assert(state.engine !is null);
+        import core.sys.posix.unistd : geteuid;
+        return state.engine.newInt(cast(int) geteuid());
+    }
+
+    JSHandle jsProcessGetegid(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+    {
+        assert(ctx !is null);
+        auto state = cast(DunState*) ctx;
+        assert(state.engine !is null);
+        import core.sys.posix.unistd : getegid;
+        return state.engine.newInt(cast(int) getegid());
+    }
+
+    JSHandle jsProcessGetgroups(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+    {
+        assert(ctx !is null);
+        auto state = cast(DunState*) ctx;
+        assert(state.engine !is null);
+        auto engine = state.engine;
+        import core.sys.posix.unistd : getgroups;
+        import core.sys.posix.sys.types : gid_t;
+        enum MAX_GROUPS = 64;
+        gid_t[MAX_GROUPS] groups;
+        auto n = getgroups(MAX_GROUPS, groups.ptr);
+        auto arr = engine.newArray();
+        if (n > 0)
+        {
+            for (int i = 0; i < n; i++)
+                engine.setPropertyIndex(arr, cast(uint) i, engine.newInt(cast(int) groups[i]));
+        }
+        return arr;
+    }
 }
 
 private int sigNameToNum(string name) @safe nothrow

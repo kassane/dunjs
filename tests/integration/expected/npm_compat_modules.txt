@@ -279,6 +279,15 @@ PASS: clearTimeout
 PASS: console.log
 PASS: console.error
 PASS: console.warn
+PASS: process.getuid
+PASS: process.getgid
+PASS: process.geteuid
+PASS: process.getegid
+PASS: process.getgroups
+PASS: process.getuid returns number
+PASS: process.getgroups returns array
+PASS: child_process.execFileSync
+PASS: child_process.fork
 PASS: fs.constants
 PASS: fs.constants.R_OK
 PASS: fs.constants.W_OK
@@ -292,4 +301,4 @@ PASS: Dirent.isDirectory
 PASS: Buffer.allocUnsafeSlow
 PASS: Buffer.poolSize
 ---
-Total: 293/293 passed
+Total: 302/302 passed

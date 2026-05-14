@@ -399,6 +399,19 @@ check('console.log', typeof console.log === 'function');
 check('console.error', typeof console.error === 'function');
 check('console.warn', typeof console.warn === 'function');
 
+// process.getuid/getgid (POSIX)
+check('process.getuid', typeof process.getuid === 'function');
+check('process.getgid', typeof process.getgid === 'function');
+check('process.geteuid', typeof process.geteuid === 'function');
+check('process.getegid', typeof process.getegid === 'function');
+check('process.getgroups', typeof process.getgroups === 'function');
+check('process.getuid returns number', typeof process.getuid() === 'number');
+check('process.getgroups returns array', Array.isArray(process.getgroups()));
+
+// child_process extras
+check('child_process.execFileSync', typeof cp.execFileSync === 'function');
+check('child_process.fork', typeof cp.fork === 'function');
+
 // fs.constants and fs.Dirent
 check('fs.constants', typeof fs.constants === 'object');
 check('fs.constants.R_OK', fs.constants.R_OK === 4);
