@@ -218,6 +218,7 @@ JSHandle jsSpawnSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
         {
             auto elem = engine.getPropertyIndex(args[1], cast(uint) i);
             cmdArgs ~= engine.extractString(elem);
+            engine.freeValue(elem);
         }
     }
 

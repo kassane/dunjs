@@ -244,6 +244,7 @@ JSHandle jsNativeTextDecoderDecode(void* ctx, JSHandle thisVal, JSHandle[] args)
         if (engine.isNumber(lenVal))
         {
             int len = engine.extractInt(lenVal);
+            engine.freeValue(lenVal);
             if (len == 0) return engine.newString("");
             auto buf = new ubyte[len];
             foreach (i; 0 .. len)
@@ -254,6 +255,7 @@ JSHandle jsNativeTextDecoderDecode(void* ctx, JSHandle thisVal, JSHandle[] args)
             }
             return engine.newString(cast(const(char)[]) buf);
         }
+        engine.freeValue(lenVal);
     }
 
     return engine.newString("");

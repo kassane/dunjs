@@ -10,6 +10,7 @@ private enum : size_t {
     WS_MASK_KEY_LEN       = 4,
     WS_MIN_HEADER_SIZE    = 2,
     WS_SHA1_DIGEST_SIZE   = 20,
+    UBYTE_RANGE           = 256,
 }
 private enum : ushort {
     WS_CLOSE_NORMAL       = 1000,
@@ -205,7 +206,7 @@ ubyte[] buildWsFrame(WsOpcode opcode, const(ubyte)[] payload, bool mask) @truste
     {
         import std.random : uniform;
         ubyte[4] key;
-        foreach (ref k; key) k = cast(ubyte) uniform(0, 256);
+        foreach (ref k; key) k = cast(ubyte) uniform(0, UBYTE_RANGE);
         frame[pos .. pos + 4] = key[];
         pos += 4;
         foreach (i, b; payload)

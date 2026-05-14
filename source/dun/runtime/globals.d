@@ -104,6 +104,7 @@ void installGlobals(IJSEngine engine, DunState* state) @trusted
 
     auto global = engine.getGlobal();
     engine.setProperty(global, "gc", engine.newFunction(&jsGlobalGC, "gc", 0));
+    engine.freeValue(global);
 
     import dun.runtime.worker_api : installWorkerAPI;
     installWorkerAPI(engine, state);

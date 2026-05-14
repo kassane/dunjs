@@ -498,6 +498,7 @@ JSHandle denoMkdirSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     {
         auto rv = engine.getProperty(args[1], "recursive");
         if (engine.isBool(rv)) recursive = engine.extractBool(rv);
+        engine.freeValue(rv);
     }
 
     if (!checkPerm(state, Permission.write, path))
@@ -534,6 +535,7 @@ JSHandle denoRemoveSync(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     {
         auto rv = engine.getProperty(args[1], "recursive");
         if (engine.isBool(rv)) recursive = engine.extractBool(rv);
+        engine.freeValue(rv);
     }
 
     if (!checkPerm(state, Permission.write, path))
@@ -826,9 +828,13 @@ JSHandle denoPermissionsQuery(void* ctx, JSHandle thisVal, JSHandle[] args) @tru
 
     auto nameVal = engine.getProperty(args[0], "name");
     if (!engine.isString(nameVal))
+    {
+        engine.freeValue(nameVal);
         return engine.throwTypeError("descriptor.name must be a string");
+    }
 
     string name = engine.extractString(nameVal);
+    engine.freeValue(nameVal);
     Permission perm;
     string stateStr;
 

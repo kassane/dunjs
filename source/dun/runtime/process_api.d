@@ -349,8 +349,12 @@ JSHandle jsHrtime(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
         long totalNs = ticksToNSecs(now.ticks);
         if (args.length >= 1 && engine.isArray(args[0]))
         {
-            auto prevSec = engine.extractFloat(engine.getPropertyIndex(args[0], 0));
-            auto prevNs = engine.extractFloat(engine.getPropertyIndex(args[0], 1));
+            auto secH = engine.getPropertyIndex(args[0], 0);
+            auto nsH = engine.getPropertyIndex(args[0], 1);
+            auto prevSec = engine.extractFloat(secH);
+            auto prevNs = engine.extractFloat(nsH);
+            engine.freeValue(nsH);
+            engine.freeValue(secH);
             long prevTotalNs = cast(long)(prevSec * 1_000_000_000.0 + prevNs);
             totalNs -= prevTotalNs;
         }
