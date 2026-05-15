@@ -504,6 +504,15 @@ JSHandle jsHttpServerListen(void* ctx, JSHandle thisVal, scope JSHandle[] args) 
         srv.listenFd = lfd;
         srv.active = true;
         _activeServerCount++;
+
+        // Query actual port (needed when port=0 lets OS assign)
+        if (port == 0)
+        {
+            sockaddr_in boundAddr;
+            socklen_t addrLen = boundAddr.sizeof;
+            if (getsockname(lfd, cast(sockaddr*)&boundAddr, &addrLen) == 0)
+                port = ntohs(boundAddr.sin_port);
+        }
         srv.port = cast(ushort) port;
         engine.setProperty(thisVal, "listening", engine.newBool(true));
 

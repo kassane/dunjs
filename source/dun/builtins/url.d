@@ -190,6 +190,8 @@ string urlSource() pure @safe nothrow
     });
   };
 
+  URLSearchParams.prototype[Symbol.iterator] = URLSearchParams.prototype.entries;
+
   Object.defineProperty(URLSearchParams.prototype, 'size', {
     get: function() { return this._params.length; }
   });

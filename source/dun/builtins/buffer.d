@@ -649,15 +649,73 @@ JSHandle jsBufferSlice(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trus
     return makeBufferObj(engine, bytes[start .. end]);
 }
 
-// buf.copy(target)
+// buf.copy(target[, targetStart[, sourceStart[, sourceEnd]]])
 JSHandle jsBufferCopy(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsBufferCopy");
     auto state = cast(DunState*) ctx;
     assert(state.engine !is null, "Null engine in jsBufferCopy");
     auto engine = state.engine;
+
+    if (args.length < 1 || !engine.isObject(args[0]))
+        return engine.newInt(0);
+
     auto srcBytes = extractBytes(engine, thisVal);
-    return engine.newInt(cast(int) srcBytes.length);
+    int targetStart = (args.length >= 2) ? engine.extractInt(args[1]) : 0;
+    int sourceStart = (args.length >= 3) ? engine.extractInt(args[2]) : 0;
+    int sourceEnd = (args.length >= 4) ? engine.extractInt(args[3]) : cast(int) srcBytes.length;
+
+    if (sourceStart < 0) sourceStart = 0;
+    if (sourceEnd > cast(int) srcBytes.length) sourceEnd = cast(int) srcBytes.length;
+    if (targetStart < 0) targetStart = 0;
+    if (sourceStart >= sourceEnd) return engine.newInt(0);
+
+    auto src = srcBytes[sourceStart .. sourceEnd];
+
+    // Get target's data property and write into it
+    auto dataProp = engine.getProperty(args[0], "data");
+    if (engine.isUndefined(dataProp) || !engine.isArray(dataProp))
+    {
+        engine.freeValue(dataProp);
+        // Try direct byte extraction and reconstruction
+        auto targetBytes = extractBytes(engine, args[0]);
+        if (targetBytes.length == 0)
+            return engine.newInt(0);
+
+        // Copy into target bytes
+        auto tgtMut = cast(ubyte[]) targetBytes;
+        size_t copyLen = src.length;
+        if (targetStart + copyLen > tgtMut.length)
+            copyLen = tgtMut.length - targetStart;
+        tgtMut[targetStart .. targetStart + copyLen] = src[0 .. copyLen];
+
+        // Write back via data array
+        auto dataArr = engine.getProperty(args[0], "data");
+        if (!engine.isUndefined(dataArr) && engine.isArray(dataArr))
+        {
+            for (size_t i = 0; i < copyLen; i++)
+                engine.setPropertyIndex(dataArr, cast(uint)(targetStart + i),
+                    engine.newInt(cast(int) tgtMut[targetStart + i]));
+        }
+        engine.freeValue(dataArr);
+        return engine.newInt(cast(int) copyLen);
+    }
+
+    // Copy bytes into target's data array
+    size_t copyLen = src.length;
+    auto targetLenH = engine.getProperty(args[0], "length");
+    int targetLen = engine.extractInt(targetLenH);
+    engine.freeValue(targetLenH);
+
+    if (targetStart + cast(int) copyLen > targetLen)
+        copyLen = targetLen - targetStart;
+
+    for (size_t i = 0; i < copyLen; i++)
+        engine.setPropertyIndex(dataProp, cast(uint)(targetStart + i),
+            engine.newInt(cast(int) src[i]));
+
+    engine.freeValue(dataProp);
+    return engine.newInt(cast(int) copyLen);
 }
 
 // buf.equals(other)

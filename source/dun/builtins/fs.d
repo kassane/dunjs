@@ -431,11 +431,32 @@ package JSHandle buildStatObject(IJSEngine engine, ref SafeStatResult r) @truste
     engine.setProperty(obj, "atimeMs", engine.newFloat(r.atimeMs));
     engine.setProperty(obj, "mtimeMs", engine.newFloat(r.mtimeMs));
     engine.setProperty(obj, "ctimeMs", engine.newFloat(r.ctimeMs));
+    engine.setProperty(obj, "atime", makeDate(engine, r.atimeMs));
+    engine.setProperty(obj, "mtime", makeDate(engine, r.mtimeMs));
+    engine.setProperty(obj, "ctime", makeDate(engine, r.ctimeMs));
+    engine.setProperty(obj, "birthtimeMs", engine.newFloat(r.ctimeMs));
+    engine.setProperty(obj, "birthtime", makeDate(engine, r.ctimeMs));
     ensureStatFnsCached(engine);
     engine.setProperty(obj, "isFile", engine.dupValue(_cachedIsFileFn));
     engine.setProperty(obj, "isDirectory", engine.dupValue(_cachedIsDirFn));
     engine.setProperty(obj, "isSymbolicLink", engine.dupValue(_cachedIsSymlinkFn));
     return obj;
+}
+
+JSHandle makeDate(IJSEngine engine, double ms) @trusted
+{
+    assert(engine !is null, "Null engine in makeDate");
+    auto dateCtor = engine.eval("(function(ms){return new Date(ms)})", "<date>");
+    if (dateCtor.isError)
+    {
+        engine.freeValue(dateCtor.value);
+        return engine.newNull();
+    }
+    auto msVal = engine.newFloat(ms);
+    auto result = engine.callFunction(dateCtor.value, engine.newUndefined(), (&msVal)[0 .. 1]);
+    engine.freeValue(msVal);
+    engine.freeValue(dateCtor.value);
+    return result;
 }
 
 bool checkPerm(DunState* state, Permission perm, string resource = "") nothrow @trusted

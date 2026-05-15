@@ -349,19 +349,20 @@ JSHandle jsCryptoRandomBytes(void* ctx, JSHandle thisVal, scope JSHandle[] args)
     if (args.length < 1) return engine.throwTypeError("randomBytes requires a length argument");
     int n = engine.extractInt(args[0]);
     if (n < 0) return engine.throwTypeError("randomBytes length must be non-negative");
+    import dun.builtins.buffer : makeBufferObj;
     enum STACK_LIMIT = 256;
     ubyte[STACK_LIMIT] stackBuf = void;
     if (n <= STACK_LIMIT)
     {
         auto buf = stackBuf[0 .. n];
         fillRandomBytes(buf);
-        return engine.newUint8Array(buf);
+        return makeBufferObj(engine, buf);
     }
     auto buf = cast(ubyte*) malloc(n);
     if (buf is null) return engine.throwTypeError("Failed to allocate random bytes buffer");
     scope(exit) free(buf);
     fillRandomBytes(buf[0 .. n]);
-    return engine.newUint8Array(buf[0 .. n]);
+    return makeBufferObj(engine, buf[0 .. n]);
 }
 
 void fillRandomBytesPublic(ubyte[] buf) @trusted
@@ -822,9 +823,8 @@ JSHandle jsCryptoPbkdf2Sync(void* ctx, JSHandle thisVal, scope JSHandle[] args) 
         if (rc != 1)
             return engine.throwTypeError("PBKDF2 failed");
 
-        // Return as hex string
-        import std.digest : toHexString, LetterCase;
-        return engine.newString(toHexString!(LetterCase.lower)(outbuf).idup);
+        import dun.builtins.buffer : makeBufferObj;
+        return makeBufferObj(engine, outbuf);
     }
     catch (Exception) { return engine.throwTypeError("pbkdf2Sync failed"); }
 }
@@ -930,15 +930,20 @@ JSHandle jsCryptoCreateCipheriv(void* ctx, JSHandle thisVal, scope JSHandle[] ar
     auto cipher = getEvpCipher(algo);
     if (cipher is null)
         return engine.throwTypeError("Unsupported cipher: " ~ algo);
-    auto key = engine.extractString(args[1]);
-    auto iv = engine.extractString(args[2]);
+
+    auto keyBytes = extractCryptoBytes(engine, args[1]);
+    auto ivBytes = extractCryptoBytes(engine, args[2]);
+    if (keyBytes is null)
+        return engine.throwTypeError("Invalid key");
+    if (ivBytes is null)
+        return engine.throwTypeError("Invalid iv");
 
     auto evpCtx = EVP_CIPHER_CTX_new();
     if (evpCtx is null)
         return engine.throwTypeError("Failed to create cipher context");
 
     if (EVP_EncryptInit_ex(evpCtx, cipher, null,
-        cast(const(ubyte)*) key.ptr, cast(const(ubyte)*) iv.ptr) != 1)
+        cast(const(ubyte)*) keyBytes.ptr, cast(const(ubyte)*) ivBytes.ptr) != 1)
     {
         EVP_CIPHER_CTX_free(evpCtx);
         return engine.throwTypeError("Failed to initialize cipher");
@@ -948,7 +953,6 @@ JSHandle jsCryptoCreateCipheriv(void* ctx, JSHandle thisVal, scope JSHandle[] ar
     auto obj = engine.newObject();
     engine.setProperty(obj, "_algo", engine.newString(algo));
     engine.setProperty(obj, "_evpCtx", engine.newFloat(cast(double) cast(size_t) evpCtx));
-    engine.setProperty(obj, "_output", engine.newString(""));
     engine.setProperty(obj, "update", engine.dupValue(_cachedCipherUpdateFn));
     engine.setProperty(obj, "final", engine.dupValue(_cachedCipherFinalFn));
     if (isGcmCipher(algo))
@@ -961,7 +965,7 @@ JSHandle jsCipherUpdate(void* ctx, JSHandle thisVal, scope JSHandle[] args) @tru
     assert(ctx !is null, "Null ctx in cipher.update");
     auto state = cast(DunState*) ctx;
     auto engine = state.engine;
-    if (args.length < 1) return engine.dupValue(thisVal);
+    if (args.length < 1) return engine.newString("");
 
     auto ctxProp = engine.getProperty(thisVal, "_evpCtx");
     auto evpCtx = cast(EVP_CIPHER_CTX*) cast(size_t) engine.extractFloat(ctxProp);
@@ -970,22 +974,72 @@ JSHandle jsCipherUpdate(void* ctx, JSHandle thisVal, scope JSHandle[] args) @tru
 
     try
     {
-        auto input = engine.extractString(args[0]);
-        auto outbuf = new ubyte[input.length + 16];
+        // Get input encoding (arg[1]) and output encoding (arg[2])
+        string outputEnc = "buffer";
+        if (args.length >= 3)
+            outputEnc = engine.extractString(args[2]);
+
+        // Extract input bytes - handle Buffer, hex, or utf8
+        const(ubyte)[] inputBytes;
+        string inputStr;
+        ubyte[] decodedBuf;
+        if (engine.isObject(args[0]) && !engine.isString(args[0]))
+        {
+            import dun.builtins.buffer : extractBytes;
+            auto bufBytes = extractBytes(engine, args[0]);
+            inputBytes = cast(const(ubyte)[]) bufBytes;
+        }
+        else if (args.length >= 2)
+        {
+            auto inputEnc = engine.extractString(args[1]);
+            if (inputEnc == "hex")
+            {
+                auto hexStr = engine.extractString(args[0]);
+                decodedBuf = hexDecode(hexStr);
+                inputBytes = cast(const(ubyte)[]) decodedBuf;
+            }
+            else if (inputEnc == "base64")
+            {
+                import std.base64 : Base64;
+                inputStr = engine.extractString(args[0]);
+                decodedBuf = Base64.decode(inputStr);
+                inputBytes = cast(const(ubyte)[]) decodedBuf;
+            }
+            else
+            {
+                inputStr = engine.extractString(args[0]);
+                inputBytes = cast(const(ubyte)[]) inputStr;
+            }
+        }
+        else
+        {
+            inputStr = engine.extractString(args[0]);
+            inputBytes = cast(const(ubyte)[]) inputStr;
+        }
+
+        auto outbuf = new ubyte[inputBytes.length + 32];
         int outlen = 0;
         if (EVP_EncryptUpdate(evpCtx, outbuf.ptr, &outlen,
-            cast(const(ubyte)*) input.ptr, cast(int) input.length) != 1)
+            inputBytes.ptr, cast(int) inputBytes.length) != 1)
             return engine.throwTypeError("Cipher update failed");
 
-        import std.digest : toHexString, LetterCase;
-        auto prevProp = engine.getProperty(thisVal, "_output");
-        auto prev = engine.extractString(prevProp);
-        engine.freeValue(prevProp);
-        auto hex = toHexString!(LetterCase.lower)(outbuf[0 .. outlen]).idup;
-        engine.setProperty(thisVal, "_output", engine.newString(prev ~ hex));
+        if (outputEnc == "hex")
+        {
+            import std.digest : toHexString, LetterCase;
+            return engine.newString(toHexString!(LetterCase.lower)(outbuf[0 .. outlen]).idup);
+        }
+        else if (outputEnc == "base64")
+        {
+            import std.base64 : Base64;
+            return engine.newString(Base64.encode(outbuf[0 .. outlen]));
+        }
+        else
+        {
+            import dun.builtins.buffer : makeBufferObj;
+            return makeBufferObj(engine, outbuf[0 .. outlen]);
+        }
     }
-    catch (Exception) {}
-    return engine.dupValue(thisVal);
+    catch (Exception) { return engine.throwTypeError("Cipher update failed"); }
 }
 
 JSHandle jsCipherFinal(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
@@ -998,6 +1052,10 @@ JSHandle jsCipherFinal(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trus
     auto evpCtx = cast(EVP_CIPHER_CTX*) cast(size_t) engine.extractFloat(ctxProp);
     engine.freeValue(ctxProp);
     if (evpCtx is null) return engine.throwTypeError("Cipher already finalized");
+
+    string outputEnc = "buffer";
+    if (args.length >= 1)
+        outputEnc = engine.extractString(args[0]);
 
     ubyte[32] outbuf;
     int outlen = 0;
@@ -1022,16 +1080,21 @@ JSHandle jsCipherFinal(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trus
     if (rc != 1)
         return engine.throwTypeError("Cipher final failed");
 
-    auto prevProp = engine.getProperty(thisVal, "_output");
-    auto prev = engine.extractString(prevProp);
-    engine.freeValue(prevProp);
-
-    if (outlen > 0)
+    if (outputEnc == "hex")
     {
         import std.digest : toHexString, LetterCase;
-        return engine.newString(prev ~ toHexString!(LetterCase.lower)(outbuf[0 .. outlen]).idup);
+        return engine.newString(toHexString!(LetterCase.lower)(outbuf[0 .. outlen]).idup);
     }
-    return engine.newString(prev);
+    else if (outputEnc == "base64")
+    {
+        import std.base64 : Base64;
+        return engine.newString(Base64.encode(outbuf[0 .. outlen]));
+    }
+    else
+    {
+        import dun.builtins.buffer : makeBufferObj;
+        return makeBufferObj(engine, outbuf[0 .. outlen]);
+    }
 }
 
 JSHandle jsCipherGetAuthTag(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
@@ -1061,15 +1124,20 @@ JSHandle jsCryptoCreateDecipheriv(void* ctx, JSHandle thisVal, scope JSHandle[] 
     auto cipher = getEvpCipher(algo);
     if (cipher is null)
         return engine.throwTypeError("Unsupported cipher: " ~ algo);
-    auto key = engine.extractString(args[1]);
-    auto iv = engine.extractString(args[2]);
+
+    auto keyBytes = extractCryptoBytes(engine, args[1]);
+    auto ivBytes = extractCryptoBytes(engine, args[2]);
+    if (keyBytes is null)
+        return engine.throwTypeError("Invalid key");
+    if (ivBytes is null)
+        return engine.throwTypeError("Invalid iv");
 
     auto evpCtx = EVP_CIPHER_CTX_new();
     if (evpCtx is null)
         return engine.throwTypeError("Failed to create decipher context");
 
     if (EVP_DecryptInit_ex(evpCtx, cipher, null,
-        cast(const(ubyte)*) key.ptr, cast(const(ubyte)*) iv.ptr) != 1)
+        cast(const(ubyte)*) keyBytes.ptr, cast(const(ubyte)*) ivBytes.ptr) != 1)
     {
         EVP_CIPHER_CTX_free(evpCtx);
         return engine.throwTypeError("Failed to initialize decipher");
@@ -1079,7 +1147,6 @@ JSHandle jsCryptoCreateDecipheriv(void* ctx, JSHandle thisVal, scope JSHandle[] 
     auto obj = engine.newObject();
     engine.setProperty(obj, "_algo", engine.newString(algo));
     engine.setProperty(obj, "_evpCtx", engine.newFloat(cast(double) cast(size_t) evpCtx));
-    engine.setProperty(obj, "_output", engine.newString(""));
     engine.setProperty(obj, "update", engine.dupValue(_cachedDecipherUpdateFn));
     engine.setProperty(obj, "final", engine.dupValue(_cachedDecipherFinalFn));
     if (isGcmCipher(algo))
@@ -1092,7 +1159,7 @@ JSHandle jsDecipherUpdate(void* ctx, JSHandle thisVal, scope JSHandle[] args) @t
     assert(ctx !is null, "Null ctx in decipher.update");
     auto state = cast(DunState*) ctx;
     auto engine = state.engine;
-    if (args.length < 1) return engine.dupValue(thisVal);
+    if (args.length < 1) return engine.newString("");
 
     auto ctxProp = engine.getProperty(thisVal, "_evpCtx");
     auto evpCtx = cast(EVP_CIPHER_CTX*) cast(size_t) engine.extractFloat(ctxProp);
@@ -1101,30 +1168,60 @@ JSHandle jsDecipherUpdate(void* ctx, JSHandle thisVal, scope JSHandle[] args) @t
 
     try
     {
-        auto input = engine.extractString(args[0]);
-        // Parse hex input to bytes
-        if (input.length % 2 != 0)
-            return engine.throwTypeError("Invalid hex input");
-        auto inBytes = new ubyte[input.length / 2];
-        foreach (i; 0 .. inBytes.length)
+        string inputEnc = "buffer";
+        string outputEnc = "buffer";
+        if (args.length >= 2)
+            inputEnc = engine.extractString(args[1]);
+        if (args.length >= 3)
+            outputEnc = engine.extractString(args[2]);
+
+        const(ubyte)[] inBytes;
+        ubyte[] decodedBuf;
+        string rawInput;
+        if (inputEnc == "hex")
         {
-            inBytes[i] = cast(ubyte)(hexVal(input[i * 2]) << 4 | hexVal(input[i * 2 + 1]));
+            rawInput = engine.extractString(args[0]);
+            decodedBuf = hexDecode(rawInput);
+            inBytes = decodedBuf;
+        }
+        else if (inputEnc == "base64")
+        {
+            import std.base64 : Base64;
+            rawInput = engine.extractString(args[0]);
+            decodedBuf = Base64.decode(rawInput);
+            inBytes = decodedBuf;
+        }
+        else
+        {
+            rawInput = engine.extractString(args[0]);
+            inBytes = cast(const(ubyte)[]) rawInput;
         }
 
-        auto outbuf = new ubyte[inBytes.length + 16];
+        auto outbuf = new ubyte[inBytes.length + 32];
         int outlen = 0;
         if (EVP_DecryptUpdate(evpCtx, outbuf.ptr, &outlen,
             inBytes.ptr, cast(int) inBytes.length) != 1)
             return engine.throwTypeError("Decipher update failed");
 
-        auto prevProp = engine.getProperty(thisVal, "_output");
-        auto prev = engine.extractString(prevProp);
-        engine.freeValue(prevProp);
-        engine.setProperty(thisVal, "_output",
-            engine.newString(prev ~ (() @trusted => cast(string) outbuf[0 .. outlen])()));
+        if (outputEnc == "utf8" || outputEnc == "utf-8")
+            return engine.newString((() @trusted => cast(string) outbuf[0 .. outlen].dup)());
+        else if (outputEnc == "hex")
+        {
+            import std.digest : toHexString, LetterCase;
+            return engine.newString(toHexString!(LetterCase.lower)(outbuf[0 .. outlen]).idup);
+        }
+        else if (outputEnc == "base64")
+        {
+            import std.base64 : Base64;
+            return engine.newString(Base64.encode(outbuf[0 .. outlen]));
+        }
+        else
+        {
+            import dun.builtins.buffer : makeBufferObj;
+            return makeBufferObj(engine, outbuf[0 .. outlen]);
+        }
     }
-    catch (Exception) {}
-    return engine.dupValue(thisVal);
+    catch (Exception) { return engine.throwTypeError("Decipher update failed"); }
 }
 
 JSHandle jsDecipherFinal(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
@@ -1138,6 +1235,10 @@ JSHandle jsDecipherFinal(void* ctx, JSHandle thisVal, scope JSHandle[] args) @tr
     engine.freeValue(ctxProp);
     if (evpCtx is null) return engine.throwTypeError("Decipher already finalized");
 
+    string outputEnc = "buffer";
+    if (args.length >= 1)
+        outputEnc = engine.extractString(args[0]);
+
     ubyte[32] outbuf;
     int outlen = 0;
     auto rc = EVP_DecryptFinal_ex(evpCtx, outbuf.ptr, &outlen);
@@ -1147,13 +1248,23 @@ JSHandle jsDecipherFinal(void* ctx, JSHandle thisVal, scope JSHandle[] args) @tr
     if (rc != 1)
         return engine.throwTypeError("Decipher final failed (bad padding or auth tag)");
 
-    auto prevProp = engine.getProperty(thisVal, "_output");
-    auto prev = engine.extractString(prevProp);
-    engine.freeValue(prevProp);
-
-    if (outlen > 0)
-        return engine.newString(prev ~ (() @trusted => cast(string) outbuf[0 .. outlen])());
-    return engine.newString(prev);
+    if (outputEnc == "utf8" || outputEnc == "utf-8")
+        return engine.newString((() @trusted => cast(string) outbuf[0 .. outlen].dup)());
+    else if (outputEnc == "hex")
+    {
+        import std.digest : toHexString, LetterCase;
+        return engine.newString(toHexString!(LetterCase.lower)(outbuf[0 .. outlen]).idup);
+    }
+    else if (outputEnc == "base64")
+    {
+        import std.base64 : Base64;
+        return engine.newString(Base64.encode(outbuf[0 .. outlen]));
+    }
+    else
+    {
+        import dun.builtins.buffer : makeBufferObj;
+        return makeBufferObj(engine, outbuf[0 .. outlen]);
+    }
 }
 
 JSHandle jsDecipherSetAuthTag(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
@@ -1185,6 +1296,35 @@ private ubyte hexVal(char c) @safe pure nothrow
     if (c >= 'a' && c <= 'f') return cast(ubyte)(c - 'a' + 10);
     if (c >= 'A' && c <= 'F') return cast(ubyte)(c - 'A' + 10);
     return 0;
+}
+
+private ubyte[] hexDecode(string hex) @safe pure nothrow
+{
+    if (hex.length % 2 != 0) return null;
+    auto result = new ubyte[hex.length / 2];
+    foreach (i; 0 .. result.length)
+        result[i] = cast(ubyte)(hexVal(hex[i * 2]) << 4 | hexVal(hex[i * 2 + 1]));
+    return result;
+}
+
+private ubyte[] extractCryptoBytes(IJSEngine engine, JSHandle arg) @trusted
+{
+    if (engine.isString(arg))
+    {
+        auto s = engine.extractString(arg);
+        return cast(ubyte[]) s.dup;
+    }
+    if (engine.isObject(arg))
+    {
+        // Try as raw typed array first
+        auto directBytes = engine.getTypedArrayBytes(arg);
+        if (directBytes !is null) return directBytes;
+        // Try as Buffer (has __u8 property)
+        import dun.builtins.buffer : extractBytes;
+        auto bytes = extractBytes(engine, arg);
+        if (bytes !is null) return bytes;
+    }
+    return null;
 }
 
 // --- createSign / createVerify ---
