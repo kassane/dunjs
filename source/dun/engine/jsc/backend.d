@@ -210,10 +210,19 @@ class JSCEngine : IJSEngine
         auto jsName = JSStringCreateWithUTF8CString(name.toStringz);
         auto fn = JSObjectMakeFunctionWithCallback(ctx, jsName, &jscNativeTrampoline);
         JSStringRelease(jsName);
-        JSValueRef exc = null;
-        JSObjectSetProperty(ctx, fn, getCbSlotStr(),
-            JSValueMakeNumber(ctx, cast(double) slot),
-            kJSPropertyAttributeReadOnly | kJSPropertyAttributeDontEnum, &exc);
+        // Fast path: store slot ID in object's private data slot.
+        // No JSValueToNumber on every call → avoids JSLock contention under
+        // heavy iteration. Falls back to __cbSlot__ property if SetPrivate
+        // is rejected by this build of JSC.
+        bool storedAsPrivate = JSObjectSetPrivate(fn,
+            cast(void*) cast(size_t)(slot + 1));  // +1 to distinguish from null
+        if (!storedAsPrivate)
+        {
+            JSValueRef exc = null;
+            JSObjectSetProperty(ctx, fn, getCbSlotStr(),
+                JSValueMakeNumber(ctx, cast(double) slot),
+                kJSPropertyAttributeReadOnly | kJSPropertyAttributeDontEnum, &exc);
+        }
         return toHandle(cast(void*) fn);
     }
 
@@ -618,9 +627,19 @@ private extern (C) JSValueRef jscNativeTrampoline(JSContextRef ctx,
     import dun.engine.jsc.backend : JSCEngine;
 
     assert(ctx !is null, "Null JSContextRef in jscNativeTrampoline");
-    JSValueRef exc = null;
-    auto slotVal = JSObjectGetProperty(ctx, func, getCbSlotStr(), &exc);
-    int slot = cast(int) JSValueToNumber(ctx, slotVal, &exc);
+    // Fast slot lookup via private data (no JSValueToNumber → no JSLock churn).
+    int slot;
+    auto priv = JSObjectGetPrivate(func);
+    if (priv !is null)
+    {
+        slot = cast(int)(cast(size_t) priv - 1);
+    }
+    else
+    {
+        JSValueRef exc = null;
+        auto slotVal = JSObjectGetProperty(ctx, func, getCbSlotStr(), &exc);
+        slot = cast(int) JSValueToNumber(ctx, slotVal, &exc);
+    }
 
     auto cb = get(slot);
     if (cb is null)

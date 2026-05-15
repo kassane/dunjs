@@ -677,9 +677,13 @@ JSHandle jsBufferConcat(void* ctx, JSHandle thisVal, scope JSHandle[] args) @tru
             totalLen = cast(size_t) requestedLen;
     }
 
-    // Create result typed array directly and memcpy segments into it
+    // Create result typed array directly and memcpy segments into it.
+    // Allocate AFTER the size pass so we know the total length, then keep
+    // u8 protected (via dupValue) across the memcpy loop because freeValue
+    // on the element handles can trigger GC and we hold a raw u8 ref.
     ensureBufferFnsCached(engine);
     auto u8 = engine.newUint8ArrayZeroed(totalLen);
+    auto u8Pinned = engine.dupValue(u8);
     auto destBytes = engine.getTypedArrayBytes(u8);
     size_t pos = 0;
     for (int i = 0; i < count; i++)
@@ -697,7 +701,10 @@ JSHandle jsBufferConcat(void* ctx, JSHandle thisVal, scope JSHandle[] args) @tru
 
     auto totalLenVal = engine.newInt(cast(int) totalLen);
     JSHandle[2] factoryArgs = [u8, totalLenVal];
-    return engine.callFunction(_bufFactory, _bufFactoryThis, factoryArgs[]);
+    auto result = engine.callFunction(_bufFactory, _bufFactoryThis, factoryArgs[]);
+    engine.freeValue(u8Pinned);
+    engine.freeValue(totalLenVal);
+    return result;
 }
 
 // Buffer.byteLength(string, [encoding])
