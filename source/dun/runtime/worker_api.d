@@ -67,7 +67,9 @@ void installWorkerAPI(IJSEngine engine, DunState* state) @trusted
         ~ `  return new __NativeInt32Array(a);`
         ~ `};`
         ~ `globalThis.Int32Array.BYTES_PER_ELEMENT = 4;`
-        ~ `globalThis.Int32Array.prototype = __NativeInt32Array.prototype;`,
+        ~ `globalThis.Int32Array.prototype = __NativeInt32Array.prototype;`
+        ~ `if(__NativeInt32Array.from)globalThis.Int32Array.from=__NativeInt32Array.from.bind(__NativeInt32Array);`
+        ~ `if(__NativeInt32Array.of)globalThis.Int32Array.of=__NativeInt32Array.of.bind(__NativeInt32Array);`,
         "<worker-init>");
 
     auto atomics = engine.newObject();

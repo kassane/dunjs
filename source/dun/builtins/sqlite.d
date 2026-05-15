@@ -317,30 +317,46 @@ void bindArgs(IJSEngine engine, sqlite3_stmt* stmt, scope JSHandle[] args) @trus
 
     import std.string : toStringz;
 
-    foreach (i, arg; args)
+    if (args.length == 1 && engine.isArray(args[0]))
     {
-        int idx = cast(int)(i + 1);
-        if (engine.isNull(arg) || engine.isUndefined(arg))
+        int len = engine.getArrayLength(args[0]);
+        foreach (i; 0 .. cast(uint) len)
         {
-            sqlite3_bind_null(stmt, idx);
+            auto elem = engine.getPropertyIndex(args[0], i);
+            bindSingle(engine, stmt, cast(int)(i + 1), elem);
+            engine.freeValue(elem);
         }
-        else if (engine.isNumber(arg))
-        {
-            double val = engine.extractFloat(arg);
-            if (val == cast(double) cast(long) val && val >= -2_147_483_648.0 && val <= 2_147_483_647.0)
-                sqlite3_bind_int(stmt, idx, cast(int) val);
-            else
-                sqlite3_bind_double(stmt, idx, val);
-        }
-        else if (engine.isBool(arg))
-        {
-            sqlite3_bind_int(stmt, idx, engine.extractBool(arg) ? 1 : 0);
-        }
+        return;
+    }
+
+    foreach (i, arg; args)
+        bindSingle(engine, stmt, cast(int)(i + 1), arg);
+}
+
+void bindSingle(IJSEngine engine, sqlite3_stmt* stmt, int idx, JSHandle arg) @trusted
+{
+    import std.string : toStringz;
+
+    if (engine.isNull(arg) || engine.isUndefined(arg))
+    {
+        sqlite3_bind_null(stmt, idx);
+    }
+    else if (engine.isNumber(arg))
+    {
+        double val = engine.extractFloat(arg);
+        if (val == cast(double) cast(long) val && val >= -2_147_483_648.0 && val <= 2_147_483_647.0)
+            sqlite3_bind_int(stmt, idx, cast(int) val);
         else
-        {
-            string s = engine.extractString(arg);
-            sqlite3_bind_text(stmt, idx, s.toStringz, cast(int) s.length, SQLITE_TRANSIENT);
-        }
+            sqlite3_bind_double(stmt, idx, val);
+    }
+    else if (engine.isBool(arg))
+    {
+        sqlite3_bind_int(stmt, idx, engine.extractBool(arg) ? 1 : 0);
+    }
+    else
+    {
+        string s = engine.extractString(arg);
+        sqlite3_bind_text(stmt, idx, s.toStringz, cast(int) s.length, SQLITE_TRANSIENT);
     }
 }
 

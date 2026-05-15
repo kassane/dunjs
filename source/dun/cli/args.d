@@ -439,6 +439,31 @@ CliConfig parseArgs(string[] args) @safe
             continue;
         }
 
+        // Reject unexpected positional args for commands that don't accept them
+        if (config.command == Command.eval_ || config.command == Command.version_
+            || config.command == Command.help || config.command == Command.audit
+            || config.command == Command.clean || config.command == Command.repl)
+        {
+            import std.conv : to;
+            string cmdName;
+            final switch (config.command) {
+                case Command.eval_: cmdName = "eval"; break;
+                case Command.version_: cmdName = "version"; break;
+                case Command.help: cmdName = "help"; break;
+                case Command.audit: cmdName = "audit"; break;
+                case Command.clean: cmdName = "clean"; break;
+                case Command.repl: cmdName = "repl"; break;
+                case Command.run: case Command.install: case Command.test_:
+                case Command.bench: case Command.init_: case Command.fmt:
+                    break;
+            }
+            if (cmdName.length > 0)
+            {
+                config.errorMessage = "unexpected argument '" ~ arg ~ "' after '" ~ cmdName ~ "'";
+                return config;
+            }
+        }
+
         // Script arguments (after script path, flags are passed to the script)
         config.scriptArgs ~= arg;
         i++;

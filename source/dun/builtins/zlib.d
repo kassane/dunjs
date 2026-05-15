@@ -89,6 +89,9 @@ ubyte[] extractInputBytes(IJSEngine engine, JSHandle val) @trusted
         auto s = engine.extractString(val);
         return cast(ubyte[]) s.dup;
     }
+    auto taBytes = engine.getTypedArrayBytes(val);
+    if (taBytes !is null)
+        return taBytes.dup;
     if (engine.isArray(val) || engine.isObject(val))
     {
         int len = engine.getArrayLength(val);
@@ -107,6 +110,24 @@ ubyte[] extractInputBytes(IJSEngine engine, JSHandle val) @trusted
 
 JSHandle returnBytes(IJSEngine engine, const(ubyte)[] data) @trusted
 {
+    auto global = engine.getGlobal();
+    auto bufCtor = engine.getProperty(global, "Buffer");
+    engine.freeValue(global);
+    if (engine.isObject(bufCtor) || engine.isFunction(bufCtor))
+    {
+        auto fromFn = engine.getProperty(bufCtor, "from");
+        if (engine.isFunction(fromFn))
+        {
+            auto u8 = engine.newUint8Array(data);
+            auto result = engine.callFunction(fromFn, bufCtor, [u8]);
+            engine.freeValue(u8);
+            engine.freeValue(fromFn);
+            engine.freeValue(bufCtor);
+            return result;
+        }
+        engine.freeValue(fromFn);
+    }
+    engine.freeValue(bufCtor);
     return engine.newUint8Array(data);
 }
 

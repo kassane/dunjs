@@ -468,10 +468,25 @@ private string webAPIsSource() pure nothrow @safe
     ~ "else console.log(data);};"
     ~ "console.dir=console.dir||function(obj){console.log(typeof __dun_inspect__==='function'?__dun_inspect__(obj):JSON.stringify(obj,null,2));};"
     ~ "console.trace=console.trace||function(){var e=new Error();console.log('Trace'+(arguments.length?': '+[].join.call(arguments,' '):''));if(e.stack)console.log(e.stack.split('\\n').slice(1).join('\\n'));};"
-    ~ "console.clear=console.clear||function(){};"
-    ~ "console.group=console.group||function(){};"
-    ~ "console.groupEnd=console.groupEnd||function(){};"
-    ~ "console.groupCollapsed=console.groupCollapsed||function(){};"
+    ~ "console.clear=console.clear||function(){if(typeof process!=='undefined'&&process.stdout&&process.stdout.write)process.stdout.write('\\x1b[2J\\x1b[H');};"
+    ~ "var _groupDepth=0;"
+    ~ "var _origLog=console.log,_origWarn=console.warn,_origError=console.error,_origInfo=console.info,_origDebug=console.debug;"
+    ~ "function _indented(fn){return function(){var prefix='';for(var i=0;i<_groupDepth;i++)prefix+='  ';"
+    ~   "if(prefix&&arguments.length>0){var args=[].slice.call(arguments);if(typeof args[0]==='string')args[0]=prefix+args[0];else{args.unshift(prefix);}fn.apply(console,args);}else fn.apply(console,arguments);};"
+    ~ "}"
+    ~ "console.group=function(){if(arguments.length>0){var fn=_indented(_origLog);fn.apply(console,arguments);}_groupDepth++;};"
+    ~ "console.groupEnd=function(){if(_groupDepth>0)_groupDepth--;};"
+    ~ "console.groupCollapsed=console.group;"
+    ~ "console.log=_indented(_origLog);console.warn=_indented(_origWarn);console.error=_indented(_origError);"
+    ~ "console.info=_indented(_origInfo);console.debug=_indented(_origDebug);"
+
+    // TypedArray.from/of polyfills (some QuickJS builds miss static methods)
+    ~ "['Int8Array','Uint8Array','Uint8ClampedArray','Int16Array','Uint16Array','Int32Array','Uint32Array','Float32Array','Float64Array'].forEach(function(name){"
+    ~   "var C=globalThis[name];if(!C)return;"
+    ~   "if(!C.from)C.from=function(src,mapFn,thisArg){var arr=Array.isArray(src)?src:Array.from(src);"
+    ~     "if(mapFn){for(var j=0;j<arr.length;j++)arr[j]=mapFn.call(thisArg,arr[j],j);}return new C(arr);};"
+    ~   "if(!C.of)C.of=function(){return new C([].slice.call(arguments));};"
+    ~ "});"
 
     ~ "})();";
     static assert(src.length > 0, "webAPIsSource must not be empty");
