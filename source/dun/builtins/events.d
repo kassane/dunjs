@@ -87,6 +87,7 @@ string eventEmitterSource() pure @safe nothrow
   EventEmitter.prototype.on = function(event, listener) {
     if (typeof listener !== 'function')
       throw new TypeError('listener must be a function');
+    if (!this._events) this._events = Object.create(null);
     if (event !== 'newListener' && this._events['newListener'] && this._events['newListener'].length > 0)
       this.emit('newListener', event, listener);
     if (!this._events[event]) this._events[event] = [];
@@ -102,12 +103,14 @@ string eventEmitterSource() pure @safe nothrow
   EventEmitter.prototype.once = function(event, listener) {
     if (typeof listener !== 'function')
       throw new TypeError('listener must be a function');
+    if (!this._events) this._events = Object.create(null);
     if (!this._events[event]) this._events[event] = [];
     this._events[event].push({ fn: listener, once: true });
     return this;
   };
 
   EventEmitter.prototype.off = function(event, listener) {
+    if (!this._events) return this;
     if (!this._events[event]) return this;
     var arr = this._events[event];
     for (var i = 0; i < arr.length; i++) {
@@ -123,12 +126,14 @@ string eventEmitterSource() pure @safe nothrow
   EventEmitter.prototype.removeListener = EventEmitter.prototype.off;
 
   EventEmitter.prototype.removeAllListeners = function(event) {
+    if (!this._events) this._events = Object.create(null);
     if (event !== undefined) delete this._events[event];
-    else this._events = {};
+    else this._events = Object.create(null);
     return this;
   };
 
   EventEmitter.prototype.emit = function(event) {
+    if (!this._events) return false;
     if (!this._events[event]) return false;
     var listeners = this._events[event].slice();
     var args = [];
@@ -146,20 +151,22 @@ string eventEmitterSource() pure @safe nothrow
   };
 
   EventEmitter.prototype.listenerCount = function(event) {
+    if (!this._events) return 0;
     return this._events[event] ? this._events[event].length : 0;
   };
 
   EventEmitter.prototype.listeners = function(event) {
-    if (!this._events[event]) return [];
+    if (!this._events || !this._events[event]) return [];
     return this._events[event].map(function(l) { return l.fn; });
   };
 
   EventEmitter.prototype.rawListeners = function(event) {
-    if (!this._events[event]) return [];
+    if (!this._events || !this._events[event]) return [];
     return this._events[event].slice();
   };
 
   EventEmitter.prototype.eventNames = function() {
+    if (!this._events) return [];
     return Object.keys(this._events);
   };
 
@@ -175,6 +182,7 @@ string eventEmitterSource() pure @safe nothrow
   EventEmitter.prototype.prependListener = function(event, listener) {
     if (typeof listener !== 'function')
       throw new TypeError('listener must be a function');
+    if (!this._events) this._events = Object.create(null);
     if (!this._events[event]) this._events[event] = [];
     this._events[event].unshift({ fn: listener, once: false });
     return this;
@@ -183,6 +191,7 @@ string eventEmitterSource() pure @safe nothrow
   EventEmitter.prototype.prependOnceListener = function(event, listener) {
     if (typeof listener !== 'function')
       throw new TypeError('listener must be a function');
+    if (!this._events) this._events = Object.create(null);
     if (!this._events[event]) this._events[event] = [];
     this._events[event].unshift({ fn: listener, once: true });
     return this;

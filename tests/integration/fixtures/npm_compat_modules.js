@@ -20,7 +20,7 @@ check('buffer module', typeof require('buffer') === 'object');
 check('events module', typeof require('events') === 'function');
 check('EventEmitter.listenerCount', typeof EventEmitter.listenerCount === 'function');
 check('url module', typeof require('url') === 'object');
-check('stream module', typeof require('stream') === 'object');
+check('stream module', typeof require('stream') === 'function');
 check('util module', typeof require('util') === 'object');
 check('assert module', typeof require('assert') === 'function' || typeof require('assert') === 'object');
 check('querystring module', typeof require('querystring') === 'object');

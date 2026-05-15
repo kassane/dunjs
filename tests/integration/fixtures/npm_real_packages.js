@@ -210,5 +210,51 @@ try {
   check('iconv-lite encodingExists', iconv.encodingExists('utf8') === true);
 } catch(e) { console.log('FAIL: iconv-lite load:', e.message); total += 3; }
 
+// express v4 (CJS, web framework — the ultimate npm compat test)
+try {
+  const express = require('express');
+  check('express loads', typeof express === 'function');
+  check('express.Router', typeof express.Router === 'function');
+  check('express.static', typeof express.static === 'function');
+  check('express.json', typeof express.json === 'function');
+  var app = express();
+  check('express() creates app', typeof app === 'function');
+  check('app.get exists', typeof app.get === 'function');
+  check('app.use exists', typeof app.use === 'function');
+  check('app.listen exists', typeof app.listen === 'function');
+  check('app.set exists', typeof app.set === 'function');
+  app.set('x-powered-by', false);
+  check('app.set/get', app.get('x-powered-by') === false);
+  var router = express.Router();
+  check('Router() works', typeof router === 'function');
+} catch(e) { console.log('FAIL: express load:', e.message); total += 11; }
+
+// body-parser (CJS, Express middleware)
+try {
+  const bodyParser = require('body-parser');
+  check('body-parser.json', typeof bodyParser.json === 'function');
+  check('body-parser.urlencoded', typeof bodyParser.urlencoded === 'function');
+  check('body-parser.raw', typeof bodyParser.raw === 'function');
+  check('body-parser.text', typeof bodyParser.text === 'function');
+} catch(e) { console.log('FAIL: body-parser load:', e.message); total += 4; }
+
+// qs (CJS, query string parsing)
+try {
+  const qs = require('qs');
+  check('qs.parse', typeof qs.parse === 'function');
+  var result = qs.parse('a=1&b=2');
+  check('qs.parse result', result.a === '1' && result.b === '2');
+  check('qs.stringify', qs.stringify({a: 1, b: 2}) === 'a=1&b=2');
+} catch(e) { console.log('FAIL: qs load:', e.message); total += 3; }
+
+// http-errors (CJS, HTTP error constructors)
+try {
+  const createError = require('http-errors');
+  check('http-errors loads', typeof createError === 'function');
+  var err = createError(404, 'Not Found');
+  check('http-errors 404', err.statusCode === 404);
+  check('http-errors message', err.message === 'Not Found');
+} catch(e) { console.log('FAIL: http-errors load:', e.message); total += 3; }
+
 console.log('npm_real_packages: ' + passed + '/' + total + ' checks passed');
 if (passed === total) console.log('ALL CHECKS PASSED');

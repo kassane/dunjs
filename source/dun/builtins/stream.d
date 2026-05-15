@@ -50,7 +50,8 @@ version (EngineQuickJS)
 
         foreach (name; ["Stream", "Readable", "Writable", "Duplex",
                         "Transform", "PassThrough", "pipeline", "finished",
-                        "addAbortSignal", "promises"])
+                        "addAbortSignal", "promises", "compose", "isErrored",
+                        "isReadable", "isDisturbed", "consumers"])
         {
             auto prop = JS_GetPropertyStr(ctx, mod, name.ptr);
             JS_SetModuleExport(ctx, m, name.ptr, prop);
@@ -550,26 +551,26 @@ string streamSource() pure @safe nothrow
     buffer: function(stream) { return consumers.arrayBuffer(stream); }
   };
 
-  var mod = {
-    Stream: Stream,
-    Readable: Readable,
-    Writable: Writable,
-    Duplex: Duplex,
-    Transform: Transform,
-    PassThrough: PassThrough,
-    pipeline: pipeline,
-    finished: finished,
-    addAbortSignal: addAbortSignal,
-    promises: promises,
-    compose: compose,
-    isErrored: isErrored,
-    isReadable: isReadable,
-    isDisturbed: isDisturbed,
-    consumers: consumers
-  };
+  // Node.js compat: require('stream') returns the Stream constructor
+  // with Readable, Writable, etc. as properties on it
+  Stream.Stream = Stream;
+  Stream.Readable = Readable;
+  Stream.Writable = Writable;
+  Stream.Duplex = Duplex;
+  Stream.Transform = Transform;
+  Stream.PassThrough = PassThrough;
+  Stream.pipeline = pipeline;
+  Stream.finished = finished;
+  Stream.addAbortSignal = addAbortSignal;
+  Stream.promises = promises;
+  Stream.compose = compose;
+  Stream.isErrored = isErrored;
+  Stream.isReadable = isReadable;
+  Stream.isDisturbed = isDisturbed;
+  Stream.consumers = consumers;
 
   if (typeof globalThis !== 'undefined') {
-    globalThis.__dun_cjs_stream__ = mod;
+    globalThis.__dun_cjs_stream__ = Stream;
   }
 })();`;
 }
