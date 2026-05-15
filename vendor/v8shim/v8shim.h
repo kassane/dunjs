@@ -66,6 +66,9 @@ int dun_v8_value_is_object(DunV8Value* val);
 int dun_v8_value_is_function(DunV8Value* val);
 int dun_v8_value_is_array(DunV8Value* val);
 
+/* Batch type query — single FFI call returns type tag */
+int dun_v8_value_get_type(DunV8Value* val);
+
 /* Properties */
 DunV8Value* dun_v8_get_property(DunV8Context* ctx, DunV8Value* obj, const char* name);
 void dun_v8_set_property(DunV8Context* ctx, DunV8Value* obj, const char* name, DunV8Value* val);
@@ -76,6 +79,8 @@ DunV8Value* dun_v8_global(DunV8Context* ctx);
 /* Typed arrays */
 DunV8Value* dun_v8_new_uint8array(DunV8Context* ctx,
     const unsigned char* data, size_t len);
+unsigned char* dun_v8_typed_array_data(DunV8Context* ctx,
+    DunV8Value* val, size_t* out_len);
 
 /* Reference management */
 void dun_v8_value_ref(DunV8Value* val);
@@ -86,6 +91,7 @@ const char* dun_v8_get_exception(DunV8Context* ctx, size_t* len);
 DunV8Value* dun_v8_throw_error(DunV8Context* ctx, const char* msg);
 DunV8Value* dun_v8_throw_type_error(DunV8Context* ctx, const char* msg);
 DunV8Value* dun_v8_throw_range_error(DunV8Context* ctx, const char* msg);
+DunV8Value* dun_v8_throw_value(DunV8Context* ctx, DunV8Value* val);
 
 /* Function call */
 DunV8Value* dun_v8_call(DunV8Context* ctx, DunV8Value* func,

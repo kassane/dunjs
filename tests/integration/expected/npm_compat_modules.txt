@@ -1,0 +1,476 @@
+PASS: fs module
+PASS: path module
+PASS: crypto module
+PASS: net module
+PASS: http module
+PASS: https module
+PASS: os module
+PASS: buffer module
+PASS: events module
+PASS: EventEmitter.listenerCount
+PASS: url module
+PASS: stream module
+PASS: util module
+PASS: assert module
+PASS: querystring module
+PASS: string_decoder module
+PASS: child_process module
+PASS: zlib module
+PASS: dns module
+PASS: readline module
+PASS: vm module
+PASS: tls module
+PASS: dgram module
+PASS: perf_hooks module
+PASS: punycode module
+PASS: domain module
+PASS: diagnostics_channel module
+PASS: cluster module
+PASS: async_hooks module
+PASS: worker_threads module
+PASS: tty module
+PASS: constants module
+PASS: module module
+PASS: timers module
+PASS: process module
+PASS: console module
+PASS: fs.readFileSync
+PASS: fs.writeFileSync
+PASS: fs.existsSync
+PASS: fs.mkdirSync
+PASS: fs.statSync
+PASS: fs.createReadStream
+PASS: fs.createWriteStream
+PASS: path.join
+PASS: path.resolve
+PASS: path.relative
+PASS: path.dirname
+PASS: path.basename
+PASS: path.extname
+PASS: path.parse
+PASS: path.sep
+PASS: crypto.createHash
+PASS: crypto.createHmac
+PASS: crypto.randomBytes
+PASS: crypto.randomUUID
+PASS: crypto.createCipheriv
+PASS: crypto.createDecipheriv
+PASS: crypto.timingSafeEqual
+PASS: crypto.pbkdf2Sync
+PASS: crypto.scryptSync
+PASS: crypto.getHashes
+PASS: crypto.getHashes returns array
+PASS: crypto.getHashes includes sha256
+PASS: crypto.getCiphers
+PASS: crypto.constants
+PASS: net.createServer
+PASS: net.createConnection
+PASS: net.isIP
+PASS: net.isIPv4
+PASS: net.isIPv6
+PASS: isIP 127.0.0.1
+PASS: isIP ::1
+PASS: isIP invalid
+PASS: isIPv4 true
+PASS: isIPv4 false
+PASS: net.Socket
+PASS: stream.Readable
+PASS: stream.Writable
+PASS: stream.Transform
+PASS: stream.pipeline
+PASS: stream.finished
+PASS: Readable.from
+PASS: util.format
+PASS: util.inspect
+PASS: util.promisify
+PASS: util.inherits
+PASS: util.types
+PASS: util.debuglog
+PASS: util.deprecate
+PASS: process.nextTick
+PASS: process.env
+PASS: process.cwd
+PASS: process.exit
+PASS: process.hrtime
+PASS: process.memoryUsage
+PASS: process.cpuUsage
+PASS: process.emitWarning
+PASS: process.kill
+PASS: process.pid
+PASS: process.platform
+PASS: process.arch
+PASS: process.version
+PASS: process.versions
+PASS: process.uptime
+PASS: process.chdir
+PASS: process.execPath
+PASS: process.argv0
+PASS: process.title
+PASS: process.ppid
+PASS: process.on
+PASS: process.once
+PASS: process.off
+PASS: process.removeListener
+PASS: process.removeAllListeners
+PASS: process.listeners
+PASS: process.listenerCount
+PASS: process.emit
+PASS: process.prependListener
+PASS: process.eventNames
+PASS: process.setMaxListeners
+PASS: process.listenerCount exit
+PASS: process.on exit fires
+PASS: http.createServer
+PASS: http.request
+PASS: http.get
+PASS: http.METHODS
+PASS: http.STATUS_CODES
+PASS: http.Agent
+PASS: http.globalAgent
+PASS: server.address
+PASS: server.listening
+PASS: server.timeout
+PASS: server.keepAliveTimeout
+PASS: http req.finished initial
+PASS: https.createServer
+PASS: https.request
+PASS: https.get
+PASS: tty.isatty
+PASS: tty.ReadStream
+PASS: tty.WriteStream
+PASS: module.builtinModules
+PASS: module.isBuiltin
+PASS: module.createRequire
+PASS: child_process.spawn
+PASS: child_process.execFile
+PASS: dgram.createSocket
+PASS: tls.connect
+PASS: tls.getCiphers
+PASS: tls.TLSSocket
+PASS: tls.DEFAULT_MIN_VERSION
+PASS: dns.resolve
+PASS: dns.getServers
+PASS: dns.promises
+PASS: dns.promises.lookup
+PASS: stream.Stream
+PASS: stream.addAbortSignal
+PASS: stream.promises
+PASS: stream.promises.pipeline
+PASS: Readable.toWeb
+PASS: os.networkInterfaces
+PASS: os.userInfo
+PASS: os.loadavg
+PASS: os.version
+PASS: os.machine
+PASS: os.userInfo().uid
+PASS: os.userInfo().username
+PASS: os.userInfo().homedir
+PASS: os.loadavg() is array
+PASS: os.networkInterfaces() is object
+PASS: os.constants
+PASS: os.constants.signals
+PASS: os.constants.signals.SIGTERM
+PASS: os.constants.signals.SIGINT
+PASS: os.constants.signals.SIGKILL
+PASS: os.constants.errno
+PASS: os.constants.errno.ENOENT
+PASS: os.constants.errno.EACCES
+PASS: os.constants.errno.EEXIST
+PASS: os.constants.priority
+PASS: os.constants.priority.PRIORITY_NORMAL
+PASS: perf_hooks.performance
+PASS: perf_hooks.performance.mark
+PASS: perf_hooks.performance.measure
+PASS: perf_hooks.PerformanceObserver
+PASS: perf_hooks.constants
+PASS: fs.watchFile
+PASS: fs.unwatchFile
+PASS: fs.mkdtempSync
+PASS: fs.cpSync
+PASS: fs.utimesSync
+PASS: Buffer.keys
+PASS: Buffer.values
+PASS: Buffer.entries
+PASS: Buffer[Symbol.iterator]
+PASS: Buffer.keys() iteration
+PASS: Buffer.values() iteration
+PASS: Buffer.entries() iteration
+PASS: Buffer for-of iteration
+PASS: util.types.isPromise
+PASS: util.types.isDate
+PASS: util.types.isRegExp
+PASS: util.types.isMap
+PASS: util.types.isSet
+PASS: util.types.isTypedArray
+PASS: util.types.isArrayBuffer
+PASS: util.types.isDataView
+PASS: util.types.isWeakMap
+PASS: util.types.isWeakSet
+PASS: util.types.isGeneratorFunction
+PASS: util.types.isAsyncFunction
+PASS: util.types.isNumberObject
+PASS: util.types.isStringObject
+PASS: util.types.isBooleanObject
+PASS: assert.ok
+PASS: assert.equal
+PASS: assert.notEqual
+PASS: assert.strictEqual
+PASS: assert.notStrictEqual
+PASS: assert.deepEqual
+PASS: assert.deepStrictEqual
+PASS: assert.notDeepEqual
+PASS: assert.notDeepStrictEqual
+PASS: assert.throws
+PASS: assert.doesNotThrow
+PASS: assert.rejects
+PASS: assert.doesNotReject
+PASS: assert.match
+PASS: assert.doesNotMatch
+PASS: assert.fail
+PASS: assert.ifError
+PASS: querystring.escape
+PASS: querystring.unescape
+PASS: querystring.encode
+PASS: querystring.decode
+PASS: querystring.encode is stringify
+PASS: querystring.decode is parse
+PASS: querystring.escape works
+PASS: querystring.unescape works
+PASS: url.parse
+PASS: url.format
+PASS: url.resolve
+PASS: url.fileURLToPath
+PASS: url.pathToFileURL
+PASS: url.domainToASCII
+PASS: url.domainToUnicode
+PASS: url.parse protocol
+PASS: url.parse hostname
+PASS: url.parse port
+PASS: url.parse pathname
+PASS: url.parse search
+PASS: url.parse query
+PASS: url.parse hash
+PASS: url.parse auth
+PASS: url.parse host
+PASS: url.parse path
+PASS: url.format works
+PASS: url.resolve works
+PASS: url.fileURLToPath works
+PASS: globalThis.global exists
+PASS: globalThis.global === globalThis
+PASS: process.versions.node
+PASS: process.versions.node is 20.0.0
+PASS: util.TextEncoder
+PASS: util.TextDecoder
+PASS: util.TextEncoder is global
+PASS: util.TextDecoder is global
+PASS: events.on
+PASS: EventEmitter.on
+PASS: events.on returns async iterator
+PASS: events.on iterator has next
+PASS: events.on iterator has return
+PASS: http.IncomingMessage
+PASS: http.ServerResponse
+PASS: http.ClientRequest
+PASS: Buffer
+PASS: setTimeout
+PASS: setInterval
+PASS: clearTimeout
+PASS: console.log
+PASS: console.error
+PASS: console.warn
+PASS: process.getuid
+PASS: process.getgid
+PASS: process.geteuid
+PASS: process.getegid
+PASS: process.getgroups
+PASS: process.getuid returns number
+PASS: process.getgroups returns array
+PASS: child_process.execFileSync
+PASS: child_process.fork
+PASS: fs.constants
+PASS: fs.constants.R_OK
+PASS: fs.constants.W_OK
+PASS: fs.constants.F_OK
+PASS: fs.constants.O_RDONLY
+PASS: fs.constants.S_IFDIR
+PASS: fs.constants.S_IFREG
+PASS: fs.Dirent
+PASS: Dirent.isFile
+PASS: Dirent.isDirectory
+PASS: Buffer.allocUnsafeSlow
+PASS: Buffer.poolSize
+PASS: process.debugPort
+PASS: process.channel
+PASS: process.connected
+PASS: process.report
+PASS: process.report.writeReport
+PASS: process.report.getReport
+PASS: process.report.reportOnSignal
+PASS: process.report.reportOnFatalError
+PASS: process.report.reportOnUncaughtException
+PASS: process.resourceUsage
+PASS: process.resourceUsage returns object
+PASS: process.resourceUsage.userCPUTime
+PASS: process.resourceUsage.maxRSS
+PASS: process.resourceUsage.voluntaryContextSwitches
+PASS: process.allowedNodeEnvironmentFlags
+PASS: http.maxHeaderSize
+PASS: http.validateHeaderName
+PASS: http.validateHeaderValue
+PASS: http.validateHeaderName valid
+PASS: http.validateHeaderName invalid throws
+PASS: http.validateHeaderValue valid
+PASS: os.availableParallelism
+PASS: os.availableParallelism returns number
+PASS: os.availableParallelism > 0
+PASS: os.getPriority
+PASS: os.setPriority
+PASS: os.getPriority returns number
+PASS: crypto.createECDH
+PASS: crypto.createECDH returns object
+PASS: crypto.createECDH.generateKeys
+PASS: crypto.generateKeySync
+PASS: crypto.hkdfSync
+PASS: crypto.hkdf
+PASS: crypto.X509Certificate
+PASS: crypto.KeyObject
+PASS: crypto.createSecretKey
+PASS: crypto.createPublicKey
+PASS: crypto.createPrivateKey
+PASS: crypto.webcrypto
+PASS: crypto.webcrypto.subtle
+PASS: crypto.webcrypto.getRandomValues
+PASS: crypto.webcrypto.randomUUID
+PASS: crypto.subtle
+PASS: crypto.generateKey
+PASS: crypto.generateKeyPair
+PASS: crypto.getDiffieHellman
+PASS: crypto.createDiffieHellmanGroup
+PASS: crypto.diffieHellman
+PASS: crypto.getCurves
+PASS: crypto.getCurves returns array
+PASS: crypto.getCurves has prime256v1
+PASS: crypto.secureHeapUsed
+PASS: crypto.setFips
+PASS: crypto.getFips
+PASS: crypto.getFips returns 0
+PASS: crypto.checkPrime
+PASS: crypto.checkPrimeSync
+PASS: crypto.generatePrime
+PASS: crypto.generatePrimeSync
+PASS: crypto.hash
+PASS: crypto.hash sha256 works
+PASS: stream.compose
+PASS: stream.isErrored
+PASS: stream.isReadable
+PASS: stream.isDisturbed
+PASS: stream.consumers
+PASS: stream.consumers.text
+PASS: stream.consumers.json
+PASS: stream.consumers.arrayBuffer
+PASS: stream.Duplex
+PASS: stream.PassThrough
+PASS: events.captureRejectionSymbol
+PASS: events.captureRejections
+PASS: events.errorMonitor
+PASS: events.getEventListeners
+PASS: events.getMaxListeners
+PASS: events.setMaxListeners
+PASS: events.addAbortListener
+PASS: util.getSystemErrorName
+PASS: util.getSystemErrorName ENOENT
+PASS: util.parseArgs
+PASS: util.styleText
+PASS: util.MIMEType
+PASS: util.MIMEType.type
+PASS: util.MIMEType.subtype
+PASS: util.MIMEType.essence
+PASS: util.aborted
+PASS: util.transferableAbortController
+PASS: util.transferableAbortSignal
+PASS: util.getCallSites
+PASS: fs.ftruncateSync
+PASS: fs.futimesSync
+PASS: fs.lutimesSync
+PASS: fs.fdatasyncSync
+PASS: net.BlockList
+PASS: net.BlockList.addAddress
+PASS: net.BlockList.check
+PASS: net.SocketAddress
+PASS: net.SocketAddress.address
+PASS: net.SocketAddress.port
+PASS: path.matchesGlob
+PASS: path.matchesGlob works
+PASS: path.matchesGlob negative
+PASS: zlib.brotliCompressSync
+PASS: zlib.brotliDecompressSync
+PASS: zlib.unzipSync
+PASS: zlib.createBrotliCompress
+PASS: zlib.createBrotliDecompress
+PASS: readline.promises
+PASS: readline.promises.createInterface
+PASS: stream.Readable.isReadable
+PASS: stream.Readable.isDisturbed
+PASS: stream.Readable.fromWeb
+PASS: assert.strict
+PASS: assert.strict.ok
+PASS: assert.strict.deepStrictEqual
+PASS: process.binding
+PASS: process._linkedBinding
+PASS: process.hasUncaughtExceptionCaptureCallback
+PASS: process.setUncaughtExceptionCaptureCallback
+PASS: process.hasUncaughtExceptionCaptureCallback returns false
+PASS: process.config
+PASS: process.features
+PASS: process.release
+PASS: process.release.name
+PASS: http.Server.setTimeout
+PASS: http.Server.setTimeout returns server
+PASS: URL.canParse
+PASS: URL.canParse valid
+PASS: URL.canParse invalid
+PASS: fs/promises.cp
+PASS: fs/promises.constants
+PASS: fs/promises.constants.R_OK
+PASS: module.builtinModules is array
+PASS: module.builtinModules includes fs
+PASS: worker_threads.isMainThread
+PASS: worker_threads.threadId
+PASS: timers/promises.setTimeout
+PASS: timers/promises.setInterval
+PASS: timers/promises.setImmediate
+PASS: Array.findLast
+PASS: Array.toReversed
+PASS: Array.toSorted
+PASS: WeakRef
+PASS: FinalizationRegistry
+PASS: Proxy
+PASS: Reflect
+PASS: Symbol.asyncIterator
+PASS: Symbol.iterator
+PASS: Symbol.hasInstance
+PASS: Intl exists
+PASS: Intl.DateTimeFormat
+PASS: Intl.NumberFormat
+PASS: Intl.Collator
+PASS: Intl.PluralRules
+PASS: Intl.RelativeTimeFormat
+PASS: Intl.ListFormat
+PASS: Intl.DisplayNames
+PASS: Intl.Segmenter
+PASS: Intl.Locale
+PASS: Intl.getCanonicalLocales
+PASS: Intl.supportedValuesOf
+PASS: NumberFormat.format
+PASS: PluralRules.select
+PASS: Collator.compare
+PASS: ListFormat.format
+PASS: RelativeTimeFormat.format
+PASS: DisplayNames.of
+PASS: Segmenter.segment
+PASS: Locale.language
+PASS: getCanonicalLocales
+PASS: supportedValuesOf calendar
+---
+Total: 474/474 passed

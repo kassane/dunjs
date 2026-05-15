@@ -1,9 +1,5 @@
 module dun.modules.npm;
 
-version (Posix):
-
-import std.stdio : writeln, writefln;
-
 enum AuditMode
 {
     warn,
@@ -13,6 +9,10 @@ enum AuditMode
 
 static assert(__traits(allMembers, AuditMode).length == 3,
     "AuditMode enum member count changed -- update parseAuditFlag");
+
+version (Posix):
+
+import std.stdio : writeln, writefln;
 
 bool installPackage(string spec, AuditMode auditMode = AuditMode.warn) @trusted
 {
@@ -138,11 +138,148 @@ bool installPackage(string spec, AuditMode auditMode = AuditMode.warn) @trusted
         catch (Exception) {}
     }
 
+    runLifecycleScripts(nmDir, name);
+    createBinLinks(nmDir, name);
+
     writefln("installed %s@%s", name, version_);
     return true;
 }
 
+/// Run a named script from the project's package.json.
+/// Returns true if the script was found and executed, false if not found.
+bool runPackageScript(string scriptName) @trusted
+{
+    import std.file : exists, readText;
+    import std.json : parseJSON, JSONType;
+    import std.process : spawnShell, wait;
+
+    auto pkgPath = "package.json";
+    if (!exists(pkgPath))
+    {
+        writefln("error: no package.json found");
+        return false;
+    }
+
+    try
+    {
+        auto j = parseJSON(readText(pkgPath));
+        if ("scripts" !in j || j["scripts"].type != JSONType.object)
+        {
+            writefln("error: no scripts in package.json");
+            return false;
+        }
+        auto scripts = j["scripts"].object;
+        if (scriptName !in scripts)
+        {
+            writefln("error: script '%s' not found in package.json", scriptName);
+            writeln("available scripts:");
+            foreach (k; scripts.byKey())
+                writefln("  %s", k);
+            return false;
+        }
+        auto cmd = scripts[scriptName].str;
+        writefln("$ %s", cmd);
+        auto pid = spawnShell(cmd);
+        auto rc = wait(pid);
+        return rc == 0;
+    }
+    catch (Exception e)
+    {
+        writefln("error: %s", e.msg);
+        return false;
+    }
+}
+
 private:
+
+void runLifecycleScripts(string pkgDir, string pkgName) @trusted
+{
+    import std.file : exists, readText;
+    import std.json : parseJSON, JSONType;
+    import std.path : buildNormalizedPath;
+    import std.process : spawnShell, wait, Config;
+
+    auto pkgJson = buildNormalizedPath(pkgDir, "package.json");
+    if (!exists(pkgJson)) return;
+
+    try
+    {
+        auto j = parseJSON(readText(pkgJson));
+        if ("scripts" !in j || j["scripts"].type != JSONType.object) return;
+
+        auto scripts = j["scripts"].object;
+        static immutable phases = ["preinstall", "install", "postinstall"];
+        foreach (phase; phases)
+        {
+            if (phase in scripts)
+            {
+                auto cmd = scripts[phase].str;
+                writefln("  running %s script for %s: %s", phase, pkgName, cmd);
+                auto pid = spawnShell(cmd, null, Config.none, pkgDir);
+                auto rc = wait(pid);
+                if (rc != 0)
+                    writefln("  warning: %s script exited with code %d", phase, rc);
+            }
+        }
+    }
+    catch (Exception) {}
+}
+
+void createBinLinks(string pkgDir, string pkgName) @trusted
+{
+    import std.file : exists, readText, mkdirRecurse;
+    import std.json : parseJSON, JSONType;
+    import std.path : buildNormalizedPath, absolutePath, relativePath;
+
+    auto pkgJson = buildNormalizedPath(pkgDir, "package.json");
+    if (!exists(pkgJson)) return;
+
+    try
+    {
+        auto j = parseJSON(readText(pkgJson));
+        if ("bin" !in j) return;
+
+        auto binDir = buildNormalizedPath(".", "node_modules", ".bin");
+        mkdirRecurse(binDir);
+
+        if (j["bin"].type == JSONType.string)
+        {
+            auto target = j["bin"].str;
+            auto targetAbs = absolutePath(buildNormalizedPath(pkgDir, target));
+            auto linkPath = buildNormalizedPath(binDir, pkgName);
+            createSymlinkAndChmod(linkPath, targetAbs);
+        }
+        else if (j["bin"].type == JSONType.object)
+        {
+            foreach (binName, binTarget; j["bin"].object)
+            {
+                auto target = binTarget.str;
+                auto targetAbs = absolutePath(buildNormalizedPath(pkgDir, target));
+                auto linkPath = buildNormalizedPath(binDir, binName);
+                createSymlinkAndChmod(linkPath, targetAbs);
+            }
+        }
+    }
+    catch (Exception) {}
+}
+
+private void createSymlinkAndChmod(string linkPath, string targetPath) @trusted
+{
+    import std.file : exists, remove, symlink;
+    version (Posix) import core.sys.posix.sys.stat : chmod;
+
+    try
+    {
+        if (exists(linkPath)) remove(linkPath);
+        symlink(targetPath, linkPath);
+        version (Posix)
+        {
+            import std.string : toStringz;
+            chmod(toStringz(targetPath), 0b111_101_101); // 0755
+        }
+    }
+    catch (Exception) {}
+}
 
 struct PackageMeta
 {
@@ -158,8 +295,12 @@ PackageMeta fetchPackageMeta(string name) @trusted
     PackageMeta meta;
     try
     {
+        import std.algorithm : startsWith;
+        auto registryUrl = name.startsWith("@jsr/")
+            ? "https://npm.jsr.io/"
+            : "https://registry.npmjs.org/";
         auto result = doFetch(
-            "https://registry.npmjs.org/" ~ name, "GET", "", false, null);
+            registryUrl ~ name, "GET", "", false, null);
         if (!result.ok)
             return meta;
 

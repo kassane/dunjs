@@ -7,6 +7,7 @@ import dun.engine.quickjs.bindings;
 /// Clears the exception state.
 string extractException(JSContext* ctx) @trusted
 {
+    assert(ctx !is null, "Null ctx in extractException");
     auto exc = JS_GetException(ctx);
     scope (exit)
         JS_FreeValue(ctx, exc);
@@ -41,6 +42,7 @@ string extractException(JSContext* ctx) @trusted
 /// Extract exception with stack trace as a D string.
 string extractExceptionWithStack(JSContext* ctx) @trusted
 {
+    assert(ctx !is null, "Null ctx in extractExceptionWithStack");
     auto exc = JS_GetException(ctx);
     scope (exit)
         JS_FreeValue(ctx, exc);
@@ -69,14 +71,16 @@ string extractExceptionWithStack(JSContext* ctx) @trusted
         scope (exit)
             JS_FreeValue(ctx, stackVal);
 
-        if (!JS_IsUndefined(stackVal))
+        if (!JS_IsUndefined(stackVal) && JS_IsString(stackVal))
         {
             size_t len;
             const(char)* cstr = JS_ToCStringLen2(ctx, &len, stackVal, 0);
             if (cstr !is null)
             {
-                result ~= "\n" ~ cstr[0 .. len].idup;
+                auto stackStr = cstr[0 .. len].idup;
                 JS_FreeCString(ctx, cstr);
+                if (stackStr.length > 0)
+                    result ~= "\n" ~ stackStr;
             }
         }
     }

@@ -16,6 +16,7 @@ void registerHttp2Module(IJSEngine engine) @trusted
 
     auto global = engine.getGlobal();
     engine.setProperty(global, "__dun_cjs_http2__", obj);
+    engine.freeValue(global);
 
     version (EngineQuickJS)
         registerQuickJSModule(engine);
@@ -27,6 +28,7 @@ version (EngineQuickJS)
 
     private void registerQuickJSModule(IJSEngine engine) @trusted
     {
+        assert(engine !is null, "Null engine in registerQuickJSModule");
         auto ctx = cast(JSContext*) engine.rawContext();
         auto m = JS_NewCModule(ctx, "dun:http2", &http2ModuleInit);
         if (m is null) return;
@@ -115,6 +117,10 @@ enum H2_MAX_FRAME_SIZE = 16_777_215;
 enum H2_CONNECTION_PREFACE_LEN = 24;
 enum H2_SETTING_ENTRY_SIZE = 6;
 enum H2_SETTINGS_COUNT = 3;
+enum H2_DEFAULT_MAX_CONCURRENT_STREAMS = 100;
+enum H2_DEFAULT_TLS_PORT = 443;
+enum H2_LISTEN_BACKLOG = 1024;
+enum IO_POLL_BATCH_SIZE = 64;
 
 enum : ubyte {
     HPACK_INDEXED_PREFIX     = 0x80,
@@ -865,7 +871,7 @@ struct H2Settings
 {
     uint headerTableSize = H2_DEFAULT_HEADER_TABLE_SIZE;
     bool enablePush = true;
-    uint maxConcurrentStreams = 100;
+    uint maxConcurrentStreams = H2_DEFAULT_MAX_CONCURRENT_STREAMS;
     uint initialWindowSize = H2_DEFAULT_WINDOW_SIZE;
     uint maxFrameSize = H2_DEFAULT_MAX_FRAME_SIZE;
     uint maxHeaderListSize = uint.max;
@@ -1377,6 +1383,7 @@ private:
 __gshared JSHandle _h2ClientReq, _h2ClientClose;
 __gshared JSHandle _h2SrvListen, _h2SrvClose, _h2SrvOn;
 __gshared JSHandle _h2ResWriteHead, _h2ResWrite, _h2ResEnd, _h2ResSetHeader;
+__gshared JSHandle _h2ClientSessionOn, _h2StreamOn, _h2StreamEnd, _h2StreamWrite;
 __gshared bool _h2FnsCached = false;
 
 void ensureH2FnsCached(IJSEngine engine) @trusted
@@ -1391,6 +1398,10 @@ void ensureH2FnsCached(IJSEngine engine) @trusted
     _h2ResWrite = engine.newFunction(&jsH2ResWrite, "write", 1);
     _h2ResEnd = engine.newFunction(&jsH2ResEnd, "end", 0);
     _h2ResSetHeader = engine.newFunction(&jsH2ResSetHeader, "setHeader", 2);
+    _h2ClientSessionOn = engine.newFunction(&jsH2ClientSessionOn, "on", 2);
+    _h2StreamOn = engine.newFunction(&jsH2StreamOn, "on", 2);
+    _h2StreamEnd = engine.newFunction(&jsH2StreamEnd, "end", 1);
+    _h2StreamWrite = engine.newFunction(&jsH2StreamWrite, "write", 1);
     _h2FnsCached = true;
 }
 
@@ -1409,6 +1420,432 @@ struct H2ServerState
 H2ServerState[] h2Servers;
 H2Connection[] h2Connections;
 int nextH2ServerId;
+
+// ── HTTP/2 Client Session State ─────────────────────────────────
+
+enum H2_CLIENT_RECV_BUF_SIZE = 16_384;
+enum H2_CLIENT_MAX_SESSIONS = 256;
+
+struct ClientH2Session
+{
+    IJSEngine engine;
+    int fd = -1;
+    string host;
+    ushort port;
+    bool closed;
+    uint nextStreamId = 1; // Client streams use odd IDs (1, 3, 5, ...)
+    uint lastStreamId;
+    H2Settings localSettings;
+    H2Settings remoteSettings;
+    int connectionSendWindow = H2_DEFAULT_WINDOW_SIZE;
+    int connectionRecvWindow = H2_DEFAULT_WINDOW_SIZE;
+    HpackDecoder decoder;
+    ubyte[] recvBuf;
+    bool prefaceSent;
+    bool settingsAckReceived;
+    bool connectPending; // true if non-blocking connect() returned EINPROGRESS
+    bool connected;      // true once the TCP connection is established
+
+    // Per-stream callbacks (response, data, end, error)
+    JSHandle[uint] responseCbs;
+    JSHandle[uint] dataCbs;
+    JSHandle[uint] endCbs;
+    JSHandle[uint] errorCbs;
+
+    // Session-level callbacks
+    JSHandle connectCb;
+    bool hasConnectCb;
+    JSHandle errorSessionCb;
+    bool hasErrorSessionCb;
+
+    version (Posix) void* sslPtr; // SSL* for TLS connections
+
+    void sendConnectionPreface() nothrow @trusted
+    {
+        assert(fd >= 0, "sendConnectionPreface on invalid fd");
+        if (prefaceSent) return;
+        prefaceSent = true;
+
+        // Client sends magic preface + SETTINGS
+        sendRawBytes(H2_CLIENT_PREFACE);
+        auto settingsPayload = encodeSettings(localSettings);
+        auto frame = encodeFrameHeader(
+            cast(uint) settingsPayload.length,
+            H2FrameType.SETTINGS, H2Flag.NONE, 0);
+        sendRawBytes(frame[]);
+        sendRawBytes(settingsPayload);
+    }
+
+    uint allocateStreamId() nothrow @safe @nogc
+    {
+        uint id = nextStreamId;
+        nextStreamId += 2; // Client streams are odd
+        return id;
+    }
+
+    void sendHeaders(uint streamId, HeaderField[] headers, bool endStream) nothrow @trusted
+    {
+        auto encoded = hpackEncode(headers);
+        if (encoded is null) return;
+
+        ubyte flags = H2Flag.END_HEADERS;
+        if (endStream) flags |= H2Flag.END_STREAM;
+
+        auto frame = encodeFrameHeader(cast(uint) encoded.length,
+            H2FrameType.HEADERS, flags, streamId);
+        sendRawBytes(frame[]);
+        sendRawBytes(encoded);
+    }
+
+    void sendData(uint streamId, const(ubyte)[] data, bool endStream) nothrow @trusted
+    {
+        size_t offset = 0;
+        while (offset < data.length)
+        {
+            uint chunkSize = cast(uint)(data.length - offset);
+            if (chunkSize > remoteSettings.maxFrameSize)
+                chunkSize = remoteSettings.maxFrameSize;
+
+            ubyte flags = (offset + chunkSize >= data.length && endStream)
+                ? H2Flag.END_STREAM : H2Flag.NONE;
+            auto frame = encodeFrameHeader(chunkSize, H2FrameType.DATA, flags, streamId);
+            sendRawBytes(frame[]);
+            sendRawBytes(data[offset .. offset + chunkSize]);
+            offset += chunkSize;
+        }
+
+        if (data.length == 0 && endStream)
+        {
+            auto frame = encodeFrameHeader(0, H2FrameType.DATA, H2Flag.END_STREAM, streamId);
+            sendRawBytes(frame[]);
+        }
+    }
+
+    void sendGoaway(H2Error errorCode) nothrow @trusted
+    {
+        ubyte[8] payload;
+        payload[0] = cast(ubyte)((lastStreamId >> 24) & 0xFF);
+        payload[1] = cast(ubyte)((lastStreamId >> 16) & 0xFF);
+        payload[2] = cast(ubyte)((lastStreamId >> 8) & 0xFF);
+        payload[3] = cast(ubyte)(lastStreamId & 0xFF);
+        payload[4] = cast(ubyte)((cast(uint) errorCode >> 24) & 0xFF);
+        payload[5] = cast(ubyte)((cast(uint) errorCode >> 16) & 0xFF);
+        payload[6] = cast(ubyte)((cast(uint) errorCode >> 8) & 0xFF);
+        payload[7] = cast(ubyte)(cast(uint) errorCode & 0xFF);
+        auto frame = encodeFrameHeader(8, H2FrameType.GOAWAY, H2Flag.NONE, 0);
+        sendRawBytes(frame[]);
+        sendRawBytes(payload[]);
+        closed = true;
+    }
+
+    void sendWindowUpdate(uint streamId, int increment) nothrow @trusted
+    {
+        ubyte[4] payload;
+        uint inc = cast(uint) increment & 0x7FFF_FFFF;
+        payload[0] = cast(ubyte)((inc >> 24) & 0xFF);
+        payload[1] = cast(ubyte)((inc >> 16) & 0xFF);
+        payload[2] = cast(ubyte)((inc >> 8) & 0xFF);
+        payload[3] = cast(ubyte)(inc & 0xFF);
+        auto frame = encodeFrameHeader(4, H2FrameType.WINDOW_UPDATE, H2Flag.NONE, streamId);
+        sendRawBytes(frame[]);
+        sendRawBytes(payload[]);
+    }
+
+    void processReceivedData(const(ubyte)[] data) nothrow @trusted
+    {
+        try { recvBuf ~= data; }
+        catch (Throwable) { return; }
+
+        while (recvBuf.length >= H2_FRAME_HEADER_SIZE)
+        {
+            H2Frame frame;
+            if (!parseFrameHeader(recvBuf, frame)) break;
+            size_t totalLen = H2_FRAME_HEADER_SIZE + frame.length;
+            if (recvBuf.length < totalLen) break;
+
+            frame.payload = recvBuf[H2_FRAME_HEADER_SIZE .. totalLen];
+            processFrame(frame);
+
+            try { recvBuf = recvBuf[totalLen .. $].dup; }
+            catch (Throwable) { return; }
+        }
+    }
+
+    void processFrame(ref H2Frame frame) nothrow @trusted
+    {
+        switch (frame.type)
+        {
+            case H2FrameType.SETTINGS:
+                processSettings(frame);
+                break;
+            case H2FrameType.HEADERS:
+                processResponseHeaders(frame);
+                break;
+            case H2FrameType.DATA:
+                processResponseData(frame);
+                break;
+            case H2FrameType.WINDOW_UPDATE:
+                processWindowUpdate(frame);
+                break;
+            case H2FrameType.PING:
+                processPing(frame);
+                break;
+            case H2FrameType.GOAWAY:
+                closed = true;
+                break;
+            default:
+                break;
+        }
+    }
+
+    void processSettings(ref H2Frame frame) nothrow @trusted
+    {
+        if (frame.flags & H2Flag.ACK)
+        {
+            settingsAckReceived = true;
+            return;
+        }
+        if (frame.streamId != 0) return;
+
+        auto payload = frame.payload;
+        while (payload.length >= 6)
+        {
+            ushort id = cast(ushort)((payload[0] << 8) | payload[1]);
+            uint val = (cast(uint) payload[2] << 24) | (cast(uint) payload[3] << 16)
+                | (cast(uint) payload[4] << 8) | payload[5];
+            payload = payload[6 .. $];
+
+            switch (id)
+            {
+                case H2Setting.HEADER_TABLE_SIZE:
+                    remoteSettings.headerTableSize = val;
+                    decoder.maxDynamicTableSize = val;
+                    break;
+                case H2Setting.ENABLE_PUSH:
+                    remoteSettings.enablePush = val != 0;
+                    break;
+                case H2Setting.MAX_CONCURRENT_STREAMS:
+                    remoteSettings.maxConcurrentStreams = val;
+                    break;
+                case H2Setting.INITIAL_WINDOW_SIZE:
+                    if (val <= 0x7FFF_FFFF)
+                        remoteSettings.initialWindowSize = val;
+                    break;
+                case H2Setting.MAX_FRAME_SIZE:
+                    if (val >= H2_DEFAULT_MAX_FRAME_SIZE && val <= H2_MAX_FRAME_SIZE)
+                        remoteSettings.maxFrameSize = val;
+                    break;
+                case H2Setting.MAX_HEADER_LIST_SIZE:
+                    remoteSettings.maxHeaderListSize = val;
+                    break;
+                default:
+                    break;
+            }
+        }
+
+        // Send SETTINGS ACK
+        auto ack = encodeFrameHeader(0, H2FrameType.SETTINGS, H2Flag.ACK, 0);
+        sendRawBytes(ack[]);
+    }
+
+    void processResponseHeaders(ref H2Frame frame) nothrow @trusted
+    {
+        auto payload = frame.payload;
+        size_t offset = 0;
+
+        if (frame.flags & H2Flag.PADDED)
+        {
+            if (payload.length < 1) return;
+            offset = 1;
+        }
+        if (frame.flags & H2Flag.PRIORITY)
+        {
+            if (payload.length < offset + 5) return;
+            offset += 5;
+        }
+
+        auto headerBlock = payload[offset .. $];
+        auto headers = decoder.decode(headerBlock);
+
+        if (frame.streamId > lastStreamId)
+            lastStreamId = frame.streamId;
+
+        // Dispatch 'response' callback for this stream
+        if (engine !is null)
+        {
+            if (auto cbp = frame.streamId in responseCbs)
+            {
+                try
+                {
+                    auto hdrsObj = engine.newObject();
+                    string statusStr;
+                    foreach (ref hf; headers)
+                    {
+                        if (hf.name == ":status")
+                            statusStr = hf.value;
+                        else if (hf.name.length > 0)
+                            engine.setProperty(hdrsObj, hf.name, engine.newString(hf.value));
+                    }
+                    if (statusStr.length > 0)
+                        engine.setProperty(hdrsObj, ":status", engine.newString(statusStr));
+
+                    // Create flags object with endStream indicator
+                    auto flagsObj = engine.newObject();
+                    bool es = (frame.flags & H2Flag.END_STREAM) != 0;
+                    engine.setProperty(flagsObj, "endStream", engine.newBool(es));
+
+                    JSHandle[2] callArgs = [hdrsObj, flagsObj];
+                    pushAgnosticPending(engine, *cbp, callArgs[]);
+                    engine.freeValue(hdrsObj);
+                    engine.freeValue(flagsObj);
+                }
+                catch (Throwable) {}
+            }
+        }
+
+        // If END_STREAM, dispatch 'end' callback
+        if (frame.flags & H2Flag.END_STREAM)
+        {
+            dispatchEndCallback(frame.streamId);
+        }
+    }
+
+    void processResponseData(ref H2Frame frame) nothrow @trusted
+    {
+        if (frame.streamId == 0) return;
+
+        connectionRecvWindow -= cast(int) frame.length;
+        if (connectionRecvWindow < H2_DEFAULT_WINDOW_SIZE / 2)
+        {
+            int increment = H2_DEFAULT_WINDOW_SIZE - connectionRecvWindow;
+            sendWindowUpdate(0, increment);
+            connectionRecvWindow += increment;
+        }
+
+        // Dispatch 'data' callback for this stream
+        if (engine !is null)
+        {
+            if (auto cbp = frame.streamId in dataCbs)
+            {
+                try
+                {
+                    auto bufStr = engine.newString(
+                        cast(string) cast(const(char)[]) frame.payload);
+                    JSHandle[1] callArgs = [bufStr];
+                    pushAgnosticPending(engine, *cbp, callArgs[]);
+                    engine.freeValue(bufStr);
+                }
+                catch (Throwable) {}
+            }
+        }
+
+        // If END_STREAM, dispatch 'end' callback
+        if (frame.flags & H2Flag.END_STREAM)
+        {
+            dispatchEndCallback(frame.streamId);
+        }
+    }
+
+    void processWindowUpdate(ref H2Frame frame) nothrow @trusted
+    {
+        if (frame.payload.length < 4) return;
+        uint increment = ((cast(uint) frame.payload[0] << 24)
+            | (cast(uint) frame.payload[1] << 16)
+            | (cast(uint) frame.payload[2] << 8)
+            | frame.payload[3]) & 0x7FFF_FFFF;
+
+        if (increment == 0) return;
+        if (frame.streamId == 0)
+            connectionSendWindow += increment;
+    }
+
+    void processPing(ref H2Frame frame) nothrow @trusted
+    {
+        if (frame.flags & H2Flag.ACK) return;
+        if (frame.streamId != 0 || frame.payload.length != 8) return;
+        auto pong = encodeFrameHeader(8, H2FrameType.PING, H2Flag.ACK, 0);
+        sendRawBytes(pong[]);
+        sendRawBytes(frame.payload);
+    }
+
+    void dispatchEndCallback(uint streamId) nothrow @trusted
+    {
+        if (engine is null) return;
+        if (auto cbp = streamId in endCbs)
+        {
+            try
+            {
+                JSHandle[0] noArgs;
+                pushAgnosticPending(engine, *cbp, noArgs[]);
+            }
+            catch (Throwable) {}
+        }
+    }
+
+    void sendRawBytes(const(ubyte)[] data) nothrow @trusted
+    {
+        version (Posix)
+        {
+            if (fd < 0 || data.length == 0 || connectPending) return;
+
+            if (sslPtr !is null)
+            {
+                import dun.platform.openssl : SSL, SSL_write;
+                auto ssl = cast(SSL*) sslPtr;
+                size_t sent = 0;
+                while (sent < data.length)
+                {
+                    auto n = SSL_write(ssl, data.ptr + sent,
+                        cast(int)(data.length - sent));
+                    if (n <= 0) break;
+                    sent += n;
+                }
+            }
+            else
+            {
+                import core.sys.posix.sys.socket : send, MSG_NOSIGNAL;
+                size_t sent = 0;
+                while (sent < data.length)
+                {
+                    auto n = send(fd, data.ptr + sent, data.length - sent, MSG_NOSIGNAL);
+                    if (n <= 0) break;
+                    sent += n;
+                }
+            }
+        }
+    }
+
+    void sendRawBytes(const(char)[] data) nothrow @trusted
+    {
+        sendRawBytes(cast(const(ubyte)[]) data);
+    }
+
+    void closeConnection() nothrow @trusted
+    {
+        version (Posix)
+        {
+            if (fd >= 0)
+            {
+                version (linux) { if (gH2PollerInited) gH2Poller.unwatch(fd); }
+                if (sslPtr !is null)
+                {
+                    import dun.platform.openssl : SSL, SSL_shutdown, SSL_free;
+                    auto ssl = cast(SSL*) sslPtr;
+                    SSL_shutdown(ssl);
+                    SSL_free(ssl);
+                    sslPtr = null;
+                }
+                import core.sys.posix.unistd : close;
+                close(fd);
+                fd = -1;
+            }
+        }
+        closed = true;
+    }
+}
+
+ClientH2Session[] h2ClientSessions;
+int nextH2ClientSessionId;
 
 version (linux)
 {
@@ -1442,7 +1879,7 @@ JSHandle makeHttp2Constants(IJSEngine engine) @trusted
 
 // ── JS API: createServer (cleartext h2c) ─────────────────────────
 
-JSHandle jsHttp2CreateServer(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsHttp2CreateServer(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null);
     auto state = cast(DunState*) ctx;
@@ -1475,7 +1912,7 @@ JSHandle jsHttp2CreateServer(void* ctx, JSHandle thisVal, JSHandle[] args) @trus
 
 // ── JS API: createSecureServer (h2 over TLS) ────────────────────
 
-JSHandle jsHttp2CreateSecureServer(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsHttp2CreateSecureServer(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null);
     version (Posix)
@@ -1582,36 +2019,495 @@ void ensureTlsServerInit() nothrow @trusted
 
 // ── JS API: connect (client) ─────────────────────────────────────
 
-JSHandle jsHttp2Connect(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+// Parse an HTTP/2 URL into host, port, and scheme.
+// Supports "http://host:port" and "https://host:port" forms.
+void parseH2Url(string url, out string host, out ushort port, out bool useTls) nothrow @trusted
+{
+    useTls = false;
+    host = "localhost";
+    port = 80;
+
+    string rest = url;
+    if (rest.length >= 8 && rest[0 .. 8] == "https://")
+    {
+        useTls = true;
+        port = 443;
+        rest = rest[8 .. $];
+    }
+    else if (rest.length >= 7 && rest[0 .. 7] == "http://")
+    {
+        rest = rest[7 .. $];
+    }
+
+    // Strip path
+    size_t pathIdx = rest.length;
+    foreach (i, c; rest)
+    {
+        if (c == '/')
+        {
+            pathIdx = i;
+            break;
+        }
+    }
+    rest = rest[0 .. pathIdx];
+
+    // Split host:port
+    size_t colonIdx = rest.length;
+    foreach (i, c; rest)
+    {
+        if (c == ':')
+        {
+            colonIdx = i;
+            break;
+        }
+    }
+
+    if (colonIdx < rest.length)
+    {
+        host = rest[0 .. colonIdx];
+        auto portStr = rest[colonIdx + 1 .. $];
+        uint p = 0;
+        foreach (c; portStr)
+        {
+            if (c >= '0' && c <= '9')
+                p = p * 10 + (c - '0');
+            else
+                break;
+        }
+        if (p > 0 && p <= 65535)
+            port = cast(ushort) p;
+    }
+    else
+    {
+        host = rest;
+    }
+
+    if (host.length == 0) host = "localhost";
+}
+
+JSHandle jsHttp2Connect(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null);
     auto state = cast(DunState*) ctx;
+    assert(state.engine !is null);
     auto engine = state.engine;
 
     if (args.length < 1 || !engine.isString(args[0]))
         return engine.throwTypeError("http2.connect: URL string required");
 
     auto url = engine.extractString(args[0]);
-    auto obj = engine.newObject();
     ensureH2FnsCached(engine);
-    engine.setProperty(obj, "__h2_url", engine.newString(url));
-    engine.setProperty(obj, "request", engine.dupValue(_h2ClientReq));
-    engine.setProperty(obj, "close", engine.dupValue(_h2ClientClose));
-    return obj;
+
+    // Parse URL
+    string host;
+    ushort port;
+    bool useTls;
+    parseH2Url(url, host, port, useTls);
+
+    version (Posix)
+    {
+        import core.sys.posix.sys.socket;
+        import core.sys.posix.netinet.in_;
+        import core.sys.posix.netdb : getaddrinfo, addrinfo, freeaddrinfo;
+        import core.sys.posix.fcntl : fcntl, F_SETFL, F_GETFL, O_NONBLOCK;
+        import core.stdc.string : memset;
+        import core.stdc.errno : errno, EINPROGRESS;
+        import std.string : toStringz;
+
+        // Create TCP socket
+        int fd = socket(AF_INET, SOCK_STREAM, 0);
+        if (fd < 0)
+            return engine.throwTypeError("http2.connect: socket() failed");
+
+        // Resolve host
+        sockaddr_in addr;
+        memset(&addr, 0, addr.sizeof);
+        addr.sin_family = AF_INET;
+        addr.sin_port = htons(port);
+
+        addrinfo hints;
+        addrinfo* res;
+        memset(&hints, 0, hints.sizeof);
+        hints.ai_family = AF_INET;
+        hints.ai_socktype = SOCK_STREAM;
+        if (getaddrinfo(host.toStringz, null, &hints, &res) == 0 && res !is null)
+        {
+            auto sin = cast(sockaddr_in*) res.ai_addr;
+            addr.sin_addr = sin.sin_addr;
+            freeaddrinfo(res);
+        }
+        else
+        {
+            import core.sys.posix.unistd : close;
+            close(fd);
+            return engine.throwTypeError("http2.connect: host resolution failed");
+        }
+
+        // Set non-blocking + TCP_NODELAY
+        int fl = fcntl(fd, F_GETFL, 0);
+        fcntl(fd, F_SETFL, fl | O_NONBLOCK);
+        int one = 1;
+        enum IPPROTO_TCP = 6;
+        enum TCP_NODELAY = 1;
+        setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &one, one.sizeof);
+
+        // Attempt TCP connect
+        import core.sys.posix.sys.socket : connect;
+        int r = connect(fd, cast(sockaddr*)&addr, addr.sizeof);
+        bool immediateConnect = (r == 0);
+        bool pending = (!immediateConnect && errno == EINPROGRESS);
+
+        if (!immediateConnect && !pending)
+        {
+            import core.sys.posix.unistd : close;
+            close(fd);
+            return engine.throwTypeError("http2.connect: connect() failed");
+        }
+
+        // Allocate client session
+        int sessionId = nextH2ClientSessionId++;
+        try
+        {
+            ClientH2Session session;
+            session.engine = engine;
+            session.fd = fd;
+            session.host = host;
+            session.port = port;
+            session.connectPending = pending;
+            session.connected = immediateConnect;
+
+            // TLS setup only when immediately connected (TLS needs completed TCP)
+            if (immediateConnect && useTls)
+            {
+                import dun.platform.openssl;
+                ensureTlsServerInit();
+
+                auto sslCtx = SSL_CTX_new(TLS_method());
+                if (sslCtx !is null)
+                {
+                    SSL_CTX_set_options(sslCtx, SSL_OP_NO_SSLv2 | SSL_OP_NO_SSLv3);
+                    SSL_CTX_ctrl(sslCtx, SSL_CTRL_SET_MIN_PROTO_VERSION, TLS1_2_VERSION, null);
+
+                    static immutable ubyte[] alpnProtos = [2, 'h', '2'];
+                    SSL_CTX_set_alpn_protos(sslCtx, alpnProtos.ptr, cast(uint) alpnProtos.length);
+
+                    auto ssl = SSL_new(sslCtx);
+                    if (ssl !is null)
+                    {
+                        SSL_set_fd(ssl, fd);
+                        enum SSL_CTRL_SET_TLSEXT_HOSTNAME = 55;
+                        enum TLSEXT_NAMETYPE_host_name = 0;
+                        SSL_ctrl(ssl, SSL_CTRL_SET_TLSEXT_HOSTNAME,
+                            TLSEXT_NAMETYPE_host_name, cast(void*) host.toStringz);
+
+                        int ret = SSL_connect(ssl);
+                        if (ret != 1)
+                            SSL_free(ssl);
+                        else
+                            session.sslPtr = cast(void*) ssl;
+                    }
+                    SSL_CTX_free(sslCtx);
+                }
+            }
+
+            // Send connection preface only if TCP is already connected
+            // (not pending EINPROGRESS — preface will be sent on connect completion)
+            if (immediateConnect)
+                session.sendConnectionPreface();
+
+            h2ClientSessions ~= session;
+        }
+        catch (Throwable)
+        {
+            import core.sys.posix.unistd : close;
+            close(fd);
+            return engine.throwTypeError("http2.connect: allocation failed");
+        }
+
+        // Register with IO poller for async response reading and connect completion
+        version (linux)
+        {
+            ensureH2Poller();
+            gH2Poller.watch(fd, true, true); // readable + writable (for connect completion)
+        }
+
+        // Build the session JS object
+        auto obj = engine.newObject();
+        engine.setProperty(obj, "__h2_csid", engine.newInt(sessionId));
+        engine.setProperty(obj, "__h2_url", engine.newString(url));
+        engine.setProperty(obj, "request", engine.dupValue(_h2ClientReq));
+        engine.setProperty(obj, "close", engine.dupValue(_h2ClientClose));
+        engine.setProperty(obj, "on", engine.dupValue(_h2ClientSessionOn));
+        return obj;
+    }
+    else
+    {
+        // Non-Posix: return a stub object (no TCP support)
+        auto obj = engine.newObject();
+        engine.setProperty(obj, "__h2_csid", engine.newInt(-1));
+        engine.setProperty(obj, "__h2_url", engine.newString(url));
+        engine.setProperty(obj, "request", engine.dupValue(_h2ClientReq));
+        engine.setProperty(obj, "close", engine.dupValue(_h2ClientClose));
+        engine.setProperty(obj, "on", engine.dupValue(_h2ClientSessionOn));
+        return obj;
+    }
 }
 
-JSHandle jsH2ClientRequest(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsH2ClientSessionOn(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null);
     auto state = cast(DunState*) ctx;
-    return state.engine.newObject();
+    assert(state.engine !is null);
+    auto engine = state.engine;
+
+    if (args.length < 2 || !engine.isFunction(args[1])) return engine.dupValue(thisVal);
+
+    auto sidProp = engine.getProperty(thisVal, "__h2_csid");
+    int sessionId = engine.extractInt(sidProp);
+    engine.freeValue(sidProp);
+    if (sessionId < 0 || sessionId >= cast(int) h2ClientSessions.length) return engine.dupValue(thisVal);
+
+    auto ev = engine.extractString(args[0]);
+    auto session = &h2ClientSessions[sessionId];
+
+    if (ev == "connect")
+    {
+        if (session.hasConnectCb) engine.freeValue(session.connectCb);
+        session.connectCb = engine.dupValue(args[1]);
+        session.hasConnectCb = true;
+    }
+    else if (ev == "error")
+    {
+        if (session.hasErrorSessionCb) engine.freeValue(session.errorSessionCb);
+        session.errorSessionCb = engine.dupValue(args[1]);
+        session.hasErrorSessionCb = true;
+    }
+    return engine.dupValue(thisVal);
 }
 
-JSHandle jsH2ClientClose(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsH2ClientRequest(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null);
     auto state = cast(DunState*) ctx;
-    return state.engine.newUndefined();
+    assert(state.engine !is null);
+    auto engine = state.engine;
+
+    ensureH2FnsCached(engine);
+
+    // Get session ID from thisVal
+    auto sidProp = engine.getProperty(thisVal, "__h2_csid");
+    int sessionId = engine.extractInt(sidProp);
+    engine.freeValue(sidProp);
+
+    if (sessionId < 0 || sessionId >= cast(int) h2ClientSessions.length)
+    {
+        // Fallback: return a stub stream object for non-connected sessions
+        auto streamObj = engine.newObject();
+        engine.setProperty(streamObj, "on", engine.dupValue(_h2StreamOn));
+        engine.setProperty(streamObj, "end", engine.dupValue(_h2StreamEnd));
+        engine.setProperty(streamObj, "write", engine.dupValue(_h2StreamWrite));
+        return streamObj;
+    }
+
+    auto session = &h2ClientSessions[sessionId];
+
+    // Parse headers from first argument
+    HeaderField[] h2Headers;
+    string method = "GET";
+    string path = "/";
+    string scheme = "http";
+    string authority = session.host;
+    if (session.port != 80 && session.port != 443)
+    {
+        import std.conv : to;
+        try { authority = session.host ~ ":" ~ session.port.to!string; }
+        catch (Throwable) {}
+    }
+
+    if (args.length >= 1 && engine.isObject(args[0]))
+    {
+        auto hdrsObj = args[0];
+
+        auto methodVal = engine.getProperty(hdrsObj, ":method");
+        if (engine.isString(methodVal)) method = engine.extractString(methodVal);
+        engine.freeValue(methodVal);
+
+        auto pathVal = engine.getProperty(hdrsObj, ":path");
+        if (engine.isString(pathVal)) path = engine.extractString(pathVal);
+        engine.freeValue(pathVal);
+
+        auto schemeVal = engine.getProperty(hdrsObj, ":scheme");
+        if (engine.isString(schemeVal)) scheme = engine.extractString(schemeVal);
+        engine.freeValue(schemeVal);
+
+        auto authVal = engine.getProperty(hdrsObj, ":authority");
+        if (engine.isString(authVal)) authority = engine.extractString(authVal);
+        engine.freeValue(authVal);
+    }
+
+    // Allocate stream ID (odd for client)
+    uint streamId = session.allocateStreamId();
+
+    // Build HPACK headers
+    try
+    {
+        h2Headers ~= HeaderField(":method", method);
+        h2Headers ~= HeaderField(":path", path);
+        h2Headers ~= HeaderField(":scheme", scheme);
+        h2Headers ~= HeaderField(":authority", authority);
+    }
+    catch (Throwable)
+    {
+        auto streamObj = engine.newObject();
+        engine.setProperty(streamObj, "on", engine.dupValue(_h2StreamOn));
+        engine.setProperty(streamObj, "end", engine.dupValue(_h2StreamEnd));
+        engine.setProperty(streamObj, "write", engine.dupValue(_h2StreamWrite));
+        return streamObj;
+    }
+
+    // Send HEADERS frame (don't end stream yet — user may write body or call end())
+    bool endStream = (method == "GET" || method == "HEAD");
+    session.sendHeaders(streamId, h2Headers, endStream);
+
+    // Build the stream JS object
+    auto streamObj = engine.newObject();
+    engine.setProperty(streamObj, "__h2_csid", engine.newInt(sessionId));
+    engine.setProperty(streamObj, "__h2_stream_id", engine.newInt(cast(int) streamId));
+    engine.setProperty(streamObj, "on", engine.dupValue(_h2StreamOn));
+    engine.setProperty(streamObj, "end", engine.dupValue(_h2StreamEnd));
+    engine.setProperty(streamObj, "write", engine.dupValue(_h2StreamWrite));
+    return streamObj;
+}
+
+JSHandle jsH2ClientClose(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
+{
+    assert(ctx !is null);
+    auto state = cast(DunState*) ctx;
+    assert(state.engine !is null);
+    auto engine = state.engine;
+
+    auto sidProp = engine.getProperty(thisVal, "__h2_csid");
+    int sessionId = engine.extractInt(sidProp);
+    engine.freeValue(sidProp);
+
+    if (sessionId >= 0 && sessionId < cast(int) h2ClientSessions.length)
+    {
+        auto session = &h2ClientSessions[sessionId];
+        if (!session.closed)
+        {
+            // Only send GOAWAY if the connection is established
+            if (session.connected && !session.connectPending)
+                session.sendGoaway(H2Error.NO_ERROR);
+            session.closeConnection();
+        }
+    }
+    return engine.newUndefined();
+}
+
+// ── Client Stream event handlers ────────────────────────────────
+
+JSHandle jsH2StreamOn(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
+{
+    assert(ctx !is null);
+    auto state = cast(DunState*) ctx;
+    assert(state.engine !is null);
+    auto engine = state.engine;
+
+    if (args.length < 2 || !engine.isFunction(args[1])) return engine.dupValue(thisVal);
+
+    auto csidProp = engine.getProperty(thisVal, "__h2_csid");
+    int sessionId = engine.extractInt(csidProp);
+    engine.freeValue(csidProp);
+
+    auto sidProp = engine.getProperty(thisVal, "__h2_stream_id");
+    uint streamId = cast(uint) engine.extractInt(sidProp);
+    engine.freeValue(sidProp);
+
+    if (sessionId < 0 || sessionId >= cast(int) h2ClientSessions.length)
+        return engine.dupValue(thisVal);
+
+    auto session = &h2ClientSessions[sessionId];
+    auto ev = engine.extractString(args[0]);
+    auto cb = engine.dupValue(args[1]);
+
+    try
+    {
+        if (ev == "response")
+            session.responseCbs[streamId] = cb;
+        else if (ev == "data")
+            session.dataCbs[streamId] = cb;
+        else if (ev == "end")
+            session.endCbs[streamId] = cb;
+        else if (ev == "error")
+            session.errorCbs[streamId] = cb;
+        else
+            engine.freeValue(cb);
+    }
+    catch (Throwable)
+    {
+        engine.freeValue(cb);
+    }
+    return engine.dupValue(thisVal);
+}
+
+JSHandle jsH2StreamEnd(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
+{
+    assert(ctx !is null);
+    auto state = cast(DunState*) ctx;
+    assert(state.engine !is null);
+    auto engine = state.engine;
+
+    auto csidProp = engine.getProperty(thisVal, "__h2_csid");
+    int sessionId = engine.extractInt(csidProp);
+    engine.freeValue(csidProp);
+
+    auto sidProp = engine.getProperty(thisVal, "__h2_stream_id");
+    uint streamId = cast(uint) engine.extractInt(sidProp);
+    engine.freeValue(sidProp);
+
+    if (sessionId < 0 || sessionId >= cast(int) h2ClientSessions.length)
+        return engine.newUndefined();
+
+    auto session = &h2ClientSessions[sessionId];
+
+    // If there's a body argument, send it as DATA + END_STREAM
+    if (args.length >= 1 && engine.isString(args[0]))
+    {
+        auto body_ = engine.extractString(args[0]);
+        session.sendData(streamId, cast(const(ubyte)[]) body_, true);
+    }
+    else
+    {
+        // Just send empty DATA with END_STREAM
+        session.sendData(streamId, null, true);
+    }
+    return engine.newUndefined();
+}
+
+JSHandle jsH2StreamWrite(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
+{
+    assert(ctx !is null);
+    auto state = cast(DunState*) ctx;
+    assert(state.engine !is null);
+    auto engine = state.engine;
+
+    if (args.length < 1) return engine.newBool(false);
+
+    auto csidProp = engine.getProperty(thisVal, "__h2_csid");
+    int sessionId = engine.extractInt(csidProp);
+    engine.freeValue(csidProp);
+
+    auto sidProp = engine.getProperty(thisVal, "__h2_stream_id");
+    uint streamId = cast(uint) engine.extractInt(sidProp);
+    engine.freeValue(sidProp);
+
+    if (sessionId < 0 || sessionId >= cast(int) h2ClientSessions.length)
+        return engine.newBool(false);
+
+    auto session = &h2ClientSessions[sessionId];
+    auto body_ = engine.extractString(args[0]);
+    session.sendData(streamId, cast(const(ubyte)[]) body_, false);
+    return engine.newBool(true);
 }
 
 // ── Server object ────────────────────────────────────────────────
@@ -1627,7 +2523,7 @@ JSHandle makeH2ServerObj(IJSEngine engine, int id) @trusted
     return obj;
 }
 
-JSHandle jsH2ServerListen(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsH2ServerListen(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null);
     version (Posix)
@@ -1642,11 +2538,12 @@ JSHandle jsH2ServerListen(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
         auto idProp = engine.getProperty(thisVal, "__h2sid");
         int idVal = engine.extractInt(idProp);
+        engine.freeValue(idProp);
         if (idVal < 0 || idVal >= cast(int) h2Servers.length)
             return engine.throwTypeError("h2 server.listen: invalid server");
 
         auto srv = &h2Servers[idVal];
-        int port = 443;
+        int port = H2_DEFAULT_TLS_PORT;
         JSHandle listenCb;
         bool hasCb = false;
 
@@ -1684,7 +2581,7 @@ JSHandle jsH2ServerListen(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
             if (hasCb) engine.freeValue(listenCb);
             return engine.throwTypeError("h2 server: bind() failed");
         }
-        if (listen(lfd, 128) < 0)
+        if (listen(lfd, H2_LISTEN_BACKLOG) < 0)
         {
             import core.sys.posix.unistd : close;
             close(lfd);
@@ -1717,7 +2614,7 @@ JSHandle jsH2ServerListen(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     }
 }
 
-JSHandle jsH2ServerClose(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsH2ServerClose(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null);
     version (Posix)
@@ -1728,6 +2625,7 @@ JSHandle jsH2ServerClose(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
         auto idProp = engine.getProperty(thisVal, "__h2sid");
         int idVal = engine.extractInt(idProp);
+        engine.freeValue(idProp);
         if (idVal >= 0 && idVal < cast(int) h2Servers.length)
         {
             auto srv = &h2Servers[idVal];
@@ -1748,16 +2646,17 @@ JSHandle jsH2ServerClose(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     }
 }
 
-JSHandle jsH2ServerOn(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsH2ServerOn(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null);
     auto state = cast(DunState*) ctx;
     auto engine = state.engine;
-    if (args.length < 2) return thisVal;
+    if (args.length < 2) return engine.dupValue(thisVal);
 
     auto idProp = engine.getProperty(thisVal, "__h2sid");
     int idVal = engine.extractInt(idProp);
-    if (idVal < 0 || idVal >= cast(int) h2Servers.length) return thisVal;
+    engine.freeValue(idProp);
+    if (idVal < 0 || idVal >= cast(int) h2Servers.length) return engine.dupValue(thisVal);
 
     auto ev = engine.extractString(args[0]);
     if ((ev == "stream" || ev == "request") && engine.isFunction(args[1]))
@@ -1767,7 +2666,7 @@ JSHandle jsH2ServerOn(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
         srv.requestCb = engine.dupValue(args[1]);
         srv.hasCb = true;
     }
-    return thisVal;
+    return engine.dupValue(thisVal);
 }
 
 // ── HTTP/2 Response Object ───────────────────────────────────────
@@ -1810,7 +2709,7 @@ int findOrCreateResponseState(uint streamId) nothrow @trusted
     catch (Throwable) { return -1; }
 }
 
-JSHandle jsH2ResWriteHead(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsH2ResWriteHead(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null);
     auto state = cast(DunState*) ctx;
@@ -1818,6 +2717,7 @@ JSHandle jsH2ResWriteHead(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
     auto sidProp = engine.getProperty(thisVal, "__h2_stream_id");
     uint streamId = cast(uint) engine.extractInt(sidProp);
+    engine.freeValue(sidProp);
     int rsIdx = findOrCreateResponseState(streamId);
     if (rsIdx < 0) return engine.newUndefined();
 
@@ -1828,7 +2728,7 @@ JSHandle jsH2ResWriteHead(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     return engine.newUndefined();
 }
 
-JSHandle jsH2ResSetHeader(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsH2ResSetHeader(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null);
     auto state = cast(DunState*) ctx;
@@ -1837,6 +2737,7 @@ JSHandle jsH2ResSetHeader(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
     auto sidProp = engine.getProperty(thisVal, "__h2_stream_id");
     uint streamId = cast(uint) engine.extractInt(sidProp);
+    engine.freeValue(sidProp);
     int rsIdx = findOrCreateResponseState(streamId);
     if (rsIdx < 0) return engine.newUndefined();
 
@@ -1850,7 +2751,7 @@ JSHandle jsH2ResSetHeader(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     return engine.newUndefined();
 }
 
-JSHandle jsH2ResWrite(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsH2ResWrite(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null);
     auto state = cast(DunState*) ctx;
@@ -1859,6 +2760,7 @@ JSHandle jsH2ResWrite(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
     auto sidProp = engine.getProperty(thisVal, "__h2_stream_id");
     uint streamId = cast(uint) engine.extractInt(sidProp);
+    engine.freeValue(sidProp);
     int rsIdx = findOrCreateResponseState(streamId);
     if (rsIdx < 0) return engine.newBool(false);
 
@@ -1881,7 +2783,7 @@ JSHandle jsH2ResWrite(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     return engine.newBool(true);
 }
 
-JSHandle jsH2ResEnd(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsH2ResEnd(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null);
     auto state = cast(DunState*) ctx;
@@ -1889,6 +2791,7 @@ JSHandle jsH2ResEnd(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
     auto sidProp = engine.getProperty(thisVal, "__h2_stream_id");
     uint streamId = cast(uint) engine.extractInt(sidProp);
+    engine.freeValue(sidProp);
     int rsIdx = findOrCreateResponseState(streamId);
     if (rsIdx < 0) return engine.newUndefined();
 
@@ -1952,7 +2855,7 @@ public void pollHttp2IO() nothrow @trusted
     version (linux)
     {
         ensureH2Poller();
-        IOEvent[64] evBuf;
+        IOEvent[IO_POLL_BATCH_SIZE] evBuf;
         auto events = gH2Poller.poll(0, evBuf[]);
         foreach (ref ev; events)
         {
@@ -1962,6 +2865,15 @@ public void pollHttp2IO() nothrow @trusted
             foreach (ref conn; h2Connections)
                 if (!conn.closed && conn.fd == ev.fd && ev.readable)
                     readH2Data(conn);
+            foreach (ref cs; h2ClientSessions)
+            {
+                if (cs.closed || cs.fd != ev.fd) continue;
+                // Handle connect completion
+                if (cs.connectPending && ev.writable)
+                    completeH2ClientConnect(cs);
+                if (!cs.closed && ev.readable)
+                    readH2ClientData(cs);
+            }
         }
     }
 }
@@ -1970,6 +2882,7 @@ public bool hasActiveHttp2IO() @safe nothrow
 {
     foreach (ref s; h2Servers) if (s.active) return true;
     foreach (ref c; h2Connections) if (!c.closed) return true;
+    foreach (ref cs; h2ClientSessions) if (!cs.closed) return true;
     return false;
 }
 
@@ -2036,11 +2949,49 @@ void acceptH2Connection(int srvId) nothrow @trusted
     }
 }
 
+void completeH2ClientConnect(ref ClientH2Session session) nothrow @trusted
+{
+    version (Posix)
+    {
+        import core.sys.posix.sys.socket : getsockopt, SOL_SOCKET, SO_ERROR;
+
+        // Check if connection actually succeeded
+        int err;
+        uint errlen = err.sizeof;
+        getsockopt(session.fd, SOL_SOCKET, SO_ERROR, &err, &errlen);
+
+        session.connectPending = false;
+
+        if (err != 0)
+        {
+            // Connection failed (e.g. ECONNREFUSED)
+            session.closeConnection();
+            return;
+        }
+
+        session.connected = true;
+
+        // Now send the connection preface
+        session.sendConnectionPreface();
+
+        // Dispatch connect callback if registered
+        if (session.hasConnectCb && session.engine !is null)
+        {
+            try
+            {
+                JSHandle[0] noArgs;
+                pushAgnosticPending(session.engine, session.connectCb, noArgs[]);
+            }
+            catch (Throwable) {}
+        }
+    }
+}
+
 void readH2Data(ref H2Connection conn) nothrow @trusted
 {
     version (Posix)
     {
-        ubyte[16384] buf;
+        ubyte[H2_DEFAULT_MAX_FRAME_SIZE] buf;
         while (true)
         {
             int n;
@@ -2056,6 +3007,36 @@ void readH2Data(ref H2Connection conn) nothrow @trusted
             }
             if (n <= 0) break;
             conn.processReceivedData(buf[0 .. n]);
+        }
+    }
+}
+
+void readH2ClientData(ref ClientH2Session session) nothrow @trusted
+{
+    version (Posix)
+    {
+        ubyte[H2_CLIENT_RECV_BUF_SIZE] buf;
+        while (true)
+        {
+            int n;
+            if (session.sslPtr !is null)
+            {
+                import dun.platform.openssl : SSL, SSL_read;
+                n = SSL_read(cast(SSL*) session.sslPtr, buf.ptr, cast(int) buf.length);
+            }
+            else
+            {
+                import core.sys.posix.unistd : read;
+                n = cast(int) read(session.fd, buf.ptr, buf.length);
+            }
+            if (n <= 0)
+            {
+                // Connection closed by peer
+                if (n == 0 && !session.closed)
+                    session.closed = true;
+                break;
+            }
+            session.processReceivedData(buf[0 .. n]);
         }
     }
 }

@@ -4,7 +4,7 @@ const tmpFile = '/tmp/dun_test_fs_ops.txt';
 
 // write + read
 writeFileSync(tmpFile, 'hello dun');
-console.log(readFileSync(tmpFile));
+console.log(readFileSync(tmpFile, 'utf8'));
 
 // exists
 console.log(existsSync(tmpFile));

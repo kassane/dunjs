@@ -241,5 +241,24 @@ check('require.resolve exists', typeof require.resolve === 'function');
 check('require.resolve builtin', require.resolve('fs') === 'fs');
 check('require.cache exists', typeof require.cache === 'object');
 
+// === CompressionStream / DecompressionStream ===
+check('CompressionStream exists', typeof CompressionStream === 'function');
+const cs = new CompressionStream('gzip');
+check('CompressionStream.format', cs.format === 'gzip');
+check('CompressionStream.readable', cs.readable instanceof ReadableStream);
+check('CompressionStream.writable', cs.writable instanceof WritableStream);
+let csThrew = false;
+try { new CompressionStream('bad'); } catch (e) { csThrew = true; }
+check('CompressionStream bad format throws', csThrew);
+
+check('DecompressionStream exists', typeof DecompressionStream === 'function');
+const ds = new DecompressionStream('deflate');
+check('DecompressionStream.format', ds.format === 'deflate');
+check('DecompressionStream.readable', ds.readable instanceof ReadableStream);
+check('DecompressionStream.writable', ds.writable instanceof WritableStream);
+let dsThrew = false;
+try { new DecompressionStream('bad'); } catch (e) { dsThrew = true; }
+check('DecompressionStream bad format throws', dsThrew);
+
 console.log(`\nWeb APIs: ${pass}/${pass + fail} passed`);
 if (fail > 0) console.log(`${fail} FAILED`);

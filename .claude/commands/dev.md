@@ -49,11 +49,12 @@ source/dun/
   loop/
     eventloop.d      # Event loop (epoll/kqueue/poll + io_uring)
     async.d          # Async work queue (background threads + promises)
-  builtins/          # 25 modules: fs (30 functions), path, net, http, http2, crypto,
+  builtins/          # 29 modules: fs (30 functions), path, net, http, http2, crypto,
                      #   fetch, buffer, events, url, os, child_process, stream, zlib,
-                     #   dns, ws, sqlite, util, assert, querystring, string_decoder, tls
+                     #   dns, ws, sqlite, util, assert, querystring, string_decoder,
+                     #   vm, cluster, async_hooks, worker_threads, tls
   modules/           # ES modules, CJS require, npm resolver
-  platform/          # OpenSSL bindings, memory, threading
+  platform/          # OpenSSL bindings, memory, threading, SIMD (core.simd + LDC intrinsics)
 
 vendor/v8shim/       # V8 C++ shim (~300 LOC, uses TMP templates)
 ```
@@ -66,7 +67,7 @@ vendor/v8shim/       # V8 C++ shim (~300 LOC, uses TMP templates)
 4. **RAII for engine resources** -- JSVal, DunV8Value ref-counting, JSValueProtect
 5. **Permission checks before I/O** -- `state.permissions.check(Permission.read, path)`
 6. **Named constants for limits** -- `DEFAULT_MEMORY_LIMIT`, not `256 * 1024 * 1024`
-7. **Engine-agnostic builtins** -- all 24 modules + Workers work identically across QuickJS, JSC, V8
+7. **Engine-agnostic builtins** -- all 28 modules + Workers work identically across QuickJS, JSC, V8
 8. **TIGER_STYLE assertions** -- every @trusted block and extern(C)/NativeCallback gets precondition asserts (null ctx, null engine, double-init guards, static asserts for layout/enum counts)
 9. **Use `setPropertyIndex`/`getPropertyIndex` for array element access** -- O(1) vs O(n) string-based
 10. **Use `engine.newUint8Array(data)` for creating Uint8Array from byte data**

@@ -40,7 +40,7 @@ class V8Engine : IJSEngine
         }
     }
 
-    JSResult eval(const(char)[] source, string filename) @trusted
+    JSResult eval(scope const(char)[] source, string filename) @trusted
     {
         import std.string : toStringz;
 
@@ -70,7 +70,7 @@ class V8Engine : IJSEngine
         return toHandle(dun_v8_new_null(ctx));
     }
 
-    JSHandle newString(const(char)[] s) @trusted
+    JSHandle newString(scope const(char)[] s) @trusted
     {
         assert(ctx !is null, "V8 context not initialized");
         if (s.length == 0)
@@ -108,10 +108,27 @@ class V8Engine : IJSEngine
         return toHandle(dun_v8_new_array(ctx, 0));
     }
 
-    JSHandle newUint8Array(const(ubyte)[] data) @trusted
+    JSHandle newUint8Array(scope const(ubyte)[] data) @trusted
     {
         assert(ctx !is null, "V8 context not initialized");
         return toHandle(dun_v8_new_uint8array(ctx, data.ptr, data.length));
+    }
+
+    JSHandle newUint8ArrayZeroed(size_t length) @trusted
+    {
+        assert(ctx !is null, "V8 context not initialized");
+        return toHandle(dun_v8_new_uint8array(ctx, null, length));
+    }
+
+    ubyte[] getTypedArrayBytes(JSHandle val) @trusted
+    {
+        assert(ctx !is null, "V8 context not initialized");
+        auto v = fromHandle(val);
+        if (v is null) return null;
+        size_t len;
+        auto ptr = dun_v8_typed_array_data(ctx, v, &len);
+        if (ptr is null || len == 0) return null;
+        return ptr[0 .. len];
     }
 
     JSHandle newFunction(NativeCallback cb, string name, int argc) @trusted
@@ -126,6 +143,8 @@ class V8Engine : IJSEngine
         return toHandle(fn);
     }
 
+    private enum V8_STACK_STRING_SIZE = 512;
+
     string extractString(JSHandle val) @trusted
     {
         assert(ctx !is null, "V8 context not initialized");
@@ -133,6 +152,15 @@ class V8Engine : IJSEngine
         auto cstr = dun_v8_value_to_string(ctx, fromHandle(val), &len);
         if (cstr is null)
             return "";
+        // Single copy: directly from C string to immutable D string
+        // Stack buffer avoids GC allocation for short strings (~99% of cases)
+        if (len <= V8_STACK_STRING_SIZE)
+        {
+            char[V8_STACK_STRING_SIZE] stackBuf = void;
+            stackBuf[0 .. len] = cstr[0 .. len];
+            dun_v8_free_string(cstr);
+            return stackBuf[0 .. len].idup;
+        }
         auto result = cstr[0 .. len].idup;
         dun_v8_free_string(cstr);
         return result;
@@ -156,20 +184,20 @@ class V8Engine : IJSEngine
         return dun_v8_value_to_bool(ctx, fromHandle(val)) != 0;
     }
 
-    JSHandle getProperty(JSHandle obj, const(char)[] name) @trusted
+    JSHandle getProperty(JSHandle obj, scope const(char)[] name) @trusted
     {
-        import std.string : toStringz;
         assert(ctx !is null, "V8 context not initialized");
+        char[V8_STACK_STRING_SIZE] buf = void;
         return toHandle(dun_v8_get_property(ctx, fromHandle(obj),
-            (cast(string) name).toStringz));
+            stackTerminate(name, buf)));
     }
 
-    void setProperty(JSHandle obj, const(char)[] name, JSHandle val) @trusted
+    void setProperty(JSHandle obj, scope const(char)[] name, JSHandle val) @trusted
     {
-        import std.string : toStringz;
         assert(ctx !is null, "V8 context not initialized");
+        char[V8_STACK_STRING_SIZE] buf = void;
         dun_v8_set_property(ctx, fromHandle(obj),
-            (cast(string) name).toStringz, fromHandle(val));
+            stackTerminate(name, buf), fromHandle(val));
     }
 
     void setPropertyIndex(JSHandle obj, uint idx, JSHandle val) @trusted
@@ -205,7 +233,7 @@ class V8Engine : IJSEngine
         return toHandle(dun_v8_global(ctx));
     }
 
-    JSHandle callFunction(JSHandle func, JSHandle thisVal, JSHandle[] args) @trusted
+    JSHandle callFunction(JSHandle func, JSHandle thisVal, scope JSHandle[] args) @trusted
     {
         assert(ctx !is null, "V8 context not initialized");
         auto jsFunc = fromHandle(func);
@@ -290,18 +318,24 @@ class V8Engine : IJSEngine
         return result;
     }
 
-    JSHandle throwTypeError(const(char)[] msg) @trusted
+    JSHandle throwTypeError(scope const(char)[] msg) @trusted
     {
-        import std.string : toStringz;
         assert(ctx !is null, "V8 context not initialized");
-        return toHandle(dun_v8_throw_type_error(ctx, (cast(string) msg).toStringz));
+        char[V8_STACK_STRING_SIZE] buf = void;
+        return toHandle(dun_v8_throw_type_error(ctx, stackTerminate(msg, buf)));
     }
 
-    JSHandle throwRangeError(const(char)[] msg) @trusted
+    JSHandle throwRangeError(scope const(char)[] msg) @trusted
     {
-        import std.string : toStringz;
         assert(ctx !is null, "V8 context not initialized");
-        return toHandle(dun_v8_throw_range_error(ctx, (cast(string) msg).toStringz));
+        char[V8_STACK_STRING_SIZE] buf = void;
+        return toHandle(dun_v8_throw_range_error(ctx, stackTerminate(msg, buf)));
+    }
+
+    JSHandle throwValue(JSHandle val) @trusted
+    {
+        assert(ctx !is null, "V8 context not initialized");
+        return toHandle(dun_v8_throw_value(ctx, fromHandle(val)));
     }
 
     PromiseHandles newPromise() @trusted
@@ -346,17 +380,19 @@ class V8Engine : IJSEngine
 
     void setContextOpaque(void* ptr) @trusted
     {
+        assert(ctx !is null, "V8 context not initialized");
         dun_v8_set_context_data(ctx, ptr);
     }
 
     void* getContextOpaque() @trusted
     {
+        assert(ctx !is null, "V8 context not initialized");
         return dun_v8_get_context_data(ctx);
     }
 
     void setModuleLoader(ModuleLoaderCallback loader) {}
 
-    JSResult evalModule(const(char)[] source, string filename) @trusted
+    JSResult evalModule(scope const(char)[] source, string filename) @trusted
     {
         import dun.modules.esm_shim : transpileESM;
         try
@@ -410,6 +446,20 @@ class V8Engine : IJSEngine
         auto global = dun_v8_global(ctx);
         dun_v8_set_property(ctx, global, name.toStringz, fn);
         dun_v8_value_unref(global);
+    }
+
+    pragma(inline, true)
+    private static const(char)* stackTerminate(
+        const(char)[] name, return ref char[V8_STACK_STRING_SIZE] buf) @trusted
+    {
+        if (name.length < V8_STACK_STRING_SIZE)
+        {
+            buf[0 .. name.length] = name[];
+            buf[name.length] = '\0';
+            return buf.ptr;
+        }
+        import std.string : toStringz;
+        return (cast(string) name).toStringz;
     }
 
     static JSHandle toHandle(DunV8Value* ptr) pure nothrow @nogc @trusted

@@ -297,7 +297,7 @@
 	"toolchainRequirements": {
 		"frontend": ">=2.112.0"
 	},
-	"version": "0.1.0",
+	"version": "0.2.0",
 	"description": "A secure JavaScript runtime written in D",
 	"dependencies": {},
 	"targetType": "executable",
@@ -312,6 +312,18 @@
 				"-release",
 				"-boundscheck=off"
 			],
+			"dflags-ldc": [
+				"-O3",
+				"--release",
+				"--boundscheck=off",
+				"--mcpu=native",
+				"--flto=thin",
+				"--fno-plt",
+				"--frame-pointer=none",
+				"--linkonce-templates",
+				"--inline-threshold=350",
+				"--hot-cold-split"
+			],
 			"lflags-posix": [
 				"-s"
 			]
@@ -322,11 +334,45 @@
 				"-g"
 			]
 		},
+		"release-pgo-gen": {
+			"dflags-ldc": [
+				"-O3",
+				"--release",
+				"--boundscheck=off",
+				"--mcpu=native",
+				"--fprofile-instr-generate=build/dun-%m.profraw"
+			],
+			"lflags-posix": [
+				"-lldc_rt.profile"
+			]
+		},
+		"release-pgo": {
+			"dflags-ldc": [
+				"-O3",
+				"--release",
+				"--boundscheck=off",
+				"--mcpu=native",
+				"--flto=thin",
+				"--fno-plt",
+				"--frame-pointer=none",
+				"--linkonce-templates",
+				"--fprofile-instr-use=build/dun.profdata"
+			],
+			"lflags-posix": [
+				"-s"
+			]
+		},
 		"asan": {
 			"dflags": [
 				"-g",
 				"--fsanitize=address",
 				"--link-defaultlib-shared"
+			]
+		},
+		"tsan": {
+			"dflags": [
+				"-g",
+				"--fsanitize=thread"
 			]
 		}
 	},

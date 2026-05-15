@@ -6,8 +6,8 @@ import dun.loop.agnostic_pending : pushAgnosticPending;
 
 private enum : size_t {
     SOCKET_READ_BUF_SIZE = 4096,
-    LISTEN_BACKLOG       = 128,
-    IO_EVENT_BUF_SIZE    = 64,
+    LISTEN_BACKLOG       = 1024,
+    IO_POLL_BATCH_SIZE   = 64,
 }
 
 void registerNetModule(IJSEngine engine) @trusted
@@ -18,9 +18,59 @@ void registerNetModule(IJSEngine engine) @trusted
     engine.setProperty(obj, "createServer", engine.newFunction(&jsCreateServer, "createServer", 1));
     engine.setProperty(obj, "createConnection", engine.newFunction(&jsCreateConnection, "createConnection", 2));
     engine.setProperty(obj, "connect", engine.newFunction(&jsCreateConnection, "connect", 2));
+    engine.setProperty(obj, "isIP", engine.newFunction(&jsNetIsIP, "isIP", 1));
+    engine.setProperty(obj, "isIPv4", engine.newFunction(&jsNetIsIPv4, "isIPv4", 1));
+    engine.setProperty(obj, "isIPv6", engine.newFunction(&jsNetIsIPv6, "isIPv6", 1));
+
+    // net.Socket constructor — many npm packages check typeof net.Socket === 'function'
+    auto socketResult = engine.eval(
+        "(function Socket(options) {" ~
+        "  this.readable = true;" ~
+        "  this.writable = true;" ~
+        "  this.destroyed = false;" ~
+        "  this.connecting = false;" ~
+        "  this.localAddress = '';" ~
+        "  this.localPort = 0;" ~
+        "  this.remoteAddress = '';" ~
+        "  this.remoteFamily = '';" ~
+        "  this.remotePort = 0;" ~
+        "})", "<net-socket>");
+    if (!socketResult.isError)
+        engine.setProperty(obj, "Socket", socketResult.value);
+    else
+        engine.freeValue(socketResult.value);
 
     auto global = engine.getGlobal();
     engine.setProperty(global, "__dun_cjs_net__", obj);
+    engine.freeValue(global);
+
+    // Add BlockList and SocketAddress stubs via JS eval
+    auto netStubsResult = engine.eval(
+        "(function() {" ~
+        "  var net = globalThis.__dun_cjs_net__;" ~
+        "  net.BlockList = function BlockList() { this._rules = []; };" ~
+        "  net.BlockList.prototype.addAddress = function(addr) { this._rules.push({type:'address',addr:addr}); };" ~
+        "  net.BlockList.prototype.addRange = function(start, end) { this._rules.push({type:'range',start:start,end:end}); };" ~
+        "  net.BlockList.prototype.addSubnet = function(n, prefix) { this._rules.push({type:'subnet',net:n,prefix:prefix}); };" ~
+        "  net.BlockList.prototype.check = function(addr) { return false; };" ~
+        "  net.SocketAddress = function SocketAddress(opts) {" ~
+        "    opts = opts || {};" ~
+        "    this.address = opts.address || '127.0.0.1';" ~
+        "    this.port = opts.port || 0;" ~
+        "    this.family = opts.family || 'ipv4';" ~
+        "    this.flowlabel = opts.flowlabel || 0;" ~
+        "  };" ~
+        "})()", "<net-stubs>");
+    if (netStubsResult.isError)
+    {
+        try
+        {
+            import std.stdio : stderr;
+            stderr.writeln("net stubs init failed: ", netStubsResult.errorMessage);
+        }
+        catch (Exception) {}
+    }
+    engine.freeValue(netStubsResult.value);
 
     version (EngineQuickJS)
         registerQuickJSModule(engine);
@@ -32,12 +82,13 @@ version (EngineQuickJS)
 
     private void registerQuickJSModule(IJSEngine engine) @trusted
     {
+        assert(engine !is null, "Null engine in registerQuickJSModule");
         auto ctx = cast(JSContext*) engine.rawContext();
         auto m = JS_NewCModule(ctx, "dun:net", &netModuleInit);
         if (m is null) return;
-        JS_AddModuleExport(ctx, m, "createServer");
-        JS_AddModuleExport(ctx, m, "createConnection");
-        JS_AddModuleExport(ctx, m, "connect");
+        foreach (name; ["createServer", "createConnection", "connect", "isIP", "isIPv4", "isIPv6", "Socket",
+                        "BlockList", "SocketAddress"])
+            JS_AddModuleExport(ctx, m, name.ptr);
     }
 
     private extern (C) int netModuleInit(JSContext* ctx, JSModuleDef* m) nothrow @trusted
@@ -46,7 +97,8 @@ version (EngineQuickJS)
         assert(m !is null, "Null JSModuleDef in netModuleInit");
         auto global = JS_GetGlobalObject(ctx);
         auto netObj = JS_GetPropertyStr(ctx, global, "__dun_cjs_net__");
-        foreach (name; ["createServer", "createConnection", "connect"])
+        foreach (name; ["createServer", "createConnection", "connect", "isIP", "isIPv4", "isIPv6", "Socket",
+                        "BlockList", "SocketAddress"])
         {
             auto fn = JS_GetPropertyStr(ctx, netObj, name.ptr);
             JS_SetModuleExport(ctx, m, name.ptr, fn);
@@ -71,6 +123,22 @@ version (linux)
 
 private:
 
+string formatIPv4(uint ip) nothrow @trusted
+{
+    char[15] buf;
+    int pos = 0;
+    foreach (i; 0 .. 4)
+    {
+        uint octet = (ip >> (24 - i * 8)) & 0xFF;
+        if (octet >= 100) { buf[pos++] = cast(char)('0' + octet / 100); octet %= 100; buf[pos++] = cast(char)('0' + octet / 10); buf[pos++] = cast(char)('0' + octet % 10); }
+        else if (octet >= 10) { buf[pos++] = cast(char)('0' + octet / 10); buf[pos++] = cast(char)('0' + octet % 10); }
+        else buf[pos++] = cast(char)('0' + octet);
+        if (i < 3) buf[pos++] = '.';
+    }
+    try return buf[0 .. pos].idup;
+    catch (Exception) return "0.0.0.0";
+}
+
 // Cached function handles for server/socket objects
 __gshared JSHandle _srvListen, _srvClose, _srvOn;
 __gshared JSHandle _sockOn, _sockWrite, _sockEnd, _sockDestroy;
@@ -87,6 +155,10 @@ struct SocketState
     bool closed;
     bool eventsSet;
     ubyte[SOCKET_READ_BUF_SIZE] readBuf;
+    string remoteAddress;
+    ushort remotePort;
+    string localAddress;
+    ushort localPort;
 }
 
 struct ServerState
@@ -104,7 +176,7 @@ SocketState[] sockets;
 int nextServerId = 0;
 int nextSocketId = 0;
 
-JSHandle jsCreateServer(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsCreateServer(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsCreateServer");
     auto state = cast(DunState*) ctx;
@@ -141,7 +213,7 @@ JSHandle jsCreateServer(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     return makeServerObject(engine, id);
 }
 
-JSHandle jsCreateConnection(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsCreateConnection(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsCreateConnection");
     version (Posix)
@@ -161,14 +233,39 @@ JSHandle jsCreateConnection(void* ctx, JSHandle thisVal, JSHandle[] args) @trust
         JSHandle connectCb;
         bool hasCb = false;
 
-        if (args.length >= 1 && engine.isNumber(args[0]))
-            port = engine.extractInt(args[0]);
-        if (args.length >= 2 && engine.isString(args[1]))
-            host = engine.extractString(args[1]);
-        if (args.length >= 3 && engine.isFunction(args[2]))
+        if (args.length >= 1 && engine.isObject(args[0]) && !engine.isFunction(args[0]))
         {
-            connectCb = engine.dupValue(args[2]);
-            hasCb = true;
+            // Options object form: net.connect({ port, host }, callback)
+            auto portProp = engine.getProperty(args[0], "port");
+            if (engine.isNumber(portProp))
+                port = engine.extractInt(portProp);
+            engine.freeValue(portProp);
+            auto hostProp = engine.getProperty(args[0], "host");
+            if (engine.isString(hostProp))
+                host = engine.extractString(hostProp);
+            engine.freeValue(hostProp);
+            if (args.length >= 2 && engine.isFunction(args[1]))
+            {
+                connectCb = engine.dupValue(args[1]);
+                hasCb = true;
+            }
+        }
+        else
+        {
+            if (args.length >= 1 && engine.isNumber(args[0]))
+                port = engine.extractInt(args[0]);
+            if (args.length >= 2 && engine.isString(args[1]))
+                host = engine.extractString(args[1]);
+            if (args.length >= 3 && engine.isFunction(args[2]))
+            {
+                connectCb = engine.dupValue(args[2]);
+                hasCb = true;
+            }
+            else if (args.length >= 2 && engine.isFunction(args[1]))
+            {
+                connectCb = engine.dupValue(args[1]);
+                hasCb = true;
+            }
         }
 
         int fd = socket(AF_INET, SOCK_STREAM, 0);
@@ -288,10 +385,27 @@ JSHandle makeSocketObject(IJSEngine engine, int id) @trusted
     engine.setProperty(obj, "write", engine.dupValue(_sockWrite));
     engine.setProperty(obj, "end", engine.dupValue(_sockEnd));
     engine.setProperty(obj, "destroy", engine.dupValue(_sockDestroy));
+
+    if (id >= 0 && id < cast(int) sockets.length)
+    {
+        auto sock = &sockets[id];
+        if (sock.remoteAddress.length > 0)
+        {
+            engine.setProperty(obj, "remoteAddress", engine.newString(sock.remoteAddress));
+            engine.setProperty(obj, "remotePort", engine.newInt(cast(int) sock.remotePort));
+            engine.setProperty(obj, "remoteFamily", engine.newString("IPv4"));
+        }
+        if (sock.localAddress.length > 0)
+        {
+            engine.setProperty(obj, "localAddress", engine.newString(sock.localAddress));
+            engine.setProperty(obj, "localPort", engine.newInt(cast(int) sock.localPort));
+        }
+    }
+
     return obj;
 }
 
-JSHandle jsServerListen(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsServerListen(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsServerListen");
     version (Posix)
@@ -307,6 +421,7 @@ JSHandle jsServerListen(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
         auto idProp = engine.getProperty(thisVal, "__id");
         int idVal = engine.extractInt(idProp);
+        engine.freeValue(idProp);
         if (idVal < 0 || idVal >= cast(int) servers.length)
             return engine.throwTypeError("server.listen: invalid server");
 
@@ -385,7 +500,7 @@ JSHandle jsServerListen(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     }
 }
 
-JSHandle jsServerClose(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsServerClose(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsServerClose");
     version (Posix)
@@ -397,6 +512,7 @@ JSHandle jsServerClose(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
         auto idProp = engine.getProperty(thisVal, "__id");
         int idVal = engine.extractInt(idProp);
+        engine.freeValue(idProp);
         if (idVal >= 0 && idVal < cast(int) servers.length)
         {
             auto srv = &servers[idVal];
@@ -417,17 +533,18 @@ JSHandle jsServerClose(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     }
 }
 
-JSHandle jsServerOn(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsServerOn(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsServerOn");
     auto state = cast(DunState*) ctx;
     assert(state !is null, "Null DunState in jsServerOn");
     auto engine = state.engine;
-    if (args.length < 2) return thisVal;
+    if (args.length < 2) return engine.dupValue(thisVal);
 
     auto idProp = engine.getProperty(thisVal, "__id");
     int idVal = engine.extractInt(idProp);
-    if (idVal < 0 || idVal >= cast(int) servers.length) return thisVal;
+    engine.freeValue(idProp);
+    if (idVal < 0 || idVal >= cast(int) servers.length) return engine.dupValue(thisVal);
 
     auto srv = &servers[idVal];
     auto evName = engine.extractString(args[0]);
@@ -438,20 +555,21 @@ JSHandle jsServerOn(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
         srv.onConnection = engine.dupValue(args[1]);
         srv.connCbSet = true;
     }
-    return thisVal;
+    return engine.dupValue(thisVal);
 }
 
-JSHandle jsSocketOn(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsSocketOn(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsSocketOn");
     auto state = cast(DunState*) ctx;
     assert(state !is null, "Null DunState in jsSocketOn");
     auto engine = state.engine;
-    if (args.length < 2) return thisVal;
+    if (args.length < 2) return engine.dupValue(thisVal);
 
     auto idProp = engine.getProperty(thisVal, "__id");
     int idVal = engine.extractInt(idProp);
-    if (idVal < 0 || idVal >= cast(int) sockets.length) return thisVal;
+    engine.freeValue(idProp);
+    if (idVal < 0 || idVal >= cast(int) sockets.length) return engine.dupValue(thisVal);
 
     auto sock = &sockets[idVal];
     auto evName = engine.extractString(args[0]);
@@ -468,10 +586,10 @@ JSHandle jsSocketOn(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
             sock.onError = engine.dupValue(args[1]);
         sock.eventsSet = true;
     }
-    return thisVal;
+    return engine.dupValue(thisVal);
 }
 
-JSHandle jsSocketWrite(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsSocketWrite(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsSocketWrite");
     version (Posix)
@@ -485,6 +603,7 @@ JSHandle jsSocketWrite(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
         auto idProp = engine.getProperty(thisVal, "__id");
         int idVal = engine.extractInt(idProp);
+        engine.freeValue(idProp);
         if (idVal < 0 || idVal >= cast(int) sockets.length) return engine.newBool(false);
 
         auto sock = &sockets[idVal];
@@ -510,7 +629,7 @@ JSHandle jsSocketWrite(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     }
 }
 
-JSHandle jsSocketEnd(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsSocketEnd(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsSocketEnd");
     version (Posix)
@@ -523,6 +642,7 @@ JSHandle jsSocketEnd(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
         auto idProp = engine.getProperty(thisVal, "__id");
         int idVal = engine.extractInt(idProp);
+        engine.freeValue(idProp);
         if (idVal < 0 || idVal >= cast(int) sockets.length)
             return engine.newUndefined();
 
@@ -541,6 +661,20 @@ JSHandle jsSocketEnd(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
             JSHandle[0] noArgs;
             pushAgnosticPending(engine, sock.onClose, noArgs[]);
         }
+
+        // Free JS callback handles to prevent leaks
+        if (sock.eventsSet)
+        {
+            try
+            {
+                engine.freeValue(sock.onData);
+                engine.freeValue(sock.onEnd);
+                engine.freeValue(sock.onClose);
+                engine.freeValue(sock.onError);
+            }
+            catch (Throwable) {}
+            sock.eventsSet = false;
+        }
         return engine.newUndefined();
     }
     else
@@ -556,7 +690,7 @@ public void pollNetIO() nothrow @trusted
     version (linux)
     {
         ensurePoller();
-        IOEvent[IO_EVENT_BUF_SIZE] evBuf;
+        IOEvent[IO_POLL_BATCH_SIZE] evBuf;
         auto events = gNetPoller.poll(0, evBuf[]);
         foreach (ref ev; events)
         {
@@ -612,7 +746,8 @@ void acceptPendingConnections(int srvId) nothrow @trusted
 {
     version (Posix)
     {
-        import core.sys.posix.sys.socket : accept;
+        import core.sys.posix.sys.socket : accept, getsockname, sockaddr, socklen_t;
+        import core.sys.posix.netinet.in_ : sockaddr_in, ntohs, ntohl;
         import core.sys.posix.fcntl : fcntl, F_SETFL, F_GETFL, O_NONBLOCK;
         import core.stdc.errno : errno, EAGAIN, EWOULDBLOCK;
 
@@ -622,7 +757,9 @@ void acceptPendingConnections(int srvId) nothrow @trusted
 
         while (true)
         {
-            int connFd = accept(srv.listenFd, null, null);
+            sockaddr_in peerAddr;
+            socklen_t peerLen = cast(socklen_t) sockaddr_in.sizeof;
+            int connFd = accept(srv.listenFd, cast(sockaddr*) &peerAddr, &peerLen);
             if (connFd < 0)
             {
                 if (errno == EAGAIN || errno == EWOULDBLOCK) break;
@@ -638,6 +775,20 @@ void acceptPendingConnections(int srvId) nothrow @trusted
                 SocketState s;
                 s.engine = srv.engine;
                 s.fd = connFd;
+
+                uint ip = ntohl(peerAddr.sin_addr.s_addr);
+                s.remotePort = ntohs(peerAddr.sin_port);
+                s.remoteAddress = formatIPv4(ip);
+
+                sockaddr_in localAddr;
+                socklen_t localLen = cast(socklen_t) sockaddr_in.sizeof;
+                if (getsockname(connFd, cast(sockaddr*) &localAddr, &localLen) == 0)
+                {
+                    uint localIp = ntohl(localAddr.sin_addr.s_addr);
+                    s.localPort = ntohs(localAddr.sin_port);
+                    s.localAddress = formatIPv4(localIp);
+                }
+
                 sockets ~= s;
             }
             catch (Throwable)
@@ -712,6 +863,83 @@ void readSocketData(int sockId) nothrow @trusted
             catch (Throwable) {}
         }
     }
+}
+
+JSHandle jsNetIsIP(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
+{
+    assert(ctx !is null, "Null ctx in net.isIP");
+    auto state = cast(DunState*) ctx;
+    auto engine = state.engine;
+    if (args.length < 1 || !engine.isString(args[0]))
+        return engine.newInt(0);
+    auto addr = engine.extractString(args[0]);
+    if (isIPv4(addr)) return engine.newInt(4);
+    if (isIPv6(addr)) return engine.newInt(6);
+    return engine.newInt(0);
+}
+
+JSHandle jsNetIsIPv4(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
+{
+    assert(ctx !is null, "Null ctx in net.isIPv4");
+    auto state = cast(DunState*) ctx;
+    auto engine = state.engine;
+    if (args.length < 1 || !engine.isString(args[0]))
+        return engine.newBool(false);
+    return engine.newBool(isIPv4(engine.extractString(args[0])));
+}
+
+JSHandle jsNetIsIPv6(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
+{
+    assert(ctx !is null, "Null ctx in net.isIPv6");
+    auto state = cast(DunState*) ctx;
+    auto engine = state.engine;
+    if (args.length < 1 || !engine.isString(args[0]))
+        return engine.newBool(false);
+    return engine.newBool(isIPv6(engine.extractString(args[0])));
+}
+
+private bool isIPv4(string addr) @safe pure nothrow
+{
+    int dots = 0;
+    int digitCount = 0;
+    int val = 0;
+    foreach (c; addr)
+    {
+        if (c == '.')
+        {
+            if (digitCount == 0 || val > 255) return false;
+            dots++;
+            digitCount = 0;
+            val = 0;
+        }
+        else if (c >= '0' && c <= '9')
+        {
+            val = val * 10 + (c - '0');
+            digitCount++;
+            if (digitCount > 3) return false;
+        }
+        else return false;
+    }
+    return dots == 3 && digitCount > 0 && val <= 255;
+}
+
+private bool isIPv6(string addr) @safe pure nothrow
+{
+    if (addr.length < 2) return false;
+    int colons = 0;
+    bool hasDoubleColon = false;
+    foreach (i, c; addr)
+    {
+        if (c == ':')
+        {
+            colons++;
+            if (i + 1 < addr.length && addr[i + 1] == ':')
+                hasDoubleColon = true;
+        }
+        else if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')))
+            return false;
+    }
+    return colons >= 2 && colons <= 7;
 }
 
 public bool hasActiveNetIO() @safe nothrow

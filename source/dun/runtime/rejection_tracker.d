@@ -113,6 +113,7 @@ version (EngineQuickJS)
 
 private void installJSRejectionTracker(IJSEngine engine, DunState* state) @trusted
 {
+    assert(engine !is null, "Null engine in installJSRejectionTracker");
     auto global = engine.getGlobal();
 
     engine.setProperty(global, "__dunReportRejection__",
@@ -153,7 +154,7 @@ private void installJSRejectionTracker(IJSEngine engine, DunState* state) @trust
         engine.freeValue(setupResult.value);
 }
 
-private JSHandle jsReportRejection(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+private JSHandle jsReportRejection(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsReportRejection");
     auto state = cast(DunState*) ctx;

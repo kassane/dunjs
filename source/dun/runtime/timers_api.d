@@ -18,14 +18,16 @@ void installTimers(IJSEngine engine) @trusted
         engine.newFunction(&jsClearTimer, "clearTimeout", 1));
     engine.setProperty(global, "clearInterval",
         engine.newFunction(&jsClearTimer, "clearInterval", 1));
+    engine.freeValue(global);
 }
 
 private:
 
-JSHandle jsSetTimeout(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsSetTimeout(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in setTimeout");
     auto state = cast(DunState*) ctx;
+    assert(state !is null, "Null DunState in setTimeout");
     auto engine = state.engine;
     assert(engine !is null, "Null engine in setTimeout");
 
@@ -44,13 +46,14 @@ JSHandle jsSetTimeout(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
         dur!"msecs"(0),
     );
 
-    return engine.newInt(cast(int) id);
+    return makeTimerObject(engine, cast(int) id);
 }
 
-JSHandle jsSetInterval(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsSetInterval(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in setInterval");
     auto state = cast(DunState*) ctx;
+    assert(state !is null, "Null DunState in setInterval");
     auto engine = state.engine;
     assert(engine !is null, "Null engine in setInterval");
 
@@ -70,22 +73,91 @@ JSHandle jsSetInterval(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
         dur!"msecs"(ms),
     );
 
-    return engine.newInt(cast(int) id);
+    return makeTimerObject(engine, cast(int) id);
 }
 
-JSHandle jsClearTimer(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsClearTimer(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in clearTimer");
     auto state = cast(DunState*) ctx;
+    assert(state !is null, "Null DunState in clearTimer");
     auto engine = state.engine;
     assert(engine !is null, "Null engine in clearTimer");
 
     if (args.length < 1)
         return engine.newUndefined();
 
-    int id = engine.extractInt(args[0]);
+    int id;
+    if (engine.isObject(args[0]))
+    {
+        auto idProp = engine.getProperty(args[0], "_id");
+        id = engine.extractInt(idProp);
+        engine.freeValue(idProp);
+    }
+    else
+    {
+        id = engine.extractInt(args[0]);
+    }
+
     if (id > 0)
         state.eventLoop.timers.cancelTimer(cast(TimerID) id);
 
     return engine.newUndefined();
+}
+
+JSHandle makeTimerObject(IJSEngine engine, int id) @trusted
+{
+    auto obj = engine.newObject();
+    engine.setProperty(obj, "_id", engine.newInt(id));
+    engine.setProperty(obj, "ref", engine.newFunction(&jsTimerRef, "ref", 0));
+    engine.setProperty(obj, "unref", engine.newFunction(&jsTimerUnref, "unref", 0));
+    engine.setProperty(obj, "hasRef", engine.newFunction(&jsTimerHasRef, "hasRef", 0));
+    engine.setProperty(obj, "refresh", engine.newFunction(&jsTimerRef, "refresh", 0));
+
+    // valueOf + Symbol.toPrimitive for numeric coercion (clearTimeout(timer) compat)
+    auto setupRes = engine.eval(
+        "(function(o,id){o.valueOf=function(){return id};"
+        ~ "o[Symbol.toPrimitive]=function(){return id};})", "<timer-setup>");
+    if (!setupRes.isError)
+    {
+        auto idVal = engine.newInt(id);
+        engine.callFunction(setupRes.value, engine.newUndefined(), [obj, idVal]);
+        engine.freeValue(idVal);
+    }
+    engine.freeValue(setupRes.value);
+
+    return obj;
+}
+
+private string intToStr(int v) pure nothrow @trusted
+{
+    if (v == 0) return "0";
+    char[12] buf = void;
+    int pos = 11;
+    bool neg = v < 0;
+    uint uv = neg ? cast(uint)(-v) : cast(uint) v;
+    while (uv > 0) { buf[pos--] = cast(char)('0' + uv % 10); uv /= 10; }
+    if (neg) buf[pos--] = '-';
+    return cast(string) buf[pos + 1 .. 12].dup;
+}
+
+JSHandle jsTimerRef(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
+{
+    assert(ctx !is null);
+    auto state = cast(DunState*) ctx;
+    return state.engine.dupValue(thisVal);
+}
+
+JSHandle jsTimerUnref(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
+{
+    assert(ctx !is null);
+    auto state = cast(DunState*) ctx;
+    return state.engine.dupValue(thisVal);
+}
+
+JSHandle jsTimerHasRef(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
+{
+    assert(ctx !is null);
+    auto state = cast(DunState*) ctx;
+    return state.engine.newBool(true);
 }

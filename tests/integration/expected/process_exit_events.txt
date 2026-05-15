@@ -1,0 +1,5 @@
+process_exit_events: 1/1 checks passed
+ALL CHECKS PASSED
+beforeExit handler called with code: 0
+exit handler called with code: 0
+exit listener count: 2

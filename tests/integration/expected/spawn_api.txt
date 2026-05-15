@@ -1,0 +1,21 @@
+PASS: spawn is function
+PASS: execFile is function
+PASS: spawn returns object
+PASS: spawn has pid
+PASS: spawn has stdout
+PASS: spawn has stderr
+PASS: spawn has stdin
+PASS: spawn has on method
+PASS: spawn has once method
+PASS: spawn has kill method
+PASS: spawn killed is false initially
+PASS: stdout has on method
+PASS: stderr has on method
+PASS: stdin has write method
+PASS: stdin has end method
+PASS: execFile callback called
+PASS: execFile no error
+PASS: execFile stdout has content
+PASS: execFile stderr is string
+
+19/19 spawn/execFile checks passed

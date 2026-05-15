@@ -11,7 +11,7 @@ console.log('hrtime sec:', typeof hr[0] === 'number');
 
 // process.hrtime.bigint
 var ns = process.hrtime.bigint();
-console.log('hrtime.bigint:', typeof ns === 'number' && ns > 0);
+console.log('hrtime.bigint:', typeof ns === 'bigint' && ns > 0n);
 
 // process.uptime
 var up = process.uptime();

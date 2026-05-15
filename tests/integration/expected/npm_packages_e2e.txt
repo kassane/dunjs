@@ -1,0 +1,47 @@
+PASS: lodash loaded
+PASS: lodash.chunk
+PASS: lodash.flatten
+PASS: lodash.uniq
+PASS: lodash.groupBy
+PASS: lodash.get
+PASS: lodash.set
+PASS: lodash.merge
+PASS: lodash.debounce
+PASS: lodash.cloneDeep
+PASS: moment loaded
+PASS: moment parse
+PASS: moment format
+PASS: moment add
+PASS: moment diff
+PASS: chalk loaded
+PASS: chalk.red
+PASS: chalk.bold
+PASS: uuid loaded
+PASS: uuid v4 format
+PASS: uuid v4 unique
+PASS: semver loaded
+PASS: semver.valid
+PASS: semver.gt
+PASS: semver.satisfies
+PASS: semver.clean
+PASS: validator loaded
+PASS: validator.isEmail
+PASS: validator.isURL
+PASS: validator.isJSON
+PASS: validator.isUUID
+PASS: validator.escape
+PASS: commander loaded
+PASS: commander name
+PASS: dotenv loaded
+PASS: dotenv.parse
+PASS: dotenv.parse works
+PASS: jwt loaded
+PASS: jwt.sign
+PASS: jwt.decode
+PASS: jwt.verify
+PASS: axios loaded
+PASS: axios.create
+PASS: axios.defaults
+---
+Total: 44/44 passed
+ALL CHECKS PASSED

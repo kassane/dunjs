@@ -30,8 +30,55 @@ void registerPathModule(IJSEngine engine) @trusted
         engine.setProperty(obj, "delimiter", engine.newString(":"));
     }
 
+    // path.posix / path.win32 — on each platform, the current one is self-referential
+    version (Windows)
+    {
+        engine.setProperty(obj, "win32", engine.dupValue(obj));
+        auto posixStub = engine.newObject();
+        engine.setProperty(posixStub, "sep", engine.newString("/"));
+        engine.setProperty(posixStub, "delimiter", engine.newString(":"));
+        engine.setProperty(obj, "posix", posixStub);
+    }
+    else
+    {
+        engine.setProperty(obj, "posix", engine.dupValue(obj));
+        auto win32Stub = engine.newObject();
+        engine.setProperty(win32Stub, "sep", engine.newString("\\"));
+        engine.setProperty(win32Stub, "delimiter", engine.newString(";"));
+        engine.setProperty(obj, "win32", win32Stub);
+    }
+
+    // path.toNamespacedPath (identity function on POSIX)
+    engine.setProperty(obj, "toNamespacedPath",
+        engine.newFunction(&jsPathToNamespacedPath, "toNamespacedPath", 1));
+
     auto global = engine.getGlobal();
     engine.setProperty(global, "__dun_cjs_path__", obj);
+    engine.freeValue(global);
+
+    // Add matchesGlob via JS eval (glob matching is best expressed in JS regex)
+    auto matchesGlobResult = engine.eval(
+        "(function() {" ~
+        "  var pathMod = globalThis.__dun_cjs_path__;" ~
+        "  pathMod.matchesGlob = function(filepath, pattern) {" ~
+        "    var re = pattern.replace(/[.+^${}()|[\\]\\\\]/g, '\\\\$&')" ~
+        "      .replace(/\\*\\*/g, '{{GLOBSTAR}}')" ~
+        "      .replace(/\\*/g, '[^/]*')" ~
+        "      .replace(/\\?/g, '[^/]')" ~
+        "      .replace(/\\{\\{GLOBSTAR\\}\\}/g, '.*');" ~
+        "    return new RegExp('^' + re + '$').test(filepath);" ~
+        "  };" ~
+        "})()", "<path-matchesGlob>");
+    if (matchesGlobResult.isError)
+    {
+        try
+        {
+            import std.stdio : stderr;
+            stderr.writeln("path.matchesGlob init failed: ", matchesGlobResult.errorMessage);
+        }
+        catch (Exception) {}
+    }
+    engine.freeValue(matchesGlobResult.value);
 
     version (EngineQuickJS)
         registerQuickJSModule(engine);
@@ -43,11 +90,14 @@ version (EngineQuickJS)
 
     private void registerQuickJSModule(IJSEngine engine) @trusted
     {
+        assert(engine !is null, "Null engine in registerQuickJSModule");
         auto ctx = cast(JSContext*) engine.rawContext();
         auto m = JS_NewCModule(ctx, "dun:path", &pathModuleInit);
         if (m is null) return;
         foreach (name; ["join", "basename", "dirname", "extname", "isAbsolute",
-                        "resolve", "normalize", "relative", "parse", "format", "sep", "delimiter"])
+                        "resolve", "normalize", "relative", "parse", "format",
+                        "sep", "delimiter", "toNamespacedPath", "posix", "win32",
+                        "matchesGlob"])
             JS_AddModuleExport(ctx, m, name.ptr);
     }
 
@@ -58,7 +108,9 @@ version (EngineQuickJS)
         auto global = JS_GetGlobalObject(ctx);
         auto pathObj = JS_GetPropertyStr(ctx, global, "__dun_cjs_path__");
         foreach (name; ["join", "basename", "dirname", "extname", "isAbsolute",
-                        "resolve", "normalize", "relative", "parse", "format", "sep", "delimiter"])
+                        "resolve", "normalize", "relative", "parse", "format",
+                        "sep", "delimiter", "toNamespacedPath", "posix", "win32",
+                        "matchesGlob"])
         {
             auto fn = JS_GetPropertyStr(ctx, pathObj, name.ptr);
             JS_SetModuleExport(ctx, m, name.ptr, fn);
@@ -71,7 +123,7 @@ version (EngineQuickJS)
 
 private:
 
-JSHandle jsPathJoin(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsPathJoin(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsPathJoin");
     auto state = cast(DunState*) ctx;
@@ -84,12 +136,13 @@ JSHandle jsPathJoin(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
         string[] parts;
         foreach (arg; args)
             parts ~= engine.extractString(arg);
-        return engine.newString(buildNormalizedPath(parts));
+        auto result = buildNormalizedPath(parts);
+        return engine.newString(result.length == 0 ? "." : result);
     }
     catch (Exception) { return engine.throwTypeError("Failed to join paths"); }
 }
 
-JSHandle jsPathBasename(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsPathBasename(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsPathBasename");
     auto state = cast(DunState*) ctx;
@@ -107,7 +160,7 @@ JSHandle jsPathBasename(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     catch (Exception) { return engine.newString(""); }
 }
 
-JSHandle jsPathDirname(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsPathDirname(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsPathDirname");
     auto state = cast(DunState*) ctx;
@@ -122,7 +175,7 @@ JSHandle jsPathDirname(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     catch (Exception) { return engine.newString("."); }
 }
 
-JSHandle jsPathExtname(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsPathExtname(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsPathExtname");
     auto state = cast(DunState*) ctx;
@@ -137,7 +190,7 @@ JSHandle jsPathExtname(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     catch (Exception) { return engine.newString(""); }
 }
 
-JSHandle jsPathIsAbsolute(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsPathIsAbsolute(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsPathIsAbsolute");
     auto state = cast(DunState*) ctx;
@@ -152,7 +205,7 @@ JSHandle jsPathIsAbsolute(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     catch (Exception) { return engine.newBool(false); }
 }
 
-JSHandle jsPathResolve(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsPathResolve(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsPathResolve");
     auto state = cast(DunState*) ctx;
@@ -177,7 +230,7 @@ JSHandle jsPathResolve(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     catch (Exception) { return engine.throwTypeError("Failed to resolve path"); }
 }
 
-JSHandle jsPathNormalize(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsPathNormalize(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsPathNormalize");
     auto state = cast(DunState*) ctx;
@@ -192,7 +245,7 @@ JSHandle jsPathNormalize(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     catch (Exception) { return engine.newString("."); }
 }
 
-JSHandle jsPathRelative(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsPathRelative(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsPathRelative");
     auto state = cast(DunState*) ctx;
@@ -202,12 +255,13 @@ JSHandle jsPathRelative(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     try
     {
         import std.path : relativePath;
-        return engine.newString(relativePath(engine.extractString(args[1]), engine.extractString(args[0])));
+        auto result = relativePath(engine.extractString(args[1]), engine.extractString(args[0]));
+        return engine.newString(result == "." ? "" : result);
     }
     catch (Exception) { return engine.newString(""); }
 }
 
-JSHandle jsPathParse(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsPathParse(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsPathParse");
     auto state = cast(DunState*) ctx;
@@ -234,7 +288,7 @@ JSHandle jsPathParse(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     catch (Exception) { return engine.throwTypeError("Failed to parse path"); }
 }
 
-JSHandle jsPathFormat(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsPathFormat(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsPathFormat");
     auto state = cast(DunState*) ctx;
@@ -244,11 +298,23 @@ JSHandle jsPathFormat(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     try
     {
         import std.path : buildPath;
-        auto dir = engine.extractString(engine.getProperty(args[0], "dir"));
-        auto root = engine.extractString(engine.getProperty(args[0], "root"));
-        auto base = engine.extractString(engine.getProperty(args[0], "base"));
-        auto name = engine.extractString(engine.getProperty(args[0], "name"));
-        auto ext = engine.extractString(engine.getProperty(args[0], "ext"));
+        auto dirH = engine.getProperty(args[0], "dir");
+        auto rootH = engine.getProperty(args[0], "root");
+        auto baseH = engine.getProperty(args[0], "base");
+        auto nameH = engine.getProperty(args[0], "name");
+        auto extH = engine.getProperty(args[0], "ext");
+        scope(exit) {
+            engine.freeValue(dirH);
+            engine.freeValue(rootH);
+            engine.freeValue(baseH);
+            engine.freeValue(nameH);
+            engine.freeValue(extH);
+        }
+        auto dir = engine.extractString(dirH);
+        auto root = engine.extractString(rootH);
+        auto base = engine.extractString(baseH);
+        auto name = engine.extractString(nameH);
+        auto ext = engine.extractString(extH);
         string filename = base.length > 0 ? base : name ~ ext;
         string result;
         if (dir.length > 0) result = buildPath(dir, filename);
@@ -257,4 +323,15 @@ JSHandle jsPathFormat(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
         return engine.newString(result);
     }
     catch (Exception) { return engine.newString(""); }
+}
+
+JSHandle jsPathToNamespacedPath(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
+{
+    assert(ctx !is null, "Null ctx in jsPathToNamespacedPath");
+    auto state = cast(DunState*) ctx;
+    assert(state.engine !is null, "Null engine in jsPathToNamespacedPath");
+    auto engine = state.engine;
+    if (args.length < 1 || !engine.isString(args[0]))
+        return engine.newUndefined();
+    return engine.newString(engine.extractString(args[0]));
 }

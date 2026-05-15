@@ -1,0 +1,7 @@
+=== vm module ===
+runInThisContext: 3
+runInNewContext: 30
+context counter: 2
+isContext: true
+isContext plain: false
+PASS: vm

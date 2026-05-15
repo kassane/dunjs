@@ -1,0 +1,14 @@
+PASS: generateKeyPairSync exists
+PASS: createDiffieHellman exists
+PASS: rsa publicKey
+PASS: rsa privateKey
+PASS: rsa publicKey starts with PEM
+PASS: rsa privateKey starts with PEM
+PASS: rsa sign produces hex
+PASS: rsa verify succeeds
+PASS: dh object created
+PASS: dh.generateKeys
+PASS: dh.getPrime
+PASS: dh.getGenerator
+---
+Total: 12/12 passed

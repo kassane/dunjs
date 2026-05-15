@@ -1,2 +1,2 @@
-[ERR_PERMISSION_DENIED] Requires --allow-read permission, path './perm_deny_read.js'
-[ERR_PERMISSION_DENIED] Requires --allow-read permission, path './perm_deny_read.js'
+ERR_PERMISSION_DENIED: Requires --allow-read permission './perm_deny_read.js'
+ERR_PERMISSION_DENIED: Requires --allow-read permission './perm_deny_read.js'

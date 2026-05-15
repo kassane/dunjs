@@ -6,6 +6,7 @@ import dun.engine.quickjs.bindings;
 /// Convert a D string to a JS string value.
 JSValue toJSValue(JSContext* ctx, string s) @trusted nothrow
 {
+    assert(ctx !is null, "Null ctx in toJSValue");
     if (s is null || s.length == 0)
         return JS_NewStringLen(ctx, "".ptr, 0);
     return JS_NewStringLen(ctx, s.ptr, s.length);
@@ -15,6 +16,7 @@ JSValue toJSValue(JSContext* ctx, string s) @trusted nothrow
 /// Returns empty string on failure.
 string jsArgToString(JSContext* ctx, JSValueConst val) nothrow @trusted
 {
+    assert(ctx !is null, "Null ctx in jsArgToString");
     size_t len;
     const(char)* cstr = JS_ToCStringLen2(ctx, &len, val, 0);
     if (cstr is null)
@@ -27,6 +29,7 @@ string jsArgToString(JSContext* ctx, JSValueConst val) nothrow @trusted
 /// Convert a JS value argument to int32.
 int jsArgToInt32(JSContext* ctx, JSValueConst val) @trusted nothrow
 {
+    assert(ctx !is null, "Null ctx in jsArgToInt32");
     int result;
     JS_ToInt32(ctx, &result, val);
     return result;
@@ -35,6 +38,7 @@ int jsArgToInt32(JSContext* ctx, JSValueConst val) @trusted nothrow
 /// Convert a JS value argument to float64.
 double jsArgToFloat64(JSContext* ctx, JSValueConst val) @trusted nothrow
 {
+    assert(ctx !is null, "Null ctx in jsArgToFloat64");
     double result;
     JS_ToFloat64(ctx, &result, val);
     return result;

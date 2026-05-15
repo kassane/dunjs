@@ -39,6 +39,12 @@ version (EngineQuickJS)
             if (name.startsWith("node:"))
                 name = "dun:" ~ name[5 .. $];
 
+            // Map bare Node.js builtin names to dun: prefix
+            if (!name.startsWith("dun:") && !name.startsWith("./") &&
+                !name.startsWith("../") && !isAbsolute(name) &&
+                isBareBuiltin(name))
+                name = "dun:" ~ name;
+
             // Builtins: return canonical name so QuickJS finds the pre-registered C module
             if (name.startsWith("dun:"))
                 return js_strdup(ctx, name.toStringz);
@@ -86,24 +92,6 @@ version (EngineQuickJS)
             return null;
         }
 
-        // Permission check
-        auto state = cast(dun.runtime.globals.DunState*) JS_GetContextOpaque(ctx);
-        if (state !is null && state.permissions !is null)
-        {
-            try
-            {
-                import dun.security.permissions : Permission;
-                if (!state.permissions.check(Permission.read, specifier))
-                {
-                    JS_ThrowReferenceError(ctx,
-                        "Cannot load '%s': requires --allow-read permission",
-                        module_name);
-                    return null;
-                }
-            }
-            catch (Exception) {}
-        }
-
         // Read source file
         string source;
         try
@@ -117,13 +105,33 @@ version (EngineQuickJS)
             return null;
         }
 
+        // JSON modules: wrap as `export default <content>`
+        if (specifier.endsWith(".json"))
+        {
+            import std.string : replace;
+            source = "export default JSON.parse('" ~
+                source.replace("\\", "\\\\").replace("'", "\\'").replace("\n", "\\n").replace("\r", "\\r") ~
+                "');\n";
+        }
+
         // Strip TypeScript types
         if (specifier.endsWith(".ts") || specifier.endsWith(".mts"))
         {
             try
             {
-                import dun.ts.strip : stripTypes;
-                source = stripTypes(source);
+                import dun.ts.strip : stripTypes, generateSourceMap;
+                import std.base64 : Base64;
+
+                string sourceMap;
+                source = stripTypes(source, true, sourceMap);
+
+                // Append inline source map
+                if (sourceMap.length > 0)
+                {
+                    auto encoded = Base64.encode(cast(const(ubyte)[]) sourceMap);
+                    source ~= "\n//# sourceMappingURL=data:application/json;base64,"
+                        ~ cast(string) encoded;
+                }
             }
             catch (Exception) {}
         }
@@ -169,5 +177,18 @@ version (EngineQuickJS)
     }
 }
 
-static import dun.runtime.globals;
-static import dun.security.permissions;
+private bool isBareBuiltin(string name) @safe pure nothrow @nogc
+{
+    static immutable builtins = [
+        "fs", "path", "crypto", "os", "events", "buffer", "url", "util",
+        "http", "https", "http2", "http3", "net", "dns", "tls", "dgram",
+        "stream", "zlib", "child_process", "worker_threads", "cluster",
+        "vm", "assert", "querystring", "string_decoder", "readline",
+        "perf_hooks", "async_hooks", "timers/promises", "fs/promises",
+        "ws", "sqlite", "tty",
+    ];
+    foreach (b; builtins)
+        if (name == b)
+            return true;
+    return false;
+}

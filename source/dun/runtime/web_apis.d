@@ -20,6 +20,47 @@ void installWebAPIs(IJSEngine engine) @trusted
     }
     else
         engine.freeValue(res.value);
+
+    bindNativeCryptoOnGlobal(engine);
+}
+
+private void bindNativeCryptoOnGlobal(IJSEngine engine) @trusted
+{
+    import dun.builtins.crypto : jsCryptoRandomUUID, jsCryptoRandomBytes,
+                                  installSubtleOnGlobalCrypto;
+    auto global = engine.getGlobal();
+    auto cryptoObj = engine.getProperty(global, "crypto");
+    if (!engine.isUndefined(cryptoObj) && !engine.isNull(cryptoObj))
+    {
+        engine.setProperty(cryptoObj, "randomUUID",
+            engine.newFunction(&jsCryptoRandomUUID, "randomUUID", 0));
+        engine.setProperty(cryptoObj, "getRandomValues",
+            engine.newFunction(&jsNativeGetRandomValues, "getRandomValues", 1));
+    }
+    engine.freeValue(cryptoObj);
+    engine.freeValue(global);
+
+    // Install native crypto.subtle on the global crypto object
+    installSubtleOnGlobalCrypto(engine);
+}
+
+private JSHandle jsNativeGetRandomValues(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
+{
+    assert(ctx !is null, "Null ctx in getRandomValues");
+    auto state = cast(DunState*) ctx;
+    assert(state.engine !is null, "Null engine in getRandomValues");
+    auto engine = state.engine;
+
+    if (args.length < 1)
+        return engine.throwTypeError("Expected typed array");
+
+    auto bytes = engine.getTypedArrayBytes(args[0]);
+    if (bytes is null)
+        return engine.throwTypeError("Expected typed array");
+
+    import dun.builtins.crypto : fillRandomBytesPublic;
+    fillRandomBytesPublic(bytes);
+    return engine.dupValue(args[0]);
 }
 
 private string webAPIsSource() pure nothrow @safe
@@ -134,7 +175,7 @@ private string webAPIsSource() pure nothrow @safe
     // navigator
     // ═══════════════════════════════════
     ~ "if(typeof globalThis.navigator==='undefined'){"
-    ~ "globalThis.navigator={userAgent:'DunJS/0.1.0',platform:typeof process!=='undefined'?process.platform:'unknown',"
+    ~ "globalThis.navigator={userAgent:'DunJS/0.2.0',platform:typeof process!=='undefined'?process.platform:'unknown',"
     ~ "language:'en-US',languages:['en-US','en'],onLine:true,"
     ~ "hardwareConcurrency:typeof require==='function'?(function(){try{return require('os').cpus().length}catch(e){return 1}}()):1};"
     ~ "}"
@@ -386,20 +427,32 @@ private string webAPIsSource() pure nothrow @safe
     ~ "}"
 
     // ═══════════════════════════════════
+    // CompressionStream / DecompressionStream (Web Compression API)
+    // ═══════════════════════════════════
+    ~ "if(typeof globalThis.CompressionStream==='undefined'){"
+    ~ "globalThis.CompressionStream=function CompressionStream(format){"
+    ~ "if(format!=='gzip'&&format!=='deflate'&&format!=='deflate-raw')"
+    ~ "throw new TypeError(\"Unsupported compression format: \"+format);"
+    ~ "this.format=format;"
+    ~ "this.readable=new ReadableStream({});"
+    ~ "this.writable=new WritableStream({});"
+    ~ "};"
+    ~ "}"
+
+    ~ "if(typeof globalThis.DecompressionStream==='undefined'){"
+    ~ "globalThis.DecompressionStream=function DecompressionStream(format){"
+    ~ "if(format!=='gzip'&&format!=='deflate'&&format!=='deflate-raw')"
+    ~ "throw new TypeError(\"Unsupported compression format: \"+format);"
+    ~ "this.format=format;"
+    ~ "this.readable=new ReadableStream({});"
+    ~ "this.writable=new WritableStream({});"
+    ~ "};"
+    ~ "}"
+
+    // ═══════════════════════════════════
     // crypto.getRandomValues()
     // ═══════════════════════════════════
     ~ "if(typeof globalThis.crypto==='undefined')globalThis.crypto={};"
-    ~ "if(!globalThis.crypto.getRandomValues){"
-    ~ "globalThis.crypto.getRandomValues=function(arr){"
-    ~ "if(!(arr instanceof Uint8Array||arr instanceof Uint16Array||arr instanceof Uint32Array||arr instanceof Int8Array||arr instanceof Int16Array||arr instanceof Int32Array))throw new TypeError('Expected typed array');"
-    ~ "var bytes=typeof require==='function'?require('crypto').randomBytes(arr.byteLength):null;"
-    ~ "if(bytes){var u8=new Uint8Array(arr.buffer,arr.byteOffset,arr.byteLength);for(var i=0;i<u8.length;i++)u8[i]=bytes[i];}"
-    ~ "else{var u8=new Uint8Array(arr.buffer,arr.byteOffset,arr.byteLength);for(var i=0;i<u8.length;i++)u8[i]=Math.floor(Math.random()*256);}"
-    ~ "return arr;};"
-    ~ "}"
-    ~ "if(!globalThis.crypto.randomUUID){"
-    ~ "globalThis.crypto.randomUUID=function(){return typeof require==='function'?require('crypto').randomUUID():'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g,function(c){var r=Math.random()*16|0;return(c==='x'?r:r&3|8).toString(16);});};"
-    ~ "}"
 
     // ═══════════════════════════════════
     // console.time/timeEnd/timeLog/count/countReset/table
@@ -413,12 +466,27 @@ private string webAPIsSource() pure nothrow @safe
     ~ "console.table=function(data){if(Array.isArray(data)){console.log('(index)','Value');for(var i=0;i<data.length;i++)console.log(i,data[i]);}"
     ~ "else if(typeof data==='object'&&data!==null){var keys=Object.keys(data);console.log('(index)','Values');for(var i=0;i<keys.length;i++)console.log(keys[i],data[keys[i]]);}"
     ~ "else console.log(data);};"
-    ~ "console.dir=console.dir||function(obj){console.log(typeof require==='function'&&require('util')?require('util').inspect(obj):JSON.stringify(obj,null,2));};"
+    ~ "console.dir=console.dir||function(obj){console.log(typeof __dun_inspect__==='function'?__dun_inspect__(obj):JSON.stringify(obj,null,2));};"
     ~ "console.trace=console.trace||function(){var e=new Error();console.log('Trace'+(arguments.length?': '+[].join.call(arguments,' '):''));if(e.stack)console.log(e.stack.split('\\n').slice(1).join('\\n'));};"
-    ~ "console.clear=console.clear||function(){};"
-    ~ "console.group=console.group||function(){};"
-    ~ "console.groupEnd=console.groupEnd||function(){};"
-    ~ "console.groupCollapsed=console.groupCollapsed||function(){};"
+    ~ "console.clear=console.clear||function(){if(typeof process!=='undefined'&&process.stdout&&process.stdout.write)process.stdout.write('\\x1b[2J\\x1b[H');};"
+    ~ "var _groupDepth=0;"
+    ~ "var _origLog=console.log,_origWarn=console.warn,_origError=console.error,_origInfo=console.info,_origDebug=console.debug;"
+    ~ "function _indented(fn){return function(){var prefix='';for(var i=0;i<_groupDepth;i++)prefix+='  ';"
+    ~   "if(prefix&&arguments.length>0){var args=[].slice.call(arguments);if(typeof args[0]==='string')args[0]=prefix+args[0];else{args.unshift(prefix);}fn.apply(console,args);}else fn.apply(console,arguments);};"
+    ~ "}"
+    ~ "console.group=function(){if(arguments.length>0){var fn=_indented(_origLog);fn.apply(console,arguments);}_groupDepth++;};"
+    ~ "console.groupEnd=function(){if(_groupDepth>0)_groupDepth--;};"
+    ~ "console.groupCollapsed=console.group;"
+    ~ "console.log=_indented(_origLog);console.warn=_indented(_origWarn);console.error=_indented(_origError);"
+    ~ "console.info=_indented(_origInfo);console.debug=_indented(_origDebug);"
+
+    // TypedArray.from/of polyfills (some QuickJS builds miss static methods)
+    ~ "['Int8Array','Uint8Array','Uint8ClampedArray','Int16Array','Uint16Array','Int32Array','Uint32Array','Float32Array','Float64Array'].forEach(function(name){"
+    ~   "var C=globalThis[name];if(!C)return;"
+    ~   "if(!C.from)C.from=function(src,mapFn,thisArg){var arr=Array.isArray(src)?src:Array.from(src);"
+    ~     "if(mapFn){for(var j=0;j<arr.length;j++)arr[j]=mapFn.call(thisArg,arr[j],j);}return new C(arr);};"
+    ~   "if(!C.of)C.of=function(){return new C([].slice.call(arguments));};"
+    ~ "});"
 
     ~ "})();";
     static assert(src.length > 0, "webAPIsSource must not be empty");

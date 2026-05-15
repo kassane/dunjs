@@ -12,6 +12,7 @@ class JSCEngine : IJSEngine
     private JSContextGroupRef group;
     private void* opaquePtr;
     private bool lastCallWasException;
+    private JSObjectRef uint8ArrayCtor;
 
     void initialize(EngineConfig config) @trusted
     {
@@ -37,7 +38,7 @@ class JSCEngine : IJSEngine
         }
     }
 
-    JSResult eval(const(char)[] source, string filename) @trusted
+    JSResult eval(scope const(char)[] source, string filename) @trusted
     {
         import std.string : toStringz;
 
@@ -83,11 +84,26 @@ class JSCEngine : IJSEngine
         return toHandle(cast(void*) JSValueMakeNull(ctx));
     }
 
-    JSHandle newString(const(char)[] s) @trusted
+    private enum STACK_TERM_SIZE = 512;
+
+    JSHandle newString(scope const(char)[] s) @trusted
     {
-        import std.string : toStringz;
         assert(ctx !is null, "JSC context not initialized");
-        auto jsStr = JSStringCreateWithUTF8CString(s.toStringz);
+        // Stack-terminate for short strings to avoid GC allocation from toStringz
+        const(char)* cstr;
+        char[STACK_TERM_SIZE] stackBuf = void;
+        if (s.length < STACK_TERM_SIZE)
+        {
+            stackBuf[0 .. s.length] = s[];
+            stackBuf[s.length] = '\0';
+            cstr = stackBuf.ptr;
+        }
+        else
+        {
+            import std.string : toStringz;
+            cstr = s.toStringz;
+        }
+        auto jsStr = JSStringCreateWithUTF8CString(cstr);
         assert(jsStr !is null, "JSStringCreateWithUTF8CString returned null");
         auto val = JSValueMakeString(ctx, jsStr);
         JSStringRelease(jsStr);
@@ -124,24 +140,64 @@ class JSCEngine : IJSEngine
         return toHandle(cast(void*) JSObjectMakeArray(ctx, 0, null, null));
     }
 
-    JSHandle newUint8Array(const(ubyte)[] data) @trusted
+    JSHandle newUint8Array(scope const(ubyte)[] data) @trusted
     {
+        import core.stdc.string : memcpy;
+
         assert(ctx !is null, "JSC context not initialized");
+        ensureUint8ArrayCtor();
         JSValueRef exc = null;
-        auto ta = JSObjectMakeTypedArray(ctx,
-            JSTypedArrayType.kJSTypedArrayTypeUint8Array, data.length, &exc);
+        JSValueRef[1] ctorArgs = [JSValueMakeNumber(ctx, cast(double) data.length)];
+        auto ta = JSObjectCallAsConstructor(ctx, uint8ArrayCtor, 1, ctorArgs.ptr, &exc);
         if (exc !is null || ta is null)
             return toHandle(cast(void*) JSValueMakeUndefined(ctx));
         if (data.length > 0)
         {
             auto ptr = cast(ubyte*) JSObjectGetTypedArrayBytesPtr(ctx, ta, &exc);
             if (ptr !is null)
-            {
-                import core.stdc.string : memcpy;
                 memcpy(ptr, data.ptr, data.length);
-            }
         }
         return toHandle(cast(void*) cast(JSValueRef) ta);
+    }
+
+    JSHandle newUint8ArrayZeroed(size_t length) @trusted
+    {
+        assert(ctx !is null, "JSC context not initialized");
+        ensureUint8ArrayCtor();
+        JSValueRef exc = null;
+        JSValueRef[1] ctorArgs = [JSValueMakeNumber(ctx, cast(double) length)];
+        auto ta = JSObjectCallAsConstructor(ctx, uint8ArrayCtor, 1, ctorArgs.ptr, &exc);
+        if (exc !is null || ta is null)
+            return toHandle(cast(void*) JSValueMakeUndefined(ctx));
+        return toHandle(cast(void*) cast(JSValueRef) ta);
+    }
+
+    private void ensureUint8ArrayCtor() @trusted
+    {
+        if (uint8ArrayCtor !is null) return;
+        auto global = JSContextGetGlobalObject(ctx);
+        auto name = JSStringCreateWithUTF8CString("Uint8Array");
+        scope(exit) JSStringRelease(name);
+        JSValueRef exc = null;
+        auto ctorVal = JSObjectGetProperty(ctx, global, name, &exc);
+        uint8ArrayCtor = cast(JSObjectRef) ctorVal;
+        assert(uint8ArrayCtor !is null, "Uint8Array constructor not found");
+        JSValueProtect(ctx, cast(JSValueRef) uint8ArrayCtor);
+    }
+
+    ubyte[] getTypedArrayBytes(JSHandle val) @trusted
+    {
+        assert(ctx !is null, "JSC context not initialized");
+        auto obj = cast(JSObjectRef) fromHandle(val);
+        if (obj is null) return null;
+        JSValueRef exc = null;
+        auto len = JSObjectGetTypedArrayByteLength(ctx, obj, &exc);
+        if (exc !is null || len == 0) return null;
+        auto ptr = cast(ubyte*) JSObjectGetTypedArrayBytesPtr(ctx, obj, &exc);
+        if (exc !is null || ptr is null) return null;
+        auto offset = JSObjectGetTypedArrayByteOffset(ctx, obj, &exc);
+        if (exc !is null) return null;
+        return (ptr + offset)[0 .. len];
     }
 
     JSHandle newFunction(NativeCallback cb, string name, int argc) @trusted
@@ -154,12 +210,10 @@ class JSCEngine : IJSEngine
         auto jsName = JSStringCreateWithUTF8CString(name.toStringz);
         auto fn = JSObjectMakeFunctionWithCallback(ctx, jsName, &jscNativeTrampoline);
         JSStringRelease(jsName);
-        auto slotName = JSStringCreateWithUTF8CString("__cbSlot__");
         JSValueRef exc = null;
-        JSObjectSetProperty(ctx, fn, slotName,
+        JSObjectSetProperty(ctx, fn, getCbSlotStr(),
             JSValueMakeNumber(ctx, cast(double) slot),
             kJSPropertyAttributeReadOnly | kJSPropertyAttributeDontEnum, &exc);
-        JSStringRelease(slotName);
         return toHandle(cast(void*) fn);
     }
 
@@ -193,11 +247,25 @@ class JSCEngine : IJSEngine
         return JSValueToBoolean(ctx, cast(JSValueRef) fromHandle(val));
     }
 
-    JSHandle getProperty(JSHandle obj, const(char)[] name) @trusted
+    pragma(inline, true)
+    private static const(char)* stackTerminate(
+        const(char)[] name, return ref char[STACK_TERM_SIZE] buf) nothrow @trusted
     {
+        if (name.length < STACK_TERM_SIZE)
+        {
+            buf[0 .. name.length] = name[];
+            buf[name.length] = '\0';
+            return buf.ptr;
+        }
         import std.string : toStringz;
+        return (cast(string) name).toStringz;
+    }
+
+    JSHandle getProperty(JSHandle obj, scope const(char)[] name) @trusted
+    {
         assert(ctx !is null, "JSC context not initialized");
-        auto jsName = JSStringCreateWithUTF8CString((cast(string) name).toStringz);
+        char[STACK_TERM_SIZE] termBuf = void;
+        auto jsName = JSStringCreateWithUTF8CString(stackTerminate(name, termBuf));
         scope (exit) JSStringRelease(jsName);
         JSValueRef exc = null;
         auto val = JSObjectGetProperty(ctx, cast(JSObjectRef) fromHandle(obj),
@@ -206,11 +274,11 @@ class JSCEngine : IJSEngine
         return toHandle(cast(void*) val);
     }
 
-    void setProperty(JSHandle obj, const(char)[] name, JSHandle val) @trusted
+    void setProperty(JSHandle obj, scope const(char)[] name, JSHandle val) @trusted
     {
-        import std.string : toStringz;
         assert(ctx !is null, "JSC context not initialized");
-        auto jsName = JSStringCreateWithUTF8CString((cast(string) name).toStringz);
+        char[STACK_TERM_SIZE] termBuf = void;
+        auto jsName = JSStringCreateWithUTF8CString(stackTerminate(name, termBuf));
         scope (exit) JSStringRelease(jsName);
         JSValueRef exc = null;
         JSObjectSetProperty(ctx, cast(JSObjectRef) fromHandle(obj),
@@ -241,15 +309,21 @@ class JSCEngine : IJSEngine
         return JSValueIsArray(ctx, cast(JSValueRef) fromHandle(val));
     }
 
+    private static __gshared JSStringRef _cachedLengthStr;
+
+    private static JSStringRef getLengthStr() nothrow @trusted
+    {
+        if (_cachedLengthStr is null)
+            _cachedLengthStr = JSStringCreateWithUTF8CString("length");
+        return _cachedLengthStr;
+    }
+
     int getArrayLength(JSHandle val) @trusted
     {
         assert(ctx !is null, "JSC context not initialized");
-        import std.string : toStringz;
-        auto jsName = JSStringCreateWithUTF8CString("length".toStringz);
-        scope (exit) JSStringRelease(jsName);
         JSValueRef exc = null;
         auto lenVal = JSObjectGetProperty(ctx,
-            cast(JSObjectRef) fromHandle(val), jsName, &exc);
+            cast(JSObjectRef) fromHandle(val), getLengthStr(), &exc);
         if (exc !is null) return 0;
         exc = null;
         auto result = cast(int) JSValueToNumber(ctx, lenVal, &exc);
@@ -263,7 +337,7 @@ class JSCEngine : IJSEngine
         return toHandle(cast(void*) JSContextGetGlobalObject(ctx));
     }
 
-    JSHandle callFunction(JSHandle func, JSHandle thisVal, JSHandle[] args) @trusted
+    JSHandle callFunction(JSHandle func, JSHandle thisVal, scope JSHandle[] args) @trusted
     {
         assert(ctx !is null, "JSC context not initialized");
         auto jsFunc = cast(JSObjectRef) fromHandle(func);
@@ -352,7 +426,7 @@ class JSCEngine : IJSEngine
         return "";
     }
 
-    JSHandle throwTypeError(const(char)[] msg) @trusted
+    JSHandle throwTypeError(scope const(char)[] msg) @trusted
     {
         assert(ctx !is null, "JSC context not initialized");
         auto jsMsg = newString(msg);
@@ -363,7 +437,7 @@ class JSCEngine : IJSEngine
         return toHandle(cast(void*) err);
     }
 
-    JSHandle throwRangeError(const(char)[] msg) @trusted
+    JSHandle throwRangeError(scope const(char)[] msg) @trusted
     {
         assert(ctx !is null, "JSC context not initialized");
         auto jsMsg = newString(msg);
@@ -380,6 +454,13 @@ class JSCEngine : IJSEngine
         JSStringRelease(rangeStr);
         _jscPendingThrow = err;
         return toHandle(cast(void*) err);
+    }
+
+    JSHandle throwValue(JSHandle val) @trusted
+    {
+        assert(ctx !is null, "JSC context not initialized");
+        _jscPendingThrow = cast(JSValueRef) fromHandle(val);
+        return val;
     }
 
     PromiseHandles newPromise() @trusted
@@ -422,7 +503,7 @@ class JSCEngine : IJSEngine
 
     void setModuleLoader(ModuleLoaderCallback loader) {}
 
-    JSResult evalModule(const(char)[] source, string filename) @trusted
+    JSResult evalModule(scope const(char)[] source, string filename) @trusted
     {
         assert(ctx !is null, "JSC context not initialized");
         import dun.modules.esm_shim : transpileESM;
@@ -471,6 +552,8 @@ class JSCEngine : IJSEngine
             kJSPropertyAttributeNone, &exc);
     }
 
+    private enum JSC_STACK_STRING_SIZE = 512;
+
     private string jscStringToD(JSValueRef val) @trusted
     {
         assert(ctx !is null, "JSC context not initialized");
@@ -483,12 +566,24 @@ class JSCEngine : IJSEngine
         auto maxSize = JSStringGetMaximumUTF8CStringSize(jsStr);
         if (maxSize == 0)
             return "";
+
+        // Stack buffer for short strings (covers ~99% of cases)
+        if (maxSize <= JSC_STACK_STRING_SIZE)
+        {
+            char[JSC_STACK_STRING_SIZE] stackBuf = void;
+            auto written = JSStringGetUTF8CString(jsStr, stackBuf.ptr, maxSize);
+            assert(written <= maxSize, "JSC UTF8 overrun");
+            if (written <= 1) return "";
+            return stackBuf[0 .. written - 1].idup;
+        }
+
+        // Heap fallback for large strings
         auto buf = new char[maxSize];
         auto written = JSStringGetUTF8CString(jsStr, buf.ptr, maxSize);
         assert(written <= maxSize, "JSC UTF8 overrun");
         if (written <= 1)
             return "";
-        return (cast(immutable(char)[]) buf[0 .. written - 1]).idup;
+        return cast(string) buf[0 .. written - 1];
     }
 
     static JSHandle toHandle(void* ptr) pure nothrow @nogc @trusted
@@ -504,6 +599,16 @@ class JSCEngine : IJSEngine
     }
 }
 
+// Cached JSStringRef for __cbSlot__ — created once, reused on every native call
+private __gshared JSStringRef _cachedCbSlotStr;
+
+private JSStringRef getCbSlotStr() nothrow @trusted
+{
+    if (_cachedCbSlotStr is null)
+        _cachedCbSlotStr = JSStringCreateWithUTF8CString("__cbSlot__");
+    return _cachedCbSlotStr;
+}
+
 private extern (C) JSValueRef jscNativeTrampoline(JSContextRef ctx,
     JSObjectRef func, JSObjectRef thisObject,
     size_t argumentCount, const(JSValueRef)* arguments,
@@ -513,11 +618,8 @@ private extern (C) JSValueRef jscNativeTrampoline(JSContextRef ctx,
     import dun.engine.jsc.backend : JSCEngine;
 
     assert(ctx !is null, "Null JSContextRef in jscNativeTrampoline");
-    auto slotName = JSStringCreateWithUTF8CString("__cbSlot__");
-    assert(slotName !is null, "JSStringCreateWithUTF8CString returned null");
-    scope (exit) JSStringRelease(slotName);
     JSValueRef exc = null;
-    auto slotVal = JSObjectGetProperty(ctx, func, slotName, &exc);
+    auto slotVal = JSObjectGetProperty(ctx, func, getCbSlotStr(), &exc);
     int slot = cast(int) JSValueToNumber(ctx, slotVal, &exc);
 
     auto cb = get(slot);
@@ -579,16 +681,22 @@ private extern (C) void jscTypedArrayDeallocator(void* bytes, void* deallocCtx) 
 private JSValueRef _jscPendingThrow;
 
 // JSC doesn't have a context opaque API, so we maintain our own map.
+// Fast path: cache the most-recently-used context (single-context is the common case)
+private __gshared JSGlobalContextRef _cachedCtx;
+private __gshared void* _cachedOpaque;
 private __gshared void*[size_t] jscContextOpaqueMap;
 
 package void jscSetContextOpaque(JSGlobalContextRef ctx, void* ptr) nothrow @trusted
 {
+    _cachedCtx = ctx;
+    _cachedOpaque = ptr;
     try { jscContextOpaqueMap[cast(size_t) cast(void*) ctx] = ptr; }
     catch (Exception) {}
 }
 
 package void* jscGetContextOpaque(JSGlobalContextRef ctx) nothrow @trusted
 {
+    if (ctx is _cachedCtx) return _cachedOpaque;
     if (auto p = cast(size_t) cast(void*) ctx in jscContextOpaqueMap)
         return *p;
     return null;

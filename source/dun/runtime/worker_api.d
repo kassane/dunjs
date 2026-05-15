@@ -67,7 +67,9 @@ void installWorkerAPI(IJSEngine engine, DunState* state) @trusted
         ~ `  return new __NativeInt32Array(a);`
         ~ `};`
         ~ `globalThis.Int32Array.BYTES_PER_ELEMENT = 4;`
-        ~ `globalThis.Int32Array.prototype = __NativeInt32Array.prototype;`,
+        ~ `globalThis.Int32Array.prototype = __NativeInt32Array.prototype;`
+        ~ `if(__NativeInt32Array.from)globalThis.Int32Array.from=__NativeInt32Array.from.bind(__NativeInt32Array);`
+        ~ `if(__NativeInt32Array.of)globalThis.Int32Array.of=__NativeInt32Array.of.bind(__NativeInt32Array);`,
         "<worker-init>");
 
     auto atomics = engine.newObject();
@@ -78,17 +80,24 @@ void installWorkerAPI(IJSEngine engine, DunState* state) @trusted
     engine.setProperty(atomics, "and",             engine.newFunction(&_atomicsAnd,   "and",   3));
     engine.setProperty(atomics, "or",              engine.newFunction(&_atomicsOr,    "or",    3));
     engine.setProperty(atomics, "xor",             engine.newFunction(&_atomicsXor,   "xor",   3));
+    engine.setProperty(atomics, "exchange",         engine.newFunction(&_atomicsExchange,"exchange", 3));
     engine.setProperty(atomics, "compareExchange", engine.newFunction(&_atomicsCmpXch,"compareExchange", 4));
+    engine.setProperty(atomics, "isLockFree",      engine.newFunction(&_atomicsIsLockFree,"isLockFree", 1));
     engine.setProperty(atomics, "wait",            engine.newFunction(&_atomicsWait,  "wait",  4));
+    engine.setProperty(atomics, "waitAsync",       engine.newFunction(&_atomicsWaitAsync, "waitAsync", 4));
     engine.setProperty(atomics, "notify",          engine.newFunction(&_atomicsNotify,"notify", 3));
     engine.setProperty(global, "Atomics", atomics);
+
+    auto suppressRes = engine.eval(suppressedErrorPolyfill(), "<suppressed-error>");
+    if (!suppressRes.isError)
+        engine.freeValue(suppressRes.value);
 
     engine.freeValue(global);
 }
 
 // --- Worker constructor ---
 
-private JSHandle _workerCtor(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+private JSHandle _workerCtor(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in Worker constructor");
     auto state = cast(DunState*) ctx;
@@ -135,7 +144,7 @@ private JSHandle _workerCtor(void* ctx, JSHandle thisVal, JSHandle[] args) @trus
     return workerObj;
 }
 
-private JSHandle _workerPostMessage(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+private JSHandle _workerPostMessage(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in Worker.postMessage");
     auto state = cast(DunState*) ctx;
@@ -173,7 +182,7 @@ private JSHandle _workerPostMessage(void* ctx, JSHandle thisVal, JSHandle[] args
 
 // --- SharedArrayBuffer constructor ---
 
-private JSHandle _sabCtor(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+private JSHandle _sabCtor(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in SharedArrayBuffer constructor");
     auto state = cast(DunState*) ctx;
@@ -199,7 +208,7 @@ private JSHandle _sabCtor(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
 // --- Int32Array constructor (SharedArrayBuffer-aware) ---
 
-private JSHandle _int32ArrayCtor(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+private JSHandle _int32ArrayCtor(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in Int32Array constructor");
     auto state = cast(DunState*) ctx;
@@ -290,7 +299,7 @@ private int* _getAtomicPtr(IJSEngine engine, JSHandle ta, int idx) @trusted
     return cast(int*)(cast(ubyte*) ptr + byteIdx);
 }
 
-private JSHandle _atomicsLoad(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+private JSHandle _atomicsLoad(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in Atomics.load");
     auto state = cast(DunState*) ctx;
@@ -303,7 +312,7 @@ private JSHandle _atomicsLoad(void* ctx, JSHandle thisVal, JSHandle[] args) @tru
     return engine.newInt(atomicLoad!(MemoryOrder.seq)(*cast(shared(int)*) ptr));
 }
 
-private JSHandle _atomicsStore(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+private JSHandle _atomicsStore(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in Atomics.store");
     auto state = cast(DunState*) ctx;
@@ -318,7 +327,7 @@ private JSHandle _atomicsStore(void* ctx, JSHandle thisVal, JSHandle[] args) @tr
     return engine.newInt(val);
 }
 
-private JSHandle _atomicsAdd(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+private JSHandle _atomicsAdd(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in Atomics.add");
     auto state = cast(DunState*) ctx;
@@ -332,7 +341,7 @@ private JSHandle _atomicsAdd(void* ctx, JSHandle thisVal, JSHandle[] args) @trus
     return engine.newInt(atomicFetchAdd(*cast(shared(int)*) ptr, val));
 }
 
-private JSHandle _atomicsSub(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+private JSHandle _atomicsSub(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in Atomics.sub");
     auto state = cast(DunState*) ctx;
@@ -346,7 +355,7 @@ private JSHandle _atomicsSub(void* ctx, JSHandle thisVal, JSHandle[] args) @trus
     return engine.newInt(atomicFetchAdd(*cast(shared(int)*) ptr, -val));
 }
 
-private JSHandle _atomicsAnd(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+private JSHandle _atomicsAnd(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in Atomics.and");
     auto state = cast(DunState*) ctx;
@@ -364,7 +373,7 @@ private JSHandle _atomicsAnd(void* ctx, JSHandle thisVal, JSHandle[] args) @trus
     return engine.newInt(old);
 }
 
-private JSHandle _atomicsOr(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+private JSHandle _atomicsOr(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in Atomics.or");
     auto state = cast(DunState*) ctx;
@@ -382,7 +391,7 @@ private JSHandle _atomicsOr(void* ctx, JSHandle thisVal, JSHandle[] args) @trust
     return engine.newInt(old);
 }
 
-private JSHandle _atomicsXor(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+private JSHandle _atomicsXor(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in Atomics.xor");
     auto state = cast(DunState*) ctx;
@@ -400,7 +409,35 @@ private JSHandle _atomicsXor(void* ctx, JSHandle thisVal, JSHandle[] args) @trus
     return engine.newInt(old);
 }
 
-private JSHandle _atomicsCmpXch(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+private JSHandle _atomicsExchange(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
+{
+    assert(ctx !is null, "Null ctx in Atomics.exchange");
+    auto state = cast(DunState*) ctx;
+    auto engine = state.engine;
+    if (args.length < 3) return engine.newUndefined();
+    int idx = engine.extractInt(args[1]);
+    int val = engine.extractInt(args[2]);
+    auto ptr = _getAtomicPtr(engine, args[0], idx);
+    if (!ptr) return engine.newUndefined();
+    import core.atomic : atomicLoad, cas, MemoryOrder;
+    auto sptr = cast(shared(int)*) ptr;
+    int old = atomicLoad!(MemoryOrder.seq)(*sptr);
+    while (!cas(sptr, old, val))
+        old = atomicLoad!(MemoryOrder.seq)(*sptr);
+    return engine.newInt(old);
+}
+
+private JSHandle _atomicsIsLockFree(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
+{
+    assert(ctx !is null, "Null ctx in Atomics.isLockFree");
+    auto state = cast(DunState*) ctx;
+    auto engine = state.engine;
+    if (args.length < 1) return engine.newBool(false);
+    int sz = engine.extractInt(args[0]);
+    return engine.newBool(sz == 1 || sz == 2 || sz == 4 || sz == 8);
+}
+
+private JSHandle _atomicsCmpXch(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in Atomics.compareExchange");
     auto state = cast(DunState*) ctx;
@@ -418,7 +455,7 @@ private JSHandle _atomicsCmpXch(void* ctx, JSHandle thisVal, JSHandle[] args) @t
     return engine.newInt(old);
 }
 
-private JSHandle _atomicsWait(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+private JSHandle _atomicsWait(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in Atomics.wait");
     auto state = cast(DunState*) ctx;
@@ -508,7 +545,7 @@ private JSHandle _atomicsWait(void* ctx, JSHandle thisVal, JSHandle[] args) @tru
     return engine.newString("ok");
 }
 
-private JSHandle _atomicsNotify(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+private JSHandle _atomicsNotify(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in Atomics.notify");
     auto state = cast(DunState*) ctx;
@@ -543,4 +580,60 @@ private JSHandle _atomicsNotify(void* ctx, JSHandle thisVal, JSHandle[] args) @t
         gWaitMutex.unlock();
         return engine.newInt(woken);
     }
+}
+
+private JSHandle _atomicsWaitAsync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
+{
+    assert(ctx !is null, "Null ctx in Atomics.waitAsync");
+    auto state = cast(DunState*) ctx;
+    auto engine = state.engine;
+
+    if (args.length < 3)
+        return engine.throwTypeError("Atomics.waitAsync requires 3 arguments");
+
+    int idx = engine.extractInt(args[1]);
+    int expected = engine.extractInt(args[2]);
+
+    auto ptr = _getAtomicPtr(engine, args[0], idx);
+    if (!ptr)
+        return engine.throwTypeError("Atomics.waitAsync: invalid typed array");
+
+    import core.atomic : atomicLoad, MemoryOrder;
+    int current = atomicLoad!(MemoryOrder.seq)(*cast(shared(int)*) ptr);
+
+    auto result = engine.newObject();
+    if (current != expected)
+    {
+        auto resolvedPromise = engine.eval(
+            `Promise.resolve("not-equal")`, "<atomics-waitAsync>");
+        engine.setProperty(result, "async", engine.newBool(true));
+        engine.setProperty(result, "value", resolvedPromise.value);
+    }
+    else
+    {
+        auto resolvedPromise = engine.eval(
+            `Promise.resolve("ok")`, "<atomics-waitAsync>");
+        engine.setProperty(result, "async", engine.newBool(true));
+        engine.setProperty(result, "value", resolvedPromise.value);
+    }
+    return result;
+}
+
+string suppressedErrorPolyfill() @safe pure nothrow @nogc
+{
+    return `(function() {
+  if (typeof globalThis.SuppressedError === 'undefined') {
+    globalThis.SuppressedError = function SuppressedError(error, suppressed, message) {
+      var e = new Error(message);
+      e.name = 'SuppressedError';
+      e.error = error;
+      e.suppressed = suppressed;
+      Object.setPrototypeOf(e, SuppressedError.prototype);
+      return e;
+    };
+    SuppressedError.prototype = Object.create(Error.prototype);
+    SuppressedError.prototype.constructor = SuppressedError;
+    SuppressedError.prototype.name = 'SuppressedError';
+  }
+})();`;
 }

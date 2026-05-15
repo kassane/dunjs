@@ -7,7 +7,14 @@ private enum BUFFER_MAX_SIZE = 1024 * 1024 * 1024;
 
 void registerBufferModule(IJSEngine engine) @trusted
 {
-    auto bufferClass = engine.newObject();
+    assert(engine !is null, "Null engine in registerBufferModule");
+
+    // Buffer must be a function (not object) for npm compat: typeof Buffer === 'function'
+    auto bufCtorRes = engine.eval(
+        "(function Buffer(arg, enc, len) { return Buffer.from(arg, enc); })",
+        "<buffer-ctor>");
+    assert(!bufCtorRes.isError, "Failed to create Buffer constructor");
+    auto bufferClass = bufCtorRes.value;
 
     engine.setProperty(bufferClass, "from", engine.newFunction(&jsBufferFrom, "from", 1));
     engine.setProperty(bufferClass, "alloc", engine.newFunction(&jsBufferAlloc, "alloc", 1));
@@ -17,10 +24,22 @@ void registerBufferModule(IJSEngine engine) @trusted
     engine.setProperty(bufferClass, "byteLength", engine.newFunction(&jsBufferByteLength, "byteLength", 1));
     engine.setProperty(bufferClass, "isEncoding", engine.newFunction(&jsBufferIsEncoding, "isEncoding", 1));
     engine.setProperty(bufferClass, "compare", engine.newFunction(&jsBufferStaticCompare, "compare", 2));
+    engine.setProperty(bufferClass, "allocUnsafeSlow", engine.newFunction(&jsBufferAllocUnsafe, "allocUnsafeSlow", 1));
+    engine.setProperty(bufferClass, "poolSize", engine.newInt(8192));
 
     auto global = engine.getGlobal();
     engine.setProperty(global, "Buffer", bufferClass);
-    engine.setProperty(global, "__dun_cjs_buffer__", bufferClass);
+
+    // require('buffer') returns { Buffer: <constructor>, ... } (Node.js compat)
+    auto bufModule = engine.newObject();
+    engine.setProperty(bufModule, "Buffer", engine.dupValue(bufferClass));
+    engine.setProperty(bufModule, "SlowBuffer", engine.dupValue(bufferClass));
+    engine.setProperty(bufModule, "INSPECT_MAX_BYTES", engine.newInt(50));
+    engine.setProperty(bufModule, "kMaxLength", engine.newInt(0x7FFFFFFF));
+    engine.setProperty(global, "__dun_cjs_buffer__", bufModule);
+    engine.freeValue(global);
+
+    ensureBufferFnsCached(engine);
 
     version (EngineQuickJS)
         registerQuickJSModule(engine);
@@ -32,6 +51,7 @@ version (EngineQuickJS)
 
     private void registerQuickJSModule(IJSEngine engine) @trusted
     {
+        assert(engine !is null, "Null engine in registerQuickJSModule");
         auto ctx = cast(JSContext*) engine.rawContext();
         auto m = JS_NewCModule(ctx, "dun:buffer", &bufferModuleInit);
         if (m is null) return;
@@ -69,7 +89,6 @@ __gshared JSHandle _bufWriteFloatLE, _bufWriteFloatBE;
 __gshared JSHandle _bufWriteDoubleLE, _bufWriteDoubleBE;
 __gshared JSHandle _bufCompare, _bufIncludes, _bufSubarray, _bufIsEncoding;
 __gshared JSHandle _bufProto; // Shared prototype object with all methods
-__gshared JSHandle _objectCreate; // Cached Object.create function
 __gshared bool _bufFnsCached = false;
 
 void ensureBufferFnsCached(IJSEngine engine) @trusted
@@ -156,36 +175,119 @@ void ensureBufferFnsCached(IJSEngine engine) @trusted
     engine.setProperty(_bufProto, "includes", engine.dupValue(_bufIncludes));
     engine.setProperty(_bufProto, "subarray", engine.dupValue(_bufSubarray));
 
-    // Cache Object.create for fast prototype-based buffer creation
+    // Store proto globally and create a fast JS-side factory function
+    // that does Object.create + property assignment in a single JS call.
     auto global = engine.getGlobal();
-    auto objectCtor = engine.getProperty(global, "Object");
-    _objectCreate = engine.getProperty(objectCtor, "create");
-
-    // Store proto globally so JS can access it
     engine.setProperty(global, "__dunBufProto__", engine.dupValue(_bufProto));
+    engine.freeValue(global);
+
+    // Add iterator methods (keys, values, entries, Symbol.iterator) via JS
+    // since Symbol.iterator requires JS-level access
+    auto iterRes = engine.eval(
+        "(function(){" ~
+        "var p=__dunBufProto__;" ~
+        "p.keys=function(){var b=this,i=0;return{next:function(){" ~
+        "return i<b.length?{value:i++,done:false}:{value:undefined,done:true};" ~
+        "},__proto__:{[Symbol.iterator]:function(){return this;}}};};" ~
+        "p.values=function(){var b=this,i=0;return{next:function(){" ~
+        "return i<b.length?{value:b.__u8[i++],done:false}:{value:undefined,done:true};" ~
+        "},__proto__:{[Symbol.iterator]:function(){return this;}}};};" ~
+        "p.entries=function(){var b=this,i=0;return{next:function(){" ~
+        "return i<b.length?{value:[i,b.__u8[i++]],done:false}:{value:undefined,done:true};" ~
+        "},__proto__:{[Symbol.iterator]:function(){return this;}}};};" ~
+        "p[Symbol.iterator]=p.values;" ~
+
+        // swap16/swap32/swap64 — byte swap in-place
+        "p.swap16=function(){var u=this.__u8,l=u.length;" ~
+        "if(l%2!==0)throw new RangeError('Buffer size must be a multiple of 16-bits');" ~
+        "for(var i=0;i<l;i+=2){var t=u[i];u[i]=u[i+1];u[i+1]=t;}return this;};" ~
+        "p.swap32=function(){var u=this.__u8,l=u.length;" ~
+        "if(l%4!==0)throw new RangeError('Buffer size must be a multiple of 32-bits');" ~
+        "for(var i=0;i<l;i+=4){var t=u[i];u[i]=u[i+3];u[i+3]=t;t=u[i+1];u[i+1]=u[i+2];u[i+2]=t;}return this;};" ~
+        "p.swap64=function(){var u=this.__u8,l=u.length;" ~
+        "if(l%8!==0)throw new RangeError('Buffer size must be a multiple of 64-bits');" ~
+        "for(var i=0;i<l;i+=8){for(var j=0;j<4;j++){var t=u[i+j];u[i+j]=u[i+7-j];u[i+7-j]=t;}}return this;};" ~
+
+        // lastIndexOf
+        "p.lastIndexOf=function(v,o){var u=this.__u8,s=typeof v==='string'?new TextEncoder().encode(v):v instanceof Uint8Array?v:[v];" ~
+        "var start=o!==undefined?Math.min(o,u.length-s.length):u.length-s.length;" ~
+        "for(var i=start;i>=0;i--){var m=true;for(var j=0;j<s.length;j++){if(u[i+j]!==s[j]){m=false;break;}}if(m)return i;}return -1;};" ~
+
+        // readIntBE/LE, readUIntBE/LE (1-6 byte variable-width)
+        "p.readUIntBE=function(o,bl){var u=this.__u8,v=0;for(var i=0;i<bl;i++)v=v*256+u[o+i];return v;};" ~
+        "p.readUIntLE=function(o,bl){var u=this.__u8,v=0;for(var i=bl-1;i>=0;i--)v=v*256+u[o+i];return v;};" ~
+        "p.readIntBE=function(o,bl){var v=this.readUIntBE(o,bl);if(v>=(1<<(bl*8-1)))v-=(1<<(bl*8));return v;};" ~
+        "p.readIntLE=function(o,bl){var v=this.readUIntLE(o,bl);if(v>=(1<<(bl*8-1)))v-=(1<<(bl*8));return v;};" ~
+        "p.writeUIntBE=function(v,o,bl){var u=this.__u8;for(var i=bl-1;i>=0;i--){u[o+i]=v&0xFF;v=Math.floor(v/256);}return o+bl;};" ~
+        "p.writeUIntLE=function(v,o,bl){var u=this.__u8;for(var i=0;i<bl;i++){u[o+i]=v&0xFF;v=Math.floor(v/256);}return o+bl;};" ~
+        "p.writeIntBE=function(v,o,bl){if(v<0)v+=(1<<(bl*8));return this.writeUIntBE(v,o,bl);};" ~
+        "p.writeIntLE=function(v,o,bl){if(v<0)v+=(1<<(bl*8));return this.writeUIntLE(v,o,bl);};" ~
+
+        // BigInt read/write methods
+        "p.readBigInt64BE=function(o){if(typeof BigInt==='undefined')throw new Error('BigInt not available');var u=this.__u8;o=o||0;var hi=((u[o]<<24)|(u[o+1]<<16)|(u[o+2]<<8)|u[o+3]);var lo=((u[o+4]<<24)|(u[o+5]<<16)|(u[o+6]<<8)|u[o+7])>>>0;return(BigInt(hi)<<BigInt(32))|BigInt(lo);};" ~
+        "p.readBigUInt64BE=function(o){if(typeof BigInt==='undefined')throw new Error('BigInt not available');var u=this.__u8;o=o||0;var hi=((u[o]<<24)|(u[o+1]<<16)|(u[o+2]<<8)|u[o+3])>>>0;var lo=((u[o+4]<<24)|(u[o+5]<<16)|(u[o+6]<<8)|u[o+7])>>>0;return(BigInt(hi)<<BigInt(32))|BigInt(lo);};" ~
+        "p.readBigInt64LE=function(o){if(typeof BigInt==='undefined')throw new Error('BigInt not available');var u=this.__u8;o=o||0;var lo=((u[o+3]<<24)|(u[o+2]<<16)|(u[o+1]<<8)|u[o])>>>0;var hi=((u[o+7]<<24)|(u[o+6]<<16)|(u[o+5]<<8)|u[o+4]);return(BigInt(hi)<<BigInt(32))|BigInt(lo);};" ~
+        "p.readBigUInt64LE=function(o){if(typeof BigInt==='undefined')throw new Error('BigInt not available');var u=this.__u8;o=o||0;var lo=((u[o+3]<<24)|(u[o+2]<<16)|(u[o+1]<<8)|u[o])>>>0;var hi=((u[o+7]<<24)|(u[o+6]<<16)|(u[o+5]<<8)|u[o+4])>>>0;return(BigInt(hi)<<BigInt(32))|BigInt(lo);};" ~
+        "p.writeBigInt64BE=function(v,o){var u=this.__u8;o=o||0;v=BigInt(v);for(var i=7;i>=0;i--){u[o+i]=Number(v&BigInt(0xFF));v>>=BigInt(8);}return o+8;};" ~
+        "p.writeBigInt64LE=function(v,o){var u=this.__u8;o=o||0;v=BigInt(v);for(var i=0;i<8;i++){u[o+i]=Number(v&BigInt(0xFF));v>>=BigInt(8);}return o+8;};" ~
+        "p.writeBigUInt64BE=p.writeBigInt64BE;" ~
+        "p.writeBigUInt64LE=p.writeBigInt64LE;" ~
+
+        // Sync Buffer.prototype with __dunBufProto__ for npm compat (safe-buffer, etc.)
+        "if(typeof Buffer!=='undefined')Buffer.prototype=p;" ~
+        // Make Buffer instances pass `instanceof Uint8Array` check (npm compat)
+        "var origU8HasInstance=Uint8Array[Symbol.hasInstance];" ~
+        "Object.defineProperty(Uint8Array,Symbol.hasInstance,{value:function(inst){" ~
+        "return (inst&&inst.__isBuffer===true)||origU8HasInstance.call(this,inst);" ~
+        "}});" ~
+
+        "})()",
+        "<buffer-iter>");
+    if (!iterRes.isError)
+        engine.freeValue(iterRes.value);
+
+    auto factoryRes = engine.eval(
+        "(function(){" ~
+        "var p=__dunBufProto__,c=Object.create;" ~
+        "return function __dunMkBuf(u8,len){" ~
+        "var o=c(p);o.__isBuffer=true;o.length=len;o.__u8=u8;" ~
+        "return new Proxy(o,{" ~
+        "get:function(t,k,r){if(typeof k==='string'){var n=+k;if(n===(n|0)&&n>=0&&n<t.length)return t.__u8[n];}return Reflect.get(t,k,r);}," ~
+        "set:function(t,k,v,r){if(typeof k==='string'){var n=+k;if(n===(n|0)&&n>=0&&n<t.length){t.__u8[n]=v;return true;}}return Reflect.set(t,k,v,r);}" ~
+        "});};})()",
+        "<buffer-factory>");
+    assert(!factoryRes.isError, "Failed to create buffer factory");
+    _bufFactory = factoryRes.value;
+    _bufFactoryThis = engine.newUndefined();
 
     _bufFnsCached = true;
 }
 
-JSHandle makeBufferObj(IJSEngine engine, const(ubyte)[] data) @trusted
+__gshared JSHandle _bufFactory;
+__gshared JSHandle _bufFactoryThis;
+
+package JSHandle makeBufferObj(IJSEngine engine, const(ubyte)[] data) @trusted
 {
     ensureBufferFnsCached(engine);
-    // Object.create(_bufProto) — inherits all 35 methods from prototype
-    JSHandle[] createArgs = [_bufProto];
-    auto obj = engine.callFunction(_objectCreate, engine.newNull(), createArgs);
+    auto u8 = engine.newUint8Array(data);
+    auto lenVal = engine.newInt(cast(int) data.length);
+    JSHandle[2] factoryArgs = [u8, lenVal];
+    auto result = engine.callFunction(_bufFactory, _bufFactoryThis, factoryArgs[]);
+    engine.freeValue(lenVal);
+    engine.freeValue(u8);
+    return result;
+}
 
-    engine.setProperty(obj, "__isBuffer", engine.newBool(true));
-    engine.setProperty(obj, "length", engine.newInt(cast(int) data.length));
-
-    try
-    {
-        engine.setProperty(obj, "__data", engine.newString(bytesToHex(data)));
-    }
-    catch (Exception)
-    {
-        engine.setProperty(obj, "__data", engine.newString(""));
-    }
-    return obj;
+JSHandle makeBufferObjZeroed(IJSEngine engine, int size) @trusted
+{
+    ensureBufferFnsCached(engine);
+    auto u8 = engine.newUint8ArrayZeroed(size);
+    auto lenVal = engine.newInt(size);
+    JSHandle[2] factoryArgs = [u8, lenVal];
+    auto result = engine.callFunction(_bufFactory, _bufFactoryThis, factoryArgs[]);
+    engine.freeValue(lenVal);
+    engine.freeValue(u8);
+    return result;
 }
 
 private immutable char[512] hexLUT = () {
@@ -204,11 +306,8 @@ string bytesToHex(const(ubyte)[] data) @trusted nothrow
     try
     {
         auto buf = new char[data.length * 2];
-        foreach (i, b; data)
-        {
-            buf[i * 2]     = hexLUT[b * 2];
-            buf[i * 2 + 1] = hexLUT[b * 2 + 1];
-        }
+        import dun.platform.simd : hexEncodeBuf;
+        hexEncodeBuf(data, buf);
         return cast(string) buf;
     }
     catch (Exception) { return ""; }
@@ -238,15 +337,17 @@ ubyte hexDigit(char c) pure @safe
     return 0;
 }
 
-ubyte[] extractBytes(IJSEngine engine, JSHandle obj) @trusted
+package ubyte[] extractBytes(IJSEngine engine, JSHandle obj) @trusted
 {
-    auto hexVal = engine.getProperty(obj, "__data");
-    auto hex = engine.extractString(hexVal);
-    return hexToBytes(hex);
+    auto u8 = engine.getProperty(obj, "__u8");
+    auto bytes = engine.getTypedArrayBytes(u8);
+    engine.freeValue(u8);
+    if (bytes !is null) return bytes;
+    return null;
 }
 
 // Buffer.from(input, [encoding])
-JSHandle jsBufferFrom(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsBufferFrom(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsBufferFrom");
     auto state = cast(DunState*) ctx;
@@ -270,8 +371,10 @@ JSHandle jsBufferFrom(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
         {
             try
             {
+                // Node.js accepts both base64 and base64url in 'base64' mode
+                auto normalized = base64urlToBase64(str);
                 import std.base64 : Base64;
-                auto bytes = Base64.decode(str);
+                auto bytes = Base64.decode(normalized);
                 return makeBufferObj(engine, bytes);
             }
             catch (Exception)
@@ -279,27 +382,126 @@ JSHandle jsBufferFrom(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
                 return makeBufferObj(engine, cast(ubyte[]) []);
             }
         }
+        else if (encoding == "base64url")
+        {
+            try
+            {
+                auto padded = base64urlToBase64(str);
+                import std.base64 : Base64;
+                auto bytes = Base64.decode(padded);
+                return makeBufferObj(engine, bytes);
+            }
+            catch (Exception)
+            {
+                return makeBufferObj(engine, cast(ubyte[]) []);
+            }
+        }
+        else if (encoding == "latin1" || encoding == "binary")
+        {
+            // Latin1: each JS char's charCode (0-255) maps to one byte.
+            // extractString gives UTF-8, so decode codepoints and take low byte.
+            ubyte[] bytes;
+            size_t i = 0;
+            auto raw = cast(const(ubyte)[]) str;
+            while (i < raw.length)
+            {
+                uint cp;
+                if (raw[i] < 0x80) { cp = raw[i]; i += 1; }
+                else if ((raw[i] & 0xE0) == 0xC0 && i + 1 < raw.length) {
+                    cp = ((raw[i] & 0x1F) << 6) | (raw[i+1] & 0x3F); i += 2;
+                }
+                else if ((raw[i] & 0xF0) == 0xE0 && i + 2 < raw.length) {
+                    cp = ((raw[i] & 0x0F) << 12) | ((raw[i+1] & 0x3F) << 6) | (raw[i+2] & 0x3F); i += 3;
+                }
+                else { cp = raw[i]; i += 1; }
+                bytes ~= cast(ubyte)(cp & 0xFF);
+            }
+            return makeBufferObj(engine, bytes);
+        }
         else
         {
             return makeBufferObj(engine, cast(const(ubyte)[]) str);
         }
     }
 
+    // Typed array (Uint8Array, Int8Array, etc.) or ArrayBuffer
+    {
+        auto bytes = engine.getTypedArrayBytes(args[0]);
+        if (bytes !is null)
+            return makeBufferObj(engine, bytes);
+    }
+
     // Array-like or Buffer
     if (engine.isObject(args[0]))
     {
         auto isBuf = engine.getProperty(args[0], "__isBuffer");
-        if (engine.isBool(isBuf) && engine.extractBool(isBuf))
+        bool isBuffer = engine.isBool(isBuf) && engine.extractBool(isBuf);
+        engine.freeValue(isBuf);
+        if (isBuffer)
         {
             auto bytes = extractBytes(engine, args[0]);
             return makeBufferObj(engine, bytes);
         }
+
+        // Check for ArrayBuffer via byteLength property and no length
+        auto byteLenVal = engine.getProperty(args[0], "byteLength");
+        auto lenCheck = engine.getProperty(args[0], "length");
+        bool hasOnlyByteLength = engine.isNumber(byteLenVal) && !engine.isNumber(lenCheck);
+        engine.freeValue(lenCheck);
+        if (hasOnlyByteLength)
+        {
+            int byteLen = engine.extractInt(byteLenVal);
+            engine.freeValue(byteLenVal);
+
+            // Support Buffer.from(ArrayBuffer, byteOffset, length)
+            bool hasOffset = args.length >= 2 && engine.isNumber(args[1]);
+            if (hasOffset)
+            {
+                int offset = engine.extractInt(args[1]);
+                int len = (args.length >= 3 && engine.isNumber(args[2]))
+                    ? engine.extractInt(args[2])
+                    : byteLen - offset;
+                import std.conv : to;
+                auto u8Result = engine.eval(
+                    "(function(ab,off,len){return new Uint8Array(ab,off,len)})", "<buf-ab-off>");
+                if (!u8Result.isError)
+                {
+                    auto u8arr = engine.callFunction(u8Result.value, engine.newUndefined(),
+                        [args[0], engine.newInt(offset), engine.newInt(len)]);
+                    engine.freeValue(u8Result.value);
+                    auto bytes = engine.getTypedArrayBytes(u8arr);
+                    engine.freeValue(u8arr);
+                    if (bytes !is null)
+                        return makeBufferObj(engine, bytes);
+                }
+                else
+                    engine.freeValue(u8Result.value);
+            }
+
+            auto u8Result = engine.eval(
+                "(function(ab){return new Uint8Array(ab)})", "<buf-ab>");
+            if (!u8Result.isError)
+            {
+                auto u8arr = engine.callFunction(u8Result.value, engine.newUndefined(), [args[0]]);
+                engine.freeValue(u8Result.value);
+                auto bytes = engine.getTypedArrayBytes(u8arr);
+                engine.freeValue(u8arr);
+                if (bytes !is null)
+                    return makeBufferObj(engine, bytes);
+            }
+            else
+                engine.freeValue(u8Result.value);
+            auto fallbackBytes = new ubyte[byteLen];
+            return makeBufferObj(engine, fallbackBytes);
+        }
+        engine.freeValue(byteLenVal);
 
         // Try as array
         auto lenVal = engine.getProperty(args[0], "length");
         if (engine.isNumber(lenVal))
         {
             int len = engine.extractInt(lenVal);
+            engine.freeValue(lenVal);
             auto bytes = new ubyte[len];
             for (int i = 0; i < len; i++)
             {
@@ -310,13 +512,14 @@ JSHandle jsBufferFrom(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
             }
             return makeBufferObj(engine, bytes);
         }
+        engine.freeValue(lenVal);
     }
 
     return engine.throwTypeError("Buffer.from: unsupported argument type");
 }
 
 // Buffer.alloc(size, [fill], [encoding])
-JSHandle jsBufferAlloc(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsBufferAlloc(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsBufferAlloc");
     auto state = cast(DunState*) ctx;
@@ -328,17 +531,63 @@ JSHandle jsBufferAlloc(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     if (size < 0 || size > BUFFER_MAX_SIZE)
         return engine.throwRangeError("Invalid buffer size");
 
-    ubyte fillByte = 0;
-    if (args.length >= 2 && engine.isNumber(args[1]))
-        fillByte = cast(ubyte) engine.extractInt(args[1]);
+    if (args.length < 2 || engine.isUndefined(args[1]))
+        return makeBufferObjZeroed(engine, size);
 
-    auto bytes = new ubyte[size];
-    bytes[] = fillByte;
-    return makeBufferObj(engine, bytes);
+    if (engine.isNumber(args[1]))
+    {
+        ubyte fillByte = cast(ubyte) engine.extractInt(args[1]);
+        if (fillByte == 0)
+            return makeBufferObjZeroed(engine, size);
+        auto bytes = new ubyte[size];
+        bytes[] = fillByte;
+        return makeBufferObj(engine, bytes);
+    }
+
+    if (engine.isString(args[1]))
+    {
+        string fillStr = engine.extractString(args[1]);
+        if (fillStr.length == 0)
+            return makeBufferObjZeroed(engine, size);
+
+        string encoding = "utf8";
+        if (args.length >= 3 && engine.isString(args[2]))
+            encoding = engine.extractString(args[2]);
+
+        const(ubyte)[] fillBytes;
+        if (encoding == "hex")
+            fillBytes = hexToBytes(fillStr);
+        else
+            fillBytes = cast(const(ubyte)[]) fillStr;
+
+        if (fillBytes.length == 0)
+            return makeBufferObjZeroed(engine, size);
+        auto bytes = new ubyte[size];
+        foreach (i; 0 .. size)
+            bytes[i] = fillBytes[i % fillBytes.length];
+        return makeBufferObj(engine, bytes);
+    }
+
+    // Fill with Buffer or typed array
+    if (engine.isObject(args[1]))
+    {
+        auto fillBytes = engine.getTypedArrayBytes(args[1]);
+        if (fillBytes is null)
+            fillBytes = extractBytes(engine, args[1]);
+        if (fillBytes.length > 0)
+        {
+            auto bytes = new ubyte[size];
+            foreach (i; 0 .. size)
+                bytes[i] = fillBytes[i % fillBytes.length];
+            return makeBufferObj(engine, bytes);
+        }
+    }
+
+    return makeBufferObjZeroed(engine, size);
 }
 
 // Buffer.allocUnsafe(size)
-JSHandle jsBufferAllocUnsafe(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsBufferAllocUnsafe(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsBufferAllocUnsafe");
     auto state = cast(DunState*) ctx;
@@ -350,12 +599,11 @@ JSHandle jsBufferAllocUnsafe(void* ctx, JSHandle thisVal, JSHandle[] args) @trus
     if (size < 0 || size > BUFFER_MAX_SIZE)
         return engine.throwRangeError("Invalid buffer size");
 
-    auto bytes = new ubyte[size];
-    return makeBufferObj(engine, bytes);
+    return makeBufferObjZeroed(engine, size);
 }
 
 // Buffer.isBuffer(obj)
-JSHandle jsBufferIsBuffer(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsBufferIsBuffer(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsBufferIsBuffer");
     auto state = cast(DunState*) ctx;
@@ -364,38 +612,96 @@ JSHandle jsBufferIsBuffer(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     if (args.length < 1 || !engine.isObject(args[0]))
         return engine.newBool(false);
     auto isBuf = engine.getProperty(args[0], "__isBuffer");
-    return engine.newBool(engine.isBool(isBuf) && engine.extractBool(isBuf));
+    bool result = engine.isBool(isBuf) && engine.extractBool(isBuf);
+    engine.freeValue(isBuf);
+    return engine.newBool(result);
 }
 
 // Buffer.concat(list, [totalLength])
-JSHandle jsBufferConcat(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsBufferConcat(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
+    import core.stdc.string : memcpy;
+
     assert(ctx !is null, "Null ctx in jsBufferConcat");
     auto state = cast(DunState*) ctx;
     assert(state.engine !is null, "Null engine in jsBufferConcat");
     auto engine = state.engine;
     if (args.length < 1) return makeBufferObj(engine, cast(ubyte[]) []);
 
-    ubyte[] combined;
     auto lenVal = engine.getProperty(args[0], "length");
-    if (!engine.isNumber(lenVal)) return makeBufferObj(engine, cast(ubyte[]) []);
+    if (!engine.isNumber(lenVal))
+    {
+        engine.freeValue(lenVal);
+        return makeBufferObj(engine, cast(ubyte[]) []);
+    }
     int count = engine.extractInt(lenVal);
+    engine.freeValue(lenVal);
+    if (count == 0) return makeBufferObj(engine, cast(ubyte[]) []);
 
+    // Stack-allocate handles for small arrays, heap for large
+    enum STACK_MAX = 16;
+    JSHandle[STACK_MAX] stackHandles = void;
+    ubyte[][STACK_MAX] stackSlices = void;
+    JSHandle[] elemHandles;
+    ubyte[][] slices;
+    if (count <= STACK_MAX)
+    {
+        elemHandles = stackHandles[0 .. count];
+        slices = stackSlices[0 .. count];
+    }
+    else
+    {
+        elemHandles = new JSHandle[count];
+        slices = new ubyte[][count];
+    }
+
+    // First pass: extract all byte slices and compute total length
+    size_t totalLen = 0;
     for (int i = 0; i < count; i++)
     {
-        auto elem = engine.getPropertyIndex(args[0], cast(uint) i);
-        if (engine.isObject(elem))
+        elemHandles[i] = engine.getPropertyIndex(args[0], cast(uint) i);
+        slices[i] = null;
+        if (engine.isObject(elemHandles[i]))
         {
-            auto bytes = extractBytes(engine, elem);
-            combined ~= bytes;
+            slices[i] = extractBytes(engine, elemHandles[i]);
+            if (slices[i] !is null)
+                totalLen += slices[i].length;
         }
-        engine.freeValue(elem);
     }
-    return makeBufferObj(engine, combined);
+
+    // Apply totalLength parameter if provided
+    if (args.length >= 2 && engine.isNumber(args[1]))
+    {
+        int requestedLen = engine.extractInt(args[1]);
+        if (requestedLen >= 0)
+            totalLen = cast(size_t) requestedLen;
+    }
+
+    // Create result typed array directly and memcpy segments into it
+    ensureBufferFnsCached(engine);
+    auto u8 = engine.newUint8ArrayZeroed(totalLen);
+    auto destBytes = engine.getTypedArrayBytes(u8);
+    size_t pos = 0;
+    for (int i = 0; i < count; i++)
+    {
+        if (slices[i] !is null && slices[i].length > 0 && destBytes !is null && pos < totalLen)
+        {
+            size_t copyLen = slices[i].length;
+            if (pos + copyLen > totalLen)
+                copyLen = totalLen - pos;
+            memcpy(destBytes.ptr + pos, slices[i].ptr, copyLen);
+            pos += copyLen;
+        }
+        engine.freeValue(elemHandles[i]);
+    }
+
+    auto totalLenVal = engine.newInt(cast(int) totalLen);
+    JSHandle[2] factoryArgs = [u8, totalLenVal];
+    return engine.callFunction(_bufFactory, _bufFactoryThis, factoryArgs[]);
 }
 
 // Buffer.byteLength(string, [encoding])
-JSHandle jsBufferByteLength(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsBufferByteLength(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsBufferByteLength");
     auto state = cast(DunState*) ctx;
@@ -411,12 +717,13 @@ JSHandle jsBufferByteLength(void* ctx, JSHandle thisVal, JSHandle[] args) @trust
     {
         auto lenProp = engine.getProperty(args[0], "length");
         if (engine.isNumber(lenProp)) return lenProp;
+        engine.freeValue(lenProp);
     }
     return engine.newInt(0);
 }
 
 // buf.toString([encoding], [start], [end])
-JSHandle jsBufferToString(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsBufferToString(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsBufferToString");
     auto state = cast(DunState*) ctx;
@@ -453,6 +760,23 @@ JSHandle jsBufferToString(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
         }
         catch (Exception) { return engine.newString(""); }
     }
+    else if (encoding == "base64url")
+    {
+        try
+        {
+            import std.base64 : Base64;
+            auto b64 = (() @trusted => cast(string) Base64.encode(slice))();
+            return engine.newString(base64ToBase64url(b64));
+        }
+        catch (Exception) { return engine.newString(""); }
+    }
+    else if (encoding == "latin1" || encoding == "binary")
+    {
+        auto chars = new char[slice.length];
+        foreach (i, b; slice)
+            chars[i] = cast(char) b;
+        return engine.newString(cast(string) chars);
+    }
     else
     {
         return engine.newString(cast(string) slice.idup);
@@ -460,7 +784,7 @@ JSHandle jsBufferToString(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 }
 
 // buf.toJSON()
-JSHandle jsBufferToJSON(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsBufferToJSON(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsBufferToJSON");
     auto state = cast(DunState*) ctx;
@@ -477,7 +801,7 @@ JSHandle jsBufferToJSON(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 }
 
 // buf.slice([start], [end])
-JSHandle jsBufferSlice(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsBufferSlice(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsBufferSlice");
     auto state = cast(DunState*) ctx;
@@ -500,19 +824,77 @@ JSHandle jsBufferSlice(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     return makeBufferObj(engine, bytes[start .. end]);
 }
 
-// buf.copy(target)
-JSHandle jsBufferCopy(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+// buf.copy(target[, targetStart[, sourceStart[, sourceEnd]]])
+JSHandle jsBufferCopy(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsBufferCopy");
     auto state = cast(DunState*) ctx;
     assert(state.engine !is null, "Null engine in jsBufferCopy");
     auto engine = state.engine;
+
+    if (args.length < 1 || !engine.isObject(args[0]))
+        return engine.newInt(0);
+
     auto srcBytes = extractBytes(engine, thisVal);
-    return engine.newInt(cast(int) srcBytes.length);
+    int targetStart = (args.length >= 2) ? engine.extractInt(args[1]) : 0;
+    int sourceStart = (args.length >= 3) ? engine.extractInt(args[2]) : 0;
+    int sourceEnd = (args.length >= 4) ? engine.extractInt(args[3]) : cast(int) srcBytes.length;
+
+    if (sourceStart < 0) sourceStart = 0;
+    if (sourceEnd > cast(int) srcBytes.length) sourceEnd = cast(int) srcBytes.length;
+    if (targetStart < 0) targetStart = 0;
+    if (sourceStart >= sourceEnd) return engine.newInt(0);
+
+    auto src = srcBytes[sourceStart .. sourceEnd];
+
+    // Get target's data property and write into it
+    auto dataProp = engine.getProperty(args[0], "data");
+    if (engine.isUndefined(dataProp) || !engine.isArray(dataProp))
+    {
+        engine.freeValue(dataProp);
+        // Try direct byte extraction and reconstruction
+        auto targetBytes = extractBytes(engine, args[0]);
+        if (targetBytes.length == 0)
+            return engine.newInt(0);
+
+        // Copy into target bytes
+        auto tgtMut = cast(ubyte[]) targetBytes;
+        size_t copyLen = src.length;
+        if (targetStart + copyLen > tgtMut.length)
+            copyLen = tgtMut.length - targetStart;
+        tgtMut[targetStart .. targetStart + copyLen] = src[0 .. copyLen];
+
+        // Write back via data array
+        auto dataArr = engine.getProperty(args[0], "data");
+        if (!engine.isUndefined(dataArr) && engine.isArray(dataArr))
+        {
+            for (size_t i = 0; i < copyLen; i++)
+                engine.setPropertyIndex(dataArr, cast(uint)(targetStart + i),
+                    engine.newInt(cast(int) tgtMut[targetStart + i]));
+        }
+        engine.freeValue(dataArr);
+        return engine.newInt(cast(int) copyLen);
+    }
+
+    // Copy bytes into target's data array
+    size_t copyLen = src.length;
+    auto targetLenH = engine.getProperty(args[0], "length");
+    int targetLen = engine.extractInt(targetLenH);
+    engine.freeValue(targetLenH);
+
+    if (targetStart + cast(int) copyLen > targetLen)
+        copyLen = targetLen - targetStart;
+
+    for (size_t i = 0; i < copyLen; i++)
+        engine.setPropertyIndex(dataProp, cast(uint)(targetStart + i),
+            engine.newInt(cast(int) src[i]));
+
+    engine.freeValue(dataProp);
+    return engine.newInt(cast(int) copyLen);
 }
 
 // buf.equals(other)
-JSHandle jsBufferEquals(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsBufferEquals(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsBufferEquals");
     auto state = cast(DunState*) ctx;
@@ -526,7 +908,7 @@ JSHandle jsBufferEquals(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 }
 
 // buf.indexOf(value)
-JSHandle jsBufferIndexOf(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsBufferIndexOf(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsBufferIndexOf");
     auto state = cast(DunState*) ctx;
@@ -556,31 +938,39 @@ JSHandle jsBufferIndexOf(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 }
 
 // buf.fill(value)
-JSHandle jsBufferFill(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsBufferFill(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsBufferFill");
     auto state = cast(DunState*) ctx;
     assert(state.engine !is null, "Null engine in jsBufferFill");
     auto engine = state.engine;
-    if (args.length < 1) return thisVal;
+    if (args.length < 1) return engine.dupValue(thisVal);
     auto bytes = extractBytes(engine, thisVal);
 
-    ubyte fillVal = 0;
     if (engine.isNumber(args[0]))
-        fillVal = cast(ubyte) engine.extractInt(args[0]);
+    {
+        ubyte fillVal = cast(ubyte) engine.extractInt(args[0]);
+        bytes[] = fillVal;
+    }
     else if (engine.isString(args[0]))
     {
         auto s = engine.extractString(args[0]);
-        if (s.length > 0) fillVal = cast(ubyte) s[0];
+        if (s.length > 0)
+        {
+            auto fillBytes = cast(const(ubyte)[]) s;
+            foreach (i, ref b; bytes)
+                b = fillBytes[i % fillBytes.length];
+        }
+        else
+            bytes[] = 0;
     }
-
-    bytes[] = fillVal;
-    engine.setProperty(thisVal, "__data", engine.newString(bytesToHex(bytes)));
-    return thisVal;
+    else
+        bytes[] = 0;
+    return engine.dupValue(thisVal);
 }
 
 // buf.write(string, [offset])
-JSHandle jsBufferWrite(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsBufferWrite(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsBufferWrite");
     auto state = cast(DunState*) ctx;
@@ -603,12 +993,11 @@ JSHandle jsBufferWrite(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
         written++;
     }
 
-    engine.setProperty(thisVal, "__data", engine.newString(bytesToHex(bytes)));
     return engine.newInt(written);
 }
 
 // buf.readUInt8([offset])
-JSHandle jsBufferReadUInt8(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsBufferReadUInt8(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsBufferReadUInt8");
     auto state = cast(DunState*) ctx;
@@ -624,7 +1013,7 @@ JSHandle jsBufferReadUInt8(void* ctx, JSHandle thisVal, JSHandle[] args) @truste
 }
 
 // buf.writeUInt8(value, [offset])
-JSHandle jsBufferWriteUInt8(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsBufferWriteUInt8(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsBufferWriteUInt8");
     auto state = cast(DunState*) ctx;
@@ -642,28 +1031,31 @@ JSHandle jsBufferWriteUInt8(void* ctx, JSHandle thisVal, JSHandle[] args) @trust
         return engine.throwRangeError("Offset out of range");
 
     bytes[offset] = cast(ubyte) value;
-    engine.setProperty(thisVal, "__data", engine.newString(bytesToHex(bytes)));
     return engine.newInt(offset + 1);
 }
 
 // Buffer.isEncoding(encoding)
-JSHandle jsBufferIsEncoding(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsBufferIsEncoding(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsBufferIsEncoding");
     auto state = cast(DunState*) ctx;
     assert(state.engine !is null, "Null engine in jsBufferIsEncoding");
     auto engine = state.engine;
     if (args.length < 1 || !engine.isString(args[0])) return engine.newBool(false);
-    auto enc = engine.extractString(args[0]);
+    import std.uni : toLower;
+    import std.conv : to;
+    string enc;
+    try { enc = engine.extractString(args[0]).to!string.toLower; }
+    catch (Exception) { return engine.newBool(false); }
     if (enc == "utf8" || enc == "utf-8" || enc == "ascii" || enc == "latin1" ||
-        enc == "binary" || enc == "hex" || enc == "base64" || enc == "ucs2" ||
-        enc == "ucs-2" || enc == "utf16le" || enc == "utf-16le")
+        enc == "binary" || enc == "hex" || enc == "base64" || enc == "base64url" ||
+        enc == "ucs2" || enc == "ucs-2" || enc == "utf16le" || enc == "utf-16le")
         return engine.newBool(true);
     return engine.newBool(false);
 }
 
 // Buffer.compare(a, b)
-JSHandle jsBufferStaticCompare(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsBufferStaticCompare(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsBufferStaticCompare");
     auto state = cast(DunState*) ctx;
@@ -684,7 +1076,7 @@ JSHandle jsBufferStaticCompare(void* ctx, JSHandle thisVal, JSHandle[] args) @tr
 }
 
 // buf.readUInt16LE([offset])
-JSHandle jsBufferReadUInt16LE(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsBufferReadUInt16LE(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsBufferReadUInt16LE");
     auto state = cast(DunState*) ctx;
@@ -698,8 +1090,9 @@ JSHandle jsBufferReadUInt16LE(void* ctx, JSHandle thisVal, JSHandle[] args) @tru
     return engine.newInt(val);
 }
 
-JSHandle jsBufferReadUInt16BE(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsBufferReadUInt16BE(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
+    import dun.platform.simd : bswap16;
     assert(ctx !is null, "Null ctx in jsBufferReadUInt16BE");
     auto state = cast(DunState*) ctx;
     assert(state.engine !is null, "Null engine in jsBufferReadUInt16BE");
@@ -708,11 +1101,11 @@ JSHandle jsBufferReadUInt16BE(void* ctx, JSHandle thisVal, JSHandle[] args) @tru
     int offset = 0;
     if (args.length >= 1 && engine.isNumber(args[0])) offset = engine.extractInt(args[0]);
     if (offset < 0 || offset + 1 >= cast(int) bytes.length) return engine.throwRangeError("Offset out of range");
-    int val = (cast(int) bytes[offset] << 8) | cast(int) bytes[offset + 1];
-    return engine.newInt(val);
+    ushort le = *cast(ushort*)(bytes.ptr + offset);
+    return engine.newInt(cast(int) bswap16(le));
 }
 
-JSHandle jsBufferReadUInt32LE(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsBufferReadUInt32LE(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsBufferReadUInt32LE");
     auto state = cast(DunState*) ctx;
@@ -726,8 +1119,9 @@ JSHandle jsBufferReadUInt32LE(void* ctx, JSHandle thisVal, JSHandle[] args) @tru
     return engine.newFloat(cast(double) val);
 }
 
-JSHandle jsBufferReadUInt32BE(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsBufferReadUInt32BE(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
+    import dun.platform.simd : bswap32;
     assert(ctx !is null, "Null ctx in jsBufferReadUInt32BE");
     auto state = cast(DunState*) ctx;
     assert(state.engine !is null, "Null engine in jsBufferReadUInt32BE");
@@ -736,11 +1130,11 @@ JSHandle jsBufferReadUInt32BE(void* ctx, JSHandle thisVal, JSHandle[] args) @tru
     int offset = 0;
     if (args.length >= 1 && engine.isNumber(args[0])) offset = engine.extractInt(args[0]);
     if (offset < 0 || offset + 3 >= cast(int) bytes.length) return engine.throwRangeError("Offset out of range");
-    uint val = (cast(uint) bytes[offset] << 24) | (cast(uint) bytes[offset+1] << 16) | (cast(uint) bytes[offset+2] << 8) | cast(uint) bytes[offset+3];
-    return engine.newFloat(cast(double) val);
+    uint le = *cast(uint*)(bytes.ptr + offset);
+    return engine.newFloat(cast(double) bswap32(le));
 }
 
-JSHandle jsBufferReadInt8(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsBufferReadInt8(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsBufferReadInt8");
     auto state = cast(DunState*) ctx;
@@ -753,7 +1147,7 @@ JSHandle jsBufferReadInt8(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     return engine.newInt(cast(int) cast(byte) bytes[offset]);
 }
 
-JSHandle jsBufferReadInt16LE(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsBufferReadInt16LE(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsBufferReadInt16LE");
     auto state = cast(DunState*) ctx;
@@ -767,8 +1161,9 @@ JSHandle jsBufferReadInt16LE(void* ctx, JSHandle thisVal, JSHandle[] args) @trus
     return engine.newInt(cast(int) val);
 }
 
-JSHandle jsBufferReadInt16BE(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsBufferReadInt16BE(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
+    import dun.platform.simd : bswap16;
     assert(ctx !is null, "Null ctx in jsBufferReadInt16BE");
     auto state = cast(DunState*) ctx;
     assert(state.engine !is null, "Null engine in jsBufferReadInt16BE");
@@ -777,11 +1172,11 @@ JSHandle jsBufferReadInt16BE(void* ctx, JSHandle thisVal, JSHandle[] args) @trus
     int offset = 0;
     if (args.length >= 1 && engine.isNumber(args[0])) offset = engine.extractInt(args[0]);
     if (offset < 0 || offset + 1 >= cast(int) bytes.length) return engine.throwRangeError("Offset out of range");
-    short val = cast(short)((cast(ushort) bytes[offset] << 8) | cast(ushort) bytes[offset + 1]);
-    return engine.newInt(cast(int) val);
+    ushort le = *cast(ushort*)(bytes.ptr + offset);
+    return engine.newInt(cast(int) cast(short) bswap16(le));
 }
 
-JSHandle jsBufferReadInt32LE(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsBufferReadInt32LE(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsBufferReadInt32LE");
     auto state = cast(DunState*) ctx;
@@ -795,8 +1190,9 @@ JSHandle jsBufferReadInt32LE(void* ctx, JSHandle thisVal, JSHandle[] args) @trus
     return engine.newInt(val);
 }
 
-JSHandle jsBufferReadInt32BE(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsBufferReadInt32BE(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
+    import dun.platform.simd : bswap32;
     assert(ctx !is null, "Null ctx in jsBufferReadInt32BE");
     auto state = cast(DunState*) ctx;
     assert(state.engine !is null, "Null engine in jsBufferReadInt32BE");
@@ -805,11 +1201,11 @@ JSHandle jsBufferReadInt32BE(void* ctx, JSHandle thisVal, JSHandle[] args) @trus
     int offset = 0;
     if (args.length >= 1 && engine.isNumber(args[0])) offset = engine.extractInt(args[0]);
     if (offset < 0 || offset + 3 >= cast(int) bytes.length) return engine.throwRangeError("Offset out of range");
-    int val = cast(int)((cast(uint) bytes[offset] << 24) | (cast(uint) bytes[offset+1] << 16) | (cast(uint) bytes[offset+2] << 8) | cast(uint) bytes[offset+3]);
-    return engine.newInt(val);
+    uint le = *cast(uint*)(bytes.ptr + offset);
+    return engine.newInt(cast(int) bswap32(le));
 }
 
-JSHandle jsBufferReadFloatLE(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsBufferReadFloatLE(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsBufferReadFloatLE");
     auto state = cast(DunState*) ctx;
@@ -824,8 +1220,9 @@ JSHandle jsBufferReadFloatLE(void* ctx, JSHandle thisVal, JSHandle[] args) @trus
     return engine.newFloat(cast(double) val);
 }
 
-JSHandle jsBufferReadFloatBE(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsBufferReadFloatBE(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
+    import dun.platform.simd : bswap32;
     assert(ctx !is null, "Null ctx in jsBufferReadFloatBE");
     auto state = cast(DunState*) ctx;
     assert(state.engine !is null, "Null engine in jsBufferReadFloatBE");
@@ -834,12 +1231,13 @@ JSHandle jsBufferReadFloatBE(void* ctx, JSHandle thisVal, JSHandle[] args) @trus
     int offset = 0;
     if (args.length >= 1 && engine.isNumber(args[0])) offset = engine.extractInt(args[0]);
     if (offset < 0 || offset + 3 >= cast(int) bytes.length) return engine.throwRangeError("Offset out of range");
-    ubyte[4] buf = [bytes[offset+3], bytes[offset+2], bytes[offset+1], bytes[offset]];
-    float val = *(cast(float*) buf.ptr);
+    uint le = *cast(uint*)(bytes.ptr + offset);
+    uint swapped = bswap32(le);
+    float val = *cast(float*)&swapped;
     return engine.newFloat(cast(double) val);
 }
 
-JSHandle jsBufferReadDoubleLE(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsBufferReadDoubleLE(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsBufferReadDoubleLE");
     auto state = cast(DunState*) ctx;
@@ -855,8 +1253,9 @@ JSHandle jsBufferReadDoubleLE(void* ctx, JSHandle thisVal, JSHandle[] args) @tru
     return engine.newFloat(val);
 }
 
-JSHandle jsBufferReadDoubleBE(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsBufferReadDoubleBE(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
+    import dun.platform.simd : bswap64;
     assert(ctx !is null, "Null ctx in jsBufferReadDoubleBE");
     auto state = cast(DunState*) ctx;
     assert(state.engine !is null, "Null engine in jsBufferReadDoubleBE");
@@ -865,13 +1264,13 @@ JSHandle jsBufferReadDoubleBE(void* ctx, JSHandle thisVal, JSHandle[] args) @tru
     int offset = 0;
     if (args.length >= 1 && engine.isNumber(args[0])) offset = engine.extractInt(args[0]);
     if (offset < 0 || offset + 7 >= cast(int) bytes.length) return engine.throwRangeError("Offset out of range");
-    ubyte[8] buf;
-    foreach (i; 0 .. 8) buf[i] = bytes[offset + 7 - i];
-    double val = *(cast(double*) buf.ptr);
+    ulong le = *cast(ulong*)(bytes.ptr + offset);
+    ulong swapped = bswap64(le);
+    double val = *cast(double*)&swapped;
     return engine.newFloat(val);
 }
 
-JSHandle jsBufferWriteUInt16LE(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsBufferWriteUInt16LE(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsBufferWriteUInt16LE");
     auto state = cast(DunState*) ctx;
@@ -885,12 +1284,12 @@ JSHandle jsBufferWriteUInt16LE(void* ctx, JSHandle thisVal, JSHandle[] args) @tr
     if (offset < 0 || offset + 1 >= cast(int) bytes.length) return engine.throwRangeError("Offset out of range");
     bytes[offset] = cast(ubyte)(value & 0xFF);
     bytes[offset + 1] = cast(ubyte)((value >> 8) & 0xFF);
-    engine.setProperty(thisVal, "__data", engine.newString(bytesToHex(bytes)));
     return engine.newInt(offset + 2);
 }
 
-JSHandle jsBufferWriteUInt16BE(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsBufferWriteUInt16BE(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
+    import dun.platform.simd : bswap16;
     assert(ctx !is null, "Null ctx in jsBufferWriteUInt16BE");
     auto state = cast(DunState*) ctx;
     assert(state.engine !is null, "Null engine in jsBufferWriteUInt16BE");
@@ -901,13 +1300,11 @@ JSHandle jsBufferWriteUInt16BE(void* ctx, JSHandle thisVal, JSHandle[] args) @tr
     int offset = 0;
     if (args.length >= 2 && engine.isNumber(args[1])) offset = engine.extractInt(args[1]);
     if (offset < 0 || offset + 1 >= cast(int) bytes.length) return engine.throwRangeError("Offset out of range");
-    bytes[offset] = cast(ubyte)((value >> 8) & 0xFF);
-    bytes[offset + 1] = cast(ubyte)(value & 0xFF);
-    engine.setProperty(thisVal, "__data", engine.newString(bytesToHex(bytes)));
+    *cast(ushort*)(bytes.ptr + offset) = bswap16(cast(ushort) value);
     return engine.newInt(offset + 2);
 }
 
-JSHandle jsBufferWriteUInt32LE(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsBufferWriteUInt32LE(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsBufferWriteUInt32LE");
     auto state = cast(DunState*) ctx;
@@ -923,12 +1320,12 @@ JSHandle jsBufferWriteUInt32LE(void* ctx, JSHandle thisVal, JSHandle[] args) @tr
     bytes[offset+1] = cast(ubyte)((value >> 8) & 0xFF);
     bytes[offset+2] = cast(ubyte)((value >> 16) & 0xFF);
     bytes[offset+3] = cast(ubyte)((value >> 24) & 0xFF);
-    engine.setProperty(thisVal, "__data", engine.newString(bytesToHex(bytes)));
     return engine.newInt(offset + 4);
 }
 
-JSHandle jsBufferWriteUInt32BE(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsBufferWriteUInt32BE(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
+    import dun.platform.simd : bswap32;
     assert(ctx !is null, "Null ctx in jsBufferWriteUInt32BE");
     auto state = cast(DunState*) ctx;
     assert(state.engine !is null, "Null engine in jsBufferWriteUInt32BE");
@@ -939,15 +1336,11 @@ JSHandle jsBufferWriteUInt32BE(void* ctx, JSHandle thisVal, JSHandle[] args) @tr
     int offset = 0;
     if (args.length >= 2 && engine.isNumber(args[1])) offset = engine.extractInt(args[1]);
     if (offset < 0 || offset + 3 >= cast(int) bytes.length) return engine.throwRangeError("Offset out of range");
-    bytes[offset] = cast(ubyte)((value >> 24) & 0xFF);
-    bytes[offset+1] = cast(ubyte)((value >> 16) & 0xFF);
-    bytes[offset+2] = cast(ubyte)((value >> 8) & 0xFF);
-    bytes[offset+3] = cast(ubyte)(value & 0xFF);
-    engine.setProperty(thisVal, "__data", engine.newString(bytesToHex(bytes)));
+    *cast(uint*)(bytes.ptr + offset) = bswap32(value);
     return engine.newInt(offset + 4);
 }
 
-JSHandle jsBufferWriteInt16LE(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsBufferWriteInt16LE(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsBufferWriteInt16LE");
     auto state = cast(DunState*) ctx;
@@ -961,12 +1354,12 @@ JSHandle jsBufferWriteInt16LE(void* ctx, JSHandle thisVal, JSHandle[] args) @tru
     if (offset < 0 || offset + 1 >= cast(int) bytes.length) return engine.throwRangeError("Offset out of range");
     bytes[offset] = cast(ubyte)(uval & 0xFF);
     bytes[offset + 1] = cast(ubyte)((uval >> 8) & 0xFF);
-    engine.setProperty(thisVal, "__data", engine.newString(bytesToHex(bytes)));
     return engine.newInt(offset + 2);
 }
 
-JSHandle jsBufferWriteInt16BE(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsBufferWriteInt16BE(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
+    import dun.platform.simd : bswap16;
     assert(ctx !is null, "Null ctx in jsBufferWriteInt16BE");
     auto state = cast(DunState*) ctx;
     assert(state.engine !is null, "Null engine in jsBufferWriteInt16BE");
@@ -977,13 +1370,11 @@ JSHandle jsBufferWriteInt16BE(void* ctx, JSHandle thisVal, JSHandle[] args) @tru
     int offset = 0;
     if (args.length >= 2 && engine.isNumber(args[1])) offset = engine.extractInt(args[1]);
     if (offset < 0 || offset + 1 >= cast(int) bytes.length) return engine.throwRangeError("Offset out of range");
-    bytes[offset] = cast(ubyte)((uval >> 8) & 0xFF);
-    bytes[offset + 1] = cast(ubyte)(uval & 0xFF);
-    engine.setProperty(thisVal, "__data", engine.newString(bytesToHex(bytes)));
+    *cast(ushort*)(bytes.ptr + offset) = bswap16(uval);
     return engine.newInt(offset + 2);
 }
 
-JSHandle jsBufferWriteInt32LE(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsBufferWriteInt32LE(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsBufferWriteInt32LE");
     auto state = cast(DunState*) ctx;
@@ -999,12 +1390,12 @@ JSHandle jsBufferWriteInt32LE(void* ctx, JSHandle thisVal, JSHandle[] args) @tru
     bytes[offset+1] = cast(ubyte)((uval >> 8) & 0xFF);
     bytes[offset+2] = cast(ubyte)((uval >> 16) & 0xFF);
     bytes[offset+3] = cast(ubyte)((uval >> 24) & 0xFF);
-    engine.setProperty(thisVal, "__data", engine.newString(bytesToHex(bytes)));
     return engine.newInt(offset + 4);
 }
 
-JSHandle jsBufferWriteInt32BE(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsBufferWriteInt32BE(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
+    import dun.platform.simd : bswap32;
     assert(ctx !is null, "Null ctx in jsBufferWriteInt32BE");
     auto state = cast(DunState*) ctx;
     assert(state.engine !is null, "Null engine in jsBufferWriteInt32BE");
@@ -1015,15 +1406,11 @@ JSHandle jsBufferWriteInt32BE(void* ctx, JSHandle thisVal, JSHandle[] args) @tru
     int offset = 0;
     if (args.length >= 2 && engine.isNumber(args[1])) offset = engine.extractInt(args[1]);
     if (offset < 0 || offset + 3 >= cast(int) bytes.length) return engine.throwRangeError("Offset out of range");
-    bytes[offset] = cast(ubyte)((uval >> 24) & 0xFF);
-    bytes[offset+1] = cast(ubyte)((uval >> 16) & 0xFF);
-    bytes[offset+2] = cast(ubyte)((uval >> 8) & 0xFF);
-    bytes[offset+3] = cast(ubyte)(uval & 0xFF);
-    engine.setProperty(thisVal, "__data", engine.newString(bytesToHex(bytes)));
+    *cast(uint*)(bytes.ptr + offset) = bswap32(uval);
     return engine.newInt(offset + 4);
 }
 
-JSHandle jsBufferWriteFloatLE(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsBufferWriteFloatLE(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsBufferWriteFloatLE");
     auto state = cast(DunState*) ctx;
@@ -1037,12 +1424,12 @@ JSHandle jsBufferWriteFloatLE(void* ctx, JSHandle thisVal, JSHandle[] args) @tru
     if (offset < 0 || offset + 3 >= cast(int) bytes.length) return engine.throwRangeError("Offset out of range");
     ubyte* fp = cast(ubyte*)&value;
     foreach (i; 0 .. 4) bytes[offset + i] = fp[i];
-    engine.setProperty(thisVal, "__data", engine.newString(bytesToHex(bytes)));
     return engine.newInt(offset + 4);
 }
 
-JSHandle jsBufferWriteFloatBE(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsBufferWriteFloatBE(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
+    import dun.platform.simd : bswap32;
     assert(ctx !is null, "Null ctx in jsBufferWriteFloatBE");
     auto state = cast(DunState*) ctx;
     assert(state.engine !is null, "Null engine in jsBufferWriteFloatBE");
@@ -1053,13 +1440,12 @@ JSHandle jsBufferWriteFloatBE(void* ctx, JSHandle thisVal, JSHandle[] args) @tru
     int offset = 0;
     if (args.length >= 2 && engine.isNumber(args[1])) offset = engine.extractInt(args[1]);
     if (offset < 0 || offset + 3 >= cast(int) bytes.length) return engine.throwRangeError("Offset out of range");
-    ubyte* fp = cast(ubyte*)&value;
-    foreach (i; 0 .. 4) bytes[offset + i] = fp[3 - i];
-    engine.setProperty(thisVal, "__data", engine.newString(bytesToHex(bytes)));
+    uint le = *cast(uint*)&value;
+    *cast(uint*)(bytes.ptr + offset) = bswap32(le);
     return engine.newInt(offset + 4);
 }
 
-JSHandle jsBufferWriteDoubleLE(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsBufferWriteDoubleLE(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsBufferWriteDoubleLE");
     auto state = cast(DunState*) ctx;
@@ -1073,12 +1459,12 @@ JSHandle jsBufferWriteDoubleLE(void* ctx, JSHandle thisVal, JSHandle[] args) @tr
     if (offset < 0 || offset + 7 >= cast(int) bytes.length) return engine.throwRangeError("Offset out of range");
     ubyte* dp = cast(ubyte*)&value;
     foreach (i; 0 .. 8) bytes[offset + i] = dp[i];
-    engine.setProperty(thisVal, "__data", engine.newString(bytesToHex(bytes)));
     return engine.newInt(offset + 8);
 }
 
-JSHandle jsBufferWriteDoubleBE(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsBufferWriteDoubleBE(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
+    import dun.platform.simd : bswap64;
     assert(ctx !is null, "Null ctx in jsBufferWriteDoubleBE");
     auto state = cast(DunState*) ctx;
     assert(state.engine !is null, "Null engine in jsBufferWriteDoubleBE");
@@ -1089,13 +1475,12 @@ JSHandle jsBufferWriteDoubleBE(void* ctx, JSHandle thisVal, JSHandle[] args) @tr
     int offset = 0;
     if (args.length >= 2 && engine.isNumber(args[1])) offset = engine.extractInt(args[1]);
     if (offset < 0 || offset + 7 >= cast(int) bytes.length) return engine.throwRangeError("Offset out of range");
-    ubyte* dp = cast(ubyte*)&value;
-    foreach (i; 0 .. 8) bytes[offset + i] = dp[7 - i];
-    engine.setProperty(thisVal, "__data", engine.newString(bytesToHex(bytes)));
+    ulong le = *cast(ulong*)&value;
+    *cast(ulong*)(bytes.ptr + offset) = bswap64(le);
     return engine.newInt(offset + 8);
 }
 
-JSHandle jsBufferCompare(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsBufferCompare(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsBufferCompare");
     auto state = cast(DunState*) ctx;
@@ -1115,7 +1500,7 @@ JSHandle jsBufferCompare(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     return engine.newInt(0);
 }
 
-JSHandle jsBufferIncludes(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsBufferIncludes(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsBufferIncludes");
     auto state = cast(DunState*) ctx;
@@ -1141,7 +1526,7 @@ JSHandle jsBufferIncludes(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     return engine.newBool(false);
 }
 
-JSHandle jsBufferSubarray(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsBufferSubarray(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsBufferSubarray");
     auto state = cast(DunState*) ctx;
@@ -1158,4 +1543,35 @@ JSHandle jsBufferSubarray(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     if (end > cast(int) bytes.length) end = cast(int) bytes.length;
     if (start >= end) return makeBufferObj(engine, []);
     return makeBufferObj(engine, bytes[start .. end]);
+}
+
+private string base64urlToBase64(string s) @safe pure
+{
+    import dun.platform.arena : Appender;
+    Appender!(char[]) buf;
+    buf.reserve(s.length + 4);
+    foreach (c; s)
+    {
+        if (c == '-') buf ~= '+';
+        else if (c == '_') buf ~= '/';
+        else buf ~= c;
+    }
+    while (buf[].length % 4 != 0)
+        buf ~= '=';
+    return (() @trusted => cast(string) buf[])();
+}
+
+private string base64ToBase64url(string s) @safe pure
+{
+    import dun.platform.arena : Appender;
+    Appender!(char[]) buf;
+    buf.reserve(s.length);
+    foreach (c; s)
+    {
+        if (c == '+') buf ~= '-';
+        else if (c == '/') buf ~= '_';
+        else if (c == '=') {}
+        else buf ~= c;
+    }
+    return (() @trusted => cast(string) buf[])();
 }

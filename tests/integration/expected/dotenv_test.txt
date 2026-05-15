@@ -1,0 +1,6 @@
+FOO:hello_from_dotenv
+BAR:quoted value
+BAZ:single quoted
+EMPTY:empty
+SPACES:spaced
+PADDED:padded_key

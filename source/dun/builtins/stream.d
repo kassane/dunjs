@@ -4,6 +4,7 @@ import dun.engine.iface : IJSEngine;
 
 void registerStreamModule(IJSEngine engine) @trusted
 {
+    assert(engine !is null, "Null engine in registerStreamModule");
     auto global = engine.getGlobal();
 
     auto result = engine.eval(streamSource(), "<stream>");
@@ -31,16 +32,15 @@ version (EngineQuickJS)
 
     private void registerQuickJSModule(IJSEngine engine) @trusted
     {
+        assert(engine !is null, "Null engine in registerQuickJSModule");
         auto ctx = cast(JSContext*) engine.rawContext();
         auto m = JS_NewCModule(ctx, "dun:stream", &streamModuleInit);
         if (m is null) return;
-        JS_AddModuleExport(ctx, m, "Readable");
-        JS_AddModuleExport(ctx, m, "Writable");
-        JS_AddModuleExport(ctx, m, "Duplex");
-        JS_AddModuleExport(ctx, m, "Transform");
-        JS_AddModuleExport(ctx, m, "PassThrough");
-        JS_AddModuleExport(ctx, m, "pipeline");
-        JS_AddModuleExport(ctx, m, "default");
+        foreach (name; ["Stream", "Readable", "Writable", "Duplex",
+                        "Transform", "PassThrough", "pipeline", "finished",
+                        "addAbortSignal", "promises", "compose", "isErrored",
+                        "isReadable", "isDisturbed", "consumers", "default"])
+            JS_AddModuleExport(ctx, m, name.ptr);
     }
 
     private extern (C) int streamModuleInit(JSContext* ctx, JSModuleDef* m) nothrow @trusted
@@ -48,27 +48,15 @@ version (EngineQuickJS)
         auto global = JS_GetGlobalObject(ctx);
         auto mod = JS_GetPropertyStr(ctx, global, "__dun_cjs_stream__");
 
-        auto readable = JS_GetPropertyStr(ctx, mod, "Readable");
-        auto writable = JS_GetPropertyStr(ctx, mod, "Writable");
-        auto duplex = JS_GetPropertyStr(ctx, mod, "Duplex");
-        auto transform = JS_GetPropertyStr(ctx, mod, "Transform");
-        auto passthrough = JS_GetPropertyStr(ctx, mod, "PassThrough");
-        auto pl = JS_GetPropertyStr(ctx, mod, "pipeline");
-
-        JS_SetModuleExport(ctx, m, "Readable", JS_DupValue(ctx, readable));
-        JS_SetModuleExport(ctx, m, "Writable", JS_DupValue(ctx, writable));
-        JS_SetModuleExport(ctx, m, "Duplex", JS_DupValue(ctx, duplex));
-        JS_SetModuleExport(ctx, m, "Transform", JS_DupValue(ctx, transform));
-        JS_SetModuleExport(ctx, m, "PassThrough", JS_DupValue(ctx, passthrough));
-        JS_SetModuleExport(ctx, m, "pipeline", JS_DupValue(ctx, pl));
+        foreach (name; ["Stream", "Readable", "Writable", "Duplex",
+                        "Transform", "PassThrough", "pipeline", "finished",
+                        "addAbortSignal", "promises", "compose", "isErrored",
+                        "isReadable", "isDisturbed", "consumers"])
+        {
+            auto prop = JS_GetPropertyStr(ctx, mod, name.ptr);
+            JS_SetModuleExport(ctx, m, name.ptr, prop);
+        }
         JS_SetModuleExport(ctx, m, "default", mod);
-
-        JS_FreeValue(ctx, pl);
-        JS_FreeValue(ctx, passthrough);
-        JS_FreeValue(ctx, transform);
-        JS_FreeValue(ctx, duplex);
-        JS_FreeValue(ctx, writable);
-        JS_FreeValue(ctx, readable);
         JS_FreeValue(ctx, global);
         return 0;
     }
@@ -186,6 +174,16 @@ string streamSource() pure @safe nothrow
     return this;
   };
 
+  var _readableOn = Readable.prototype.on;
+  Readable.prototype.on = function(event, fn) {
+    var ret = _readableOn.call(this, event, fn);
+    if (event === 'data' && !this._flowing) {
+      this.resume();
+    }
+    return ret;
+  };
+  Readable.prototype.addListener = Readable.prototype.on;
+
   Readable.prototype.pause = function() {
     this._flowing = false;
     return this;
@@ -202,6 +200,37 @@ string streamSource() pure @safe nothrow
   Readable.prototype.setEncoding = function(enc) {
     this._encoding = enc;
     return this;
+  };
+
+  Readable.prototype[Symbol.asyncIterator] = function() {
+    var self = this;
+    var done = false;
+    self.on('end', function() { done = true; });
+    return {
+      next: function() {
+        if (done) return Promise.resolve({ value: undefined, done: true });
+        var chunk = self.read();
+        if (chunk !== null) return Promise.resolve({ value: chunk, done: false });
+        return new Promise(function(resolve) {
+          function onData(d) { cleanup(); resolve({ value: d, done: false }); }
+          function onEnd() { cleanup(); resolve({ value: undefined, done: true }); }
+          function cleanup() { self.removeListener('data', onData); self.removeListener('end', onEnd); }
+          self.once('data', onData);
+          self.once('end', onEnd);
+        });
+      }
+    };
+  };
+
+  Readable.from = function(iterable, opts) {
+    var r = new Readable(opts);
+    var items = Array.isArray(iterable) ? iterable : Array.from(iterable);
+    var idx = 0;
+    r._read = function() {
+      if (idx < items.length) r.push(items[idx++]);
+      else r.push(null);
+    };
+    return r;
   };
 
   // --- Writable ---
@@ -413,17 +442,164 @@ string streamSource() pure @safe nothrow
     return last;
   }
 
-  var mod = {
-    Readable: Readable,
-    Writable: Writable,
-    Duplex: Duplex,
-    Transform: Transform,
-    PassThrough: PassThrough,
-    pipeline: pipeline
+  // --- finished ---
+  function finished(stream, opts, callback) {
+    if (typeof opts === 'function') { callback = opts; opts = {}; }
+    opts = opts || {};
+    var once = false;
+    function done(err) {
+      if (once) return;
+      once = true;
+      if (callback) callback(err || null);
+    }
+    if (stream._readableState && stream._readableState.ended) { done(); return done; }
+    if (stream._finished) { done(); return done; }
+    if (stream.on) {
+      stream.on('end', function() { done(); });
+      stream.on('finish', function() { done(); });
+      stream.on('error', function(err) { done(err); });
+      stream.on('close', function() { done(); });
+    }
+    return done;
+  }
+
+  // --- Stream base (alias) ---
+  function Stream(opts) { EventEmitter.call(this); }
+  Stream.prototype = Object.create(EventEmitter.prototype);
+  Stream.prototype.constructor = Stream;
+  Stream.prototype.pipe = Readable.prototype.pipe;
+
+  // --- addAbortSignal ---
+  function addAbortSignal(signal, stream) {
+    if (signal && typeof signal.addEventListener === 'function') {
+      signal.addEventListener('abort', function() {
+        if (typeof stream.destroy === 'function') stream.destroy(new Error('AbortError'));
+      });
+    }
+    return stream;
+  }
+
+  // --- promises.pipeline ---
+  var promises = {
+    pipeline: function() {
+      var args = Array.prototype.slice.call(arguments);
+      return new Promise(function(resolve, reject) {
+        args.push(function(err) {
+          if (err) reject(err);
+          else resolve();
+        });
+        pipeline.apply(null, args);
+      });
+    },
+    finished: function(stream, opts) {
+      return new Promise(function(resolve, reject) {
+        finished(stream, opts || {}, function(err) {
+          if (err) reject(err);
+          else resolve();
+        });
+      });
+    }
   };
 
+  // --- Static utility methods on Readable ---
+  Readable.isReadable = function(stream) { return stream && typeof stream.read === 'function' && stream.destroyed !== true; };
+  Readable.isDisturbed = function(stream) { return stream && stream._readableState && stream._readableState.dataEmitted === true; };
+  Readable.fromWeb = function(readableStream, opts) {
+    var r = new Readable(opts);
+    var reader = readableStream.getReader();
+    function pump() {
+      reader.read().then(function(result) {
+        if (result.done) { r.push(null); return; }
+        r.push(result.value);
+        pump();
+      }).catch(function(err) { r.destroy(err); });
+    }
+    pump();
+    return r;
+  };
+  Writable.fromWeb = function(writableStream, opts) {
+    var w = new Writable(opts);
+    return w;
+  };
+
+  // --- Readable.toWeb / Writable.toWeb stubs ---
+  Readable.toWeb = function(readable) {
+    return new ReadableStream({
+      start: function(controller) {
+        readable.on('data', function(chunk) { controller.enqueue(chunk); });
+        readable.on('end', function() { controller.close(); });
+        readable.on('error', function(err) { controller.error(err); });
+      }
+    });
+  };
+
+  Writable.toWeb = function(writable) {
+    return new WritableStream({
+      write: function(chunk) {
+        return new Promise(function(resolve, reject) {
+          writable.write(chunk, function(err) {
+            if (err) reject(err);
+            else resolve();
+          });
+        });
+      },
+      close: function() {
+        return new Promise(function(resolve) { writable.end(resolve); });
+      }
+    });
+  };
+
+  function compose() {
+    var streams = Array.prototype.slice.call(arguments);
+    if (streams.length === 1 && Array.isArray(streams[0])) streams = streams[0];
+    if (streams.length === 0) throw new Error('stream.compose requires at least one stream');
+    if (streams.length === 1) return streams[0];
+    var first = streams[0], last = streams[streams.length - 1];
+    for (var i = 0; i < streams.length - 1; i++) {
+      if (typeof streams[i].pipe === 'function') streams[i].pipe(streams[i + 1]);
+    }
+    var composed = new Duplex({
+      write: function(chunk, enc, cb) { first.write(chunk, enc, cb); },
+      read: function() {},
+      final: function(cb) { first.end(cb); }
+    });
+    last.on('data', function(chunk) { if (!composed.push(chunk)) last.pause && last.pause(); });
+    last.on('end', function() { composed.push(null); });
+    last.on('error', function(err) { composed.destroy(err); });
+    first.on('error', function(err) { composed.destroy(err); });
+    return composed;
+  }
+  function isErrored(stream) { return stream && stream.destroyed === true && stream.errored != null; }
+  function isReadable(stream) { return stream && typeof stream.read === 'function' && stream.destroyed !== true; }
+  function isDisturbed(stream) { return stream && (stream.readableDidRead === true || stream._readableState && stream._readableState.dataEmitted === true); }
+  var consumers = {
+    arrayBuffer: function(stream) { return new Promise(function(res, rej) { var chunks = []; stream.on('data', function(c){chunks.push(c);}); stream.on('end', function(){res(Buffer.concat(chunks));}); stream.on('error', rej); }); },
+    text: function(stream) { return new Promise(function(res, rej) { var s = ''; stream.on('data', function(c){s += c.toString();}); stream.on('end', function(){res(s);}); stream.on('error', rej); }); },
+    json: function(stream) { return consumers.text(stream).then(JSON.parse); },
+    blob: function(stream) { return consumers.arrayBuffer(stream).then(function(buf){return new Blob([buf]);}); },
+    buffer: function(stream) { return consumers.arrayBuffer(stream); }
+  };
+
+  // Node.js compat: require('stream') returns the Stream constructor
+  // with Readable, Writable, etc. as properties on it
+  Stream.Stream = Stream;
+  Stream.Readable = Readable;
+  Stream.Writable = Writable;
+  Stream.Duplex = Duplex;
+  Stream.Transform = Transform;
+  Stream.PassThrough = PassThrough;
+  Stream.pipeline = pipeline;
+  Stream.finished = finished;
+  Stream.addAbortSignal = addAbortSignal;
+  Stream.promises = promises;
+  Stream.compose = compose;
+  Stream.isErrored = isErrored;
+  Stream.isReadable = isReadable;
+  Stream.isDisturbed = isDisturbed;
+  Stream.consumers = consumers;
+
   if (typeof globalThis !== 'undefined') {
-    globalThis.__dun_cjs_stream__ = mod;
+    globalThis.__dun_cjs_stream__ = Stream;
   }
 })();`;
 }

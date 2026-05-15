@@ -1,0 +1,93 @@
+PASS: fs.readFileSync
+PASS: fs.writeFileSync
+PASS: fs.existsSync
+PASS: fs.statSync
+PASS: fs.readdirSync
+PASS: fs.mkdirSync
+PASS: fs.unlinkSync
+PASS: fs.renameSync
+PASS: fs.copyFileSync
+PASS: fs.readlinkSync
+PASS: fs.realpathSync
+PASS: fs.accessSync
+PASS: fs.watchFile
+PASS: fs.unwatchFile
+PASS: fs.promises
+PASS: fs.promises.readFile
+PASS: writeFileSync+readFileSync
+PASS: existsSync true
+PASS: existsSync false
+PASS: statSync isFile
+PASS: statSync isDirectory
+PASS: statSync size
+PASS: unlinkSync
+PASS: path.resolve
+PASS: path.join
+PASS: path.normalize
+PASS: path.isAbsolute /
+PASS: path.isAbsolute rel
+PASS: path.sep
+PASS: path.delimiter
+PASS: path.parse dir
+PASS: path.parse base
+PASS: path.parse name
+PASS: path.parse ext
+PASS: path.format
+PASS: require works
+PASS: module.builtinModules
+PASS: module.isBuiltin
+PASS: module.isBuiltin false
+PASS: hash deterministic
+PASS: hash unique
+PASS: hash length
+PASS: string includes
+PASS: string indexOf
+PASS: string replace
+PASS: string split
+PASS: string trim
+PASS: string startsWith
+PASS: string endsWith
+PASS: string padStart
+PASS: string repeat
+PASS: regex exec
+PASS: regex groups
+PASS: regex source
+PASS: Map size
+PASS: Map has
+PASS: Map get
+PASS: Map keys
+PASS: Set size
+PASS: Set has
+PASS: Set add duplicate
+PASS: WeakMap
+PASS: WeakSet
+PASS: WeakRef
+PASS: filter
+PASS: map
+PASS: find
+PASS: findIndex
+PASS: every
+PASS: some
+PASS: flat
+PASS: flatMap
+PASS: Array.from
+PASS: Array.isArray
+PASS: Array.of
+PASS: Object.keys
+PASS: Object.values
+PASS: Object.entries
+PASS: Object.assign
+PASS: Object.freeze
+PASS: spread
+PASS: optional chaining
+PASS: nullish coalescing
+PASS: destructuring
+PASS: Promise
+PASS: Promise.all
+PASS: Promise.allSettled
+PASS: Promise.any
+PASS: Promise.race
+PASS: process.env.NODE_ENV
+PASS: __filename or import.meta
+---
+Total: 91/91 passed

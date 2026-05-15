@@ -1,0 +1,12 @@
+PASS simple-pkg main
+PASS exports conditional
+PASS exports subpath
+PASS scoped package
+PASS scoped subpath
+PASS wildcard main
+PASS wildcard subpath
+PASS string exports
+PASS index.js fallback
+PASS #imports exact
+PASS #imports wildcard
+11/11 npm resolution checks passed

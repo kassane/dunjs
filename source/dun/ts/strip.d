@@ -1,5 +1,20 @@
 module dun.ts.strip;
 
+import std.base64 : Base64;
+
+/// Strip TypeScript type annotations, replacing them with whitespace
+/// to preserve source positions. Erasable subset only (no enum/namespace).
+///
+/// If generateMap is true, also generates a V3 source map (identity mapping)
+/// and returns it via the sourceMap out parameter.
+string stripTypes(const(char)[] source, bool generateMap, out string sourceMap) @trusted
+{
+    auto stripped = stripTypes(source);
+    if (generateMap)
+        sourceMap = generateSourceMap("input.ts", stripped);
+    return stripped;
+}
+
 /// Strip TypeScript type annotations, replacing them with whitespace
 /// to preserve source positions. Erasable subset only (no enum/namespace).
 string stripTypes(const(char)[] source) @trusted
@@ -597,8 +612,147 @@ void blankRange(char[] buf, size_t from, size_t to) @safe pure nothrow @nogc
 }
 
 // ---------------------------------------------------------------------------
+// Source map generation (V3, identity mapping)
+// ---------------------------------------------------------------------------
+
+/// Encode a signed integer as a Base64-VLQ string.
+public string vlqEncode(int value) pure @safe
+{
+    static immutable base64Chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+    // Convert signed to VLQ representation: (abs << 1) | signBit
+    uint vlq = (value < 0)
+        ? (cast(uint)(-value) << 1) | 1
+        : (cast(uint)(value) << 1);
+
+    char[] result;
+    do
+    {
+        uint digit = vlq & 0x1F; // 5 bits
+        vlq >>= 5;
+        if (vlq > 0)
+            digit |= 0x20; // continuation bit
+        result ~= base64Chars[digit];
+    }
+    while (vlq > 0);
+
+    return result.idup;
+}
+
+/// Generate a V3 source map JSON string for identity-mapped TypeScript stripping.
+/// Since type stripping replaces annotations with whitespace (preserving byte
+/// positions and line numbers), each line maps 1:1 to itself.
+public string generateSourceMap(string filename, const(char)[] source) pure @safe
+{
+    assert(filename.length > 0, "Empty filename in generateSourceMap");
+
+    // Count lines
+    int lineCount = 1;
+    foreach (c; source)
+    {
+        if (c == '\n')
+            lineCount++;
+    }
+
+    // Build mappings: for each line, emit segment (genCol=0, srcIdx=0, origLine=N, origCol=0)
+    // Using relative VLQ encoding: first segment is absolute, rest are deltas.
+    char[] mappings;
+    mappings.reserve(lineCount * 6);
+
+    int prevOrigLine = 0;
+
+    foreach (line; 0 .. lineCount)
+    {
+        if (line > 0)
+            mappings ~= ';';
+
+        // Segment: genCol=0, srcIdx=0, origLine=line, origCol=0
+        // All relative to previous segment values.
+        // genCol delta: always 0 (start of line)
+        // srcIdx delta: always 0 (only one source)
+        // origLine delta: line - prevOrigLine (first line: 0, subsequent: 1)
+        // origCol delta: always 0
+        int origLineDelta = line - prevOrigLine;
+        prevOrigLine = line;
+
+        mappings ~= vlqEncode(0);            // genCol delta = 0
+        mappings ~= vlqEncode(0);            // srcIdx delta = 0
+        mappings ~= vlqEncode(origLineDelta); // origLine delta
+        mappings ~= vlqEncode(0);            // origCol delta = 0
+    }
+
+    // Escape filename for JSON
+    char[] escapedName;
+    escapedName.reserve(filename.length + 2);
+    foreach (c; filename)
+    {
+        if (c == '"') { escapedName ~= '\\'; escapedName ~= '"'; }
+        else if (c == '\\') { escapedName ~= '\\'; escapedName ~= '\\'; }
+        else escapedName ~= c;
+    }
+
+    auto escapedStr = escapedName.idup;
+    return `{"version":3,"file":"` ~ escapedStr
+        ~ `","sources":["` ~ escapedStr
+        ~ `"],"mappings":"` ~ mappings.idup ~ `"}`;
+}
+
+// ---------------------------------------------------------------------------
 // Unit tests
 // ---------------------------------------------------------------------------
+
+@("vlqEncode: zero")
+unittest
+{
+    assert(vlqEncode(0) == "A");
+}
+
+@("vlqEncode: positive values")
+unittest
+{
+    assert(vlqEncode(1) == "C");
+    assert(vlqEncode(16) == "gB");
+}
+
+@("vlqEncode: negative values")
+unittest
+{
+    assert(vlqEncode(-1) == "D");
+}
+
+@("generateSourceMap: single line")
+unittest
+{
+    auto map = generateSourceMap("test.ts", "const x = 1;");
+    // Single line: one segment, no semicolons
+    assert(map.length > 0);
+    import std.algorithm : canFind;
+    assert(canFind(map, `"version":3`));
+    assert(canFind(map, `"file":"test.ts"`));
+    assert(canFind(map, `"sources":["test.ts"]`));
+    // Mappings for single line: AAAA (all zeros)
+    assert(canFind(map, `"mappings":"AAAA"`));
+}
+
+@("generateSourceMap: multi line")
+unittest
+{
+    auto map = generateSourceMap("test.ts", "line1\nline2\nline3");
+    import std.algorithm : canFind;
+    // 3 lines: AAAA;AACA;AACA (first line=0, delta=1 for each subsequent)
+    assert(canFind(map, `"mappings":"AAAA;AACA;AACA"`));
+}
+
+@("stripTypes: with source map generation")
+unittest
+{
+    string sourceMap;
+    auto result = stripTypes("let x: number = 1;", true, sourceMap);
+    assert(result.length == 18);
+    assert(sourceMap.length > 0);
+    import std.algorithm : canFind;
+    assert(canFind(sourceMap, `"version":3`));
+}
 
 @("strip: basic type annotations on variables")
 unittest

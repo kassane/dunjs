@@ -1,0 +1,20 @@
+PASS: dns.lookup is function
+PASS: dns.lookupSync is function
+PASS: dns.resolve4 is function
+PASS: dns.resolve6 is function
+PASS: dns.resolve is function
+PASS: dns.getServers is function
+PASS: getServers returns array
+PASS: dns.promises exists
+PASS: dns.promises.lookup is function
+PASS: dns.promises.resolve4 is function
+PASS: dns.promises.resolve6 is function
+PASS: dns.promises.resolve is function
+PASS: lookupSync localhost returns object
+PASS: lookupSync has address
+PASS: lookupSync has family
+PASS: resolve callback called
+PASS: resolve returns array
+PASS: resolve A callback called
+
+18/18 dns checks passed

@@ -1,0 +1,23 @@
+http3 module loaded: true
+createServer: true
+connect: true
+constants: true
+server object: true
+server.listen: true
+server.close: true
+server.on: true
+session object: true
+session.request: true
+session.close: true
+stream object: true
+stream.on: true
+stream.write: true
+stream.end: true
+H3_NO_ERROR: true
+H3_GENERAL_PROTOCOL_ERROR: true
+H3_INTERNAL_ERROR: true
+H3_SETTINGS_ERROR: true
+H3_REQUEST_CANCELLED: true
+QUIC_VERSION_1: true
+QUIC_VERSION_2: true
+DEFAULT_MAX_HEADER_LIST_SIZE: true

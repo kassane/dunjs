@@ -10,12 +10,17 @@ private enum : size_t {
     WS_MASK_KEY_LEN       = 4,
     WS_MIN_HEADER_SIZE    = 2,
     WS_SHA1_DIGEST_SIZE   = 20,
+    UBYTE_RANGE           = 256,
 }
 private enum : ushort {
     WS_CLOSE_NORMAL       = 1000,
     WS_DEFAULT_PORT       = 80,
     WS_DEFAULT_TLS_PORT   = 443,
     WS_DEFAULT_SERVER_PORT = 8080,
+}
+private enum {
+    WS_LISTEN_BACKLOG    = 1024,
+    IO_POLL_BATCH_SIZE   = 64,
 }
 
 void registerWsModule(IJSEngine engine) @trusted
@@ -27,6 +32,8 @@ void registerWsModule(IJSEngine engine) @trusted
 
     auto global = engine.getGlobal();
     engine.setProperty(global, "__dun_cjs_ws__", obj);
+    engine.setProperty(global, "WebSocket", engine.newFunction(&jsWsConnect, "WebSocket", 1));
+    engine.freeValue(global);
 
     version (EngineQuickJS)
         registerQuickJSModule(engine);
@@ -38,6 +45,7 @@ version (EngineQuickJS)
 
     private void registerQuickJSModule(IJSEngine engine) @trusted
     {
+        assert(engine !is null, "Null engine in registerQuickJSModule");
         auto ctx = cast(JSContext*) engine.rawContext();
         auto m = JS_NewCModule(ctx, "dun:ws", &wsModuleInit);
         if (m is null) return;
@@ -200,7 +208,7 @@ ubyte[] buildWsFrame(WsOpcode opcode, const(ubyte)[] payload, bool mask) @truste
     {
         import std.random : uniform;
         ubyte[4] key;
-        foreach (ref k; key) k = cast(ubyte) uniform(0, 256);
+        foreach (ref k; key) k = cast(ubyte) uniform(0, UBYTE_RANGE);
         frame[pos .. pos + 4] = key[];
         pos += 4;
         foreach (i, b; payload)
@@ -286,7 +294,7 @@ string computeAcceptKey(string clientKey) @trusted
 
 // --- Server ---
 
-JSHandle jsWsCreateServer(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsWsCreateServer(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsWsCreateServer");
     auto state = cast(DunState*) ctx;
@@ -328,7 +336,7 @@ JSHandle makeWsServerObj(IJSEngine engine, int id) @trusted
     return obj;
 }
 
-JSHandle jsWsServerListen(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsWsServerListen(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsWsServerListen");
     version (Posix)
@@ -347,6 +355,7 @@ JSHandle jsWsServerListen(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
         auto idProp = engine.getProperty(thisVal, "__wsid");
         int idVal = engine.extractInt(idProp);
+        engine.freeValue(idProp);
         if (idVal < 0 || idVal >= cast(int) wsServers.length)
             return engine.throwTypeError("WebSocketServer.listen: invalid server");
 
@@ -396,7 +405,7 @@ JSHandle jsWsServerListen(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
             if (hasCb) engine.freeValue(listenCb);
             return engine.throwTypeError("WebSocketServer: bind() failed");
         }
-        if (listen(lfd, 128) < 0)
+        if (listen(lfd, WS_LISTEN_BACKLOG) < 0)
         {
             import core.sys.posix.unistd : close;
             close(lfd);
@@ -429,17 +438,18 @@ JSHandle jsWsServerListen(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     }
 }
 
-JSHandle jsWsServerOn(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsWsServerOn(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsWsServerOn");
     auto state = cast(DunState*) ctx;
     assert(state !is null, "Null DunState in jsWsServerOn");
     auto engine = state.engine;
-    if (args.length < 2) return thisVal;
+    if (args.length < 2) return engine.dupValue(thisVal);
 
     auto idProp = engine.getProperty(thisVal, "__wsid");
     int idVal = engine.extractInt(idProp);
-    if (idVal < 0 || idVal >= cast(int) wsServers.length) return thisVal;
+    engine.freeValue(idProp);
+    if (idVal < 0 || idVal >= cast(int) wsServers.length) return engine.dupValue(thisVal);
 
     auto ev = engine.extractString(args[0]);
     if (ev == "connection" && engine.isFunction(args[1]))
@@ -449,10 +459,10 @@ JSHandle jsWsServerOn(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
         srv.connectionCb = engine.dupValue(args[1]);
         srv.hasCb = true;
     }
-    return thisVal;
+    return engine.dupValue(thisVal);
 }
 
-JSHandle jsWsServerClose(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsWsServerClose(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsWsServerClose");
     version (Posix)
@@ -464,6 +474,7 @@ JSHandle jsWsServerClose(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
         auto idProp = engine.getProperty(thisVal, "__wsid");
         int idVal = engine.extractInt(idProp);
+        engine.freeValue(idProp);
         if (idVal >= 0 && idVal < cast(int) wsServers.length)
         {
             auto srv = &wsServers[idVal];
@@ -486,7 +497,7 @@ JSHandle jsWsServerClose(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
 // --- Client ---
 
-JSHandle jsWsConnect(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsWsConnect(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsWsConnect");
     version (Posix)
@@ -586,17 +597,18 @@ JSHandle makeWsClientObj(IJSEngine engine, int cid) @trusted
     return obj;
 }
 
-JSHandle jsWsClientOn(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsWsClientOn(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsWsClientOn");
     auto state = cast(DunState*) ctx;
     assert(state !is null, "Null DunState in jsWsClientOn");
     auto engine = state.engine;
-    if (args.length < 2 || !engine.isFunction(args[1])) return thisVal;
+    if (args.length < 2 || !engine.isFunction(args[1])) return engine.dupValue(thisVal);
 
     auto idProp = engine.getProperty(thisVal, "__wcid");
     int cid = engine.extractInt(idProp);
-    if (cid < 0 || cid >= cast(int) wsConns.length) return thisVal;
+    engine.freeValue(idProp);
+    if (cid < 0 || cid >= cast(int) wsConns.length) return engine.dupValue(thisVal);
 
     auto conn = &wsConns[cid];
     auto ev = engine.extractString(args[0]);
@@ -625,10 +637,10 @@ JSHandle jsWsClientOn(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
         conn.onerror = engine.dupValue(args[1]);
         conn.hasOnerror = true;
     }
-    return thisVal;
+    return engine.dupValue(thisVal);
 }
 
-JSHandle jsWsClientSend(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsWsClientSend(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsWsClientSend");
     version (Posix)
@@ -639,6 +651,7 @@ JSHandle jsWsClientSend(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
         auto idProp = engine.getProperty(thisVal, "__wcid");
         int cid = engine.extractInt(idProp);
+        engine.freeValue(idProp);
         if (cid < 0 || cid >= cast(int) wsConns.length)
             return engine.throwTypeError("WebSocket.send: invalid connection");
 
@@ -660,7 +673,7 @@ JSHandle jsWsClientSend(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     }
 }
 
-JSHandle jsWsClientClose(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsWsClientClose(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsWsClientClose");
     version (Posix)
@@ -671,6 +684,7 @@ JSHandle jsWsClientClose(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
         auto idProp = engine.getProperty(thisVal, "__wcid");
         int cid = engine.extractInt(idProp);
+        engine.freeValue(idProp);
         if (cid < 0 || cid >= cast(int) wsConns.length)
             return engine.newUndefined();
 
@@ -724,7 +738,7 @@ public void pollWsIO() nothrow @trusted
     version (linux)
     {
         ensureWsPoller();
-        IOEvent[64] evBuf;
+        IOEvent[IO_POLL_BATCH_SIZE] evBuf;
         auto events = gWsPoller.poll(0, evBuf[]);
         foreach (ref ev; events)
         {
@@ -1010,6 +1024,20 @@ void closeConn(WsConnState* conn) nothrow @trusted
     version (Posix)
     {
         import core.sys.posix.unistd : close;
+
+        // Free JS callback handles to prevent leaks
+        if (conn.engine !is null)
+        {
+            try
+            {
+                if (conn.hasOnopen)  { conn.engine.freeValue(conn.onopen);    conn.hasOnopen = false; }
+                if (conn.hasOnmessage) { conn.engine.freeValue(conn.onmessage); conn.hasOnmessage = false; }
+                if (conn.hasOnclose) { conn.engine.freeValue(conn.onclose);   conn.hasOnclose = false; }
+                if (conn.hasOnerror) { conn.engine.freeValue(conn.onerror);   conn.hasOnerror = false; }
+            }
+            catch (Throwable) {}
+        }
+
         if (conn.fd >= 0)
         {
             version (linux) gWsPoller.unwatch(conn.fd);

@@ -29,6 +29,7 @@ version (EngineQuickJS)
 
     private void registerQuickJSModule(IJSEngine engine) @trusted
     {
+        assert(engine !is null, "Null engine in registerQuickJSModule");
         auto ctx = cast(JSContext*) engine.rawContext();
         assert(ctx !is null, "Null context in assert registerQuickJSModule");
         auto m = JS_NewCModule(ctx, "dun:assert", &assertModuleInit);
@@ -41,12 +42,18 @@ version (EngineQuickJS)
         JS_AddModuleExport(ctx, m, "notStrictEqual");
         JS_AddModuleExport(ctx, m, "deepEqual");
         JS_AddModuleExport(ctx, m, "deepStrictEqual");
+        JS_AddModuleExport(ctx, m, "notDeepEqual");
+        JS_AddModuleExport(ctx, m, "notDeepStrictEqual");
         JS_AddModuleExport(ctx, m, "throws");
         JS_AddModuleExport(ctx, m, "doesNotThrow");
         JS_AddModuleExport(ctx, m, "rejects");
+        JS_AddModuleExport(ctx, m, "doesNotReject");
         JS_AddModuleExport(ctx, m, "match");
+        JS_AddModuleExport(ctx, m, "doesNotMatch");
         JS_AddModuleExport(ctx, m, "fail");
+        JS_AddModuleExport(ctx, m, "ifError");
         JS_AddModuleExport(ctx, m, "AssertionError");
+        JS_AddModuleExport(ctx, m, "strict");
     }
 
     private extern(C) int assertModuleInit(JSContext* ctx, JSModuleDef* m) nothrow @trusted
@@ -59,8 +66,9 @@ version (EngineQuickJS)
         JS_SetModuleExport(ctx, m, "default", JS_DupValue(ctx, assertMod));
         static immutable names = [
             "ok", "equal", "notEqual", "strictEqual", "notStrictEqual",
-            "deepEqual", "deepStrictEqual", "throws", "doesNotThrow",
-            "rejects", "match", "fail", "AssertionError"
+            "deepEqual", "deepStrictEqual", "notDeepEqual", "notDeepStrictEqual",
+            "throws", "doesNotThrow", "rejects", "doesNotReject",
+            "match", "doesNotMatch", "fail", "ifError", "AssertionError", "strict"
         ];
         foreach (name; names)
         {
@@ -224,6 +232,46 @@ private string assertSource() pure nothrow @safe
         });
     };
 
+    assertFn.notDeepEqual = function notDeepEqual(actual, expected, message) {
+        if (deepEqual(actual, expected)) throw new AssertionError({
+            message: message, actual: actual, expected: expected, operator: 'notDeepEqual'
+        });
+    };
+
+    assertFn.notDeepStrictEqual = function notDeepStrictEqual(actual, expected, message) {
+        if (deepEqual(actual, expected)) throw new AssertionError({
+            message: message, actual: actual, expected: expected, operator: 'notDeepStrictEqual'
+        });
+    };
+
+    assertFn.doesNotMatch = function doesNotMatch(string, regexp, message) {
+        if (regexp.test(string)) throw new AssertionError({
+            message: message || 'String should not match regexp',
+            actual: string, expected: regexp, operator: 'doesNotMatch'
+        });
+    };
+
+    assertFn.doesNotReject = async function doesNotReject(asyncFn, expectedErr, message) {
+        try {
+            var p = typeof asyncFn === 'function' ? asyncFn() : asyncFn;
+            await p;
+        } catch(e) {
+            throw new AssertionError({
+                message: message || 'Expected promise not to reject: ' + e.message,
+                actual: e, operator: 'doesNotReject'
+            });
+        }
+    };
+
+    assertFn.ifError = function ifError(value) {
+        if (value !== null && value !== undefined) {
+            throw value instanceof Error ? value : new AssertionError({
+                message: 'ifError got unwanted value: ' + value,
+                actual: value, operator: 'ifError'
+            });
+        }
+    };
+
     assertFn.fail = function fail(message) {
         throw new AssertionError({
             message: message || 'Assertion failed',
@@ -232,6 +280,11 @@ private string assertSource() pure nothrow @safe
     };
 
     assertFn.AssertionError = AssertionError;
+
+    // assert.strict is a reference to itself (all methods are strict in our impl)
+    assertFn.strict = assertFn;
+    assertFn.strict.strict = assertFn;
+
     globalThis.__dun_cjs_assert__ = assertFn;
 })();`;
 }

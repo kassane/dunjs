@@ -63,8 +63,35 @@ static_assert(sizeof(DunV8Value*) == sizeof(void*),
     "opaque pointer size mismatch");
 static_assert(sizeof(int) == 4, "int must be 32-bit for D interop");
 
+// Value pool: reuse DunV8Value objects to avoid malloc/free per JS value.
+// Thread-local fast path eliminates mutex contention in the common single-threaded case.
+namespace {
+constexpr size_t kValuePoolCapacity = 512;
+
+struct ValuePool {
+    DunV8Value* free_list[kValuePoolCapacity];
+    size_t count = 0;
+
+    DunV8Value* acquire() {
+        if (count > 0)
+            return free_list[--count];
+        return new DunV8Value();
+    }
+
+    void release(DunV8Value* v) {
+        v->value.Reset();
+        if (count < kValuePoolCapacity)
+            free_list[count++] = v;
+        else
+            delete v;
+    }
+};
+
+static thread_local ValuePool g_value_pool;
+} // anon namespace
+
 [[nodiscard]] static DunV8Value* wrapValue(DunV8Isolate* iw, v8::Local<v8::Value> val) {
-    auto* wrapped = new DunV8Value();
+    auto* wrapped = g_value_pool.acquire();
     wrapped->value.Reset(iw->isolate, val);
     wrapped->isolate_wrapper = iw;
     wrapped->ref_count = 1;
@@ -354,6 +381,24 @@ int dun_v8_value_is_object(DunV8Value* vw)      { return valueIsType<dun::V8Tag:
 int dun_v8_value_is_function(DunV8Value* vw)    { return valueIsType<dun::V8Tag::Function>(vw); }
 int dun_v8_value_is_array(DunV8Value* vw)       { return valueIsType<dun::V8Tag::Array>(vw); }
 
+// Single FFI call: returns V8Tag enum value for the given value
+int dun_v8_value_get_type(DunV8Value* vw) {
+    if (!vw) return 0;
+    return dun::withIsolate(vw->isolate_wrapper, [&](auto isolate) -> int {
+        auto val = vw->value.Get(isolate);
+        if (val->IsUndefined()) return static_cast<int>(dun::V8Tag::Undefined);
+        if (val->IsNull())      return static_cast<int>(dun::V8Tag::Null);
+        if (val->IsBoolean())   return static_cast<int>(dun::V8Tag::Bool);
+        if (val->IsInt32())     return static_cast<int>(dun::V8Tag::Int);
+        if (val->IsNumber())    return static_cast<int>(dun::V8Tag::Number);
+        if (val->IsString())    return static_cast<int>(dun::V8Tag::String);
+        if (val->IsArray())     return static_cast<int>(dun::V8Tag::Array);
+        if (val->IsFunction())  return static_cast<int>(dun::V8Tag::Function);
+        if (val->IsObject())    return static_cast<int>(dun::V8Tag::Object);
+        return static_cast<int>(dun::V8Tag::Undefined);
+    });
+}
+
 // --- Property access (withContext eliminates scope guard boilerplate) ---
 
 DunV8Value* dun_v8_get_property(DunV8Context* cw, DunV8Value* obj, const char* name) {
@@ -432,6 +477,21 @@ DunV8Value* dun_v8_new_uint8array(DunV8Context* cw,
     });
 }
 
+unsigned char* dun_v8_typed_array_data(DunV8Context* cw,
+    DunV8Value* val, size_t* out_len)
+{
+    if (!val || !out_len) { if (out_len) *out_len = 0; return nullptr; }
+    return dun::withContext(cw, [&](auto isolate, auto context, auto* iw) -> unsigned char* {
+        auto local = val->value.Get(isolate);
+        if (!local->IsTypedArray()) { *out_len = 0; return nullptr; }
+        auto ta = local.template As<v8::TypedArray>();
+        *out_len = ta->ByteLength();
+        auto ab = ta->Buffer();
+        return static_cast<unsigned char*>(ab->GetBackingStore()->Data())
+            + ta->ByteOffset();
+    });
+}
+
 // --- Reference management ---
 
 void dun_v8_value_ref(DunV8Value* vw) {
@@ -441,8 +501,7 @@ void dun_v8_value_ref(DunV8Value* vw) {
 void dun_v8_value_unref(DunV8Value* vw) {
     if (!vw) return;
     if (--vw->ref_count <= 0) {
-        vw->value.Reset();
-        delete vw;
+        g_value_pool.release(vw);
     }
 }
 
@@ -489,6 +548,16 @@ DunV8Value* dun_v8_throw_range_error(DunV8Context* cw, const char* msg) {
             v8::String::NewFromUtf8(isolate, msg).ToLocalChecked());
         isolate->ThrowException(err);
         return wrapValue(iw, err);
+    });
+}
+
+DunV8Value* dun_v8_throw_value(DunV8Context* cw, DunV8Value* val) {
+    assert(cw && "dun_v8_throw_value: null context");
+    assert(val && "dun_v8_throw_value: null value");
+    return dun::withContext(cw, [&](auto isolate, auto, auto* iw) {
+        auto local = val->value.Get(isolate);
+        isolate->ThrowException(local);
+        return wrapValue(iw, local);
     });
 }
 

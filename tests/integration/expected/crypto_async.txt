@@ -1,0 +1,14 @@
+PASS: pbkdf2 no error
+PASS: pbkdf2 result
+PASS: scrypt no error
+PASS: scrypt result
+PASS: randomFill works
+PASS: randomFillSync exists
+PASS: createSign exists
+PASS: createVerify exists
+PASS: constants exists
+PASS: constants.RSA_PKCS1_PADDING
+PASS: createSign API
+PASS: createVerify API
+---
+Total: 12/12 passed

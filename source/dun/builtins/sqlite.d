@@ -14,6 +14,7 @@ void registerSqliteModule(IJSEngine engine) @trusted
 
     auto global = engine.getGlobal();
     engine.setProperty(global, "__dun_cjs_sqlite__", obj);
+    engine.freeValue(global);
 
     version (EngineQuickJS)
         registerQuickJSModule(engine);
@@ -25,6 +26,7 @@ version (EngineQuickJS)
 
     private void registerQuickJSModule(IJSEngine engine) @trusted
     {
+        assert(engine !is null, "Null engine in registerQuickJSModule");
         auto ctx = cast(JSContext*) engine.rawContext();
         assert(ctx !is null, "Null JSContext in registerQuickJSModule (sqlite)");
         auto m = JS_NewCModule(ctx, "dun:sqlite", &sqliteModuleInit);
@@ -80,7 +82,7 @@ sqlite3* getDbHandle(IJSEngine engine, JSHandle thisVal) @trusted
 
 // ── JS API Functions ─────────────────────────────────────────────────
 
-JSHandle jsSqliteOpen(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsSqliteOpen(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsSqliteOpen");
     auto state = cast(DunState*) ctx;
@@ -128,7 +130,7 @@ JSHandle jsSqliteOpen(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     return dbObj;
 }
 
-JSHandle jsSqliteExec(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsSqliteExec(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsSqliteExec");
     auto state = cast(DunState*) ctx;
@@ -157,7 +159,7 @@ JSHandle jsSqliteExec(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     return engine.newUndefined();
 }
 
-JSHandle jsSqliteRun(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsSqliteRun(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsSqliteRun");
     auto state = cast(DunState*) ctx;
@@ -195,7 +197,7 @@ JSHandle jsSqliteRun(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     return result;
 }
 
-JSHandle jsSqliteGet(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsSqliteGet(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsSqliteGet");
     auto state = cast(DunState*) ctx;
@@ -234,7 +236,7 @@ JSHandle jsSqliteGet(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     return engine.newNull();
 }
 
-JSHandle jsSqliteAll(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsSqliteAll(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsSqliteAll");
     auto state = cast(DunState*) ctx;
@@ -273,7 +275,7 @@ JSHandle jsSqliteAll(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     return results;
 }
 
-JSHandle jsSqliteClose(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsSqliteClose(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsSqliteClose");
     auto state = cast(DunState*) ctx;
@@ -292,7 +294,7 @@ JSHandle jsSqliteClose(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     return engine.newUndefined();
 }
 
-JSHandle jsSqliteVersion(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsSqliteVersion(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsSqliteVersion");
     auto state = cast(DunState*) ctx;
@@ -308,37 +310,53 @@ JSHandle jsSqliteVersion(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
-void bindArgs(IJSEngine engine, sqlite3_stmt* stmt, JSHandle[] args) @trusted
+void bindArgs(IJSEngine engine, sqlite3_stmt* stmt, scope JSHandle[] args) @trusted
 {
     assert(engine !is null, "Null engine in bindArgs");
     assert(stmt !is null, "Null stmt in bindArgs");
 
     import std.string : toStringz;
 
-    foreach (i, arg; args)
+    if (args.length == 1 && engine.isArray(args[0]))
     {
-        int idx = cast(int)(i + 1);
-        if (engine.isNull(arg) || engine.isUndefined(arg))
+        int len = engine.getArrayLength(args[0]);
+        foreach (i; 0 .. cast(uint) len)
         {
-            sqlite3_bind_null(stmt, idx);
+            auto elem = engine.getPropertyIndex(args[0], i);
+            bindSingle(engine, stmt, cast(int)(i + 1), elem);
+            engine.freeValue(elem);
         }
-        else if (engine.isNumber(arg))
-        {
-            double val = engine.extractFloat(arg);
-            if (val == cast(double) cast(long) val && val >= -2_147_483_648.0 && val <= 2_147_483_647.0)
-                sqlite3_bind_int(stmt, idx, cast(int) val);
-            else
-                sqlite3_bind_double(stmt, idx, val);
-        }
-        else if (engine.isBool(arg))
-        {
-            sqlite3_bind_int(stmt, idx, engine.extractBool(arg) ? 1 : 0);
-        }
+        return;
+    }
+
+    foreach (i, arg; args)
+        bindSingle(engine, stmt, cast(int)(i + 1), arg);
+}
+
+void bindSingle(IJSEngine engine, sqlite3_stmt* stmt, int idx, JSHandle arg) @trusted
+{
+    import std.string : toStringz;
+
+    if (engine.isNull(arg) || engine.isUndefined(arg))
+    {
+        sqlite3_bind_null(stmt, idx);
+    }
+    else if (engine.isNumber(arg))
+    {
+        double val = engine.extractFloat(arg);
+        if (val == cast(double) cast(long) val && val >= -2_147_483_648.0 && val <= 2_147_483_647.0)
+            sqlite3_bind_int(stmt, idx, cast(int) val);
         else
-        {
-            string s = engine.extractString(arg);
-            sqlite3_bind_text(stmt, idx, s.toStringz, cast(int) s.length, SQLITE_TRANSIENT);
-        }
+            sqlite3_bind_double(stmt, idx, val);
+    }
+    else if (engine.isBool(arg))
+    {
+        sqlite3_bind_int(stmt, idx, engine.extractBool(arg) ? 1 : 0);
+    }
+    else
+    {
+        string s = engine.extractString(arg);
+        sqlite3_bind_text(stmt, idx, s.toStringz, cast(int) s.length, SQLITE_TRANSIENT);
     }
 }
 

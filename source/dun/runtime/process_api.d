@@ -5,6 +5,8 @@ import dun.runtime.globals : DunState;
 import dun.security.permissions : Permission;
 
 private enum STDIN_READ_BUF_SIZE = 65_536;
+private enum DEFAULT_TERMINAL_COLUMNS = 80;
+private enum LINUX_PAGE_SIZE = 4096;
 
 private __gshared JSHandle gUncaughtHandler;
 private __gshared IJSEngine gUncaughtEngine;
@@ -13,6 +15,8 @@ private __gshared bool gHasUncaughtHandler;
 private __gshared JSHandle gRejectionHandler;
 private __gshared IJSEngine gRejectionEngine;
 private __gshared bool gHasRejectionHandler;
+
+private __gshared IJSEngine gExitEngine;
 
 bool hasUncaughtExceptionHandler() @trusted nothrow @nogc
 {
@@ -24,11 +28,47 @@ bool invokeUncaughtExceptionHandler(IJSEngine engine, string errorMsg) @trusted 
     if (!gHasUncaughtHandler || engine is null) return false;
     try
     {
-        auto errObj = engine.newString(errorMsg);
+        import std.string : indexOf;
+        // Parse "ErrorType: message\n  stack..." into components
+        string errName = "Error";
+        string errMessage = errorMsg;
+        auto colonIdx = errorMsg.indexOf(": ");
+        if (colonIdx > 0 && colonIdx < 40)
+        {
+            errName = errorMsg[0 .. colonIdx];
+            auto nlIdx = errorMsg.indexOf("\n");
+            errMessage = nlIdx > colonIdx
+                ? errorMsg[colonIdx + 2 .. nlIdx]
+                : errorMsg[colonIdx + 2 .. $];
+        }
+
+        auto result = engine.eval(
+            "(function(n,m,s){var E=globalThis[n]||Error;var e=new E(m);if(s)e.stack=s;return e;})",
+            "<uncaught:mk>"
+        );
+        JSHandle errObj;
+        if (!result.isError)
+        {
+            auto nameVal = engine.newString(errName);
+            auto msgVal = engine.newString(errMessage);
+            auto stackVal = engine.newString(errorMsg);
+            JSHandle[3] mkArgs = [nameVal, msgVal, stackVal];
+            errObj = engine.callFunction(result.value, engine.newUndefined(), mkArgs[]);
+            engine.freeValue(nameVal);
+            engine.freeValue(msgVal);
+            engine.freeValue(stackVal);
+            engine.freeValue(result.value);
+        }
+        else
+        {
+            engine.freeValue(result.value);
+            errObj = engine.newString(errorMsg);
+        }
         JSHandle[1] args = [errObj];
         auto global = engine.getGlobal();
         engine.callFunction(gUncaughtHandler, global, args[]);
         engine.freeValue(errObj);
+        engine.freeValue(global);
         return true;
     }
     catch (Throwable) { return false; }
@@ -47,9 +87,40 @@ bool invokeUnhandledRejectionHandler(IJSEngine engine, JSHandle reason, JSHandle
         JSHandle[2] args = [reason, promise];
         auto global = engine.getGlobal();
         engine.callFunction(gRejectionHandler, global, args[]);
+        engine.freeValue(global);
         return true;
     }
     catch (Throwable) { return false; }
+}
+
+void fireExitHandlers(int code) @trusted nothrow
+{
+    if (gExitEngine is null) return;
+    try
+    {
+        import std.conv : to;
+        auto result = gExitEngine.eval(
+            "typeof process!=='undefined'&&typeof process.emit==='function'&&process.emit('exit',"
+            ~ code.to!string ~ ")", "<exit>");
+        if (!result.isError)
+            gExitEngine.freeValue(result.value);
+    }
+    catch (Throwable) {}
+}
+
+void fireBeforeExitHandlers(int code) @trusted nothrow
+{
+    if (gExitEngine is null) return;
+    try
+    {
+        import std.conv : to;
+        auto result = gExitEngine.eval(
+            "typeof process!=='undefined'&&typeof process.emit==='function'&&process.emit('beforeExit',"
+            ~ code.to!string ~ ")", "<beforeExit>");
+        if (!result.isError)
+            gExitEngine.freeValue(result.value);
+    }
+    catch (Throwable) {}
 }
 
 // Store process start time for uptime()
@@ -81,9 +152,11 @@ private bool isattyFd(int fd) @trusted nothrow
 
 void installProcess(IJSEngine engine) @trusted
 {
-    assert(engine !is null, "Null engine");
+    assert(engine !is null, "Null engine in installProcess");
+    gExitEngine = engine;
     ensureStartTime();
     auto state = cast(DunState*) engine.getContextOpaque();
+    assert(state !is null, "Null DunState in installProcess");
     auto global = engine.getGlobal();
     auto process = engine.newObject();
 
@@ -92,20 +165,72 @@ void installProcess(IJSEngine engine) @trusted
     engine.setProperty(process, "on",
         engine.newFunction(&jsProcessOn, "on", 2));
 
-    auto envObj = engine.newObject();
     bool envAllowed = state !is null && state.permissions !is null &&
         state.permissions.check(Permission.env);
     if (envAllowed)
     {
-        try
-        {
-            import std.process : environment;
-            foreach (key, val; environment.toAA())
-                engine.setProperty(envObj, key, engine.newString(val));
-        }
-        catch (Exception) {}
+        auto setEnvFn = engine.newFunction(&jsNativeSetEnv, "__nativeSetEnv", 2);
+        auto unsetEnvFn = engine.newFunction(&jsNativeUnsetEnv, "__nativeUnsetEnv", 1);
+        engine.setProperty(global, "__nativeSetEnv", setEnvFn);
+        engine.setProperty(global, "__nativeUnsetEnv", unsetEnvFn);
+
+        auto envSrc = `(function() {
+  var _env = {};
+  var _setEnv = globalThis.__nativeSetEnv;
+  var _unsetEnv = globalThis.__nativeUnsetEnv;
+  delete globalThis.__nativeSetEnv;
+  delete globalThis.__nativeUnsetEnv;
+  return new Proxy(_env, {
+    get: function(target, prop) {
+      if (typeof prop !== 'string') return undefined;
+      return target[prop];
+    },
+    set: function(target, prop, value) {
+      target[prop] = String(value);
+      if (_setEnv) _setEnv(prop, String(value));
+      return true;
+    },
+    deleteProperty: function(target, prop) {
+      delete target[prop];
+      if (_unsetEnv) _unsetEnv(prop);
+      return true;
+    },
+    has: function(target, prop) {
+      return prop in target;
+    },
+    ownKeys: function(target) {
+      return Object.keys(target);
+    },
+    getOwnPropertyDescriptor: function(target, prop) {
+      if (prop in target) return { value: target[prop], writable: true, enumerable: true, configurable: true };
+      return undefined;
     }
-    engine.setProperty(process, "env", envObj);
+  });
+})()`;
+        auto envResult = engine.eval(envSrc, "<env-proxy>");
+        if (!envResult.isError)
+        {
+            try
+            {
+                import std.process : environment;
+                foreach (key, val; environment.toAA())
+                    engine.setProperty(envResult.value, key, engine.newString(val));
+            }
+            catch (Exception) {}
+            engine.setProperty(process, "env", envResult.value);
+        }
+        else
+        {
+            engine.freeValue(envResult.value);
+            auto envObj = engine.newObject();
+            engine.setProperty(process, "env", envObj);
+        }
+    }
+    else
+    {
+        auto envObj = engine.newObject();
+        engine.setProperty(process, "env", envObj);
+    }
 
     // process.argv
     auto argvArr = engine.newArray();
@@ -151,6 +276,19 @@ void installProcess(IJSEngine engine) @trusted
     engine.setProperty(stdoutObj, "write", engine.newFunction(&jsStdoutWrite, "write", 1));
     engine.setProperty(stdoutObj, "writable", engine.newBool(true));
     engine.setProperty(stdoutObj, "isTTY", engine.newBool(isattyFd(1)));
+    engine.setProperty(stdoutObj, "fd", engine.newInt(1));
+    engine.setProperty(stdoutObj, "end", engine.newFunction(&jsNoop, "end", 0));
+    engine.setProperty(stdoutObj, "on", engine.newFunction(&jsNoop, "on", 2));
+    engine.setProperty(stdoutObj, "once", engine.newFunction(&jsNoop, "once", 2));
+    engine.setProperty(stdoutObj, "emit", engine.newFunction(&jsNoop, "emit", 1));
+    engine.setProperty(stdoutObj, "cork", engine.newFunction(&jsNoop, "cork", 0));
+    engine.setProperty(stdoutObj, "uncork", engine.newFunction(&jsNoop, "uncork", 0));
+    engine.setProperty(stdoutObj, "cursorTo", engine.newFunction(&jsNoop, "cursorTo", 2));
+    engine.setProperty(stdoutObj, "clearLine", engine.newFunction(&jsNoop, "clearLine", 1));
+    engine.setProperty(stdoutObj, "moveCursor", engine.newFunction(&jsNoop, "moveCursor", 2));
+    engine.setProperty(stdoutObj, "getWindowSize", engine.newFunction(&jsGetWindowSize, "getWindowSize", 0));
+    engine.setProperty(stdoutObj, "columns", engine.newInt(DEFAULT_TERMINAL_COLUMNS));
+    engine.setProperty(stdoutObj, "rows", engine.newInt(24));
     engine.setProperty(process, "stdout", stdoutObj);
 
     // process.stderr
@@ -158,15 +296,82 @@ void installProcess(IJSEngine engine) @trusted
     engine.setProperty(stderrObj, "write", engine.newFunction(&jsStderrWrite, "write", 1));
     engine.setProperty(stderrObj, "writable", engine.newBool(true));
     engine.setProperty(stderrObj, "isTTY", engine.newBool(isattyFd(2)));
+    engine.setProperty(stderrObj, "fd", engine.newInt(2));
+    engine.setProperty(stderrObj, "end", engine.newFunction(&jsNoop, "end", 0));
+    engine.setProperty(stderrObj, "on", engine.newFunction(&jsNoop, "on", 2));
+    engine.setProperty(stderrObj, "once", engine.newFunction(&jsNoop, "once", 2));
+    engine.setProperty(stderrObj, "emit", engine.newFunction(&jsNoop, "emit", 1));
+    engine.setProperty(stderrObj, "cork", engine.newFunction(&jsNoop, "cork", 0));
+    engine.setProperty(stderrObj, "uncork", engine.newFunction(&jsNoop, "uncork", 0));
+    engine.setProperty(stderrObj, "columns", engine.newInt(DEFAULT_TERMINAL_COLUMNS));
+    engine.setProperty(stderrObj, "rows", engine.newInt(24));
     engine.setProperty(process, "stderr", stderrObj);
 
-    // process.stdin
+    // process.stdin — Readable stream with on('data')/on('end') EventEmitter support
     auto stdinObj = engine.newObject();
     engine.setProperty(stdinObj, "read", engine.newFunction(&jsStdinRead, "read", 0));
     engine.setProperty(stdinObj, "readable", engine.newBool(true));
     engine.setProperty(stdinObj, "isTTY", engine.newBool(isattyFd(0)));
     engine.setProperty(stdinObj, "setEncoding", engine.newFunction(&jsStdinSetEncoding, "setEncoding", 1));
     engine.setProperty(stdinObj, "fd", engine.newInt(0));
+    engine.setProperty(stdinObj, "_events", engine.newObject());
+    engine.setProperty(stdinObj, "_paused", engine.newBool(true));
+    // on/once/resume/pause/pipe implemented in JS for EventEmitter compat
+    auto stdinEnhance = engine.eval(
+        "(function(stdin) {" ~
+        "  stdin.on = function(ev, cb) {" ~
+        "    if (!this._events[ev]) this._events[ev] = [];" ~
+        "    this._events[ev].push(cb);" ~
+        "    if (ev === 'data' || ev === 'readable') this.resume();" ~
+        "    return this;" ~
+        "  };" ~
+        "  stdin.once = function(ev, cb) {" ~
+        "    var self = this;" ~
+        "    function wrapper() { cb.apply(this, arguments); self.removeListener(ev, wrapper); }" ~
+        "    return this.on(ev, wrapper);" ~
+        "  };" ~
+        "  stdin.removeListener = stdin.off = function(ev, cb) {" ~
+        "    if (this._events[ev]) this._events[ev] = this._events[ev].filter(function(f){return f !== cb;});" ~
+        "    return this;" ~
+        "  };" ~
+        "  stdin.removeAllListeners = function(ev) {" ~
+        "    if (ev) delete this._events[ev]; else this._events = {};" ~
+        "    return this;" ~
+        "  };" ~
+        "  stdin.emit = function(ev) {" ~
+        "    var args = Array.prototype.slice.call(arguments, 1);" ~
+        "    var listeners = this._events[ev];" ~
+        "    if (!listeners) return false;" ~
+        "    listeners.slice().forEach(function(fn) { fn.apply(this, args); }, this);" ~
+        "    return true;" ~
+        "  };" ~
+        "  stdin.resume = function() { this._paused = false; return this; };" ~
+        "  stdin.pause = function() { this._paused = true; return this; };" ~
+        "  stdin.pipe = function(dest) {" ~
+        "    this.on('data', function(chunk) { dest.write(chunk); });" ~
+        "    this.on('end', function() { dest.end(); });" ~
+        "    return dest;" ~
+        "  };" ~
+        "  stdin.destroy = function() { this._paused = true; this.readable = false; return this; };" ~
+        "  stdin[Symbol.asyncIterator] = function() {" ~
+        "    var self = this; var done = false; var buf = [];" ~
+        "    var resolve = null;" ~
+        "    self.on('data', function(d) { if (resolve) { var r=resolve; resolve=null; r({value:d,done:false}); } else buf.push(d); });" ~
+        "    self.on('end', function() { done=true; if(resolve){var r=resolve;resolve=null;r({value:undefined,done:true});} });" ~
+        "    return { next: function() {" ~
+        "      if (buf.length) return Promise.resolve({value:buf.shift(),done:false});" ~
+        "      if (done) return Promise.resolve({value:undefined,done:true});" ~
+        "      return new Promise(function(r){resolve=r;});" ~
+        "    }};" ~
+        "  };" ~
+        "})", "<stdin-enhance>");
+    if (!stdinEnhance.isError)
+    {
+        JSHandle[1] sArgs = [stdinObj];
+        auto enhRet = engine.callFunction(stdinEnhance.value, engine.newUndefined(), sArgs[]);
+        engine.freeValue(enhRet);
+    }
+    engine.freeValue(stdinEnhance.value);
     engine.setProperty(process, "stdin", stdinObj);
 
     // process.hrtime() and process.hrtime.bigint()
@@ -197,28 +402,136 @@ void installProcess(IJSEngine engine) @trusted
         engine.setProperty(process, "execPath", engine.newString("/usr/local/bin/dun"));
     }
 
+    // process.argv0
+    engine.setProperty(process, "argv0", engine.newString("dun"));
+
+    // process.execArgv (empty — no Node-style exec args)
+    engine.setProperty(process, "execArgv", engine.newArray());
+
+    // process.mainModule (deprecated but still used)
+    engine.setProperty(process, "mainModule", engine.newUndefined());
+
     // process.title
     engine.setProperty(process, "title", engine.newString("dun"));
 
     // process.versions
     auto versionsObj = engine.newObject();
     engine.setProperty(versionsObj, "dun", engine.newString("1.0.0"));
+    // process.versions.node — npm packages check this for version compatibility
+    engine.setProperty(versionsObj, "node", engine.newString("20.0.0"));
     version (EngineQuickJS)
         engine.setProperty(versionsObj, "quickjs", engine.newString("0.8.0"));
     else version (EngineJSC)
         engine.setProperty(versionsObj, "jsc", engine.newString("620.1"));
-    else version (EngineV8)
+    version (EngineV8)
         engine.setProperty(versionsObj, "v8", engine.newString("12.4.0"));
+    else
+        engine.setProperty(versionsObj, "v8", engine.newString("11.3.244.8"));
     engine.setProperty(versionsObj, "modules", engine.newString("127"));
     engine.setProperty(versionsObj, "openssl", engine.newString("3.0.0"));
     engine.setProperty(process, "versions", versionsObj);
 
+    // process.release
+    auto releaseObj = engine.newObject();
+    engine.setProperty(releaseObj, "name", engine.newString("dun"));
+    engine.setProperty(process, "release", releaseObj);
+
+    // process.config (minimal — needed by some npm packages)
+    auto configObj = engine.newObject();
+    auto configVars = engine.newObject();
+    engine.setProperty(configVars, "host_arch", engine.newString("x64"));
+    engine.setProperty(configObj, "variables", configVars);
+    engine.setProperty(process, "config", configObj);
+
+    // process.features
+    auto featObj = engine.newObject();
+    engine.setProperty(featObj, "inspector", engine.newBool(false));
+    engine.setProperty(featObj, "tls", engine.newBool(true));
+    engine.setProperty(process, "features", featObj);
+
+    // process.channel (undefined — no IPC by default)
+    engine.setProperty(process, "channel", engine.newUndefined());
+
+    // process.emitWarning(msg, type)
+    engine.setProperty(process, "emitWarning",
+        engine.newFunction(&jsEmitWarning, "emitWarning", 2));
+
+    // process.kill(pid, signal)
+    engine.setProperty(process, "kill",
+        engine.newFunction(&jsProcessKill, "kill", 2));
+
+    // process.ppid
+    version (Posix)
+    {
+        import core.sys.posix.unistd : getppid;
+        engine.setProperty(process, "ppid", engine.newInt(getppid()));
+    }
+
+    // process.exitCode (writable — defaults to undefined)
+    engine.setProperty(process, "exitCode", engine.newUndefined());
+
+    // process.abort()
+    engine.setProperty(process, "abort",
+        engine.newFunction(&jsProcessAbort, "abort", 0));
+
+    // process.umask()
+    engine.setProperty(process, "umask",
+        engine.newFunction(&jsProcessUmask, "umask", 1));
+
+    version (Posix)
+    {
+        engine.setProperty(process, "getuid",
+            engine.newFunction(&jsProcessGetuid, "getuid", 0));
+        engine.setProperty(process, "getgid",
+            engine.newFunction(&jsProcessGetgid, "getgid", 0));
+        engine.setProperty(process, "geteuid",
+            engine.newFunction(&jsProcessGeteuid, "geteuid", 0));
+        engine.setProperty(process, "getegid",
+            engine.newFunction(&jsProcessGetegid, "getegid", 0));
+        engine.setProperty(process, "getgroups",
+            engine.newFunction(&jsProcessGetgroups, "getgroups", 0));
+    }
+
+    // process.debugPort
+    engine.setProperty(process, "debugPort", engine.newInt(9229));
+
+    // process.connected
+    engine.setProperty(process, "connected", engine.newBool(false));
+
+    // process.resourceUsage()
+    engine.setProperty(process, "resourceUsage",
+        engine.newFunction(&jsProcessResourceUsage, "resourceUsage", 0));
+
     engine.setProperty(global, "process", process);
+    engine.freeValue(global);
+
+    auto enhRes = engine.eval(processEnhanceSource(), "<process-enhance>");
+    engine.freeValue(enhRes.value);
 }
 
 private:
 
-JSHandle jsCwd(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsNoop(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
+{
+    assert(ctx !is null, "Null ctx in jsNoop");
+    auto state = cast(DunState*) ctx;
+    assert(state.engine !is null, "Null engine in jsNoop");
+    return state.engine.newUndefined();
+}
+
+JSHandle jsGetWindowSize(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
+{
+    assert(ctx !is null, "Null ctx in jsGetWindowSize");
+    auto state = cast(DunState*) ctx;
+    assert(state.engine !is null, "Null engine in jsGetWindowSize");
+    auto engine = state.engine;
+    auto arr = engine.newArray();
+    engine.setPropertyIndex(arr, 0, engine.newInt(DEFAULT_TERMINAL_COLUMNS));
+    engine.setPropertyIndex(arr, 1, engine.newInt(24));
+    return arr;
+}
+
+JSHandle jsCwd(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsCwd");
     auto state = cast(DunState*) ctx;
@@ -232,7 +545,7 @@ JSHandle jsCwd(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     catch (Exception) { return engine.newString("."); }
 }
 
-JSHandle jsExit(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsExit(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsExit");
     auto state = cast(DunState*) ctx;
@@ -241,12 +554,13 @@ JSHandle jsExit(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     int code = 0;
     if (args.length >= 1 && engine.isNumber(args[0]))
         code = engine.extractInt(args[0]);
+    fireExitHandlers(code);
     import core.stdc.stdlib : exit;
     exit(code);
     assert(0);
 }
 
-JSHandle jsProcessOn(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsProcessOn(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in process.on");
     auto state = cast(DunState*) ctx;
@@ -271,10 +585,22 @@ JSHandle jsProcessOn(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
         gRejectionEngine = engine;
         gHasRejectionHandler = true;
     }
+    else if (event == "SIGTERM")
+    {
+        import dun.runtime.signals : registerSignalHandler, installSignalHandlers, SignalType;
+        installSignalHandlers();
+        registerSignalHandler(engine, SignalType.SIGTERM, args[1]);
+    }
+    else if (event == "SIGINT")
+    {
+        import dun.runtime.signals : registerSignalHandler, installSignalHandlers, SignalType;
+        installSignalHandlers();
+        registerSignalHandler(engine, SignalType.SIGINT, args[1]);
+    }
     return engine.dupValue(thisVal);
 }
 
-JSHandle jsNextTick(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsNextTick(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in process.nextTick");
     auto state = cast(DunState*) ctx;
@@ -284,11 +610,38 @@ JSHandle jsNextTick(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     if (args.length < 1 || !engine.isFunction(args[0]))
         return engine.throwTypeError("process.nextTick requires a function");
 
-    state.eventLoop.nextTicks.enqueue(engine, args[0]);
+    if (args.length > 1)
+    {
+        auto boundArgs = args[1 .. $];
+        auto global = engine.getGlobal();
+        auto bindFn = engine.getProperty(args[0], "bind");
+        if (engine.isFunction(bindFn))
+        {
+            JSHandle[16] bindArgs = void;
+            bindArgs[0] = global;
+            auto nExtra = args.length - 1;
+            if (nExtra > 15) nExtra = 15;
+            foreach (i; 0 .. nExtra)
+                bindArgs[1 + i] = args[1 + i];
+            auto bound = engine.callFunction(bindFn, args[0], bindArgs[0 .. 1 + nExtra]);
+            state.eventLoop.nextTicks.enqueue(engine, bound);
+            engine.freeValue(bound);
+        }
+        else
+        {
+            state.eventLoop.nextTicks.enqueue(engine, args[0]);
+        }
+        engine.freeValue(bindFn);
+        engine.freeValue(global);
+    }
+    else
+    {
+        state.eventLoop.nextTicks.enqueue(engine, args[0]);
+    }
     return engine.newUndefined();
 }
 
-JSHandle jsStdoutWrite(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsStdoutWrite(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in process.stdout.write");
     auto state = cast(DunState*) ctx;
@@ -305,7 +658,7 @@ JSHandle jsStdoutWrite(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     return engine.newBool(true);
 }
 
-JSHandle jsStderrWrite(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsStderrWrite(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in process.stderr.write");
     auto state = cast(DunState*) ctx;
@@ -322,7 +675,7 @@ JSHandle jsStderrWrite(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     return engine.newBool(true);
 }
 
-JSHandle jsHrtime(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsHrtime(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in process.hrtime");
     auto state = cast(DunState*) ctx;
@@ -334,8 +687,12 @@ JSHandle jsHrtime(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
         long totalNs = ticksToNSecs(now.ticks);
         if (args.length >= 1 && engine.isArray(args[0]))
         {
-            auto prevSec = engine.extractFloat(engine.getPropertyIndex(args[0], 0));
-            auto prevNs = engine.extractFloat(engine.getPropertyIndex(args[0], 1));
+            auto secH = engine.getPropertyIndex(args[0], 0);
+            auto nsH = engine.getPropertyIndex(args[0], 1);
+            auto prevSec = engine.extractFloat(secH);
+            auto prevNs = engine.extractFloat(nsH);
+            engine.freeValue(nsH);
+            engine.freeValue(secH);
             long prevTotalNs = cast(long)(prevSec * 1_000_000_000.0 + prevNs);
             totalNs -= prevTotalNs;
         }
@@ -349,7 +706,7 @@ JSHandle jsHrtime(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     catch (Exception) { return engine.newArray(); }
 }
 
-JSHandle jsHrtimeBigint(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsHrtimeBigint(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in process.hrtime.bigint");
     auto state = cast(DunState*) ctx;
@@ -357,14 +714,18 @@ JSHandle jsHrtimeBigint(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     try
     {
         import core.time : MonoTime, ticksToNSecs;
+        import std.conv : to;
         auto now = MonoTime.currTime;
         long totalNs = ticksToNSecs(now.ticks);
-        return engine.newFloat(cast(double) totalNs);
+        auto result = engine.eval("BigInt(" ~ totalNs.to!string ~ ")", "<hrtime>");
+        if (result.isError)
+            return engine.newFloat(cast(double) totalNs);
+        return result.value;
     }
     catch (Exception) { return engine.newFloat(0.0); }
 }
 
-JSHandle jsUptime(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsUptime(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in process.uptime");
     auto state = cast(DunState*) ctx;
@@ -381,7 +742,7 @@ JSHandle jsUptime(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     catch (Exception) { return engine.newFloat(0.0); }
 }
 
-JSHandle jsMemoryUsage(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsMemoryUsage(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in process.memoryUsage");
     auto state = cast(DunState*) ctx;
@@ -398,7 +759,7 @@ JSHandle jsMemoryUsage(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
             auto statm = readText("/proc/self/statm");
             auto parts = statm.split(" ");
             if (parts.length >= 2)
-                rss = to!double(parts[1]) * 4096.0;
+                rss = to!double(parts[1]) * LINUX_PAGE_SIZE;
         }
         catch (Exception) {}
     }
@@ -410,7 +771,7 @@ JSHandle jsMemoryUsage(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     return obj;
 }
 
-JSHandle jsCpuUsage(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsCpuUsage(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in process.cpuUsage");
     auto state = cast(DunState*) ctx;
@@ -433,7 +794,7 @@ JSHandle jsCpuUsage(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     return obj;
 }
 
-JSHandle jsChdir(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsChdir(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in process.chdir");
     auto state = cast(DunState*) ctx;
@@ -453,7 +814,272 @@ JSHandle jsChdir(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     }
 }
 
-JSHandle jsStdinRead(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsEmitWarning(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
+{
+    assert(ctx !is null, "Null ctx in process.emitWarning");
+    auto state = cast(DunState*) ctx;
+    auto engine = state.engine;
+    if (args.length < 1) return engine.newUndefined();
+    try
+    {
+        string msg;
+        string wtype = "Warning";
+        if (engine.isString(args[0]))
+            msg = engine.extractString(args[0]);
+        else if (engine.isObject(args[0]))
+        {
+            auto msgProp = engine.getProperty(args[0], "message");
+            msg = engine.isString(msgProp) ? engine.extractString(msgProp) : "Unknown warning";
+            engine.freeValue(msgProp);
+        }
+        if (args.length >= 2 && engine.isString(args[1]))
+            wtype = engine.extractString(args[1]);
+        import core.stdc.stdio : fprintf, stderr, fflush;
+        fprintf(stderr, "(%.*s) %.*s\n",
+            cast(int) wtype.length, wtype.ptr,
+            cast(int) msg.length, msg.ptr);
+        fflush(stderr);
+    }
+    catch (Exception) {}
+    return engine.newUndefined();
+}
+
+JSHandle jsProcessKill(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
+{
+    assert(ctx !is null, "Null ctx in process.kill");
+    auto state = cast(DunState*) ctx;
+    auto engine = state.engine;
+    if (args.length < 1 || !engine.isNumber(args[0]))
+        return engine.throwTypeError("process.kill requires a pid");
+    version (Posix)
+    {
+        import core.sys.posix.signal : kill, SIGTERM;
+        int pid = engine.extractInt(args[0]);
+        int sig = SIGTERM;
+        if (args.length >= 2 && engine.isNumber(args[1]))
+            sig = engine.extractInt(args[1]);
+        else if (args.length >= 2 && engine.isString(args[1]))
+        {
+            auto sigName = engine.extractString(args[1]);
+            sig = sigNameToNum(sigName);
+        }
+        auto ret = kill(pid, sig);
+        if (ret != 0)
+            return engine.throwTypeError("kill failed");
+        return engine.newBool(true);
+    }
+    else
+        return engine.throwTypeError("process.kill not supported on this platform");
+}
+
+JSHandle jsProcessAbort(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
+{
+    assert(ctx !is null, "Null ctx in process.abort");
+    import core.stdc.stdlib : abort;
+    abort();
+    assert(0);
+}
+
+JSHandle jsProcessUmask(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
+{
+    assert(ctx !is null, "Null ctx in process.umask");
+    auto state = cast(DunState*) ctx;
+    auto engine = state.engine;
+    version (Posix)
+    {
+        import core.sys.posix.sys.stat : umask, mode_t;
+        if (args.length >= 1 && engine.isNumber(args[0]))
+        {
+            auto newMask = cast(mode_t) engine.extractInt(args[0]);
+            auto old = umask(newMask);
+            return engine.newInt(cast(int) old);
+        }
+        auto cur = umask(0);
+        umask(cur);
+        return engine.newInt(cast(int) cur);
+    }
+    else
+        return engine.newInt(0);
+}
+
+version (Posix)
+{
+    JSHandle jsProcessGetuid(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
+    {
+        assert(ctx !is null);
+        auto state = cast(DunState*) ctx;
+        assert(state.engine !is null);
+        import core.sys.posix.unistd : getuid;
+        return state.engine.newInt(cast(int) getuid());
+    }
+
+    JSHandle jsProcessGetgid(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
+    {
+        assert(ctx !is null);
+        auto state = cast(DunState*) ctx;
+        assert(state.engine !is null);
+        import core.sys.posix.unistd : getgid;
+        return state.engine.newInt(cast(int) getgid());
+    }
+
+    JSHandle jsProcessGeteuid(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
+    {
+        assert(ctx !is null);
+        auto state = cast(DunState*) ctx;
+        assert(state.engine !is null);
+        import core.sys.posix.unistd : geteuid;
+        return state.engine.newInt(cast(int) geteuid());
+    }
+
+    JSHandle jsProcessGetegid(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
+    {
+        assert(ctx !is null);
+        auto state = cast(DunState*) ctx;
+        assert(state.engine !is null);
+        import core.sys.posix.unistd : getegid;
+        return state.engine.newInt(cast(int) getegid());
+    }
+
+    JSHandle jsProcessGetgroups(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
+    {
+        assert(ctx !is null);
+        auto state = cast(DunState*) ctx;
+        assert(state.engine !is null);
+        auto engine = state.engine;
+        import core.sys.posix.unistd : getgroups;
+        import core.sys.posix.sys.types : gid_t;
+        enum MAX_GROUPS = 64;
+        gid_t[MAX_GROUPS] groups;
+        auto n = getgroups(MAX_GROUPS, groups.ptr);
+        auto arr = engine.newArray();
+        if (n > 0)
+        {
+            for (int i = 0; i < n; i++)
+                engine.setPropertyIndex(arr, cast(uint) i, engine.newInt(cast(int) groups[i]));
+        }
+        return arr;
+    }
+}
+
+private int sigNameToNum(string name) @safe nothrow
+{
+    if (name == "SIGTERM") return 15;
+    if (name == "SIGINT") return 2;
+    if (name == "SIGKILL") return 9;
+    if (name == "SIGHUP") return 1;
+    if (name == "SIGUSR1") return 10;
+    if (name == "SIGUSR2") return 12;
+    return 15;
+}
+
+JSHandle jsProcessResourceUsage(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
+{
+    assert(ctx !is null, "Null ctx in process.resourceUsage");
+    auto state = cast(DunState*) ctx;
+    assert(state.engine !is null, "Null engine in process.resourceUsage");
+    auto engine = state.engine;
+    auto obj = engine.newObject();
+    version (Posix)
+    {
+        import core.sys.posix.sys.resource : getrusage, rusage, RUSAGE_SELF;
+        rusage ru;
+        if (getrusage(RUSAGE_SELF, &ru) == 0)
+        {
+            engine.setProperty(obj, "userCPUTime", engine.newFloat(
+                cast(double)(ru.ru_utime.tv_sec * 1_000_000L + ru.ru_utime.tv_usec)));
+            engine.setProperty(obj, "systemCPUTime", engine.newFloat(
+                cast(double)(ru.ru_stime.tv_sec * 1_000_000L + ru.ru_stime.tv_usec)));
+            engine.setProperty(obj, "maxRSS", engine.newFloat(cast(double) ru.ru_maxrss));
+            engine.setProperty(obj, "sharedMemorySize", engine.newFloat(cast(double) ru.ru_ixrss));
+            engine.setProperty(obj, "unsharedDataSize", engine.newFloat(cast(double) ru.ru_idrss));
+            engine.setProperty(obj, "unsharedStackSize", engine.newFloat(cast(double) ru.ru_isrss));
+            engine.setProperty(obj, "minorPageFault", engine.newFloat(cast(double) ru.ru_minflt));
+            engine.setProperty(obj, "majorPageFault", engine.newFloat(cast(double) ru.ru_majflt));
+            engine.setProperty(obj, "swappedOut", engine.newFloat(cast(double) ru.ru_nswap));
+            engine.setProperty(obj, "fsRead", engine.newFloat(cast(double) ru.ru_inblock));
+            engine.setProperty(obj, "fsWrite", engine.newFloat(cast(double) ru.ru_oublock));
+            engine.setProperty(obj, "ipcSent", engine.newFloat(cast(double) ru.ru_msgsnd));
+            engine.setProperty(obj, "ipcReceived", engine.newFloat(cast(double) ru.ru_msgrcv));
+            engine.setProperty(obj, "signalsCount", engine.newFloat(cast(double) ru.ru_nsignals));
+            engine.setProperty(obj, "voluntaryContextSwitches", engine.newFloat(cast(double) ru.ru_nvcsw));
+            engine.setProperty(obj, "involuntaryContextSwitches", engine.newFloat(cast(double) ru.ru_nivcsw));
+        }
+        else
+        {
+            engine.setProperty(obj, "userCPUTime", engine.newFloat(0));
+            engine.setProperty(obj, "systemCPUTime", engine.newFloat(0));
+            engine.setProperty(obj, "maxRSS", engine.newFloat(0));
+            engine.setProperty(obj, "sharedMemorySize", engine.newFloat(0));
+            engine.setProperty(obj, "unsharedDataSize", engine.newFloat(0));
+            engine.setProperty(obj, "unsharedStackSize", engine.newFloat(0));
+            engine.setProperty(obj, "minorPageFault", engine.newFloat(0));
+            engine.setProperty(obj, "majorPageFault", engine.newFloat(0));
+            engine.setProperty(obj, "swappedOut", engine.newFloat(0));
+            engine.setProperty(obj, "fsRead", engine.newFloat(0));
+            engine.setProperty(obj, "fsWrite", engine.newFloat(0));
+            engine.setProperty(obj, "ipcSent", engine.newFloat(0));
+            engine.setProperty(obj, "ipcReceived", engine.newFloat(0));
+            engine.setProperty(obj, "signalsCount", engine.newFloat(0));
+            engine.setProperty(obj, "voluntaryContextSwitches", engine.newFloat(0));
+            engine.setProperty(obj, "involuntaryContextSwitches", engine.newFloat(0));
+        }
+    }
+    else
+    {
+        engine.setProperty(obj, "userCPUTime", engine.newFloat(0));
+        engine.setProperty(obj, "systemCPUTime", engine.newFloat(0));
+        engine.setProperty(obj, "maxRSS", engine.newFloat(0));
+        engine.setProperty(obj, "sharedMemorySize", engine.newFloat(0));
+        engine.setProperty(obj, "unsharedDataSize", engine.newFloat(0));
+        engine.setProperty(obj, "unsharedStackSize", engine.newFloat(0));
+        engine.setProperty(obj, "minorPageFault", engine.newFloat(0));
+        engine.setProperty(obj, "majorPageFault", engine.newFloat(0));
+        engine.setProperty(obj, "swappedOut", engine.newFloat(0));
+        engine.setProperty(obj, "fsRead", engine.newFloat(0));
+        engine.setProperty(obj, "fsWrite", engine.newFloat(0));
+        engine.setProperty(obj, "ipcSent", engine.newFloat(0));
+        engine.setProperty(obj, "ipcReceived", engine.newFloat(0));
+        engine.setProperty(obj, "signalsCount", engine.newFloat(0));
+        engine.setProperty(obj, "voluntaryContextSwitches", engine.newFloat(0));
+        engine.setProperty(obj, "involuntaryContextSwitches", engine.newFloat(0));
+    }
+    return obj;
+}
+
+JSHandle jsNativeSetEnv(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
+{
+    assert(ctx !is null, "Null ctx in jsNativeSetEnv");
+    auto state = cast(DunState*) ctx;
+    auto engine = state.engine;
+    if (args.length < 2) return engine.newUndefined();
+    version (Posix)
+    {
+        import core.sys.posix.stdlib : setenv;
+        import std.string : toStringz;
+        auto key = engine.extractString(args[0]);
+        auto val = engine.extractString(args[1]);
+        setenv(toStringz(key), toStringz(val), 1);
+    }
+    return engine.newUndefined();
+}
+
+JSHandle jsNativeUnsetEnv(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
+{
+    assert(ctx !is null, "Null ctx in jsNativeUnsetEnv");
+    auto state = cast(DunState*) ctx;
+    auto engine = state.engine;
+    if (args.length < 1) return engine.newUndefined();
+    version (Posix)
+    {
+        import core.sys.posix.stdlib : unsetenv;
+        import std.string : toStringz;
+        auto key = engine.extractString(args[0]);
+        unsetenv(toStringz(key));
+    }
+    return engine.newUndefined();
+}
+
+JSHandle jsStdinRead(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in process.stdin.read");
     auto state = cast(DunState*) ctx;
@@ -479,9 +1105,105 @@ JSHandle jsStdinRead(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
         return engine.newNull();
 }
 
-JSHandle jsStdinSetEncoding(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle jsStdinSetEncoding(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in process.stdin.setEncoding");
     auto state = cast(DunState*) ctx;
     return state.engine.dupValue(thisVal);
+}
+
+string processEnhanceSource() pure @safe nothrow
+{
+    return `(function() {
+  var p = process;
+  if (!p) return;
+  var _events = {};
+  var _origOn = p.on;
+  p.on = function(ev, cb) {
+    if (typeof ev !== 'string' || typeof cb !== 'function') return p;
+    if (ev === 'uncaughtException' || ev === 'unhandledRejection' ||
+        ev === 'SIGTERM' || ev === 'SIGINT') {
+      return _origOn.call(p, ev, cb);
+    }
+    if (!_events[ev]) _events[ev] = [];
+    _events[ev].push(cb);
+    return p;
+  };
+  p.addListener = p.on;
+  p.once = function(ev, cb) {
+    if (typeof cb !== 'function') return p;
+    function w() {
+      p.removeListener(ev, w);
+      cb.apply(p, arguments);
+    }
+    w._orig = cb;
+    return p.on(ev, w);
+  };
+  p.off = p.removeListener = function(ev, cb) {
+    var cbs = _events[ev];
+    if (!cbs) return p;
+    for (var i = cbs.length - 1; i >= 0; i--) {
+      if (cbs[i] === cb || cbs[i]._orig === cb) cbs.splice(i, 1);
+    }
+    return p;
+  };
+  p.removeAllListeners = function(ev) {
+    if (ev) _events[ev] = [];
+    else _events = {};
+    return p;
+  };
+  p.listeners = function(ev) {
+    return (_events[ev] || []).slice();
+  };
+  p.listenerCount = function(ev) {
+    return (_events[ev] || []).length;
+  };
+  p.rawListeners = function(ev) {
+    return (_events[ev] || []).slice();
+  };
+  p.eventNames = function() {
+    return Object.keys(_events).filter(function(k) { return _events[k].length > 0; });
+  };
+  p.prependListener = function(ev, cb) {
+    if (!_events[ev]) _events[ev] = [];
+    _events[ev].unshift(cb);
+    return p;
+  };
+  p.prependOnceListener = function(ev, cb) {
+    function w() {
+      p.removeListener(ev, w);
+      cb.apply(p, arguments);
+    }
+    w._orig = cb;
+    return p.prependListener(ev, w);
+  };
+  p.emit = function(ev) {
+    var cbs = _events[ev];
+    if (!cbs || cbs.length === 0) return false;
+    var args = Array.prototype.slice.call(arguments, 1);
+    var cc = cbs.slice();
+    for (var i = 0; i < cc.length; i++) cc[i].apply(p, args);
+    return true;
+  };
+  p.setMaxListeners = function() { return p; };
+  p.getMaxListeners = function() { return 10; };
+  p.report = {
+    writeReport: function() { return ''; },
+    getReport: function() { return {}; },
+    reportOnSignal: false,
+    reportOnFatalError: false,
+    reportOnUncaughtException: false,
+    directory: '',
+    filename: ''
+  };
+  p.allowedNodeEnvironmentFlags = new Set();
+  p.binding = function(name) { throw new Error('process.binding is deprecated and not supported'); };
+  p._linkedBinding = function(name) { throw new Error('process._linkedBinding is not supported'); };
+  var _uncaughtCb = null;
+  p.hasUncaughtExceptionCaptureCallback = function() { return _uncaughtCb !== null; };
+  p.setUncaughtExceptionCaptureCallback = function(fn) { _uncaughtCb = fn || null; };
+  if (!p.config) p.config = { variables: {} };
+  if (!p.features) p.features = { inspector: false, debug: false, uv: false, ipv6: true, tls_alpn: true, tls_sni: true, tls_ocsp: false, tls: true };
+  if (!p.release) p.release = { name: 'dun' };
+})()`;
 }

@@ -6,13 +6,14 @@ DunJS is a 7-layer JavaScript/TypeScript runtime with a **pluggable engine archi
 (IJSEngine interface), a cross-platform I/O poller (epoll/kqueue/poll), and a Deno-inspired permission system.
 
 Three backends are fully functional: QuickJS-NG (default), JavaScriptCore, and V8.
-All 62 integration tests pass on QuickJS and JSC (QuickJS 62/62, JSC 62/62).
-V8 14.9 passes 62/62 (full parity with QuickJS and JSC).
-All 24 built-in modules (fs, path, crypto, net, http, http2, buffer, events, url, os, fetch,
+All 66 integration tests pass on QuickJS, JSC, and V8 (full parity across all 3 backends).
+All 28 built-in modules (fs, path, crypto, net, http, http2, buffer, events, url, os, fetch,
 child_process, stream, zlib, dns, ws, sqlite, util, assert, querystring, string_decoder,
-timers/promises, tls) are engine-agnostic. Workers, SharedArrayBuffer, and Atomics work on all backends.
-HTTPS via OpenSSL, npm package install, 30+ Deno APIs, and web standard globals are included.
+timers/promises, vm, cluster, async_hooks, worker_threads, tls) are engine-agnostic.
+Workers, SharedArrayBuffer, and Atomics work on all backends.
+HTTPS via OpenSSL, npm package install, 30+ Deno APIs, web standard globals, POSIX signal handling.
 fetch() returns proper Response objects. import.meta works on all backends. process.stdin available.
+core.simd + LDC intrinsics (shufflevector, llvm_bswap, llvm_cttz, llvm_prefetch) for hex encoding, HTTP header parsing, byte search, and Buffer endian operations.
 
 Reference: [Bun's Zig->Rust port](https://github.com/oven-sh/bun/pull/30412) -- modular
 workspace with `bun_jsc` engine layer, `*_jsc` suffix pattern for engine-specific modules,
@@ -464,32 +465,26 @@ that require linking against V8's C++ objects -- these MUST go through the C shi
 
 ### Performance Benchmarks
 
-Feature benchmarks (25 tests, ops/sec):
+Feature benchmarks (25 tests, release builds, ops/sec):
 
 | Runtime | Total Throughput | Relative |
 |---------|-----------------|----------|
-| Bun 1.3.11 | 761M | 1.00x |
-| DunJS V8 (debug) | 545M | 0.72x |
-| DunJS JSC (debug) | 540M | 0.71x |
-| DunJS JSC (release) | 534M | 0.70x |
-| Node.js v22 | 158M | 0.21x |
-| Deno 2.7.14 | 136M | 0.18x |
-| DunJS V8 (release) | 117M | 0.15x |
-| DunJS QuickJS | 9.5M | 0.01x |
+| Bun 1.3.11 | 422M | 1.00x |
+| DunJS JSC | 371M | 0.88x |
+| Node.js v22 | 112M | 0.26x |
+| Deno 2.7.14 | 109M | 0.26x |
+| DunJS V8 | 105M | 0.25x |
 
-Framework benchmarks (39 tests, ops/sec):
+Framework benchmarks (39 tests, release builds, ops/sec):
 
 | Runtime | Total Throughput | Relative |
 |---------|-----------------|----------|
-| Bun 1.3.11 | 373M | 1.00x |
-| DunJS JSC (debug) | 318M | 0.85x |
-| DunJS JSC (release) | 249M | 0.67x |
-| Node.js v22 | 160M | 0.43x |
-| Deno 2.7.14 | 159M | 0.43x |
-| DunJS V8 (debug) | 161M | 0.43x |
-| DunJS V8 (release) | 157M | 0.42x |
+| Bun 1.3.11 | 266M | 1.00x |
+| DunJS JSC | 242M | 0.91x |
+| Node.js v22 | 130M | 0.49x |
+| DunJS V8 | 129M | 0.48x |
+| Deno 2.7.14 | 126M | 0.47x |
 
-React/framework compat: **81/81 checks** pass across all 6 runtimes.
 npm compat: **145/145** pass across all 6 runtimes.
 
 ## Design Decisions
@@ -522,7 +517,7 @@ npm compat: **145/145** pass across all 6 runtimes.
 ```
 tests/
 +-- integration/
-|   +-- fixtures/       # 62 test scripts (JS, MJS, TS)
+|   +-- fixtures/       # 63 test scripts (JS, MJS, TS)
 |   |   +-- hello.js, types.js, console_methods.js    # Core JS
 |   |   +-- promises.js, promises_advanced.js          # Async
 |   |   +-- es2023.js, closures.js, iterators.js       # ES2023+
@@ -565,7 +560,7 @@ tests/
 
 source/dun/engine/
 +-- test.d              # ~50 BDD-style engine contract tests
-+-- fuzz.d              # ~50 fuzz/stress tests
++-- fuzz.d              # ~71 fuzz/stress tests
 
 source/dun/ts/
 +-- strip.d             # 20 TypeScript stripper tests (inline)
@@ -576,4 +571,19 @@ source/dun/security/
 ```
 
 Test pattern inspired by Node.js standalone scripts: run fixture, compare stdout to expected file.
-**QuickJS 62/62, JSC 62/62, V8 62/62** (all backends at full parity).
+
+### HTTP Stress Benchmarks
+
+```
+tests/benchmarks/http_bench/
++-- stress.sh                # Cross-runtime wrk benchmark runner (9 endpoints)
++-- server_stress.js         # DunJS server (plaintext, json, users API, compute, transaction, middleware, echo)
++-- server_stress_node.js    # Node.js server (identical endpoints)
++-- server_stress_bun.js     # Bun server (Bun.serve API)
++-- server_stress_deno.ts    # Deno server (Deno.serve API)
+```
+
+HTTP server optimizations: TCP_NODELAY, buffered single-write response, CTFE pre-computed
+status lines, connection slot pooling, fd→connId hashmap (O(1) lookup), JS-level dispatch
+for reduced FFI overhead, lazy header loading, MSG_NOSIGNAL, EOF detection with RAII cleanup.
+**QuickJS 66/66, JSC 66/66, V8 66/66** (all backends at full parity).

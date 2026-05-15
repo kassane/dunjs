@@ -3,6 +3,8 @@ module dun.engine.test;
 version (DunTest):
 
 import dun.engine.iface;
+import std.stdio : writeln;
+import std.traits : getUDAs, hasUDA;
 
 // ---------------------------------------------------------------------------
 // UDA-based test framework using D compile-time reflection
@@ -26,8 +28,6 @@ enum ShouldFail;
 /// Extract the @Test name from a symbol, falling back to the symbol's identifier.
 template getTestName(alias func)
 {
-    import std.traits : getUDAs;
-
     static if (getUDAs!(func, Test).length > 0)
         enum getTestName = getUDAs!(func, Test)[0].name;
     else
@@ -37,8 +37,6 @@ template getTestName(alias func)
 /// Extract the @Describe group from a symbol, or "" if none.
 template getGroupName(alias func)
 {
-    import std.traits : getUDAs;
-
     static if (getUDAs!(func, Describe).length > 0)
         enum getGroupName = getUDAs!(func, Describe)[0].group;
     else
@@ -48,24 +46,18 @@ template getGroupName(alias func)
 /// True if the symbol carries `@Test`.
 template hasTestUDA(alias func)
 {
-    import std.traits : hasUDA;
-
     enum hasTestUDA = hasUDA!(func, Test);
 }
 
 /// True if the symbol carries `@ShouldFail`.
 template hasShouldFail(alias func)
 {
-    import std.traits : hasUDA;
-
     enum hasShouldFail = hasUDA!(func, ShouldFail);
 }
 
 /// Run all @Test functions in module M.
 void runModuleTests(alias M)(IJSEngine engine)
 {
-    import std.stdio : writeln;
-
     string currentGroup;
     uint passed, failed;
 
@@ -139,13 +131,13 @@ void runModuleTests(alias M)(IJSEngine engine)
 /// Generates per-backend unittest blocks from a tuple of test modules.
 mixin template EngineTestRunner(string label, Modules...)
 {
+    import std.stdio : writeln;
+
     version (EngineQuickJS)
     {
         @("quickjs: " ~ label)
         unittest
         {
-            import std.stdio : writeln;
-
             writeln("QuickJS ", label);
             auto engine = createEngine();
             auto cfg = EngineConfig(TEST_MEMORY_LIMIT, TEST_MAX_STACK);
@@ -163,8 +155,6 @@ mixin template EngineTestRunner(string label, Modules...)
         @("jsc: " ~ label)
         unittest
         {
-            import std.stdio : writeln;
-
             writeln("JSC ", label);
             auto engine = createEngine();
             auto cfg = EngineConfig(TEST_MEMORY_LIMIT, TEST_MAX_STACK);
@@ -182,8 +172,6 @@ mixin template EngineTestRunner(string label, Modules...)
         @("v8: " ~ label)
         unittest
         {
-            import std.stdio : writeln;
-
             writeln("V8 ", label);
             auto engine = createEngine();
             auto cfg = EngineConfig(TEST_MEMORY_LIMIT, TEST_MAX_STACK);

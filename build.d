@@ -134,7 +134,14 @@ string v8PrebuiltUrl()
         else
             return V8_PREBUILT_BASE_URL ~ stem ~ "macos-x64-" ~ profile ~ ".tar.xz";
     }
-    else // Linux (kassane/libv8 v14.9 has linux-x64 and macos-arm64)
+    else version (Windows)
+    {
+        version (AArch64)
+            return V8_PREBUILT_BASE_URL ~ stem ~ "windows-arm64-" ~ profile ~ ".7z";
+        else
+            return V8_PREBUILT_BASE_URL ~ stem ~ "windows-x64-" ~ profile ~ ".7z";
+    }
+    else // Linux
     {
         version (AArch64)
             return V8_PREBUILT_BASE_URL ~ stem ~ "linux-arm64-" ~ profile ~ ".tar.xz";
@@ -208,11 +215,17 @@ void writeV8CrtResponseFile()
         string multiarch = (r.status == 0) ? r.output.strip() : "x86_64-linux-gnu";
 
         string archDir = "/usr/lib/" ~ multiarch;
+        // Arch Linux: CRT lives directly in /usr/lib, not in the multiarch subdir
+        string crtDir = exists(archDir ~ "/Scrt1.o") ? archDir : "/usr/lib";
+
+        // Scan for versioned gcc dirs (e.g. 16.1.1, 15.2.1) via dirEntries
         string[] gccDirs;
-        foreach (ver; ["15", "14", "13", "12"])
+        string gccBase = "/usr/lib/gcc/" ~ multiarch;
+        if (exists(gccBase))
         {
-            string d = "/usr/lib/gcc/" ~ multiarch ~ "/" ~ ver;
-            if (exists(d)) { gccDirs ~= d; break; }
+            import std.file : dirEntries, SpanMode;
+            foreach (e; dirEntries(gccBase, SpanMode.shallow))
+                if (e.isDir) gccDirs ~= e.name;
         }
 
         string dynLinker;
@@ -229,15 +242,16 @@ void writeV8CrtResponseFile()
         string rspPath = buildPath(PACKAGE_DIR, "build", "v8-crt.rsp");
 
         auto f = File(rspPath, "w");
-        f.writeln("-L" ~ archDir);
+        f.writeln("-L" ~ crtDir);
+        if (crtDir != archDir) f.writeln("-L" ~ archDir); // keep for other libs
         foreach (d; gccDirs) f.writeln("-L" ~ d);
         f.writeln("-L/lib/" ~ multiarch);
-        f.writeln(archDir ~ "/Scrt1.o");
-        f.writeln(archDir ~ "/crti.o");
+        f.writeln(crtDir ~ "/Scrt1.o");
+        f.writeln(crtDir ~ "/crti.o");
         f.writeln("-lgcc_s");
         f.writeln("-lgcc");
         f.writeln("-lc");
-        f.writeln(archDir ~ "/crtn.o");
+        f.writeln(crtDir ~ "/crtn.o");
         f.writeln("--pie");
         f.writeln("--dynamic-linker=" ~ dynLinker);
         f.close();

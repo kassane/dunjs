@@ -51,15 +51,25 @@ struct EventLoop
         drainNextTicksAndMicrotasks();
 
         {
-            import dun.builtins.net : pollNetIO;
-            import dun.builtins.http : pollHttpIO;
-            import dun.builtins.http2 : pollHttp2IO;
-            import dun.builtins.ws : pollWsIO;
+            import dun.builtins.net : pollNetIO, hasActiveNetIO;
+            import dun.builtins.http : pollHttpIO, dispatchHttpCallbacks, hasActiveHttpIO;
+            import dun.builtins.http2 : pollHttp2IO, hasActiveHttp2IO;
+            import dun.builtins.ws : pollWsIO, hasActiveWsIO;
             import dun.loop.async : asyncDrain, asyncHasWork;
-            pollNetIO();
-            pollHttpIO();
-            pollHttp2IO();
-            pollWsIO();
+
+            // Only poll subsystems that have active I/O — skip idle ones
+            bool anyIO = false;
+            if (hasActiveNetIO()) { pollNetIO(); anyIO = true; }
+            if (hasActiveHttpIO()) { pollHttpIO(); dispatchHttpCallbacks(); anyIO = true; }
+            else { dispatchHttpCallbacks(); } // still dispatch any queued callbacks
+            if (hasActiveHttp2IO()) { pollHttp2IO(); anyIO = true; }
+            if (hasActiveWsIO()) { pollWsIO(); anyIO = true; }
+
+            version (Posix)
+            {
+                import dun.builtins.tls : pollTlsIO, hasActiveTlsIO;
+                if (hasActiveTlsIO()) { pollTlsIO(); anyIO = true; }
+            }
 
             if (asyncDrain() > 0)
                 drainNextTicksAndMicrotasks();
@@ -67,6 +77,17 @@ struct EventLoop
             {
                 import dun.workers.worker : pollWorkerMessages;
                 pollWorkerMessages(engine);
+            }
+
+            {
+                import dun.builtins.cluster : pollClusterWorkers;
+                pollClusterWorkers();
+            }
+
+            {
+                import dun.runtime.signals : checkSignals, drainSignals;
+                if (checkSignals())
+                    drainSignals();
             }
 
             if (!engine.hasPendingJobs()
@@ -104,6 +125,7 @@ struct EventLoop
         import dun.builtins.http : hasActiveHttpIO;
         import dun.builtins.http2 : hasActiveHttp2IO;
         import dun.builtins.ws : hasActiveWsIO;
+        import dun.builtins.cluster : hasActiveClusterWorkers;
         import dun.loop.agnostic_pending : hasAgnosticPending;
         import dun.loop.async : asyncHasWork;
 
@@ -116,8 +138,15 @@ struct EventLoop
             || hasActiveHttpIO()
             || hasActiveHttp2IO()
             || hasActiveWsIO()
+            || hasActiveClusterWorkers()
             || hasAgnosticPending()
             || asyncHasWork();
+
+        version (Posix)
+        {
+            import dun.builtins.tls : hasActiveTlsIO;
+            base = base || hasActiveTlsIO();
+        }
 
         version (EngineQuickJS)
         {

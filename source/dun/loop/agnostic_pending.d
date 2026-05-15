@@ -2,11 +2,13 @@ module dun.loop.agnostic_pending;
 
 import dun.engine.iface : IJSEngine, JSHandle;
 
+private enum MAX_PENDING_ARGS = 4;
+
 struct AgnosticPendingCall
 {
     IJSEngine engine;
     JSHandle func;
-    JSHandle[4] args;
+    JSHandle[MAX_PENDING_ARGS] args;
     int argc;
 }
 
@@ -14,7 +16,7 @@ private AgnosticPendingCall[] agQueue;
 
 void pushAgnosticPending(IJSEngine engine, JSHandle func, JSHandle[] args) nothrow @trusted
 {
-    if (args.length > 4) args = args[0 .. 4];
+    if (args.length > MAX_PENDING_ARGS) args = args[0 .. MAX_PENDING_ARGS];
     AgnosticPendingCall c;
     c.engine = engine;
     try { c.func = engine.dupValue(func); } catch (Throwable) { return; }
@@ -38,8 +40,9 @@ void drainAgnosticPending() @trusted
         auto engine = c.engine;
         try
         {
-            auto argSlice = c.args[0 .. c.argc];
-            auto ret = engine.callFunction(c.func, engine.newUndefined(), argSlice.dup);
+            // Use stack buffer to avoid GC allocation from .dup
+            JSHandle[MAX_PENDING_ARGS] argBuf = c.args;
+            auto ret = engine.callFunction(c.func, engine.newUndefined(), argBuf[0 .. c.argc]);
             engine.freeValue(ret);
         }
         catch (Exception) {}

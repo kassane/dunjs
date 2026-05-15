@@ -1,0 +1,33 @@
+PASS: require fs/promises: true
+PASS: fs.promises: true
+PASS: mkdir created dir
+PASS: writeFile completed
+PASS: readFile: true
+PASS: appendFile: true
+PASS: stat isFile: true
+PASS: stat size: true
+PASS: copyFile: true
+PASS: readdir: copy.txt,test.txt
+PASS: rename: true
+PASS: access ok
+PASS: access throws for missing: true
+PASS: realpath: true
+PASS: chmod ok
+PASS: lstat isFile: true
+PASS: truncate: true
+PASS: unlink ok
+PASS: rmdir ok
+PASS: mkdir recursive: true
+PASS: rm recursive ok
+PASS: symlink: true
+PASS: symlink isSymbolicLink: true
+PASS: rm force no throw: true
+PASS: open returns FileHandle: true
+PASS: FileHandle has close: true
+PASS: FileHandle has stat: true
+PASS: FileHandle has read: true
+PASS: FileHandle readFile: true
+PASS: FileHandle stat isFile: true
+PASS: FileHandle close ok
+PASS: FileHandle writeFile: true
+All fs/promises tests passed

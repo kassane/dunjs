@@ -39,7 +39,7 @@ class QuickJSEngine : IJSEngine
         }
     }
 
-    JSResult eval(const(char)[] source, string filename) @trusted
+    JSResult eval(scope const(char)[] source, string filename) @trusted
     {
         assert(ctx !is null, "Engine not initialized");
         assert(source.ptr !is null, "Null source pointer");
@@ -68,7 +68,7 @@ class QuickJSEngine : IJSEngine
         return toHandle(JS_NULL());
     }
 
-    JSHandle newString(const(char)[] s) @trusted
+    JSHandle newString(scope const(char)[] s) @trusted
     {
         assert(ctx !is null, "Engine not initialized");
         return toHandle(JS_NewStringLen(ctx, s.ptr, s.length));
@@ -104,15 +104,12 @@ class QuickJSEngine : IJSEngine
         return toHandle(JS_NewArray(ctx));
     }
 
-    JSHandle newUint8Array(const(ubyte)[] data) @trusted
+    JSHandle newUint8Array(scope const(ubyte)[] data) @trusted
     {
         assert(ctx !is null, "Engine not initialized");
-        // Create Uint8Array via ArrayBuffer + typed array constructor
-        // QuickJS JS_NewTypedArray takes ArrayBuffer as first arg
         auto ab = JS_NewArrayBufferCopy(ctx, data.ptr, data.length);
         if (JS_IsException(ab) != 0)
             return toHandle(ab);
-        // Get Uint8Array constructor and call new Uint8Array(arrayBuffer)
         auto global = JS_GetGlobalObject(ctx);
         auto ctor = JS_GetPropertyStr(ctx, global, "Uint8Array");
         auto result = JS_CallConstructor(ctx, ctor, 1, &ab);
@@ -120,6 +117,34 @@ class QuickJSEngine : IJSEngine
         JS_FreeValue(ctx, global);
         JS_FreeValue(ctx, ab);
         return toHandle(result);
+    }
+
+    JSHandle newUint8ArrayZeroed(size_t length) @trusted
+    {
+        assert(ctx !is null, "Engine not initialized");
+        auto global = JS_GetGlobalObject(ctx);
+        auto ctor = JS_GetPropertyStr(ctx, global, "Uint8Array");
+        auto lenArg = JS_NewInt32(ctx, cast(int) length);
+        auto result = JS_CallConstructor(ctx, ctor, 1, &lenArg);
+        JS_FreeValue(ctx, lenArg);
+        JS_FreeValue(ctx, ctor);
+        JS_FreeValue(ctx, global);
+        return toHandle(result);
+    }
+
+    ubyte[] getTypedArrayBytes(JSHandle val) @trusted
+    {
+        assert(ctx !is null, "Engine not initialized");
+        auto v = fromHandle(val);
+        size_t offset, byteLen, bpe;
+        auto ab = JS_GetTypedArrayBuffer(ctx, v, &offset, &byteLen, &bpe);
+        if (JS_IsException(ab) != 0) return null;
+        scope(exit) JS_FreeValue(ctx, ab);
+        size_t abSize;
+        auto ptr = JS_GetArrayBuffer(ctx, &abSize, ab);
+        if (ptr is null) return null;
+        if (offset + byteLen > abSize) return null;
+        return ptr[offset .. offset + byteLen];
     }
 
     JSHandle newFunction(NativeCallback cb, string name, int argc) @trusted
@@ -171,20 +196,20 @@ class QuickJSEngine : IJSEngine
         return JS_ToBool(ctx, fromHandle(val)) != 0;
     }
 
-    JSHandle getProperty(JSHandle obj, const(char)[] name) @trusted
+    JSHandle getProperty(JSHandle obj, scope const(char)[] name) @trusted
     {
         assert(ctx !is null, "Engine not initialized");
-        import std.string : toStringz;
+        char[QJS_STACK_STRING_SIZE] buf = void;
         return toHandle(JS_GetPropertyStr(ctx, fromHandle(obj),
-            (cast(string) name).toStringz));
+            stackTerminate(name, buf)));
     }
 
-    void setProperty(JSHandle obj, const(char)[] name, JSHandle val) @trusted
+    void setProperty(JSHandle obj, scope const(char)[] name, JSHandle val) @trusted
     {
         assert(ctx !is null, "Engine not initialized");
-        import std.string : toStringz;
+        char[QJS_STACK_STRING_SIZE] buf = void;
         JS_SetPropertyStr(ctx, fromHandle(obj),
-            (cast(string) name).toStringz, fromHandle(val));
+            stackTerminate(name, buf), fromHandle(val));
     }
 
     void setPropertyIndex(JSHandle obj, uint idx, JSHandle val) @trusted
@@ -218,7 +243,7 @@ class QuickJSEngine : IJSEngine
         return toHandle(JS_GetGlobalObject(ctx));
     }
 
-    JSHandle callFunction(JSHandle func, JSHandle thisVal, JSHandle[] args) @trusted
+    JSHandle callFunction(JSHandle func, JSHandle thisVal, scope JSHandle[] args) @trusted
     {
         assert(ctx !is null, "Engine not initialized");
         JSValue[NATIVE_CALL_STACK_ARGS] argv = void;
@@ -271,18 +296,24 @@ class QuickJSEngine : IJSEngine
         return extractExceptionWithStack(ctx);
     }
 
-    JSHandle throwTypeError(const(char)[] msg) @trusted
+    JSHandle throwTypeError(scope const(char)[] msg) @trusted
     {
         assert(ctx !is null, "Engine not initialized");
         import std.string : toStringz;
         return toHandle(JS_ThrowTypeError(ctx, "%s", (cast(string) msg).toStringz));
     }
 
-    JSHandle throwRangeError(const(char)[] msg) @trusted
+    JSHandle throwRangeError(scope const(char)[] msg) @trusted
     {
         assert(ctx !is null, "Engine not initialized");
         import std.string : toStringz;
         return toHandle(JS_ThrowRangeError(ctx, "%s", (cast(string) msg).toStringz));
+    }
+
+    JSHandle throwValue(JSHandle val) @trusted
+    {
+        assert(ctx !is null, "Engine not initialized");
+        return toHandle(JS_Throw(ctx, JS_DupValue(ctx, fromHandle(val))));
     }
 
     PromiseHandles newPromise() @trusted
@@ -337,7 +368,7 @@ class QuickJSEngine : IJSEngine
 
     void setModuleLoader(ModuleLoaderCallback loader) {}
 
-    JSResult evalModule(const(char)[] source, string filename) @trusted
+    JSResult evalModule(scope const(char)[] source, string filename) @trusted
     {
         assert(ctx !is null, "Engine not initialized");
         assert(source.ptr !is null, "Null source pointer");
@@ -386,6 +417,7 @@ class QuickJSEngine : IJSEngine
 
     void registerNativeModule(string name, void* initFunc) @trusted
     {
+        assert(ctx !is null, "Engine not initialized in registerNativeModule");
         import std.string : toStringz;
         JS_NewCModule(ctx, name.toStringz,
             cast(JSModuleInitFunc) initFunc);
@@ -424,6 +456,21 @@ class QuickJSEngine : IJSEngine
         auto fnVal = JS_NewCFunction(ctx, func, name.toStringz, argc);
         JS_SetPropertyStr(ctx, global, name.toStringz, fnVal);
         JS_FreeValue(ctx, global);
+    }
+
+    private enum QJS_STACK_STRING_SIZE = 512;
+
+    private static const(char)* stackTerminate(
+        const(char)[] name, return ref char[QJS_STACK_STRING_SIZE] buf) @trusted
+    {
+        if (name.length < QJS_STACK_STRING_SIZE)
+        {
+            buf[0 .. name.length] = name[];
+            buf[name.length] = '\0';
+            return buf.ptr;
+        }
+        import std.string : toStringz;
+        return (cast(string) name).toStringz;
     }
 
     static JSHandle toHandle(JSValue v) pure nothrow @nogc @trusted

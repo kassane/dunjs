@@ -8,15 +8,15 @@ fs.mkdirSync(tmpDir, {recursive: true});
 
 // writeFileSync + readFileSync
 fs.writeFileSync(tmpDir + '/test.txt', 'hello world');
-console.log('write+read:', fs.readFileSync(tmpDir + '/test.txt') === 'hello world');
+console.log('write+read:', fs.readFileSync(tmpDir + '/test.txt', 'utf8') === 'hello world');
 
 // appendFileSync
 fs.appendFileSync(tmpDir + '/test.txt', '!!!');
-console.log('append:', fs.readFileSync(tmpDir + '/test.txt') === 'hello world!!!');
+console.log('append:', fs.readFileSync(tmpDir + '/test.txt', 'utf8') === 'hello world!!!');
 
 // copyFileSync
 fs.copyFileSync(tmpDir + '/test.txt', tmpDir + '/copy.txt');
-console.log('copy:', fs.readFileSync(tmpDir + '/copy.txt') === 'hello world!!!');
+console.log('copy:', fs.readFileSync(tmpDir + '/copy.txt', 'utf8') === 'hello world!!!');
 
 // renameSync
 fs.renameSync(tmpDir + '/copy.txt', tmpDir + '/renamed.txt');
@@ -55,12 +55,12 @@ console.log('lstat isFile:', !lst.isFile());
 
 // linkSync (hard link)
 fs.linkSync(tmpDir + '/test.txt', tmpDir + '/hardlink.txt');
-console.log('hardlink:', fs.readFileSync(tmpDir + '/hardlink.txt') === 'hello world!!!');
+console.log('hardlink:', fs.readFileSync(tmpDir + '/hardlink.txt', 'utf8') === 'hello world!!!');
 
 // truncateSync
 fs.writeFileSync(tmpDir + '/trunc.txt', '1234567890');
 fs.truncateSync(tmpDir + '/trunc.txt', 5);
-console.log('truncate:', fs.readFileSync(tmpDir + '/trunc.txt') === '12345');
+console.log('truncate:', fs.readFileSync(tmpDir + '/trunc.txt', 'utf8') === '12345');
 
 // chownSync (use uid 0 / gid 0 or current)
 try {
@@ -99,7 +99,7 @@ var rs = fs.createReadStream(tmpDir + '/test.txt');
 console.log('createReadStream:', rs !== null && typeof rs.on === 'function');
 console.log('createReadStream path:', rs.path === tmpDir + '/test.txt');
 var rsData = rs.read();
-console.log('createReadStream read:', rsData === 'hello world!!!');
+console.log('createReadStream read:', rsData !== null && rsData.toString() === 'hello world!!!');
 
 // createWriteStream
 var ws = fs.createWriteStream(tmpDir + '/ws_test.txt');
@@ -107,7 +107,7 @@ console.log('createWriteStream:', typeof ws.write === 'function');
 ws.write('hello ');
 ws.write('stream');
 ws.end();
-console.log('createWriteStream data:', fs.readFileSync(tmpDir + '/ws_test.txt') === 'hello stream');
+console.log('createWriteStream data:', fs.readFileSync(tmpDir + '/ws_test.txt', 'utf8') === 'hello stream');
 
 // watch
 var watcher = fs.watch(tmpDir + '/test.txt');

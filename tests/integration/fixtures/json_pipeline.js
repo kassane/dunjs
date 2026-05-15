@@ -3,7 +3,7 @@ const fs = require('fs');
 const crypto = require('crypto');
 const path = require('path');
 
-const raw = fs.readFileSync('tests/integration/fixtures/data/sample.json');
+const raw = fs.readFileSync('tests/integration/fixtures/data/sample.json', 'utf8');
 const parsed = JSON.parse(raw);
 
 // Sort item names

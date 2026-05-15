@@ -21,6 +21,8 @@ void registerQuerystringModule(IJSEngine engine) @trusted
         catch (Exception) {}
     }
 
+    engine.freeValue(global);
+
     version (EngineQuickJS)
         registerQuickJSModule(engine);
 }
@@ -31,6 +33,7 @@ version (EngineQuickJS)
 
     private void registerQuickJSModule(IJSEngine engine) @trusted
     {
+        assert(engine !is null, "Null engine in registerQuickJSModule");
         auto ctx = cast(JSContext*) engine.rawContext();
         assert(ctx !is null, "Null context in querystring registerQuickJSModule");
         auto m = JS_NewCModule(ctx, "dun:querystring", &querystringModuleInit);
@@ -39,6 +42,8 @@ version (EngineQuickJS)
         JS_AddModuleExport(ctx, m, "stringify");
         JS_AddModuleExport(ctx, m, "escape");
         JS_AddModuleExport(ctx, m, "unescape");
+        JS_AddModuleExport(ctx, m, "encode");
+        JS_AddModuleExport(ctx, m, "decode");
         JS_AddModuleExport(ctx, m, "default");
     }
 
@@ -51,6 +56,8 @@ version (EngineQuickJS)
         JS_SetModuleExport(ctx, m, "stringify", JS_GetPropertyStr(ctx, mod, "stringify"));
         JS_SetModuleExport(ctx, m, "escape", JS_GetPropertyStr(ctx, mod, "escape"));
         JS_SetModuleExport(ctx, m, "unescape", JS_GetPropertyStr(ctx, mod, "unescape"));
+        JS_SetModuleExport(ctx, m, "encode", JS_GetPropertyStr(ctx, mod, "encode"));
+        JS_SetModuleExport(ctx, m, "decode", JS_GetPropertyStr(ctx, mod, "decode"));
         JS_SetModuleExport(ctx, m, "default", mod);
         JS_FreeValue(ctx, global);
         return 0;

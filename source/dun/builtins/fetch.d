@@ -13,13 +13,14 @@ private enum : size_t {
 
 void registerFetchGlobal(IJSEngine engine) @trusted
 {
+    assert(engine !is null, "Null engine in registerFetchGlobal");
     auto global = engine.getGlobal();
     engine.setProperty(global, "fetch",
         engine.newFunction(&jsFetch, "fetch", 1));
     engine.freeValue(global);
 }
 
-private JSHandle jsFetch(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+private JSHandle jsFetch(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     import dun.engine.iface : PromiseHandles;
     import dun.loop.async : asyncSubmit;
@@ -187,12 +188,15 @@ FetchResult doFetch(string url, string method, string reqBody,
     if (fd < 0)
         throw new Exception("connection failed to " ~ parsed.host);
 
-    scope (exit)
+    version (Posix)
     {
-        if (!isTls)
+        scope (exit)
         {
-            import core.sys.posix.unistd : close;
-            close(fd);
+            if (!isTls)
+            {
+                import core.sys.posix.unistd : close;
+                close(fd);
+            }
         }
     }
 
@@ -243,39 +247,46 @@ FetchResult doFetch(string url, string method, string reqBody,
         }
     }
 
-    // Plain HTTP
-    string req = buildRequest(method, parsed, reqBody, hasBody, reqHeaders);
-    auto reqBytes = cast(const(ubyte)[]) req;
+    // Plain HTTP (Posix only — Windows uses TLS path or stubs)
+    version (Posix)
     {
-        import core.sys.posix.unistd : posixWrite = write;
-        size_t sent = 0;
-        while (sent < reqBytes.length)
+        string req = buildRequest(method, parsed, reqBody, hasBody, reqHeaders);
+        auto reqBytes = cast(const(ubyte)[]) req;
         {
-            auto n = posixWrite(fd, reqBytes.ptr + sent, reqBytes.length - sent);
-            if (n <= 0) throw new Exception("write failed");
-            sent += n;
+            import core.sys.posix.unistd : posixWrite = write;
+            size_t sent = 0;
+            while (sent < reqBytes.length)
+            {
+                auto n = posixWrite(fd, reqBytes.ptr + sent, reqBytes.length - sent);
+                if (n <= 0) throw new Exception("write failed");
+                sent += n;
+            }
         }
+
+        auto response = readHttpResponse(
+            (ubyte[] buf) @trusted {
+                import core.sys.posix.unistd : posixRead = read;
+                return cast(int) posixRead(fd, buf.ptr, buf.length);
+            });
+
+        if (response.status >= 301 && response.status <= 308)
+        {
+            if (auto loc = "location" in response.headers)
+            {
+                string newUrl = *loc;
+                if (newUrl.length > 0 && newUrl[0] == '/')
+                    newUrl = parsed.scheme ~ "://" ~ parsed.host ~ newUrl;
+                return doFetch(newUrl, method, reqBody, hasBody,
+                    reqHeaders, redirectCount + 1);
+            }
+        }
+        response.url = url;
+        return response;
     }
-
-    auto response = readHttpResponse(
-        (ubyte[] buf) @trusted {
-            import core.sys.posix.unistd : posixRead = read;
-            return cast(int) posixRead(fd, buf.ptr, buf.length);
-        });
-
-    if (response.status >= 301 && response.status <= 308)
+    else
     {
-        if (auto loc = "location" in response.headers)
-        {
-            string newUrl = *loc;
-            if (newUrl.length > 0 && newUrl[0] == '/')
-                newUrl = parsed.scheme ~ "://" ~ parsed.host ~ newUrl;
-            return doFetch(newUrl, method, reqBody, hasBody,
-                reqHeaders, redirectCount + 1);
-        }
+        throw new Exception("fetch not supported on this platform");
     }
-    response.url = url;
-    return response;
 }
 
 struct ParsedUrl
@@ -532,39 +543,46 @@ string decodeChunked(string data) @safe
     return result;
 }
 
-int tcpConnect(string host, ushort port) @trusted
+version (Posix)
 {
-    import core.sys.posix.sys.socket;
-    import core.sys.posix.netdb : getaddrinfo, addrinfo, freeaddrinfo;
-    import core.sys.posix.unistd : close;
-    import core.stdc.string : memset;
-    import std.conv : to;
-
-    addrinfo hints;
-    memset(&hints, 0, hints.sizeof);
-    hints.ai_family = AF_UNSPEC;
-    hints.ai_socktype = SOCK_STREAM;
-
-    auto portStr = port.to!string ~ "\0";
-    auto hostZ = (host ~ "\0").ptr;
-
-    addrinfo* res;
-    if (getaddrinfo(hostZ, portStr.ptr, &hints, &res) != 0)
-        return -1;
-    scope (exit) freeaddrinfo(res);
-
-    for (auto rp = res; rp !is null; rp = rp.ai_next)
+    int tcpConnect(string host, ushort port) @trusted
     {
-        int fd = socket(rp.ai_family, rp.ai_socktype, rp.ai_protocol);
-        if (fd < 0) continue;
+        import core.sys.posix.sys.socket;
+        import core.sys.posix.netdb : getaddrinfo, addrinfo, freeaddrinfo;
+        import core.sys.posix.unistd : close;
+        import core.stdc.string : memset;
+        import std.conv : to;
 
-        if (connect(fd, rp.ai_addr, rp.ai_addrlen) == 0)
-            return fd;
+        addrinfo hints;
+        memset(&hints, 0, hints.sizeof);
+        hints.ai_family = AF_UNSPEC;
+        hints.ai_socktype = SOCK_STREAM;
 
-        close(fd);
+        auto portStr = port.to!string ~ "\0";
+        auto hostZ = (host ~ "\0").ptr;
+
+        addrinfo* res;
+        if (getaddrinfo(hostZ, portStr.ptr, &hints, &res) != 0)
+            return -1;
+        scope (exit) freeaddrinfo(res);
+
+        for (auto rp = res; rp !is null; rp = rp.ai_next)
+        {
+            int fd = socket(rp.ai_family, rp.ai_socktype, rp.ai_protocol);
+            if (fd < 0) continue;
+
+            if (connect(fd, rp.ai_addr, rp.ai_addrlen) == 0)
+                return fd;
+
+            close(fd);
+        }
+
+        return -1;
     }
-
-    return -1;
+}
+else
+{
+    int tcpConnect(string, ushort) @trusted { return -1; }
 }
 
 JSHandle makeResponse(IJSEngine engine, FetchResult r) @trusted
@@ -625,7 +643,7 @@ JSHandle makeResponseFallback(IJSEngine engine, FetchResult r) @trusted
     return obj;
 }
 
-JSHandle responseText(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle responseText(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in responseText");
     auto state = cast(DunState*) ctx;
@@ -635,7 +653,7 @@ JSHandle responseText(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
     return body_;
 }
 
-JSHandle responseJson(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+JSHandle responseJson(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in responseJson");
     auto state = cast(DunState*) ctx;

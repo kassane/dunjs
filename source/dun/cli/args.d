@@ -37,6 +37,7 @@ struct CliConfig
     size_t stackSize = DEFAULT_MAX_STACK;
     bool verbose;
     string evalFile;
+    string errorMessage;
 
     import dun.modules.npm : AuditMode;
     AuditMode auditMode = AuditMode.warn;
@@ -45,6 +46,10 @@ struct CliConfig
     string testFilter;
     string initName;
     string[] fmtFiles;
+    bool inspect;
+    bool inspectBrk;
+    ushort inspectPort = 9229;
+    bool watchMode;
 }
 
 /// Parse command-line arguments into a CliConfig.
@@ -74,25 +79,60 @@ CliConfig parseArgs(string[] args) @safe
         else if (args[i] == "--version" || args[i] == "-v")
         {
             config.command = Command.version_;
+            i++;
+            if (i < args.length)
+            {
+                config.errorMessage = "unexpected argument '" ~ args[i] ~ "' after '" ~ args[i-1] ~ "'";
+                return config;
+            }
             return config;
         }
         else if (args[i] == "--help" || args[i] == "-h")
         {
             config.command = Command.help;
+            i++;
+            if (i < args.length)
+            {
+                config.errorMessage = "unexpected argument '" ~ args[i] ~ "' after '" ~ args[i-1] ~ "'";
+                return config;
+            }
             return config;
         }
+        else if (args[i] == "-e" || args[i] == "--eval")
+        {
+            config.command = Command.eval_;
+            i++;
+            if (i < args.length)
+            {
+                config.evalSource = args[i];
+                i++;
+            }
+            break;
+        }
+        else if (isKnownFlag(args[i]))
+        {
+            break; // Permission/runtime flags handled after command detection
+        }
         else
-            break; // Other flags handled after command detection
+        {
+            config.errorMessage = "unknown flag '" ~ args[i] ~ "'";
+            return config;
+        }
     }
 
     if (i >= args.length)
     {
-        config.command = Command.repl;
+        if (config.command == Command.help)
+            config.command = Command.repl;
         return config;
     }
 
-    // Parse command
-    if (args[i] == "run")
+    // Parse command keyword (skip if already determined by pre-scan flags like -e)
+    if (config.command == Command.eval_)
+    {
+        // Already set by -e/--eval; skip to flag parsing
+    }
+    else if (args[i] == "run")
     {
         config.command = Command.run;
         i++;
@@ -101,6 +141,11 @@ CliConfig parseArgs(string[] args) @safe
     {
         config.command = Command.repl;
         i++;
+        if (i < args.length && !args[i].startsWith("-"))
+        {
+            config.errorMessage = "unexpected argument '" ~ args[i] ~ "' after 'repl'";
+            return config;
+        }
     }
     else if (args[i] == "eval")
     {
@@ -121,6 +166,23 @@ CliConfig parseArgs(string[] args) @safe
     {
         config.command = Command.audit;
         i++;
+        while (i < args.length)
+        {
+            if (args[i].startsWith("--audit="))
+            {
+                i++;
+            }
+            else if (args[i].startsWith("-"))
+            {
+                config.permissions.parseFlag(args[i]);
+                i++;
+            }
+            else
+            {
+                config.errorMessage = "unexpected argument '" ~ args[i] ~ "' after 'audit'";
+                return config;
+            }
+        }
     }
     else if (args[i] == "test")
     {
@@ -164,6 +226,11 @@ CliConfig parseArgs(string[] args) @safe
             config.initName = args[i];
             i++;
         }
+        if (i < args.length)
+        {
+            config.errorMessage = "unexpected argument '" ~ args[i] ~ "' after 'init'";
+            return config;
+        }
         return config;
     }
     else if (args[i] == "fmt" || args[i] == "format")
@@ -180,29 +247,58 @@ CliConfig parseArgs(string[] args) @safe
     else if (args[i] == "clean")
     {
         config.command = Command.clean;
+        i++;
+        if (i < args.length)
+        {
+            config.errorMessage = "unexpected argument '" ~ args[i] ~ "' after 'clean'";
+            return config;
+        }
         return config;
     }
     else if (args[i] == "version")
     {
         config.command = Command.version_;
+        i++;
+        if (i < args.length)
+        {
+            config.errorMessage = "unexpected argument '" ~ args[i] ~ "' after 'version'";
+            return config;
+        }
         return config;
     }
     else if (args[i] == "help")
     {
         config.command = Command.help;
+        i++;
+        if (i < args.length)
+        {
+            config.errorMessage = "unexpected argument '" ~ args[i] ~ "' after 'help'";
+            return config;
+        }
         return config;
     }
     else if (args[i].startsWith("-"))
     {
-        // Unrecognized leading flag — default to run, let remaining loop process it
-        config.command = Command.run;
+        if (isKnownFlag(args[i]))
+        {
+            config.command = Command.run;
+        }
+        else
+        {
+            config.errorMessage = "unknown flag '" ~ args[i] ~ "'";
+            return config;
+        }
     }
-    else
+    else if (looksLikeFile(args[i]))
     {
-        // Bare filename — implicit run
         config.command = Command.run;
         config.scriptPath = args[i];
         i++;
+    }
+    else
+    {
+        config.errorMessage = "unknown command '" ~ args[i] ~ "'. Run 'dun help' for usage.";
+        return config;
     }
 
     // Parse remaining arguments
@@ -288,12 +384,51 @@ CliConfig parseArgs(string[] args) @safe
             continue;
         }
 
+        if (arg == "--watch" || arg == "-w")
+        {
+            config.watchMode = true;
+            i++;
+            continue;
+        }
+
+        if (arg == "--inspect" || arg.startsWith("--inspect="))
+        {
+            config.inspect = true;
+            if (arg.startsWith("--inspect="))
+            {
+                try { config.inspectPort = arg["--inspect=".length .. $].to!ushort; }
+                catch (Exception) {}
+            }
+            i++;
+            continue;
+        }
+
+        if (arg == "--inspect-brk" || arg.startsWith("--inspect-brk="))
+        {
+            config.inspect = true;
+            config.inspectBrk = true;
+            if (arg.startsWith("--inspect-brk="))
+            {
+                try { config.inspectPort = arg["--inspect-brk=".length .. $].to!ushort; }
+                catch (Exception) {}
+            }
+            i++;
+            continue;
+        }
+
         // Eval source
         if (config.command == Command.eval_ && config.evalSource.length == 0)
         {
             config.evalSource = arg;
             i++;
             continue;
+        }
+
+        // Unknown flag before script path
+        if (arg.startsWith("-") && config.scriptPath.length == 0)
+        {
+            config.errorMessage = "unknown flag '" ~ arg ~ "'";
+            return config;
         }
 
         // Script path (if not yet set)
@@ -304,10 +439,63 @@ CliConfig parseArgs(string[] args) @safe
             continue;
         }
 
-        // Script arguments
+        // Reject unexpected positional args for commands that don't accept them
+        if (config.command == Command.eval_ || config.command == Command.version_
+            || config.command == Command.help || config.command == Command.audit
+            || config.command == Command.clean || config.command == Command.repl)
+        {
+            import std.conv : to;
+            string cmdName;
+            final switch (config.command) {
+                case Command.eval_: cmdName = "eval"; break;
+                case Command.version_: cmdName = "version"; break;
+                case Command.help: cmdName = "help"; break;
+                case Command.audit: cmdName = "audit"; break;
+                case Command.clean: cmdName = "clean"; break;
+                case Command.repl: cmdName = "repl"; break;
+                case Command.run: case Command.install: case Command.test_:
+                case Command.bench: case Command.init_: case Command.fmt:
+                    break;
+            }
+            if (cmdName.length > 0)
+            {
+                config.errorMessage = "unexpected argument '" ~ arg ~ "' after '" ~ cmdName ~ "'";
+                return config;
+            }
+        }
+
+        // Script arguments (after script path, flags are passed to the script)
         config.scriptArgs ~= arg;
         i++;
     }
 
     return config;
+}
+
+private bool isKnownFlag(string arg) @safe pure nothrow @nogc
+{
+    import std.algorithm : startsWith;
+
+    return arg == "--verbose" || arg == "-V"
+        || arg == "--version" || arg == "-v"
+        || arg == "--help" || arg == "-h"
+        || arg == "-A"
+        || arg.startsWith("--allow-")
+        || arg.startsWith("--deny-")
+        || arg.startsWith("--max-memory=")
+        || arg.startsWith("--max-stack=")
+        || arg.startsWith("--eval-file=")
+        || arg.startsWith("--audit=")
+        || arg.startsWith("--filter=")
+        || arg.startsWith("--inspect")
+        || arg.startsWith("--inspect-brk")
+        || arg == "--watch" || arg == "-w";
+}
+
+private bool looksLikeFile(string arg) @safe pure nothrow @nogc
+{
+    foreach (c; arg)
+        if (c == '.' || c == '/')
+            return true;
+    return false;
 }

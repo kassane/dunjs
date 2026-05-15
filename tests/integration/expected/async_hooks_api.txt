@@ -1,0 +1,12 @@
+=== async_hooks ===
+getStore outside: undefined
+getStore inside: 42
+getStore after: undefined
+nested L1: 1
+nested L2: 2
+back to L1: 1
+enterWith: true
+after disable: undefined
+extra args: hello world
+store in extra: extra
+PASS: async_hooks

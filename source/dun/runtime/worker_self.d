@@ -50,7 +50,7 @@ private WorkerState _getWst(IJSEngine engine) nothrow @trusted
     catch (Throwable) { return null; }
 }
 
-private JSHandle _selfPostMessage(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+private JSHandle _selfPostMessage(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in self.postMessage");
     auto state = cast(DunState*) ctx;
@@ -75,7 +75,7 @@ private JSHandle _selfPostMessage(void* ctx, JSHandle thisVal, JSHandle[] args) 
     return engine.newUndefined();
 }
 
-private JSHandle _selfClose(void* ctx, JSHandle thisVal, JSHandle[] args) @trusted
+private JSHandle _selfClose(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in self.close");
     auto state = cast(DunState*) ctx;

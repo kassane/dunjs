@@ -7,7 +7,7 @@ const CONFIG_DIR = 'tests/integration/fixtures/data';
 
 function loadConfig(filename) {
   const fullPath = path.resolve(path.join(CONFIG_DIR, filename));
-  const raw = fs.readFileSync(fullPath);
+  const raw = fs.readFileSync(fullPath, 'utf8');
   const parsed = JSON.parse(raw);
   return parsed;
 }

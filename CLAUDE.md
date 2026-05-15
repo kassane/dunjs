@@ -51,7 +51,7 @@ DFLAGS="--fsanitize=address" dub build -c quickjs  # Alternative ASan via DFLAGS
 Layer 7: CLI & REPL           source/dun/cli/
 Layer 6: Runtime API           source/dun/runtime/     (console, timers, process, Deno.*)
 Layer 5: Module System         source/dun/modules/     (ES modules, resolver, loader, npm installer)
-Layer 4: Built-in Modules      source/dun/builtins/    (dun:fs, dun:path, dun:net, dun:http, dun:http2, dun:os, dun:buffer, dun:events, dun:url, dun:zlib, dun:dns, dun:ws, dun:child_process, dun:stream, dun:sqlite, fetch)
+Layer 4: Built-in Modules      source/dun/builtins/    (dun:fs, dun:path, dun:net, dun:http, dun:http2, dun:http3, dun:os, dun:buffer, dun:events, dun:url, dun:zlib, dun:dns, dun:ws, dun:child_process, dun:stream, dun:sqlite, fetch)
 Layer 3: Event Loop            source/dun/loop/        (epoll/kqueue/poll, timer wheel, microtasks)
 Layer 2: JS Engine Abstraction source/dun/engine/      (IJSEngine interface + backends)
 Layer 1: Platform Abstraction  source/dun/platform/    (memory, threading, OS I/O, arena allocator)
@@ -68,7 +68,7 @@ source/dun/engine/
 +-- callbacks.d      # Global NativeCallback registry (register/get by slot ID)
 +-- package.d        # Re-exports iface + factory
 +-- test.d           # BDD-style engine contract tests (~50 cases)
-+-- fuzz.d           # Fuzz/stress tests (~50 cases)
++-- fuzz.d           # Fuzz/stress tests (~71 cases)
 +-- quickjs/         # QuickJS-NG backend
 |   +-- backend.d    # QuickJSEngine : IJSEngine
 |   +-- bindings.d   # extern(C) declarations for quickjs.h
@@ -100,7 +100,9 @@ source/dun/ts/           # TypeScript type stripping
 
 source/dun/platform/
 +-- arena.d              # Arena/bump allocator (std.experimental.allocator Region, BorrowedRegion, InSituRegion, Mallocator)
++-- simd.d               # SIMD primitives + LDC intrinsics (loadUnaligned, shufflevector, bswap, cttz, prefetch)
 +-- openssl.d            # extern(C) OpenSSL bindings (libssl, libcrypto, ALPN, SSL_accept, cert/key loading)
++-- lsquic.d             # extern(C) lsquic bindings (QUIC/HTTP3, litespeedtech/lsquic)
 
 source/dun/security/
 +-- permissions.d        # PermissionRegistry (default-deny model)
@@ -120,13 +122,14 @@ All runtime globals are **engine-agnostic** (use `IJSEngine` + `NativeCallback`)
 | `Buffer` | `registerBufferModule(engine)` | Global `Buffer`, `require('buffer')` |
 | `EventEmitter` | `registerEventsModule(engine)` | Global `EventEmitter`, `require('events')` |
 | `URL` / `URLSearchParams` | `registerUrlModule(engine)` | Global `URL`/`URLSearchParams`, `require('url')` |
-| `os` | `registerOsModule(engine)` | `require('os')` |
+| `os` | `registerOsModule(engine)` | `require('os')` — platform, cpus, totalmem, freemem, networkInterfaces, userInfo, loadavg, version, machine |
 | `fs` | `registerFsModule(engine)` | `require('fs')`, ESM `import from 'dun:fs'` |
 | `path` | `registerPathModule(engine)` | `require('path')`, ESM `import from 'dun:path'` |
 | `crypto` | `registerCryptoModule(engine)` | `require('crypto')`, ESM `import from 'dun:crypto'` |
 | `net` | `registerNetModule(engine)` | `require('net')`, ESM `import from 'dun:net'` |
 | `http` | `registerHttpModule(engine)` | `require('http')`, ESM `import from 'dun:http'` |
 | `http2` | `registerHttp2Module(engine)` | `require('http2')`, ESM `import from 'dun:http2'` |
+| `http3` | `registerHttp3Module(engine)` | `require('http3')`, ESM `import from 'dun:http3'` |
 | `child_process` | `registerChildProcessModule(engine)` | `require('child_process')`, ESM `import from 'dun:child_process'` |
 | `stream` | `registerStreamModule(engine)` | `require('stream')`, ESM `import from 'dun:stream'` |
 | `zlib` | `registerZlibModule(engine)` | `require('zlib')`, ESM `import from 'dun:zlib'` |
@@ -138,14 +141,33 @@ All runtime globals are **engine-agnostic** (use `IJSEngine` + `NativeCallback`)
 | `querystring` | `registerQuerystringModule(engine)` | `require('querystring')`, ESM `import from 'dun:querystring'` |
 | `string_decoder` | `registerStringDecoderModule(engine)` | `require('string_decoder')`, ESM `import from 'dun:string_decoder'` |
 | `timers/promises` | `registerTimersPromisesModule(engine)` | `require('timers/promises')`, ESM `import from 'dun:timers/promises'` |
+| `vm` | `registerVmModule(engine)` | `require('vm')`, ESM `import from 'dun:vm'` |
+| `cluster` | `registerClusterModule(engine)` | `require('cluster')`, ESM `import from 'dun:cluster'` |
+| `async_hooks` | `registerAsyncHooksModule(engine)` | `require('async_hooks')`, ESM `import from 'dun:async_hooks'` |
+| `worker_threads` | `registerWorkerThreadsModule(engine)` | `require('worker_threads')`, ESM `import from 'dun:worker_threads'` |
+| `https` | `registerHttpsModule(engine)` | `require('https')`, ESM `import from 'dun:https'` |
+| `fs/promises` | `registerFsPromisesModule(engine)` | `require('fs/promises')`, ESM `import from 'dun:fs/promises'` |
+| `readline` | `registerReadlineModule(engine)` | `require('readline')`, ESM `import from 'dun:readline'` |
+| `tls` | `registerTlsModule(engine)` | `require('tls')`, ESM `import from 'dun:tls'` — connect, getCiphers, TLSSocket, constants |
+| `dgram` | `registerDgramModule(engine)` | `require('dgram')`, ESM `import from 'dun:dgram'` — createSocket, bind, send, close |
+| `perf_hooks` | `registerPerfHooksModule(engine)` | `require('perf_hooks')`, ESM `import from 'dun:perf_hooks'` — mark/measure/getEntries, PerformanceObserver, timerify |
+| `punycode` | stub (globalThis) | `require('punycode')`, ESM `import from 'dun:punycode'` |
+| `domain` | stub (globalThis) | `require('domain')`, ESM `import from 'dun:domain'` |
+| `diagnostics_channel` | stub (globalThis) | `require('diagnostics_channel')`, ESM `import from 'dun:diagnostics_channel'` |
+| `tty` | `registerTtyModule(engine)` | `require('tty')`, ESM `import from 'dun:tty'` |
+| `constants` | stub (globalThis) | `require('constants')` |
+| `module` | stub (globalThis) | `require('module')` — builtinModules, isBuiltin, createRequire |
+| `timers` | stub (globalThis) | `require('timers')` — setTimeout, setInterval, etc. |
+| `process` | stub (globalThis) | `require('process')` — delegates to global `process` |
+| `console` | stub (globalThis) | `require('console')` — delegates to global `console` |
 | `fetch` | `registerFetchGlobal(engine)` | Global `fetch()` (Posix, HTTPS via OpenSSL) |
 | Web globals | `installWebCompat(engine)` | `atob`, `btoa`, `structuredClone`, `TextEncoder`, `TextDecoder`, native Uint8Array creation |
-| Web APIs | `installWebAPIs(engine)` | `performance`, `EventTarget`, `Event`, `CustomEvent`, `AbortController`, `AbortSignal`, `DOMException`, `navigator`, `Blob`, `File`, `FormData`, `Headers`, `Request`, `Response`, `MessageChannel`, `MessagePort`, `BroadcastChannel`, `ReadableStream`, `WritableStream`, `TransformStream`, `setImmediate`, `clearImmediate`, `Promise.withResolvers`, `crypto.getRandomValues`, `crypto.randomUUID`, `console.time/timeEnd/timeLog/count/countReset/table/dir/trace` |
+| Web APIs | `installWebAPIs(engine)` | `performance`, `EventTarget`, `Event`, `CustomEvent`, `AbortController`, `AbortSignal`, `DOMException`, `navigator`, `Blob`, `File`, `FormData`, `Headers`, `Request`, `Response`, `MessageChannel`, `MessagePort`, `BroadcastChannel`, `ReadableStream`, `WritableStream`, `TransformStream`, `CompressionStream`, `DecompressionStream`, `setImmediate`, `clearImmediate`, `Promise.withResolvers`, `crypto.getRandomValues`, `crypto.randomUUID`, `crypto.subtle`, `console.time/timeEnd/timeLog/count/countReset/table/dir/trace` |
 | `Deno.*` | `installDenoCompat(engine)` | Full Deno compat (30+ APIs: env, fs, permissions, errors) |
 
 All modules work identically across QuickJS, JSC, and V8 backends.
 Workers work identically across QuickJS, JSC, and V8 backends.
-Web APIs (91 checks) pass identically across all 3 backends.
+Web APIs (101 checks) pass identically across all 3 backends.
 
 ### Module Resolution (package.json)
 
@@ -246,11 +268,34 @@ Applied across all 7 layers (~290 assertions in 25 files).
 - **V8 indexed properties**: Native `dun_v8_get/set_property_index` via `Object::Get(context, idx)` — no int-to-string conversion
 - **Crypto cached fd**: `/dev/urandom` opened once, reused for all `randomBytes`/`randomUUID` calls
 - **UUID fast format**: CTFE hex LUT instead of `std.format` for UUID formatting
-- **CTFE hex LUT**: `bytesToHex` uses compile-time 512-byte lookup table, no `std.format`
+- **SIMD hex encoding**: `hexEncodeBuf` uses `core.simd` + LDC `shufflevector` for zero-copy interleave (16 bytes → 32 hex chars/cycle, no scalar loop)
+- **SIMD HTTP toLower**: `asciiToLowerBuf` lowercases HTTP header names 16 bytes/cycle via SIMD masks (used by `http.d` `parseRequestHeaders`)
+- **SIMD byte search**: `findByte` scans buffers 16 bytes/cycle; LDC path uses `llvm_cttz` for O(1) first-match extraction
+- **LDC load/store**: `ldc.simd.loadUnaligned`/`storeUnaligned` for correct unaligned SIMD access (no undefined behavior)
+- **LDC prefetch**: `llvm_prefetch` hints for data cache warming in large buffer operations
+- **Buffer bswap**: `bswap16`/`bswap32`/`bswap64` (LDC: single `llvm_bswap` instruction) for all Buffer BE read/write ops
+- **CTFE hex LUT**: Fallback 512-byte lookup table for non-SIMD paths and tail bytes
 - **Pre-allocated buffers**: WebSocket frames, ESM shim use `Appender` with `reserve()`
 - **ESM shim O(n) strings**: `escapeJsString`, `splitLines`, `parseImportLine` use `Appender` instead of `~=`/`~` concatenation
 - **Arena allocator**: `dun.platform.arena` re-exports `std.experimental.allocator` (`Region!Mallocator`, `BorrowedRegion`, `InSituRegion`) for `@nogc pure` bump allocation
 - **GC tuning**: `rt_options = ["gcopt=minPoolSize:16"]` reduces GC collections ~11x
+- **HTTP TCP_NODELAY**: Disables Nagle's algorithm on accepted sockets, eliminating 40ms delayed-ACK latency
+- **HTTP buffered response**: Headers + body combined in `char[MAX_BUF]` stack buffer, flushed in single `send()` call
+- **HTTP CTFE status lines**: `statusLine()` returns pre-computed `"HTTP/1.1 200 OK\r\n"` strings — `pure nothrow @safe @nogc`, zero allocation
+- **HTTP connection pool**: fd→connId hashmap (O(1) lookup) + free slot list for connection reuse
+- **HTTP JS-level dispatch**: Pre-compiled JS function creates req/res objects in JIT-optimized JS, reducing per-request FFI calls from ~25 to ~8
+- **HTTP lazy headers**: `get headers()` getter loads headers on demand via native callback, avoiding allocation when headers unused
+- **HTTP O(1) hasActiveIO**: Counter-based `hasActiveHttpIO()` instead of O(n) scan of servers+connections per event loop tick
+- **JSC cached __cbSlot__**: JSStringRef for `__cbSlot__` created once, eliminates create+release per native function call
+- **JSC cached length**: JSStringRef for `"length"` property cached for `getArrayLength` hot path
+- **JSC/V8 stackTerminate**: Stack buffer for property name null-termination, avoids `toStringz` GC allocation per `getProperty`/`setProperty`
+- **V8 batch type query**: `dun_v8_value_get_type()` returns type tag in single FFI call (was 9 individual `isXxx` calls)
+- **V8 thread-local value pool**: 512-entry pool eliminates mutex contention in trampoline value wrapping
+- **UUID random byte pool**: Pre-fills 64 UUIDs worth of random bytes per `getrandom` syscall, amortizing kernel overhead
+- **getrandom syscall**: Linux fast path uses `__NR_getrandom` syscall directly (no fd management)
+- **JSHandle leak fixes**: `freeValue()` added to 40+ `getProperty`/`getGlobal` call sites across all builtins
+- **Console format batch**: `__dun_format_console__` formats all args in single JS call (1 FFI call vs N per console.log)
+- **LTO + mcpu=native**: Release builds use `--flto=thin`, `--mcpu=native`, `--inline-threshold=350`, `--hot-cold-split`
 
 ### 8. Event Loop Phases (per tick)
 
@@ -375,16 +420,17 @@ dub test -c unittest    # All unit tests
 | Suite | File | Tests | Coverage |
 |-------|------|-------|----------|
 | Engine contract | `source/dun/engine/test.d` | ~50 | eval, types, properties, exceptions, promises |
-| Fuzz/stress | `source/dun/engine/fuzz.d` | ~50 | rapid create/destroy, string stress, exception recovery |
+| Fuzz/stress | `source/dun/engine/fuzz.d` | ~71 | rapid create/destroy, string stress, exception recovery, ES2023+, typed arrays, JSON, classes, closures, regex, proxy, symbols, destructuring |
 | TypeScript strip | `source/dun/ts/strip.d` | 20 | annotations, interfaces, as, declare, arrow types |
 | Security perms | `source/dun/security/test.d` | 27 | default deny, scoped grants, deny overrides, parseFlag |
 | CVE audit | `source/dun/security/cve_db.d` | 8 | semver, CVSS parsing, severity mapping, JSON escaping, cache round-trip |
 | SQLite | `source/dun/builtins/sqlite.d` | 4 | ImportC bindings, open/close, exec/query, bind parameters |
 | HTTP/2 | `source/dun/builtins/http2.d` | 15 | frame encoding, HPACK encode/decode, static table, settings |
+| HTTP/3 | `source/dun/builtins/http3.d` | 12 | QUIC varint encode/decode, H3 frame header, SETTINGS payload |
 | V8 TMP bridge | `source/dun/engine/v8/cppbindings.d` | compile-time | V8TypeName coverage, tag->name mapping |
 | JSC TMP bridge | `source/dun/engine/jsc/cppbindings.d` | compile-time | JSCTypeName coverage, kJSType* alignment |
 
-### Integration Tests (62 fixtures)
+### Integration Tests (103 tests, 474 npm compat checks)
 
 ```sh
 # Run against a specific backend
@@ -395,24 +441,53 @@ dub build -c v8  && BACKEND=v8  ./tests/integration/run.sh
 
 | Category | Tests | Coverage |
 |----------|-------|----------|
-| Core JS | `hello`, `types`, `console_methods` | Basic output, typeof, multi-arg logging |
+| Core JS | `hello`, `types`, `console_methods`, `console_inspect` | Basic output, typeof, multi-arg logging, Node-style object inspect |
 | Async | `promises`, `promises_advanced`, `timers`, `phase2`, `phase2_rejection`, `async_io` | Promise.all/race/any, async/await, setTimeout, unhandledRejection |
 | ES2023+ | `es2023`, `closures`, `iterators`, `classes`, `regex`, `json_parsing` | findLast, generators, Map/Set, private fields, matchAll |
 | Errors | `error_handling` | try/catch, Error subtypes, Error.cause, finally |
 | Modules | `module_esm`, `module_cjs`, `module_chain`, `json_pipeline`, `npm_compat` | ESM import/export, CJS require, chained deps, JSON import |
 | Builtins | `fs_ops`, `path_ops`, `crypto_ops`, `stat_file`, `env_access` | readFile, join/resolve, hash/randomBytes, stat, process.env |
-| Node APIs | `buffer_api`, `event_emitter`, `url_api`, `os_api`, `http2_api` | Buffer.from/alloc/concat, EventEmitter on/emit/once, URL/URLSearchParams, os.platform/cpus/totalmem, HTTP/2 API (20 checks) |
+| Node APIs | `buffer_api`, `event_emitter`, `url_api`, `os_api`, `http2_api`, `http3_api` | Buffer.from/alloc/concat, EventEmitter on/emit/once, URL/URLSearchParams, os.platform/cpus/totalmem, HTTP/2 API (20 checks), HTTP/3 API (22 checks) |
 | New Modules | `child_process_api`, `stream_api`, `zlib_api`, `dns_api`, `ws_api` | execSync/spawnSync, Readable/Writable/Transform/pipeline, deflate/gzip round-trip, DNS lookup/resolve, WebSocket API |
 | Database | `sqlite_api` | open, exec, run, get, all, close, NULL handling, types (20 checks) |
-| Web APIs | `web_apis` | 91 checks: performance, EventTarget/Event, AbortController, Blob, FormData, Headers, Request/Response, MessageChannel, BroadcastChannel, ReadableStream, WritableStream, TransformStream, crypto.getRandomValues, navigator, Promise.withResolvers, require.resolve |
+| Web APIs | `web_apis` | 101 checks: performance, EventTarget/Event, AbortController, Blob, FormData, Headers, Request/Response, MessageChannel, BroadcastChannel, ReadableStream, WritableStream, TransformStream, CompressionStream, DecompressionStream, crypto.getRandomValues, navigator, Promise.withResolvers, require.resolve |
 | Deno compat | `deno_compat` | 22 checks: env, fs, stat, copy, rename, remove, web globals |
 | Security | `perm_deny_read`, `perm_deny_write`, `realworld_security_boundary` | Permission denial enforcement |
 | TypeScript | `typescript`, `realworld_ts_library` | Type annotations, interfaces, as, arrow types |
 | Fetch/Response | `fetch_response` | 19 checks: Response constructor, status/statusText/ok/url, headers, text/json/clone, process.stdin |
 | import.meta | `import_meta` | 6 checks: url, filename, dirname, main (all 3 backends) |
+| New Modules | `vm_api`, `async_hooks_api`, `signal_handling` | vm.runInThisContext/runInNewContext/createContext/Script, AsyncLocalStorage run/getStore/enterWith/disable, process.on('SIGTERM'/'SIGINT') |
+| fs errors | `fs_errors` | Node-compatible Error objects (code/errno/syscall/path), ENOENT, permission errors |
+| fs promises | `fs_promises` | 20 checks: readFile, writeFile, appendFile, copyFile, rename, unlink, mkdir, readdir, stat, access, realpath |
+| HTTPS | `https_api` | https.createServer, options validation, cert/key loading, request/get/Agent |
+| HTTP client | `http_client_api` | 42 checks: STATUS_CODES, METHODS, Agent, request/get, ClientRequest API |
+| Crypto async | `crypto_async` | 12 checks: async pbkdf2/scrypt, randomFill, createSign/createVerify, constants |
 | Real-world | 7 end-to-end scenarios | Config loading, task runner, file processing, events, promise pool, nested require, ESM pipeline |
+| Process | `process_enhanced` | 18 checks: nextTick args, emitWarning, kill, umask, hrtime, memoryUsage, cpuUsage |
+| Crypto | `crypto_cipher` | 12 checks: AES-256-CBC/AES-128-CBC round-trip, getCiphers, getHashes, timingSafeEqual, HMAC |
+| Util | `util_enhanced` | 27 checks: types (20+), debuglog, _extend, format, inherits, promisify, callbackify |
+| Readline | `readline_api` | 18 checks: createInterface, events, write/line, punycode, domain, diagnostics_channel |
+| Env Proxy | `process_env_proxy` | 8 checks: set/delete/in/keys, NODE_ENV pattern |
+| Env Native | `process_env_native` | 11 checks: setenv/unsetenv, child process inheritance, numeric coercion |
+| npm compat | `npm_compat_modules` | 452 checks: 35 modules, key API surface, globals, crypto (25+ APIs), stream, events, util, http/https, tls/dns/dgram, os, perf_hooks, ES2023+, Symbol well-known |
+| UDP/dgram | `dgram_api` | 25 checks: createSocket, bind, address, setBroadcast, setTTL, on/close, Socket alias |
+| spawn/execFile | `spawn_api` | 19 checks: spawn pid/stdout/stderr/stdin/on/kill, execFile with callback |
+| TLS module | `tls_api` | 24 checks: connect, getCiphers, TLSSocket constructor/methods, constants |
+| DNS enhanced | `dns_enhanced` | 18 checks: resolve, getServers, dns.promises, lookupSync, resolve with rrtype |
 
-Backend test scores: **QuickJS 62/62**, **JSC 62/62**, **V8 62/62** (full parity across all 3 backends).
+| Crypto | `crypto_sign` | 19 checks: createSign/createVerify with OpenSSL, RSA/ECDSA, hex/base64 encoding |
+| Zlib | `zlib_enhanced` | 33 checks: async deflate/inflate/gzip/gunzip, createDeflate/createGzip streams, constants |
+
+| Express compat | `express_compat` | 102 checks: EventEmitter, streams, Buffer, URL, path, crypto, querystring, http, assert, os, util |
+| Bundler compat | `bundler_compat` | 91 checks: fs ops, path resolution, crypto hashing, Map/Set, RegExp, string ops, Promise, modules |
+| Crypto keygen | `crypto_keygen` | 12 checks: generateKeyPairSync RSA/EC, PEM output, sign+verify round-trip, DiffieHellman |
+| WebCrypto | `webcrypto_api` | 55 checks: subtle.digest (SHA-1/256/384/512), importKey, sign/verify (HMAC), encrypt/decrypt (AES-GCM/CBC), generateKey (AES/HMAC), exportKey, deriveBits (PBKDF2/HKDF) |
+| .env loading | `dotenv_loading` | 3 checks: parse KEY=VALUE/quoted, no-override existing env, missing .env OK |
+| Production gaps 3 | `production_gaps3` | 15 checks: console.group, TypedArray.from/of, zlib Buffer, sqlite bind |
+| Production gaps 4 | `production_gaps4` | 144 checks: process, Buffer, stream, EventEmitter, path, crypto, fs, Error, util, npm patterns |
+| Production readiness | `production_readiness` | 122 checks: all critical Node.js APIs for production server workloads |
+
+Backend test scores: **QuickJS 108/108**, **JSC 107/107**, **V8 107/107** — **0 failures** across all 3 backends.
 
 Test pattern: fixtures in `tests/integration/fixtures/*.{js,mjs,ts}`, expected stdout in `tests/integration/expected/*.txt`.
 
@@ -437,47 +512,53 @@ All 51 integration tests pass under AddressSanitizer with zero memory errors.
 | `tests/benchmarks/framework_bench.js` | 39 | Framework patterns (routing, middleware, JSON API, templates, SQL, validation, concurrency) |
 | `tests/benchmarks/npm_compat_test.js` | 145 | Simulated npm packages (lodash, express, moment, uuid, chalk, dotenv, minimist, semver, etc.) |
 | `tests/benchmarks/sqlite_bench.js` | 5 | SQLite performance (bulk insert/read, aggregation, update) |
+| `tests/benchmarks/http_bench/stress.sh` | 9 endpoints | HTTP wrk stress (plaintext, json, users API, compute, transaction, middleware, echo) |
 
-Cross-runtime comparison (feature_bench.js, 25 tests, ops/sec):
+Cross-runtime comparison (feature_bench.js, 25 tests, release builds, ops/sec):
 
 | Runtime | Total Throughput | vs Bun |
 |---------|-----------------|--------|
-| Bun 1.3.11 | 458M | 1.00x |
-| DunJS JSC (release) | 426M | **0.93x** |
-| DunJS JSC (debug) | 412M | 0.90x |
-| Node.js v22 (V8 12.4) | 168M | 0.37x |
-| Deno 2.7.14 (V8 14.7) | 157M | 0.34x |
-| DunJS V8 14.9 (release) | 127M | 0.28x |
-| DunJS QuickJS | 7.4M | 0.02x |
+| Bun 1.3.14 | 555M | 1.00x |
+| DunJS JSC | 478M | **0.86x** |
+| Node.js v22 | 156M | 0.28x |
+| Deno 2.7.14 | 151M | 0.27x |
+| DunJS V8 | 148M | 0.27x |
 
-Framework benchmarks (framework_bench.js, 39 tests, ops/sec):
+DunJS JSC wins 15 out of 25 individual tests vs Bun (Array +34%, Object +23%, Map/Set +39-41%,
+JSON.stringify +11%, template literal +9%, array.filter +17%). Gap is in native operations
+(crypto, Buffer, encoding) where Bun uses C++ directly while DunJS uses IJSEngine FFI.
 
-| Runtime | Total Throughput |
-|---------|-----------------|
-| **DunJS JSC** | **332M** |
-| Bun | 323M |
-| Node.js v22 | 179M |
-| DunJS V8 14.9 | 172M |
-| Deno 2.7.14 | 159M |
+Framework benchmarks (framework_bench.js, 39 tests, release builds, ops/sec):
+
+| Runtime | Total Throughput | vs Bun |
+|---------|-----------------|--------|
+| Bun 1.3.14 | 301M | 1.00x |
+| DunJS JSC | 294M | **0.98x** |
+| DunJS V8 | 176M | 0.58x |
+| Node.js v22 | 175M | 0.58x |
+| Deno 2.7.14 | 161M | 0.53x |
 
 npm compat test (npm_compat_test.js, 145 assertions): **All 6 runtimes: 145/145 pass**
 
-Performance comparison (stress.js 240 tests, release builds):
+HTTP benchmarks (wrk, 2 threads, 128 connections, 5s per endpoint, release builds):
 
-| Runtime | Wall Time | Notes |
-|---------|-----------|-------|
-| DunJS JSC | 90s | All 240 pass |
-| Bun | 89s | All 240 pass |
-| Deno | 172s | All 240 pass |
-| DunJS V8 | 219s | All 240 pass |
+| Endpoint | Node v22 | Deno 2.7 | DunJS JSC | DunJS V8 | Bun 1.3 |
+|----------|----------|----------|-----------|----------|---------|
+| /plaintext | 44,704 | 58,882 | 46,634 | **62,907** | **80,322** |
+| /json | 47,976 | 59,627 | 48,038 | **59,600** | **76,653** |
 
-npm stress (npm_stress.js 189 tests, 45+ real packages):
+DunJS V8 HTTP: beats Node by 41% on /plaintext, competitive with Deno.
+All endpoints include TCP_NODELAY, buffered single-write response, CTFE status lines.
 
-| Runtime | Wall Time | Pass Rate |
-|---------|-----------|-----------|
-| DunJS V8 | 29.5s | 182/189 |
-| Bun | 30s | 184/189 |
-| DunJS JSC | 46s | 182/189 |
+Stress test (stress.js, 240 tests, release builds):
+
+| Runtime | Wall Time | Status |
+|---------|-----------|--------|
+| Bun 1.3.14 | 76s | 240/240 |
+| DunJS JSC | 78s | **240/240** |
+| DunJS V8 | 169s | 240/240 |
+| Node.js v22 | 175s | 240/240 |
+| Deno 2.7.14 | 182s | 240/240 |
 
 ### Concurrency & SIMD Comparison
 
@@ -488,14 +569,20 @@ npm stress (npm_stress.js 189 tests, 45+ real packages):
 | Atomics | Yes (futex on Linux) | Yes | Yes | Yes |
 | io_uring | Yes (IORING_OP_POLL_ADD) | Yes (internal) | No | No (libuv) |
 | Async thread pool | Yes (D threads) | Yes (Zig) | Yes (Tokio) | Yes (libuv) |
-| core.simd / WASM SIMD | `core.simd` available | WASM SIMD | V8 SIMD | V8 SIMD |
+| core.simd / WASM SIMD | `core.simd` active (hex, toLower, findByte) | WASM SIMD | V8 SIMD | V8 SIMD |
 | Epoll/kqueue | Yes | Yes | Yes | Via libuv |
 | HTTP/2 multiplexing | Yes | Yes | Yes | Yes |
 | WebSocket | Yes (RFC 6455) | Yes | Yes | Via ws pkg |
 
 D's `core.simd` maps to SSE2/AVX (x86) and NEON (ARM) at compile time, similar to
 Zig's `@Vector`. V8/JSC use their own internal SIMD for JIT-compiled code.
-DunJS can use `core.simd` for hot paths in D code (buffer ops, hex encoding, HTTP parsing).
+DunJS uses `core.simd` + LDC-exclusive intrinsics in hot paths (`dun.platform.simd`):
+- **`hexEncodeBuf`**: SIMD hex encoding (16 bytes → 32 hex chars/cycle) + LDC `shufflevector` for zero-copy interleave
+- **`asciiToLowerBuf`**: SIMD ASCII toLower (16 bytes/cycle) with `ldc.simd.loadUnaligned`/`storeUnaligned`
+- **`findByte`**: SIMD byte search (16 bytes/cycle) + LDC `llvm_cttz` for O(1) first-match extraction
+- **`bswap16`/`bswap32`/`bswap64`**: LDC `llvm_bswap` for Buffer BE read/write (single instruction vs 4 shifts+ORs)
+- **`prefetchRead`**: LDC `llvm_prefetch` for data cache warming
+- Scalar fallback via `version(D_SIMD)` for platforms without SIMD
 
 ### Docker Support
 
@@ -661,3 +748,96 @@ Benchmark impact (25 benchmarks, feature_bench.js):
 | 12b | process.stdin | process.stdin with non-blocking read, fd, isTTY, setEncoding | **Done** |
 | 12c | import.meta all backends | import.meta.url/filename/dirname/main on QuickJS (native) + JSC/V8 (ESM shim polyfill) | **Done** |
 | 12d | D FFI bindgen tests | 27 tests: -HCf, -H, ImportC, @nogc alloc, clang AST, FFI linkage, --extern-std | **Done** |
+| 13a | HTTP/3 | dun:http3 module, RFC 9114 constants, QUIC varint encoding, lsquic bindings, API stubs | **Done** |
+| 14a | vm module | dun:vm — runInThisContext, runInNewContext, createContext, Script class | **Done** |
+| 14b | cluster module | dun:cluster — fork(), isPrimary/isWorker, worker tracking, exit callbacks | **Done** |
+| 14c | async_hooks | dun:async_hooks — AsyncLocalStorage constructor, run/getStore/enterWith/disable | **Done** |
+| 14d | worker_threads | dun:worker_threads — isMainThread, threadId, Worker (delegates to existing Worker API) | **Done** |
+| 14e | Signal handling | POSIX SIGTERM/SIGINT handlers, process.on('SIGTERM'/'SIGINT', cb), event loop drain | **Done** |
+| 14f | core.simd | SIMD hex encoding (16B/cycle), ASCII toLower (16B/cycle), byte search; SSE2/NEON | **Done** |
+| 14g | LDC intrinsics | loadUnaligned/storeUnaligned, shufflevector interleave, llvm_bswap, llvm_cttz, llvm_prefetch | **Done** |
+| 14h | V8 value pool | DunV8Value free-list allocator (256-entry pool), eliminates malloc/free per JS value | **Done** |
+| 14i | Fuzz coverage | 21 new fuzz tests: ES2023+, typed arrays, JSON, classes, closures, regex, proxy, symbols, destructuring | **Done** |
+| 15a | Node errors | Node-compatible Error objects with code/errno/syscall/path via IJSEngine.throwValue() | **Done** |
+| 15b | fs/promises | Full fs.promises module (17 async operations) using asyncSubmitSafe nothrow pattern | **Done** |
+| 15c | HTTPS server | https.createServer with OpenSSL TLS, cert/key loading, TLS-aware read/write/accept | **Done** |
+| 15d | Stream finished | stream.finished() utility, util.callbackify, process.stdout/stderr stream compat | **Done** |
+| 15e | Stub modules | tls, dgram, perf_hooks registered as JS stubs on globalThis for npm compat | **Done** |
+| 15f | Process enhanced | process.nextTick args, emitWarning, kill, abort, umask, ppid, exitCode | **Done** |
+| 15g | HTTP response | getHeader, getHeaders, hasHeader, removeHeader, headersSent | **Done** |
+| 15h | util.types | 20+ type checkers (isAsyncFunction, isGeneratorFunction, isWeakMap, isDataView, etc.) | **Done** |
+| 15i | Crypto ciphers | createCipheriv/createDecipheriv, AES-CBC/GCM with OpenSSL EVP API | **Done** |
+| 15j | readline | readline module with createInterface, on/once/question/close, Symbol.asyncIterator | **Done** |
+| 15k | process.env Proxy | Live Proxy with set/delete/in/ownKeys for runtime env manipulation | **Done** |
+| 15l | Module stubs | punycode, domain, diagnostics_channel stubs for npm ecosystem | **Done** |
+| 15m | net.isIP | net.isIP/isIPv4/isIPv6 with pure D validators | **Done** |
+| 15n | stream.Readable | Readable.from(iterable), Readable[Symbol.asyncIterator] | **Done** |
+| 15o | npm compat test | 97-check test covering 29 modules + key API surface (75/75 integration) | **Done** |
+| 15p | HTTP client API | http.request/get, STATUS_CODES (50), METHODS (34), Agent, ClientRequest with fetch backend | **Done** |
+| 15q | tty + pseudo-modules | tty.isatty/ReadStream/WriteStream, require('constants'/'module'/'timers'/'process'/'console') | **Done** |
+| 15r | Async crypto | pbkdf2/scrypt async wrappers, randomFill/randomFillSync, createSign/createVerify stubs, constants | **Done** |
+| 15s | Socket addresses | remoteAddress/remotePort/localAddress/localPort on net.Socket via accept()/getsockname() | **Done** |
+| 15t | process.stdout | cork/uncork/cursorTo/clearLine/moveCursor/getWindowSize, process.argv0/execArgv/mainModule | **Done** |
+| 15u | aarch64 + Docker | stat_t __traits(hasMember) for aarch64, Docker buildx multiplatform (amd64+arm64), non-root user | **Done** |
+| 16a | child_process.spawn | spawn() with ChildProcess object (pid/stdout/stderr/stdin/on/kill), async event delivery | **Done** |
+| 16b | child_process.execFile | execFile() direct process spawn without shell, callback and Promise modes | **Done** |
+| 16c | dgram (UDP) | dgram.createSocket with bind/send/close/address/setBroadcast/setTTL, IPv4/IPv6, event callbacks | **Done** |
+| 16d | TLS module | tls.connect with OpenSSL, TLSSocket class, getCiphers, event loop integration, SNI/hostname verify | **Done** |
+| 16e | DNS enhanced | dns.resolve with rrtype, dns.getServers (/etc/resolv.conf), dns.promises (lookup/resolve4/resolve6) | **Done** |
+| 16f | perf_hooks | performance.mark/measure/getEntries/clearMarks, PerformanceObserver, timerify, monitorEventLoopDelay, constants | **Done** |
+| 16g | stream enhanced | Stream base class, addAbortSignal, promises.pipeline/finished, Readable.toWeb, Writable.toWeb | **Done** |
+| 16h | fs.watchFile | fs.watchFile/unwatchFile (stat-polling), fs.watch enhanced (options, FSWatcher events) | **Done** |
+| 16i | Async zlib | deflate/inflate/gzip/gunzip async, createDeflate/createGzip streams, zlib.constants (35), brotli stubs | **Done** |
+| 16j | Crypto sign/verify | createSign/createVerify with OpenSSL EVP_DigestSign, RSA/ECDSA, hex/base64/buffer encoding | **Done** |
+| 16k | os enhancements | os.networkInterfaces (getifaddrs), os.userInfo (getpwuid), os.loadavg, os.version, os.machine | **Done** |
+| 16l | crypto.generateKeyPairSync | RSA/EC key pair generation with OpenSSL, PEM encoding, DiffieHellman stubs | **Done** |
+| 16m | Compat tests | express_compat (102 checks), bundler_compat (91 checks) — npm ecosystem validation | **Done** |
+| 17a | Crypto complete | createECDH, KeyObject, X509Certificate, webcrypto/subtle, generateKeySync, hkdfSync, hash, getCurves, FIPS stubs | **Done** |
+| 17b | Stream complete | compose, isErrored, isReadable, isDisturbed, consumers (text/json/arrayBuffer), Readable.fromWeb | **Done** |
+| 17c | Events complete | captureRejectionSymbol, captureRejections, errorMonitor, getEventListeners, addAbortListener | **Done** |
+| 17d | Util complete | getSystemErrorName, parseArgs, styleText, MIMEType, aborted, transferableAbortController, getCallSites | **Done** |
+| 17e | Process complete | debugPort, connected, report, resourceUsage (getrusage), binding, config, features, release, allowedNodeEnvironmentFlags | **Done** |
+| 17f | HTTP/URL complete | maxHeaderSize, validateHeaderName/Value, Server.setTimeout, URL.canParse | **Done** |
+| 17g | Module stubs | os.availableParallelism/setPriority/getPriority, net.BlockList/SocketAddress, path.matchesGlob | **Done** |
+| 17h | Zlib complete | brotliCompressSync/DecompressSync, unzipSync, createBrotliCompress/Decompress | **Done** |
+| 17i | Misc complete | readline.promises, assert.strict, fs/promises.cp/constants, Readable statics | **Done** |
+| 17j | npm compat 452 | 452-check npm_compat_modules test covering all Node.js core APIs | **Done** |
+| 18a | .env auto-loading | Bun-compatible .env parsing at startup (KEY=VALUE, quotes, no-override) | **Done** |
+| 18b | --watch mode | `--watch` / `-w` flag: poll mtime, restart script on file changes | **Done** |
+| 18c | CompressionStream | Web Compression API: CompressionStream/DecompressionStream (gzip/deflate/deflate-raw) | **Done** |
+| 18d | WebCrypto subtle | Native crypto.subtle via OpenSSL: digest, importKey, sign/verify (HMAC), encrypt/decrypt (AES-GCM/CBC), generateKey, exportKey, deriveBits (PBKDF2/HKDF), deriveKey | **Done** |
+| 18e | TIGER_STYLE audit | Precondition assertions in 45+ @trusted functions across all builtins and engine backends | **Done** |
+| 18f | DIP1000 scope | `scope` annotations on 8 IJSEngine interface methods + all backend implementations | **Done** |
+| 19a | ESM imports | Bare module imports (`fs`, `path`, `crypto`), `node:` prefix, `.mjs` files, JSON import attributes | **Done** |
+| 19b | Error stacks | Full stack traces for uncaught exceptions, Error.captureStackTrace polyfill | **Done** |
+| 19c | Binary crypto | D-side buffer registry for binary-safe Hash/HMAC, Buffer key support, multi-encoding digest | **Done** |
+| 19d | Hash algorithms | sha3-256/384/512, ripemd160, blake2s256, blake2b512 via OpenSSL EVP | **Done** |
+| 19e | Buffer encoding | base64url encode/decode, latin1/binary encoding with UTF-8 codepoint mapping | **Done** |
+| 19f | createReadStream | Event emission (data/end/close), Buffer default, encoding option, chained .on() | **Done** |
+| 19g | HTTP headers | Multi-value header support (Set-Cookie), array in setHeader/writeHead, per-value emission | **Done** |
+| 19h | JSHandle safety | Fixed 38 dupValue/freeValue bugs across 9 builtin modules (use-after-free on QuickJS) | **Done** |
+| 19i | timingSafeEqual | Buffer and Uint8Array input support via extractArgBytes helper | **Done** |
+| 20a | Native setenv | process.env set/delete calls POSIX setenv/unsetenv, child processes inherit | **Done** |
+| 20b | WebCrypto keygen | subtle.generateKey (AES/HMAC), exportKey (raw), deriveBits (PBKDF2/HKDF), deriveKey | **Done** |
+| 20c | Expanded ciphers | 22 cipher algorithms: AES-CTR/ECB/OFB/CFB, AES-192-GCM, DES-EDE3, ChaCha20-Poly1305 | **Done** |
+| 20d | stream.compose | Pipe-based stream composition (was throwing "not yet implemented") | **Done** |
+| 20e | GC safety fix | Fix double-free in process.env (QuickJS setProperty consumes refcount) | **Done** |
+| 20f | console.log inspect | Node-style object formatting: `{ key: value }`, Map/Set/TypedArray, circular detection, depth limit | **Done** |
+| 20g | Format strings | console.log `%s`/`%d`/`%i`/`%f`/`%o`/`%O`/`%j`/`%%` substitution | **Done** |
+| 20h | Buffer extended | swap16/32/64, lastIndexOf, readIntBE/LE, readUIntBE/LE, writeIntBE/LE, writeUIntBE/LE | **Done** |
+| 20i | fs.createWriteStream | Deferred finish/close events to nextTick (matches Node.js event ordering) | **Done** |
+| 20j | Inspect unification | Deno.inspect, console.dir, util.inspect, REPL all delegate to __dun_inspect__ | **Done** |
+| 21a | CLI arg validation | Reject unexpected positional args after eval/version/help/audit/clean/repl | **Done** |
+| 21b | zlib/sqlite fixes | zlib returns Buffer, sqlite bind arrays, console.group indentation, TypedArray.from/of | **Done** |
+| 21c | Buffer improvements | BigInt read/write, WebSocket global, http.Server alias, Buffer as function type | **Done** |
+| 21d | Buffer advanced | alloc fill string/Buffer/hex, from ArrayBuffer/Uint8Array, isEncoding case-insensitive, concat totalLength | **Done** |
+| 21e | Stream flowing | Readable auto-flows on 'data' listener (Node.js compat), EventEmitter.rawListeners | **Done** |
+| 21f | Crypto scryptSync | Returns Buffer instead of hex string (Node.js compat) | **Done** |
+| 21g | OS tmpdir | Strip trailing slash from os.tmpdir() | **Done** |
+| 21h | Production readiness | 122-check comprehensive validation test across all core Node.js APIs | **Done** |
+| 22a | Intl polyfills | toLocaleString for Number/Date/String/Array, localeCompare, toLocaleLowerCase/UpperCase | **Done** |
+| 22b | hrtime.bigint | process.hrtime.bigint() returns proper BigInt instead of float | **Done** |
+| 22c | crypto.getRandomValues | Available on require('crypto') module (Node 19+ compat) | **Done** |
+| 22d | Buffer.from ArrayBuffer | 3-arg form: Buffer.from(ArrayBuffer, byteOffset, length) | **Done** |
+| 22e | child_process Buffer | execSync/spawnSync return Buffer by default, encoding option for string | **Done** |
+| 22f | path.join empty | path.join("") returns "." (Node.js compat) | **Done** |
