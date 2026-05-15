@@ -768,6 +768,20 @@ private string resolveExports(JSONValue j, string subpath, string pkgDir) @trust
     if (exports.type != JSONType.object) return "";
     auto obj = exports.object;
 
+    // Node.js sugar: when the exports object has no subpath keys (no "."
+    // or "./..." key), treat the whole object as a condition map for ".".
+    bool hasSubpathKey = false;
+    foreach (key, _; obj)
+    {
+        if (key == "." || (key.length >= 2 && key[0 .. 2] == "./"))
+        {
+            hasSubpathKey = true;
+            break;
+        }
+    }
+    if (!hasSubpathKey && subpath == ".")
+        return resolveExportTarget(exports, pkgDir);
+
     if (subpath in obj)
     {
         auto target = obj[subpath];
