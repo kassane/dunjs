@@ -255,7 +255,8 @@ JSHandle jsPathRelative(void* ctx, JSHandle thisVal, scope JSHandle[] args) @tru
     try
     {
         import std.path : relativePath;
-        return engine.newString(relativePath(engine.extractString(args[1]), engine.extractString(args[0])));
+        auto result = relativePath(engine.extractString(args[1]), engine.extractString(args[0]));
+        return engine.newString(result == "." ? "" : result);
     }
     catch (Exception) { return engine.newString(""); }
 }

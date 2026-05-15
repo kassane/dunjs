@@ -636,14 +636,14 @@ JSHandle jsReadFileSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @tru
     {
         string errMsg;
         auto content = safeReadFile(path, errMsg);
-        if (content is null)
+        if (errMsg.length > 0)
             return throwNodeError(engine, "ENOENT", errMsg, "open", path);
-        return engine.newString(content);
+        return engine.newString(content !is null ? content : "");
     }
 
     string errMsg;
     auto bytes = safeReadFileBytes(path, errMsg);
-    if (bytes is null)
+    if (errMsg.length > 0)
         return throwNodeError(engine, "ENOENT", errMsg, "open", path);
     return createBufferFromBytes(engine, bytes);
 }
