@@ -456,6 +456,7 @@ private void fillRandomBytes(ubyte[] buf) @trusted
 // Cached function handles — registered once to avoid callback slot exhaustion
 private __gshared JSHandle _cachedUpdateFn;
 private __gshared JSHandle _cachedDigestFn;
+private __gshared int[] _freeHashIds;
 private __gshared bool _hashFnsCached = false;
 
 // D-side buffer registry for binary-safe hash accumulation
@@ -479,8 +480,17 @@ JSHandle jsCryptoCreateHash(void* ctx, JSHandle thisVal, scope JSHandle[] args) 
         _hashFnsCached = true;
     }
 
-    auto id = _nextHashId++;
-    assert(_nextHashId < MAX_HASH_SLOTS, "Hash slot overflow");
+    int id;
+    if (_freeHashIds.length > 0)
+    {
+        id = _freeHashIds[$ - 1];
+        _freeHashIds = _freeHashIds[0 .. $ - 1];
+    }
+    else
+    {
+        id = _nextHashId++;
+        assert(_nextHashId < MAX_HASH_SLOTS, "Hash slot overflow");
+    }
     _hashBuffers[id] = [];
 
     auto obj = engine.newObject();
@@ -557,6 +567,7 @@ JSHandle jsHashDigest(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trust
         {
             data = *p;
             _hashBuffers.remove(hid);
+            _freeHashIds ~= hid;  // recycle for future createHash calls
         }
 
         string encoding = "hex";
@@ -591,6 +602,7 @@ private __gshared bool _hmacFnsCached = false;
 private __gshared ubyte[][int] _hmacBuffers;
 private __gshared ubyte[][int] _hmacKeys;
 private __gshared int _nextHmacId = 0;
+private __gshared int[] _freeHmacIds;
 
 JSHandle jsCryptoCreateHmac(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
@@ -629,8 +641,17 @@ JSHandle jsCryptoCreateHmac(void* ctx, JSHandle thisVal, scope JSHandle[] args) 
     else
         keyBytes = cast(ubyte[]) engine.extractString(args[1]).dup;
 
-    auto id = _nextHmacId++;
-    assert(_nextHmacId < MAX_HASH_SLOTS, "HMAC slot overflow");
+    int id;
+    if (_freeHmacIds.length > 0)
+    {
+        id = _freeHmacIds[$ - 1];
+        _freeHmacIds = _freeHmacIds[0 .. $ - 1];
+    }
+    else
+    {
+        id = _nextHmacId++;
+        assert(_nextHmacId < MAX_HASH_SLOTS, "HMAC slot overflow");
+    }
     _hmacBuffers[id] = [];
     _hmacKeys[id] = keyBytes;
 
@@ -695,10 +716,12 @@ JSHandle jsHmacDigest(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trust
         engine.freeValue(hidProp);
 
         ubyte[] data;
+        bool recycled = false;
         if (auto p = hid in _hmacBuffers)
         {
             data = *p;
             _hmacBuffers.remove(hid);
+            recycled = true;
         }
         ubyte[] key;
         if (auto p = hid in _hmacKeys)
@@ -706,6 +729,7 @@ JSHandle jsHmacDigest(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trust
             key = *p;
             _hmacKeys.remove(hid);
         }
+        if (recycled) _freeHmacIds ~= hid;
 
         string encoding = "hex";
         if (args.length >= 1 && engine.isString(args[0]))

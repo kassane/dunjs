@@ -270,9 +270,11 @@ package JSHandle makeBufferObj(IJSEngine engine, const(ubyte)[] data) @trusted
 {
     ensureBufferFnsCached(engine);
     auto u8 = engine.newUint8Array(data);
+    auto u8Pinned = engine.dupValue(u8);  // root across callFunction (JSC GC)
     auto lenVal = engine.newInt(cast(int) data.length);
     JSHandle[2] factoryArgs = [u8, lenVal];
     auto result = engine.callFunction(_bufFactory, _bufFactoryThis, factoryArgs[]);
+    engine.freeValue(u8Pinned);
     engine.freeValue(lenVal);
     engine.freeValue(u8);
     return result;
@@ -282,9 +284,11 @@ JSHandle makeBufferObjZeroed(IJSEngine engine, int size) @trusted
 {
     ensureBufferFnsCached(engine);
     auto u8 = engine.newUint8ArrayZeroed(size);
+    auto u8Pinned = engine.dupValue(u8);  // root across callFunction (JSC GC)
     auto lenVal = engine.newInt(size);
     JSHandle[2] factoryArgs = [u8, lenVal];
     auto result = engine.callFunction(_bufFactory, _bufFactoryThis, factoryArgs[]);
+    engine.freeValue(u8Pinned);
     engine.freeValue(lenVal);
     engine.freeValue(u8);
     return result;
