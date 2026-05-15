@@ -252,8 +252,9 @@ string utilSource() pure @safe nothrow
     return out;
   }
 
-  // --- util.inspect ---
+  // --- util.inspect --- delegates to __dun_inspect__ for Node-style formatting
   function inspect(obj, opts) {
+    if (typeof globalThis.__dun_inspect__ === 'function') return globalThis.__dun_inspect__(obj);
     if (obj === null) return 'null';
     if (obj === undefined) return 'undefined';
     if (typeof obj === 'string') return "'" + obj + "'";

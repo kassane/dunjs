@@ -11,6 +11,7 @@ import std.string : endsWith, startsWith, strip;
 private enum INSPECTOR_INIT = `
 globalThis.__dun_repl_inspect__ = function(v) {
     if (v === undefined) return undefined;
+    if (typeof globalThis.__dun_inspect__ === 'function') return globalThis.__dun_inspect__(v);
     if (v === null) return 'null';
     if (typeof v === 'string') return JSON.stringify(v);
     if (typeof v === 'function')
