@@ -51,15 +51,15 @@ try {
 
   // Trailing newline preserved
   var r1 = cp.spawnSync('echo', ['hello']);
-  check('spawnSync preserves trailing newline', r1.stdout === 'hello\n');
+  check('spawnSync preserves trailing newline', r1.stdout.toString() === 'hello\n');
 
   // Multi-line output preserved
   var r2 = cp.spawnSync('printf', ['line1\\nline2\\n']);
-  check('spawnSync multi-line', r2.stdout === 'line1\nline2\n');
+  check('spawnSync multi-line', r2.stdout.toString() === 'line1\nline2\n');
 
   // Empty output
   var r3 = cp.spawnSync('true', []);
-  check('spawnSync empty output', r3.stdout === '');
+  check('spawnSync empty output', r3.stdout.toString() === '');
 
   // Status code
   var r4 = cp.spawnSync('false', []);
@@ -67,11 +67,11 @@ try {
 
   // env option
   var r5 = cp.spawnSync('env', [], { env: { MY_VAR: 'test123', PATH: '/usr/bin' } });
-  check('spawnSync env option', r5.stdout.indexOf('MY_VAR=test123') >= 0);
+  check('spawnSync env option', r5.stdout.toString().indexOf('MY_VAR=test123') >= 0);
 
   // execSync trailing newline preserved
   var r6 = cp.execSync('echo world');
-  check('execSync output', r6.indexOf('world') >= 0);
+  check('execSync output', r6.toString().indexOf('world') >= 0);
 } catch(e) { console.log('FAIL: child_process:', e.message); total += 6; }
 
 // === net.connect options form ===

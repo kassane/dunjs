@@ -209,10 +209,12 @@ JSHandle jsExecSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 
     string cwd = "";
     int maxBuffer = MAX_BUFFER;
+    string encoding = "";
     if (args.length >= 2 && engine.isObject(args[1]))
     {
         cwd = extractOptString(engine, args[1], "cwd");
         maxBuffer = extractOptInt(engine, args[1], "maxBuffer", MAX_BUFFER);
+        encoding = extractOptString(engine, args[1], "encoding");
     }
 
     try
@@ -241,7 +243,10 @@ JSHandle jsExecSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
                 ~ "\n" ~ output);
         }
 
-        return engine.newString(output);
+        if (encoding.length > 0)
+            return engine.newString(output);
+        import dun.builtins.buffer : makeBufferObj;
+        return makeBufferObj(engine, cast(const(ubyte)[]) output);
     }
     catch (Exception e)
     {
@@ -285,15 +290,25 @@ JSHandle jsSpawnSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @truste
     int maxBuffer = MAX_BUFFER;
     string[string] envMap;
     bool hasEnv = false;
+    string encoding = "";
     if (args.length >= 3 && engine.isObject(args[2]))
     {
         cwd = extractOptString(engine, args[2], "cwd");
         maxBuffer = extractOptInt(engine, args[2], "maxBuffer", MAX_BUFFER);
         envMap = extractOptEnv(engine, args[2]);
         hasEnv = envMap.length > 0;
+        encoding = extractOptString(engine, args[2], "encoding");
     }
 
     auto resultObj = engine.newObject();
+
+    JSHandle makeOutput(string s)
+    {
+        if (encoding.length > 0)
+            return engine.newString(s);
+        import dun.builtins.buffer : makeBufferObj;
+        return makeBufferObj(engine, cast(const(ubyte)[]) s);
+    }
 
     try
     {
@@ -330,8 +345,8 @@ JSHandle jsSpawnSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @truste
             chdir(origDir);
 
         engine.setProperty(resultObj, "status", engine.newInt(status));
-        engine.setProperty(resultObj, "stdout", engine.newString(stdoutStr));
-        engine.setProperty(resultObj, "stderr", engine.newString(stderrStr));
+        engine.setProperty(resultObj, "stdout", makeOutput(stdoutStr));
+        engine.setProperty(resultObj, "stderr", makeOutput(stderrStr));
         engine.setProperty(resultObj, "error", engine.newNull());
         return resultObj;
     }
@@ -340,8 +355,8 @@ JSHandle jsSpawnSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @truste
         string msg = "";
         try { msg = e.msg; } catch (Exception) {}
         engine.setProperty(resultObj, "status", engine.newNull());
-        engine.setProperty(resultObj, "stdout", engine.newString(""));
-        engine.setProperty(resultObj, "stderr", engine.newString(""));
+        engine.setProperty(resultObj, "stdout", makeOutput(""));
+        engine.setProperty(resultObj, "stderr", makeOutput(""));
         auto errObj = engine.newObject();
         engine.setProperty(errObj, "message", engine.newString(msg));
         engine.setProperty(errObj, "code", engine.newString("ENOENT"));

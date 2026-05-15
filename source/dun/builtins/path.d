@@ -136,7 +136,8 @@ JSHandle jsPathJoin(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
         string[] parts;
         foreach (arg; args)
             parts ~= engine.extractString(arg);
-        return engine.newString(buildNormalizedPath(parts));
+        auto result = buildNormalizedPath(parts);
+        return engine.newString(result.length == 0 ? "." : result);
     }
     catch (Exception) { return engine.throwTypeError("Failed to join paths"); }
 }

@@ -3,12 +3,12 @@ const cp = require('child_process');
 
 // execSync
 var out = cp.execSync('echo hello_child');
-console.log('execSync: ' + out.trim());
+console.log('execSync: ' + out.toString().trim());
 
 // spawnSync
 var result = cp.spawnSync('echo', ['spawn_test']);
 console.log('spawnSync status: ' + result.status);
-console.log('spawnSync stdout: ' + result.stdout.trim());
+console.log('spawnSync stdout: ' + result.stdout.toString().trim());
 console.log('spawnSync error: ' + result.error);
 
 // execSync with failure

@@ -262,7 +262,8 @@ void registerCryptoModule(IJSEngine engine) @trusted
                         "generateKeyPair", "getDiffieHellman", "createDiffieHellmanGroup",
                         "diffieHellman", "getCurves", "secureHeapUsed", "setFips",
                         "getFips", "checkPrime", "checkPrimeSync", "generatePrime",
-                        "generatePrimeSync", "hash", "webcrypto", "subtle"])
+                        "generatePrimeSync", "hash", "webcrypto", "subtle",
+                        "getRandomValues"])
         {
             auto prop = engine.getProperty(cryptoExtResult.value, name);
             engine.setProperty(obj, name, prop);
@@ -305,7 +306,8 @@ version (EngineQuickJS)
         "hkdf", "generateKey", "generateKeyPair", "getDiffieHellman",
         "createDiffieHellmanGroup", "diffieHellman", "getCurves",
         "secureHeapUsed", "setFips", "getFips", "checkPrime", "checkPrimeSync",
-        "generatePrime", "generatePrimeSync", "hash", "webcrypto", "subtle"
+        "generatePrime", "generatePrimeSync", "hash", "webcrypto", "subtle",
+        "getRandomValues"
     ];
 
     private extern (C) int cryptoModuleInit(JSContext* ctx, JSModuleDef* m) nothrow @trusted
@@ -3574,7 +3576,8 @@ string cryptoExtensionSource() pure @safe nothrow
     generatePrimeSync: generatePrimeSync,
     hash: hash,
     webcrypto: webcrypto,
-    subtle: webcrypto.subtle
+    subtle: webcrypto.subtle,
+    getRandomValues: function(arr) { return webcrypto.getRandomValues(arr); }
   };
 })();`;
 }

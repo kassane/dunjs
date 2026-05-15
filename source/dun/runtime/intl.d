@@ -113,7 +113,8 @@ private string intlPolyfillSource() pure nothrow @safe
     "    }" ~
     "    return parts.join(', ');" ~
     "  }" ~
-    "  return date.toLocaleDateString ? date.toLocaleDateString() : date.toString();" ~
+    "  var m2=date.getMonth()+1,d2=date.getDate(),y2=date.getFullYear();" ~
+    "  return (m2<10?'0':'')+m2+'/'+(d2<10?'0':'')+d2+'/'+y2;" ~
     "};" ~
     "Intl.DateTimeFormat.prototype.formatToParts = function(date) {" ~
     "  var s = this.format(date); return [{type:'literal',value:s}];" ~
@@ -318,5 +319,30 @@ private string intlPolyfillSource() pure nothrow @safe
     "Intl.Segmenter.supportedLocalesOf = function(locales) { return Intl.getCanonicalLocales(locales); };" ~
 
     "globalThis.Intl = Intl;" ~
+
+    "Number.prototype.toLocaleString = function(locales, options) {" ~
+    "  return new Intl.NumberFormat(locales, options).format(this);" ~
+    "};" ~
+    "Date.prototype.toLocaleDateString = function(locales, options) {" ~
+    "  return new Intl.DateTimeFormat(locales, options).format(this);" ~
+    "};" ~
+    "Date.prototype.toLocaleTimeString = function(locales, options) {" ~
+    "  var o = Object.assign({hour:'2-digit',minute:'2-digit',second:'2-digit'}, options);" ~
+    "  return new Intl.DateTimeFormat(locales, o).format(this);" ~
+    "};" ~
+    "Date.prototype.toLocaleString = function(locales, options) {" ~
+    "  var o = Object.assign({year:'numeric',month:'2-digit',day:'2-digit'," ~
+    "    hour:'2-digit',minute:'2-digit',second:'2-digit'}, options);" ~
+    "  return new Intl.DateTimeFormat(locales, o).format(this);" ~
+    "};" ~
+    "String.prototype.toLocaleLowerCase = function(locales) { return this.toLowerCase(); };" ~
+    "String.prototype.toLocaleUpperCase = function(locales) { return this.toUpperCase(); };" ~
+    "String.prototype.localeCompare = function(other, locales, options) {" ~
+    "  return new Intl.Collator(locales, options).compare(this, other);" ~
+    "};" ~
+    "Array.prototype.toLocaleString = function(locales, options) {" ~
+    "  return this.map(function(e) { return e != null && typeof e.toLocaleString === 'function' ? e.toLocaleString(locales, options) : String(e); }).join(',');" ~
+    "};" ~
+
     "})()";
 }

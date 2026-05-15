@@ -447,6 +447,32 @@ JSHandle jsBufferFrom(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trust
         {
             int byteLen = engine.extractInt(byteLenVal);
             engine.freeValue(byteLenVal);
+
+            // Support Buffer.from(ArrayBuffer, byteOffset, length)
+            bool hasOffset = args.length >= 2 && engine.isNumber(args[1]);
+            if (hasOffset)
+            {
+                int offset = engine.extractInt(args[1]);
+                int len = (args.length >= 3 && engine.isNumber(args[2]))
+                    ? engine.extractInt(args[2])
+                    : byteLen - offset;
+                import std.conv : to;
+                auto u8Result = engine.eval(
+                    "(function(ab,off,len){return new Uint8Array(ab,off,len)})", "<buf-ab-off>");
+                if (!u8Result.isError)
+                {
+                    auto u8arr = engine.callFunction(u8Result.value, engine.newUndefined(),
+                        [args[0], engine.newInt(offset), engine.newInt(len)]);
+                    engine.freeValue(u8Result.value);
+                    auto bytes = engine.getTypedArrayBytes(u8arr);
+                    engine.freeValue(u8arr);
+                    if (bytes !is null)
+                        return makeBufferObj(engine, bytes);
+                }
+                else
+                    engine.freeValue(u8Result.value);
+            }
+
             auto u8Result = engine.eval(
                 "(function(ab){return new Uint8Array(ab)})", "<buf-ab>");
             if (!u8Result.isError)

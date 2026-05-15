@@ -712,9 +712,13 @@ JSHandle jsHrtimeBigint(void* ctx, JSHandle thisVal, scope JSHandle[] args) @tru
     try
     {
         import core.time : MonoTime, ticksToNSecs;
+        import std.conv : to;
         auto now = MonoTime.currTime;
         long totalNs = ticksToNSecs(now.ticks);
-        return engine.newFloat(cast(double) totalNs);
+        auto result = engine.eval("BigInt(" ~ totalNs.to!string ~ ")", "<hrtime>");
+        if (result.isError)
+            return engine.newFloat(cast(double) totalNs);
+        return result.value;
     }
     catch (Exception) { return engine.newFloat(0.0); }
 }
