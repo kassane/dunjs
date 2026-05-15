@@ -196,6 +196,7 @@ __gshared JSHandle _httpSrvListen, _httpSrvClose, _httpSrvOn;
 __gshared JSHandle _httpReqOn;
 __gshared JSHandle _httpResSetHeader, _httpResWriteHead, _httpResWrite, _httpResEnd;
 __gshared JSHandle _httpResGetHeader, _httpResGetHeaders, _httpResHasHeader, _httpResRemoveHeader;
+__gshared JSHandle _httpResOn, _httpResEmit;
 __gshared JSHandle _httpSrvAddress;
 __gshared JSHandle _httpJsDispatchFn;
 __gshared JSHandle _httpCachedUndef;
@@ -218,6 +219,30 @@ void ensureHttpFnsCached(IJSEngine engine) @trusted
     _httpResHasHeader = engine.newFunction(&jsResHasHeader, "hasHeader", 1);
     _httpResRemoveHeader = engine.newFunction(&jsResRemoveHeader, "removeHeader", 1);
 
+    // res.on() / res.emit() — JS-level EventEmitter using _events map on the object
+    auto resOnResult = engine.eval(
+        "(function(event, fn) {" ~
+        "  if (!this._events) this._events = {};" ~
+        "  if (!this._events[event]) this._events[event] = [];" ~
+        "  this._events[event].push(fn);" ~
+        "  return this;" ~
+        "})", "<res-on>");
+    if (!resOnResult.isError)
+        _httpResOn = engine.dupValue(resOnResult.value);
+    engine.freeValue(resOnResult.value);
+
+    auto resEmitResult = engine.eval(
+        "(function(event) {" ~
+        "  if (!this._events || !this._events[event]) return false;" ~
+        "  var args = Array.prototype.slice.call(arguments, 1);" ~
+        "  var listeners = this._events[event].slice();" ~
+        "  for (var i = 0; i < listeners.length; i++) listeners[i].apply(this, args);" ~
+        "  return true;" ~
+        "})", "<res-emit>");
+    if (!resEmitResult.isError)
+        _httpResEmit = engine.dupValue(resEmitResult.value);
+    engine.freeValue(resEmitResult.value);
+
     auto global = engine.getGlobal();
     engine.setProperty(global, "__httpSetHeader", engine.dupValue(_httpResSetHeader));
     engine.setProperty(global, "__httpWriteHead", engine.dupValue(_httpResWriteHead));
@@ -232,17 +257,23 @@ void ensureHttpFnsCached(IJSEngine engine) @trusted
     // Native function to lazily retrieve headers for a connection
     auto getHdrsFn = engine.newFunction(&jsGetConnHeaders, "__httpGetHeaders", 1);
     engine.setProperty(global, "__httpGetHeaders", getHdrsFn);
+
+    // Store res.on/emit on globalThis for use in dispatch function
+    engine.setProperty(global, "__httpResOn", engine.dupValue(_httpResOn));
+    engine.setProperty(global, "__httpResEmit", engine.dupValue(_httpResEmit));
     engine.freeValue(global);
 
     import dun.engine.iface : JSResult;
     auto dispatchResult = engine.eval(
         "(function(cb, method, url, cid) {" ~
         "  var _gh = globalThis.__httpGetHeaders;" ~
+        "  var sock = { remoteAddress: '127.0.0.1', remotePort: 0, destroy: function(){} };" ~
         "  var req = { method: method, url: url, httpVersion: 'HTTP/1.1', __cid: cid," ~
         "    get headers() { var h = _gh(cid); Object.defineProperty(this, 'headers', {value: h}); return h; }," ~
-        "    on: globalThis.__httpReqOn };" ~
+        "    on: globalThis.__httpReqOn, connection: sock, socket: sock };" ~
         "  var res = { __cid: cid, statusCode: 200, statusMessage: 'OK', headersSent: false," ~
         "    finished: false, writableEnded: false, writableFinished: false," ~
+        "    _events: {}, connection: sock, socket: sock," ~
         "    setHeader: globalThis.__httpSetHeader," ~
         "    getHeader: globalThis.__httpGetHeader," ~
         "    getHeaders: globalThis.__httpGetHeaders," ~
@@ -250,8 +281,14 @@ void ensureHttpFnsCached(IJSEngine engine) @trusted
         "    removeHeader: globalThis.__httpRemoveHeader," ~
         "    writeHead: globalThis.__httpWriteHead," ~
         "    write: globalThis.__httpWrite," ~
-        "    end: globalThis.__httpEnd };" ~
-        "  cb(req, res);" ~
+        "    end: globalThis.__httpEnd," ~
+        "    on: globalThis.__httpResOn," ~
+        "    once: globalThis.__httpResOn," ~
+        "    emit: globalThis.__httpResEmit };" ~
+        "  try { cb(req, res); } catch(e) {" ~
+        "    if (!res.headersSent) { res.writeHead(500); res.end('Internal Server Error'); }" ~
+        "    if (typeof process !== 'undefined' && process.emit) process.emit('uncaughtException', e);" ~
+        "  }" ~
         "})", "<http-dispatch>");
     if (!dispatchResult.isError && engine.isFunction(dispatchResult.value))
         _httpJsDispatchFn = engine.dupValue(dispatchResult.value);
@@ -454,8 +491,11 @@ JSHandle makeHttpServerObj(IJSEngine engine, int id) @trusted
     engine.setProperty(obj, "listen", engine.dupValue(_httpSrvListen));
     engine.setProperty(obj, "close", engine.dupValue(_httpSrvClose));
     engine.setProperty(obj, "on", engine.dupValue(_httpSrvOn));
+    engine.setProperty(obj, "once", engine.dupValue(_httpSrvOn));
+    engine.setProperty(obj, "emit", engine.dupValue(_httpResEmit));
     engine.setProperty(obj, "address", engine.dupValue(_httpSrvAddress));
     engine.setProperty(obj, "listening", engine.newBool(false));
+    engine.setProperty(obj, "_events", engine.newObject());
     engine.setProperty(obj, "maxConnections", engine.newInt(0));
     engine.setProperty(obj, "timeout", engine.newInt(HTTP_DEFAULT_TIMEOUT_MS));
     engine.setProperty(obj, "keepAliveTimeout", engine.newInt(HTTP_KEEPALIVE_TIMEOUT_MS));
@@ -616,6 +656,41 @@ JSHandle jsHttpServerClose(void* ctx, JSHandle thisVal, scope JSHandle[] args) @
             srv.active = false;
             _activeServerCount--;
             engine.setProperty(thisVal, "listening", engine.newBool(false));
+
+            // Close all active connections belonging to this server
+            foreach (ci, ref conn; httpConns)
+            {
+                if (!conn.closed && conn.srvId == idVal)
+                {
+                    conn.closed = true;
+                    version (linux) if (conn.fd >= 0) gHttpPoller.unwatch(conn.fd);
+                    try { fdToConnId.remove(conn.fd); } catch (Exception) {}
+                    closeConnFd(&conn);
+                    freeConnSlot(cast(int) ci);
+                }
+            }
+
+            // Emit 'close' event on the server object
+            auto emitProp = engine.getProperty(thisVal, "emit");
+            if (engine.isFunction(emitProp))
+            {
+                auto closeStr = engine.newString("close");
+                JSHandle[1] emitArgs = [closeStr];
+                auto emitRet = engine.callFunction(emitProp, thisVal, emitArgs[]);
+                engine.freeValue(emitRet);
+                engine.freeValue(closeStr);
+            }
+            engine.freeValue(emitProp);
+
+            // Call callback if provided
+            if (args.length >= 1 && engine.isFunction(args[0]))
+            {
+                auto undef = engine.newUndefined();
+                JSHandle[0] noArgs;
+                auto cbRet = engine.callFunction(args[0], undef, noArgs[]);
+                engine.freeValue(cbRet);
+                engine.freeValue(undef);
+            }
         }
         return engine.newUndefined();
     }
@@ -658,7 +733,7 @@ JSHandle jsHttpServerOn(void* ctx, JSHandle thisVal, scope JSHandle[] args) @tru
     auto state = cast(DunState*) ctx;
     assert(state !is null, "Null DunState in jsHttpServerOn");
     auto engine = state.engine;
-    if (args.length < 2) return engine.dupValue(thisVal);
+    if (args.length < 2 || !engine.isFunction(args[1])) return engine.dupValue(thisVal);
 
     auto idProp = engine.getProperty(thisVal, "__hid");
     int idVal = engine.extractInt(idProp);
@@ -666,13 +741,37 @@ JSHandle jsHttpServerOn(void* ctx, JSHandle thisVal, scope JSHandle[] args) @tru
     if (idVal < 0 || idVal >= cast(int) httpServers.length) return engine.dupValue(thisVal);
 
     auto ev = engine.extractString(args[0]);
-    if (ev == "request" && engine.isFunction(args[1]))
+    if (ev == "request")
     {
         auto srv = &httpServers[idVal];
         if (srv.cbSet) engine.freeValue(srv.requestCb);
         srv.requestCb = engine.dupValue(args[1]);
         srv.cbSet = true;
     }
+
+    // Store arbitrary event listeners on _events map for emit()
+    auto eventsMap = engine.getProperty(thisVal, "_events");
+    if (engine.isUndefined(eventsMap) || engine.isNull(eventsMap))
+    {
+        engine.freeValue(eventsMap);
+        eventsMap = engine.newObject();
+        engine.setProperty(thisVal, "_events", engine.dupValue(eventsMap));
+    }
+    auto listeners = engine.getProperty(eventsMap, ev);
+    if (engine.isUndefined(listeners) || engine.isNull(listeners) || !engine.isArray(listeners))
+    {
+        engine.freeValue(listeners);
+        listeners = engine.eval("([])", "<http-srv-on>").value;
+    }
+    // Push the callback
+    auto lenProp = engine.getProperty(listeners, "length");
+    int len = engine.extractInt(lenProp);
+    engine.freeValue(lenProp);
+    engine.setPropertyIndex(listeners, len, engine.dupValue(args[1]));
+    engine.setProperty(eventsMap, ev, engine.dupValue(listeners));
+    engine.freeValue(listeners);
+    engine.freeValue(eventsMap);
+
     return engine.dupValue(thisVal);
 }
 
@@ -694,6 +793,11 @@ JSHandle makeReqObj(IJSEngine engine, int connId) @trusted
     }
     catch (Exception) {}
     engine.setProperty(obj, "headers", hdrs);
+    auto sock = engine.newObject();
+    engine.setProperty(sock, "remoteAddress", engine.newString("127.0.0.1"));
+    engine.setProperty(sock, "remotePort", engine.newInt(0));
+    engine.setProperty(obj, "connection", engine.dupValue(sock));
+    engine.setProperty(obj, "socket", sock);
     ensureHttpFnsCached(engine);
     engine.setProperty(obj, "on", engine.dupValue(_httpReqOn));
     return obj;
@@ -774,6 +878,7 @@ JSHandle makeResObj(IJSEngine engine, int connId) @trusted
     engine.setProperty(obj, "finished", engine.newBool(false));
     engine.setProperty(obj, "writableEnded", engine.newBool(false));
     engine.setProperty(obj, "writableFinished", engine.newBool(false));
+    engine.setProperty(obj, "socket", engine.newObject());
     ensureHttpFnsCached(engine);
     engine.setProperty(obj, "setHeader", engine.dupValue(_httpResSetHeader));
     engine.setProperty(obj, "getHeader", engine.dupValue(_httpResGetHeader));
@@ -783,6 +888,9 @@ JSHandle makeResObj(IJSEngine engine, int connId) @trusted
     engine.setProperty(obj, "writeHead", engine.dupValue(_httpResWriteHead));
     engine.setProperty(obj, "write", engine.dupValue(_httpResWrite));
     engine.setProperty(obj, "end", engine.dupValue(_httpResEnd));
+    engine.setProperty(obj, "on", engine.dupValue(_httpResOn));
+    engine.setProperty(obj, "once", engine.dupValue(_httpResOn));
+    engine.setProperty(obj, "emit", engine.dupValue(_httpResEmit));
     return obj;
 }
 
@@ -1120,22 +1228,40 @@ JSHandle jsResEnd(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
             syncJsHeaders(engine, thisVal, conn);
         }
 
-        // Buffer body data
+        // Detect body data and callback arguments
+        // Node.js: res.end([data[, encoding]][, callback])
+        string body_;
+        JSHandle endCallback = engine.newUndefined();
+        bool hasCallback = false;
         if (args.length >= 1)
         {
-            auto body_ = engine.extractString(args[0]);
+            if (engine.isFunction(args[0]))
+            {
+                endCallback = engine.dupValue(args[0]);
+                hasCallback = true;
+            }
+            else
+            {
+                body_ = engine.extractString(args[0]);
+                if (args.length >= 2 && engine.isFunction(args[$ - 1]))
+                {
+                    endCallback = engine.dupValue(args[$ - 1]);
+                    hasCallback = true;
+                }
+            }
+        }
+
+        if (body_.length > 0)
+        {
             if (conn.chunkedResponse)
             {
-                // Already streaming — send final data chunk + terminal chunk
                 if (!conn.headersSent) bufferStatusLine(conn);
                 flushResponse(conn);
-                if (body_.length > 0)
-                    sendChunk(conn, body_);
+                sendChunk(conn, body_);
                 sendRaw(conn, "0\r\n\r\n");
             }
             else
             {
-                // Non-streaming: auto-set Content-Length, buffer everything, single flush
                 if (!conn.headersSent && "Content-Length" !in conn.respHeaders
                     && "content-length" !in conn.respHeaders)
                 {
@@ -1171,6 +1297,33 @@ JSHandle jsResEnd(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
         engine.setProperty(thisVal, "finished", engine.newBool(true));
         engine.setProperty(thisVal, "writableEnded", engine.newBool(true));
         engine.setProperty(thisVal, "writableFinished", engine.newBool(true));
+
+        // Fire 'finish' event listeners
+        auto emitProp = engine.getProperty(thisVal, "emit");
+        if (engine.isFunction(emitProp))
+        {
+            auto finishStr = engine.newString("finish");
+            JSHandle[1] emitArgs = [finishStr];
+            auto emitRet = engine.callFunction(emitProp, thisVal, emitArgs[]);
+            engine.freeValue(emitRet);
+            engine.freeValue(finishStr);
+        }
+        engine.freeValue(emitProp);
+
+        // Fire end callback if provided
+        if (hasCallback)
+        {
+            auto undef = engine.newUndefined();
+            JSHandle[0] noArgs;
+            auto cbRet = engine.callFunction(endCallback, undef, noArgs[]);
+            engine.freeValue(cbRet);
+            engine.freeValue(undef);
+            engine.freeValue(endCallback);
+        }
+        else
+        {
+            engine.freeValue(endCallback);
+        }
 
         if (conn.keepAlive)
         {

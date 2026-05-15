@@ -1,0 +1,16 @@
+PASS: server listening
+PASS: server.address() returns object
+PASS: server.address().port is number
+PASS: res.end callback body received
+PASS: res.end callback fired
+PASS: res finish event fires
+PASS: finish event response ok
+PASS: custom status code 201
+PASS: custom status body
+PASS: error returns 500
+PASS: error body
+PASS: close test body
+PASS: server.close callback fires
+---
+Total: 13/13 passed
+ALL CHECKS PASSED
