@@ -215,6 +215,23 @@ class V8Engine : IJSEngine
         dun_v8_set_prototype(ctx, fromHandle(obj), fromHandle(proto));
     }
 
+    JSHandle newBufferWithProto(scope const(ubyte)[] data, JSHandle proto, bool zeroed) @trusted
+    {
+        assert(ctx !is null, "V8 context not initialized");
+        auto v = dun_v8_new_uint8array_with_proto(ctx,
+            data.length ? data.ptr : null,
+            data.length, fromHandle(proto), zeroed ? 1 : 0);
+        return toHandle(v);
+    }
+
+    JSHandle newBufferFromUtf8String(JSHandle jsStr, JSHandle proto) @trusted
+    {
+        assert(ctx !is null, "V8 context not initialized");
+        auto v = dun_v8_buffer_from_utf8_string(ctx,
+            fromHandle(jsStr), fromHandle(proto));
+        return toHandle(v);
+    }
+
     void setPropertyIndex(JSHandle obj, uint idx, JSHandle val) @trusted
     {
         assert(ctx !is null, "V8 context not initialized");

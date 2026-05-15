@@ -13,8 +13,9 @@ skill extracts those numbers and tabulates.
 Built release binaries in place (`./dun-rel-qjs`, `./dun-rel-jsc`, `./dun-rel-v8`).
 If missing, run `/all-backends release` first.
 
-`node` and `bun` should be on `$PATH`. If missing, only the DunJS columns are
-reported.
+`node`, `bun`, and `deno` should be on `$PATH`. Deno needs
+`--unstable-detect-cjs -A` to run the CJS-format bench files (the
+benchmarks use `require('crypto')` etc.). Missing runtimes get skipped.
 
 ## Usage
 

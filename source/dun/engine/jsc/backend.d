@@ -312,6 +312,25 @@ class JSCEngine : IJSEngine
             cast(JSValueRef) fromHandle(proto));
     }
 
+    JSHandle newBufferWithProto(scope const(ubyte)[] data, JSHandle proto, bool zeroed) @trusted
+    {
+        // JSC's typed-array constructor is one JS-API call already; the
+        // additional SetPrototype call is cheap by comparison. Use the
+        // two-step path with a tweak: avoid the extra JS_DupValue/Protect
+        // dance that `newUint8Array` would do.
+        auto u8 = zeroed
+            ? newUint8ArrayZeroed(data.length)
+            : newUint8Array(data);
+        setPrototype(u8, proto);
+        return u8;
+    }
+
+    JSHandle newBufferFromUtf8String(JSHandle jsStr, JSHandle proto) @trusted
+    {
+        auto s = extractString(jsStr);
+        return newBufferWithProto(cast(const(ubyte)[]) s, proto, false);
+    }
+
     void setPropertyIndex(JSHandle obj, uint idx, JSHandle val) @trusted
     {
         assert(ctx !is null, "JSC context not initialized");

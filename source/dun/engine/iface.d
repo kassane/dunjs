@@ -106,6 +106,24 @@ interface IJSEngine
     /// ~5-line cached eval'd JS function).
     void setPrototype(JSHandle obj, JSHandle proto);
 
+    /// One-shot fast path for the Buffer.from / .alloc / .concat hot path:
+    /// `new Uint8Array(data)` + `setPrototypeOf(u8, proto)` collapsed into
+    /// a single backend call. On V8 this saves three withContext entries
+    /// (Isolate::Scope + HandleScope + Context::Scope) per Buffer creation,
+    /// closing a large chunk of the gap vs Node's pure-C++ Buffer impl.
+    ///
+    /// `data` may be null when `zeroed` is true and length > 0 — the
+    /// backend will allocate a zeroed-out ArrayBuffer (semantically
+    /// equivalent to `Buffer.alloc(len)`).
+    JSHandle newBufferWithProto(scope const(ubyte)[] data, JSHandle proto, bool zeroed);
+
+    /// Fused `Buffer.from(jsString, "utf8")` hot path — saves the
+    /// JS-string→D-string copy that `extractString + newBufferWithProto`
+    /// otherwise pays on every call. V8 implements this directly via
+    /// `v8::String::WriteUtf8V2` into a fresh ArrayBuffer. QuickJS / JSC
+    /// fall back to the two-step path.
+    JSHandle newBufferFromUtf8String(JSHandle jsStr, JSHandle proto);
+
     // --- Reference management ---
     JSHandle dupValue(JSHandle val);
     void freeValue(JSHandle val);

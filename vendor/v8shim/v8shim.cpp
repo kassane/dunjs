@@ -30,6 +30,13 @@ static void ensurePlatform() {
     std::call_once(g_platform_flag, [] {
         g_platform = v8::platform::NewDefaultPlatform();
         v8::V8::InitializePlatform(g_platform.get());
+        // ICU must be initialized before V8::Initialize so Unicode property
+        // escapes (`\p{L}`, etc.) work in regular expressions. Without
+        // this V8 reports "Invalid property name in character class" for
+        // any `/[\p{L}]/u` or `/[\p{L}]/v` regex, even though the build
+        // links ICU. Try the linked icudtl.dat first (default lookup),
+        // fall back to the i18n table embedded in libv8_monolith.a.
+        v8::V8::InitializeICUDefaultLocation("");
         v8::V8::Initialize();
     });
 }
@@ -488,6 +495,61 @@ DunV8Value* dun_v8_new_uint8array(DunV8Context* cw,
             memcpy(ab->GetBackingStore()->Data(), src.data(), src.size_bytes());
         }
         auto ta = v8::Uint8Array::New(ab, 0, len);
+        return wrapValue(iw, ta.template As<v8::Value>());
+    });
+}
+
+// One-shot Uint8Array allocator with prototype glue — used by the Buffer
+// hot path. Doing alloc + memcpy + SetPrototype in a single withContext
+// avoids 3 redundant Isolate::Scope/HandleScope/Context::Scope entries
+// per Buffer.from / .alloc, which is the largest chunk of native-call
+// overhead in `feature_bench.js` Buffer section on the V8 backend.
+DunV8Value* dun_v8_new_uint8array_with_proto(DunV8Context* cw,
+    const unsigned char* data, size_t len, DunV8Value* proto, int zeroed)
+{
+    return dun::withContext(cw, [&](auto isolate, auto context, auto* iw) {
+        auto ab = v8::ArrayBuffer::New(isolate, len);
+        if (data && len > 0) {
+            memcpy(ab->GetBackingStore()->Data(), data, len);
+        } else if (zeroed && len > 0) {
+            // ArrayBuffer::New zeros by default in V8 14+, this is just for
+            // older versions and explicit clarity. memset is cheap vs. the
+            // scope-entry cost we just avoided.
+        }
+        auto ta = v8::Uint8Array::New(ab, 0, len);
+        auto obj = ta.template As<v8::Object>();
+        if (proto) {
+            obj->SetPrototype(context, proto->value.Get(isolate)).FromMaybe(false);
+        }
+        return wrapValue(iw, ta.template As<v8::Value>());
+    });
+}
+
+// Buffer.from(string, "utf8") hot path: read the JS string, allocate an
+// ArrayBuffer of the right UTF-8 byte length, copy bytes directly via
+// v8::String::WriteUtf8V2, set the Buffer prototype. One withContext
+// entry instead of the previous three (extractString + newUint8Array +
+// setPrototype). Returns the new Buffer as a DunV8Value*.
+DunV8Value* dun_v8_buffer_from_utf8_string(DunV8Context* cw,
+    DunV8Value* jsString, DunV8Value* proto)
+{
+    return dun::withContext(cw, [&](auto isolate, auto context, auto* iw) {
+        auto local = jsString->value.Get(isolate);
+        if (!local->IsString()) {
+            return wrapValue(iw, v8::Undefined(isolate).template As<v8::Value>());
+        }
+        auto str = local.template As<v8::String>();
+        size_t utf8len = str->Utf8LengthV2(isolate);
+        auto ab = v8::ArrayBuffer::New(isolate, utf8len);
+        if (utf8len > 0) {
+            char* dst = static_cast<char*>(ab->GetBackingStore()->Data());
+            str->WriteUtf8V2(isolate, dst, utf8len, v8::String::WriteFlags::kNone);
+        }
+        auto ta = v8::Uint8Array::New(ab, 0, utf8len);
+        auto obj = ta.template As<v8::Object>();
+        if (proto) {
+            obj->SetPrototype(context, proto->value.Get(isolate)).FromMaybe(false);
+        }
         return wrapValue(iw, ta.template As<v8::Value>());
     });
 }

@@ -273,12 +273,11 @@ __gshared JSHandle _bufFactoryThis;
 package JSHandle makeBufferObj(IJSEngine engine, const(ubyte)[] data) @trusted
 {
     ensureBufferFnsCached(engine);
-    // Buffer instance = native Uint8Array with __dunBufProto__ glued on.
-    // Skips the per-call `new Proxy(Object.create(p))` factory that
-    // dominated the Buffer.from / .alloc / .concat hot-path cost.
-    auto u8 = engine.newUint8Array(data);
-    engine.setPrototype(u8, _bufProto);
-    return u8;
+    // Single backend call: alloc + memcpy + setPrototype. On V8 this
+    // collapses 3 withContext entries into 1 — meaningful win on the
+    // Buffer.from hot path. On QuickJS / JSC the impl falls back to the
+    // two-step path internally.
+    return engine.newBufferWithProto(data, _bufProto, false);
 }
 
 JSHandle makeBufferObjZeroed(IJSEngine engine, int size) @trusted
@@ -361,6 +360,14 @@ JSHandle jsBufferFrom(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trust
 
     if (engine.isString(args[0]))
     {
+        // Common path: Buffer.from(str) with no encoding → fused
+        // utf8-direct shim on V8, two-step fallback elsewhere.
+        if (args.length < 2 || engine.isUndefined(args[1]))
+        {
+            ensureBufferFnsCached(engine);
+            return engine.newBufferFromUtf8String(args[0], _bufProto);
+        }
+
         auto str = engine.extractString(args[0]);
         string encoding = "utf8";
         if (args.length >= 2 && engine.isString(args[1]))
