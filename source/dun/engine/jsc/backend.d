@@ -295,6 +295,16 @@ class JSCEngine : IJSEngine
             kJSPropertyAttributeNone, &exc);
     }
 
+    void bindMethod(JSHandle obj, scope const(char)[] name, JSHandle fn) @trusted
+    {
+        // JSObjectSetProperty does not consume the value and JSC's GC roots
+        // the function via the property table — no extra dupValue /
+        // JSValueProtect needed. Critical for hot constructors (e.g.
+        // crypto.createHash) that previously leaked one protect entry per
+        // call via `setProperty(obj, k, dupValue(_cachedFn))`.
+        setProperty(obj, name, fn);
+    }
+
     void setPropertyIndex(JSHandle obj, uint idx, JSHandle val) @trusted
     {
         assert(ctx !is null, "JSC context not initialized");

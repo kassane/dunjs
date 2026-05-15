@@ -212,6 +212,18 @@ class QuickJSEngine : IJSEngine
             stackTerminate(name, buf), fromHandle(val));
     }
 
+    void bindMethod(JSHandle obj, scope const(char)[] name, JSHandle fn) @trusted
+    {
+        // QuickJS JS_SetPropertyStr consumes the value, so we must dup `fn`
+        // first; otherwise the cached function's refcount drops to zero and
+        // the next call uses freed memory. The dup'd ref becomes the
+        // property's owned reference; caller's `fn` handle is unchanged.
+        assert(ctx !is null, "Engine not initialized");
+        char[QJS_STACK_STRING_SIZE] buf = void;
+        JS_SetPropertyStr(ctx, fromHandle(obj),
+            stackTerminate(name, buf), JS_DupValue(ctx, fromHandle(fn)));
+    }
+
     void setPropertyIndex(JSHandle obj, uint idx, JSHandle val) @trusted
     {
         assert(ctx !is null, "Engine not initialized");

@@ -82,6 +82,23 @@ interface IJSEngine
     void setProperty(JSHandle obj, scope const(char)[] name, JSHandle val);
     JSHandle getGlobal();
 
+    /// Bind a long-lived function value as a property of `obj` without
+    /// transferring ownership of `fn`. Use this for "method binding" of
+    /// cached function handles (e.g. `_cachedUpdateFn`) that are stored
+    /// in `__gshared` slots and must outlive every call site that copies
+    /// them onto per-call objects.
+    ///
+    /// Backends:
+    /// - QuickJS: `JS_SetPropertyStr` consumes the value, so we
+    ///   internally `JS_DupValue` first — caller's `fn` handle stays
+    ///   valid afterwards.
+    /// - JSC: `JSObjectSetProperty` does not consume — the property
+    ///   table inside the JS object roots `fn` for us — no extra
+    ///   `JSValueProtect` needed. (Avoiding the per-call protect is
+    ///   what keeps hot loops like `crypto.createHash().update().digest()`
+    ///   from leaking one entry on JSC's protect table per call.)
+    void bindMethod(JSHandle obj, scope const(char)[] name, JSHandle fn);
+
     // --- Reference management ---
     JSHandle dupValue(JSHandle val);
     void freeValue(JSHandle val);

@@ -200,6 +200,15 @@ class V8Engine : IJSEngine
             stackTerminate(name, buf), fromHandle(val));
     }
 
+    void bindMethod(JSHandle obj, scope const(char)[] name, JSHandle fn) @trusted
+    {
+        // V8 wraps every value in a ref-counted DunV8Value; setProperty
+        // does not consume. Same shape as setProperty — caller's `fn`
+        // handle is unchanged because dun_v8_set_property internally
+        // creates its own v8::Local from the persistent handle.
+        setProperty(obj, name, fn);
+    }
+
     void setPropertyIndex(JSHandle obj, uint idx, JSHandle val) @trusted
     {
         assert(ctx !is null, "V8 context not initialized");

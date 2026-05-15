@@ -496,8 +496,9 @@ JSHandle jsCryptoCreateHash(void* ctx, JSHandle thisVal, scope JSHandle[] args) 
     auto obj = engine.newObject();
     engine.setProperty(obj, "_algo", engine.newString(algo));
     engine.setProperty(obj, "_hid", engine.newInt(id));
-    engine.setProperty(obj, "update", engine.dupValue(_cachedUpdateFn));
-    engine.setProperty(obj, "digest", engine.dupValue(_cachedDigestFn));
+    // bindMethod: shared cached fn → property without per-call dup leak (JSC)
+    engine.bindMethod(obj, "update", _cachedUpdateFn);
+    engine.bindMethod(obj, "digest", _cachedDigestFn);
     return obj;
 }
 
@@ -658,8 +659,8 @@ JSHandle jsCryptoCreateHmac(void* ctx, JSHandle thisVal, scope JSHandle[] args) 
     auto obj = engine.newObject();
     engine.setProperty(obj, "_algo", engine.newString(algo));
     engine.setProperty(obj, "_hid", engine.newInt(id));
-    engine.setProperty(obj, "update", engine.dupValue(_cachedHmacUpdateFn));
-    engine.setProperty(obj, "digest", engine.dupValue(_cachedHmacDigestFn));
+    engine.bindMethod(obj, "update", _cachedHmacUpdateFn);
+    engine.bindMethod(obj, "digest", _cachedHmacDigestFn);
     return obj;
 }
 
