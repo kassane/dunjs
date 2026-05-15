@@ -466,7 +466,7 @@ private string webAPIsSource() pure nothrow @safe
     ~ "console.table=function(data){if(Array.isArray(data)){console.log('(index)','Value');for(var i=0;i<data.length;i++)console.log(i,data[i]);}"
     ~ "else if(typeof data==='object'&&data!==null){var keys=Object.keys(data);console.log('(index)','Values');for(var i=0;i<keys.length;i++)console.log(keys[i],data[keys[i]]);}"
     ~ "else console.log(data);};"
-    ~ "console.dir=console.dir||function(obj){console.log(typeof require==='function'&&require('util')?require('util').inspect(obj):JSON.stringify(obj,null,2));};"
+    ~ "console.dir=console.dir||function(obj){console.log(typeof __dun_inspect__==='function'?__dun_inspect__(obj):JSON.stringify(obj,null,2));};"
     ~ "console.trace=console.trace||function(){var e=new Error();console.log('Trace'+(arguments.length?': '+[].join.call(arguments,' '):''));if(e.stack)console.log(e.stack.split('\\n').slice(1).join('\\n'));};"
     ~ "console.clear=console.clear||function(){};"
     ~ "console.group=console.group||function(){};"

@@ -875,6 +875,18 @@ JSHandle denoInspect(void* ctx, JSHandle thisVal, scope JSHandle[] args) @truste
     if (args.length < 1)
         return engine.newString("undefined");
 
+    auto global = engine.getGlobal();
+    auto inspectFn = engine.getProperty(global, "__dun_inspect__");
+    engine.freeValue(global);
+
+    if (engine.isFunction(inspectFn))
+    {
+        auto result = engine.callFunction(inspectFn, engine.newUndefined(), [args[0]]);
+        engine.freeValue(inspectFn);
+        return result;
+    }
+    engine.freeValue(inspectFn);
+
     if (engine.isString(args[0]))
         return engine.newString("\"" ~ engine.extractString(args[0]) ~ "\"");
     if (engine.isNumber(args[0]))
