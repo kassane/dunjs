@@ -13,8 +13,30 @@ string transpileESM(string source, string filename) @safe pure
     bool usesImportMeta;
 
     auto lines = splitLines(source);
+    string pendingImport;  // Accumulates multi-line imports
     foreach (line; lines)
     {
+        // Handle multi-line import accumulation
+        if (pendingImport.length > 0)
+        {
+            pendingImport ~= " " ~ stripLeft(line);
+            // Strip inline comments from accumulated line
+            auto commentIdx = findInlineComment(pendingImport);
+            if (commentIdx >= 0)
+                pendingImport = pendingImport[0 .. commentIdx];
+            if (findChar(pendingImport, '}') >= 0)
+            {
+                // Complete multi-line import — parse it
+                auto parsed = parseImportLine(pendingImport[7 .. $].length > 0 ? pendingImport : pendingImport);
+                if (parsed.length == 0)
+                    parsed = parseImportLine(stripLeft(pendingImport));
+                if (parsed.length > 0)
+                    preamble ~= parsed;
+                pendingImport = "";
+            }
+            continue;
+        }
+
         auto trimmed = stripLeft(line);
         if (trimmed.length == 0 || trimmed[0] == '/' || trimmed[0] == '*')
         {
@@ -25,6 +47,19 @@ string transpileESM(string source, string filename) @safe pure
 
         if (startsWith(trimmed, "import "))
         {
+            // Check for multi-line import: has '{' but no '}' on same line
+            auto braceOpen = findChar(trimmed, '{');
+            auto braceClose = findChar(trimmed, '}');
+            if (braceOpen >= 0 && braceClose < 0)
+            {
+                // Strip inline comment before accumulating
+                pendingImport = trimmed;
+                auto commentIdx = findInlineComment(pendingImport);
+                if (commentIdx >= 0)
+                    pendingImport = pendingImport[0 .. commentIdx];
+                continue;
+            }
+
             auto parsed = parseImportLine(trimmed);
             if (parsed.length > 0)
             {
@@ -51,6 +86,43 @@ string transpileESM(string source, string filename) @safe pure
         if (startsWith(trimmed, "export "))
         {
             auto rest = trimmed[7 .. $];
+
+            // export { X, Y } from './module.js'  (re-export)
+            // export { default as X } from './module.js'
+            if (startsWith(rest, "{") || startsWith(rest, "{ "))
+            {
+                auto fromIdx = findFrom(trimmed);
+                if (fromIdx >= 0)
+                {
+                    auto reexport = parseReexport(trimmed);
+                    if (reexport.length > 0)
+                    {
+                        preamble ~= reexport;
+                        // Track exported names from re-export
+                        auto reNames = parseBraceNames(trimmed[7 .. $]);
+                        foreach (n; reNames)
+                            exportNames ~= n;
+                        continue;
+                    }
+                }
+                // export { X, Y } without from — just track names
+                auto names = parseBraceNames(rest);
+                foreach (n; names)
+                    exportNames ~= n;
+                continue;
+            }
+
+            // export * from './module.js'
+            if (startsWith(rest, "* from ") || startsWith(rest, "*from "))
+            {
+                auto starReexport = parseStarReexport(trimmed);
+                if (starReexport.length > 0)
+                {
+                    preamble ~= starReexport;
+                    continue;
+                }
+            }
+
             if (startsWith(rest, "function "))
             {
                 auto name = extractIdent(rest[9 .. $]);
@@ -464,6 +536,32 @@ private string builtinGlobalProp(string specifier) @safe pure nothrow
     return "";
 }
 
+private int findInlineComment(string s) @safe pure nothrow
+{
+    // Find '//' that's not inside a string
+    bool inStr = false;
+    char strChar = 0;
+    foreach (i; 0 .. s.length)
+    {
+        if (inStr)
+        {
+            if (s[i] == strChar && (i == 0 || s[i-1] != '\\'))
+                inStr = false;
+        }
+        else
+        {
+            if (s[i] == '\'' || s[i] == '"')
+            {
+                inStr = true;
+                strChar = s[i];
+            }
+            else if (i + 1 < s.length && s[i] == '/' && s[i+1] == '/')
+                return cast(int) i;
+        }
+    }
+    return -1;
+}
+
 private int findFrom(string s) @safe pure nothrow
 {
     if (s.length < 4) return -1;
@@ -508,6 +606,110 @@ private string extractBraceNames(string s) @safe pure nothrow
 {
     return s;
 }
+
+// Parse "export { X, Y, default as Z } from './mod.js'" into require + assignment
+private string parseReexport(string line) @safe pure
+{
+    // Find the braced part and the from specifier
+    auto braceStart = findChar(line, '{');
+    auto braceEnd = findChar(line, '}');
+    if (braceStart < 0 || braceEnd < 0 || braceEnd <= braceStart) return "";
+
+    auto fromIdx = findFrom(line);
+    if (fromIdx < 0) return "";
+    auto specifier = extractStringLiteral(line[fromIdx + 4 .. $]);
+    if (specifier.length == 0) return "";
+
+    auto braceContent = line[braceStart + 1 .. braceEnd];
+
+    // Parse comma-separated names: "default as MAX, parse, default as NIL"
+    Appender!(char[]) output;
+    output.reserve(256);
+    output ~= "var __reexport_tmp__ = require('";
+    output ~= escapeJsString(specifier);
+    output ~= "');\n";
+
+    auto names = splitByComma(braceContent);
+    foreach (name; names)
+    {
+        auto trimmedName = stripLeft(name);
+        if (trimmedName.length == 0) continue;
+
+        auto asIdx = findAs(trimmedName);
+        if (asIdx >= 0)
+        {
+            auto srcName = stripRight(trimmedName[0 .. asIdx]);
+            auto dstName = extractIdent(trimmedName[asIdx + 3 .. $]);
+            if (dstName.length == 0) continue;
+            if (srcName == "default")
+                output ~= "var " ~ dstName ~ " = __reexport_tmp__.default !== undefined ? __reexport_tmp__.default : __reexport_tmp__;\n";
+            else
+                output ~= "var " ~ dstName ~ " = __reexport_tmp__." ~ srcName ~ ";\n";
+        }
+        else
+        {
+            auto ident = extractIdent(trimmedName);
+            if (ident.length == 0) continue;
+            output ~= "var " ~ ident ~ " = __reexport_tmp__." ~ ident ~ ";\n";
+        }
+    }
+
+    return (() @trusted => cast(string) output[])();
+}
+
+// Parse "export * from './mod.js'" into Object.assign
+private string parseStarReexport(string line) @safe pure
+{
+    auto fromIdx = findFrom(line);
+    if (fromIdx < 0) return "";
+    auto specifier = extractStringLiteral(line[fromIdx + 4 .. $]);
+    if (specifier.length == 0) return "";
+    return "Object.assign(module.exports, require('" ~ escapeJsString(specifier) ~ "'));\n";
+}
+
+// Parse brace content "{ X, Y, Z }" into names array
+private string[] parseBraceNames(string s) @safe pure
+{
+    auto braceStart = findChar(s, '{');
+    auto braceEnd = findChar(s, '}');
+    if (braceStart < 0 || braceEnd < 0) return null;
+    auto content = s[braceStart + 1 .. braceEnd];
+    string[] names;
+    foreach (part; splitByComma(content))
+    {
+        auto trimmed = stripLeft(part);
+        auto asIdx = findAs(trimmed);
+        if (asIdx >= 0)
+        {
+            auto dstName = extractIdent(trimmed[asIdx + 3 .. $]);
+            if (dstName.length > 0) names ~= dstName;
+        }
+        else
+        {
+            auto ident = extractIdent(trimmed);
+            if (ident.length > 0) names ~= ident;
+        }
+    }
+    return names;
+}
+
+private string[] splitByComma(string s) @safe pure
+{
+    string[] parts;
+    size_t start = 0;
+    foreach (i, c; s)
+    {
+        if (c == ',')
+        {
+            parts ~= s[start .. i];
+            start = i + 1;
+        }
+    }
+    if (start <= s.length)
+        parts ~= s[start .. $];
+    return parts;
+}
+
 
 private string extractIdent(string s) @safe pure nothrow
 {

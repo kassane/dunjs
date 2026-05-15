@@ -87,6 +87,8 @@ string eventEmitterSource() pure @safe nothrow
   EventEmitter.prototype.on = function(event, listener) {
     if (typeof listener !== 'function')
       throw new TypeError('listener must be a function');
+    if (event !== 'newListener' && this._events['newListener'] && this._events['newListener'].length > 0)
+      this.emit('newListener', event, listener);
     if (!this._events[event]) this._events[event] = [];
     var listeners = this._events[event];
     if (listeners.length >= this._maxListeners && this._maxListeners > 0)

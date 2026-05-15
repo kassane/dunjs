@@ -417,6 +417,11 @@ JSHandle jsRequire(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
             }
             source = transpileESM(source, resolved);
         }
+        else if (resolved.endsWith(".js") && isEsmPackage(resolved))
+        {
+            import dun.modules.esm_shim : transpileESM;
+            source = transpileESM(source, resolved);
+        }
     }
     catch (Exception) {}
 
@@ -520,6 +525,35 @@ string getCjsStackDir(IJSEngine engine, JSHandle global) nothrow @trusted
         return getcwd();
     }
     catch (Exception) { return "."; }
+}
+
+private bool isEsmPackage(string filePath) @trusted nothrow
+{
+    import std.path : dirName, buildNormalizedPath;
+    try
+    {
+        auto dir = dirName(filePath);
+        // Walk up looking for package.json with "type": "module"
+        while (dir.length > 1)
+        {
+            auto pkgPath = buildNormalizedPath(dir, "package.json");
+            import std.file : exists, readText;
+            if (exists(pkgPath))
+            {
+                auto content = readText(pkgPath);
+                // Simple check for "type": "module" or "type":"module"
+                import std.algorithm : canFind;
+                if (content.canFind(`"type":"module"`) || content.canFind(`"type": "module"`))
+                    return true;
+                return false;
+            }
+            auto parent = dirName(dir);
+            if (parent == dir) break;
+            dir = parent;
+        }
+    }
+    catch (Exception) {}
+    return false;
 }
 
 bool checkPerm(DunState* state, Permission perm, string resource) nothrow @trusted
