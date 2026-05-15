@@ -290,7 +290,7 @@ struct HttpConnState
     size_t bodyStart;
     bool headersDone;
     int statusCode = HTTP_STATUS_OK;
-    string[string] respHeaders;
+    string[][string] respHeaders;
     bool headersSent;
     bool keepAlive;
     // Buffered response — headers+body combined into single write()
@@ -742,8 +742,24 @@ JSHandle jsResSetHeader(void* ctx, JSHandle thisVal, scope JSHandle[] args) @tru
     try
     {
         string name = sanitizeHeaderValue(engine.extractString(args[0]));
-        string val = sanitizeHeaderValue(engine.extractString(args[1]));
-        httpConns[connId].respHeaders[name] = val;
+        if (engine.isArray(args[1]))
+        {
+            int len = engine.getArrayLength(args[1]);
+            string[] vals;
+            vals.reserve(len);
+            foreach (i; 0 .. len)
+            {
+                auto elem = engine.getPropertyIndex(args[1], cast(uint) i);
+                vals ~= sanitizeHeaderValue(engine.extractString(elem));
+                engine.freeValue(elem);
+            }
+            httpConns[connId].respHeaders[name] = vals;
+        }
+        else
+        {
+            string val = sanitizeHeaderValue(engine.extractString(args[1]));
+            httpConns[connId].respHeaders[name] = [val];
+        }
     }
     catch (Exception) {}
     return engine.dupValue(thisVal);
@@ -762,12 +778,27 @@ JSHandle jsResGetHeader(void* ctx, JSHandle thisVal, scope JSHandle[] args) @tru
     try
     {
         string name = engine.extractString(args[0]);
+        string[]* found;
         if (auto val = name in httpConns[connId].respHeaders)
-            return engine.newString(*val);
-        foreach (k, v; httpConns[connId].respHeaders)
+            found = val;
+        else
         {
-            if (toLowerSimple(k) == toLowerSimple(name))
-                return engine.newString(v);
+            foreach (k, ref v; httpConns[connId].respHeaders)
+            {
+                if (toLowerSimple(k) == toLowerSimple(name))
+                    { found = &v; break; }
+            }
+        }
+        if (found !is null)
+        {
+            if ((*found).length == 1)
+                return engine.newString((*found)[0]);
+            auto arr = engine.eval("[]", "<arr>");
+            foreach (i, s; *found)
+            {
+                engine.setPropertyIndex(arr.value, cast(uint) i, engine.newString(s));
+            }
+            return arr.value;
         }
     }
     catch (Exception) {}
@@ -786,8 +817,18 @@ JSHandle jsResGetHeaders(void* ctx, JSHandle thisVal, scope JSHandle[] args) @tr
     if (connId < 0 || connId >= cast(int) httpConns.length) return obj;
     try
     {
-        foreach (k, v; httpConns[connId].respHeaders)
-            engine.setProperty(obj, k, engine.newString(v));
+        foreach (k, vals; httpConns[connId].respHeaders)
+        {
+            if (vals.length == 1)
+                engine.setProperty(obj, k, engine.newString(vals[0]));
+            else if (vals.length > 1)
+            {
+                auto arr = engine.eval("[]", "<arr>");
+                foreach (i, s; vals)
+                    engine.setPropertyIndex(arr.value, cast(uint) i, engine.newString(s));
+                engine.setProperty(obj, k, arr.value);
+            }
+        }
     }
     catch (Exception) {}
     return obj;
@@ -890,7 +931,23 @@ JSHandle jsResWriteHead(void* ctx, JSHandle thisVal, scope JSHandle[] args) @tru
             {
                 auto val = engine.getProperty(args[1], name);
                 if (!engine.isUndefined(val) && !engine.isNull(val))
-                    conn.respHeaders[name] = sanitizeHeaderValue(engine.extractString(val));
+                {
+                    if (engine.isArray(val))
+                    {
+                        int alen = engine.getArrayLength(val);
+                        string[] vals;
+                        vals.reserve(alen);
+                        foreach (ai; 0 .. alen)
+                        {
+                            auto elem = engine.getPropertyIndex(val, cast(uint) ai);
+                            vals ~= sanitizeHeaderValue(engine.extractString(elem));
+                            engine.freeValue(elem);
+                        }
+                        conn.respHeaders[name] = vals;
+                    }
+                    else
+                        conn.respHeaders[name] = [sanitizeHeaderValue(engine.extractString(val))];
+                }
                 engine.freeValue(val);
             }
         }
@@ -952,7 +1009,7 @@ JSHandle jsResEnd(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
             if (!conn.headersSent && "Content-Length" !in conn.respHeaders
                 && "content-length" !in conn.respHeaders)
             {
-                conn.respHeaders["Content-Length"] = sizeToStr(body_.length);
+                conn.respHeaders["Content-Length"] = [sizeToStr(body_.length)];
             }
             if (!conn.headersSent) bufferStatusLine(conn);
             bufferData(conn, body_);
@@ -1100,17 +1157,20 @@ void bufferStatusLine(HttpConnState* conn) nothrow @trusted
         bufAppend(statusLine(conn.statusCode));
 
         if ("Content-Type" !in conn.respHeaders)
-            conn.respHeaders["Content-Type"] = "text/plain";
+            conn.respHeaders["Content-Type"] = ["text/plain"];
         if (!conn.keepAlive)
-            conn.respHeaders["Connection"] = "close";
+            conn.respHeaders["Connection"] = ["close"];
         else if ("Connection" !in conn.respHeaders)
-            conn.respHeaders["Connection"] = "keep-alive";
-        foreach (k, v; conn.respHeaders)
+            conn.respHeaders["Connection"] = ["keep-alive"];
+        foreach (k, vals; conn.respHeaders)
         {
-            bufAppend(k);
-            bufAppend(": ");
-            bufAppend(v);
-            bufAppend("\r\n");
+            foreach (v; vals)
+            {
+                bufAppend(k);
+                bufAppend(": ");
+                bufAppend(v);
+                bufAppend("\r\n");
+            }
         }
         bufAppend("\r\n");
     }

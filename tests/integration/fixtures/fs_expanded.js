@@ -99,7 +99,7 @@ var rs = fs.createReadStream(tmpDir + '/test.txt');
 console.log('createReadStream:', rs !== null && typeof rs.on === 'function');
 console.log('createReadStream path:', rs.path === tmpDir + '/test.txt');
 var rsData = rs.read();
-console.log('createReadStream read:', rsData === 'hello world!!!');
+console.log('createReadStream read:', rsData !== null && rsData.toString() === 'hello world!!!');
 
 // createWriteStream
 var ws = fs.createWriteStream(tmpDir + '/ws_test.txt');

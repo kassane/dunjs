@@ -1627,21 +1627,63 @@ JSHandle jsCreateReadStream(void* ctx, JSHandle thisVal, scope JSHandle[] args) 
     auto path = engine.extractString(args[0]);
     if (!checkPerm(state, Permission.read, path))
         return throwPermError(engine, "read", path);
+
+    string encoding;
+    if (args.length >= 2 && engine.isObject(args[1]))
+    {
+        auto encProp = engine.getProperty(args[1], "encoding");
+        if (engine.isString(encProp))
+            encoding = engine.extractString(encProp);
+        engine.freeValue(encProp);
+    }
+
     try
     {
-        import std.file : readText, exists;
+        import std.file : read, exists;
         if (!exists(path))
             return engine.throwTypeError("ENOENT: no such file or directory, open '" ~ path ~ "'");
-        auto content = readText(path);
+        auto rawData = cast(ubyte[]) read(path);
         auto stream = engine.newObject();
-        engine.setProperty(stream, "_data", engine.newString(content));
+        if (encoding.length > 0)
+            engine.setProperty(stream, "_data", engine.newString(cast(string) rawData));
+        else
+        {
+            import dun.builtins.buffer : makeBufferObj;
+            engine.setProperty(stream, "_data", makeBufferObj(engine, rawData));
+        }
         engine.setProperty(stream, "_listeners", engine.newObject());
         engine.setProperty(stream, "_ended", engine.newBool(false));
+        engine.setProperty(stream, "readable", engine.newBool(true));
         engine.setProperty(stream, "path", engine.newString(path));
         engine.setProperty(stream, "on", engine.newFunction(&jsStreamOn, "on", 2));
+        engine.setProperty(stream, "once", engine.newFunction(&jsStreamOn, "once", 2));
         engine.setProperty(stream, "pipe", engine.newFunction(&jsReadStreamPipe, "pipe", 1));
         engine.setProperty(stream, "destroy", engine.newFunction(&jsStreamDestroy, "destroy", 0));
         engine.setProperty(stream, "read", engine.newFunction(&jsReadStreamRead, "read", 0));
+        engine.setProperty(stream, "resume", engine.newFunction(&jsReadStreamResume, "resume", 0));
+
+        // Schedule data+end event emission on next tick
+        auto global = engine.getGlobal();
+        engine.setProperty(global, "__rs_pending__", engine.dupValue(stream));
+        engine.freeValue(global);
+        auto emitRes = engine.eval(
+            "(function(){"
+            ~ "var s=globalThis.__rs_pending__;"
+            ~ "delete globalThis.__rs_pending__;"
+            ~ "if(!s)return;"
+            ~ "setTimeout(function(){"
+            ~ "var ls=s._listeners;if(!ls)return;"
+            ~ "var d=ls.data;if(typeof d==='function')d(s._data);"
+            ~ "s._ended=true;s.readable=false;"
+            ~ "var e=ls.end;if(typeof e==='function')e();"
+            ~ "var c=ls.close;if(typeof c==='function')c();"
+            ~ "},0);"
+            ~ "})()", "<rs-emit>");
+        if (!emitRes.isError)
+            engine.freeValue(emitRes.value);
+        else
+            engine.freeValue(emitRes.value);
+
         return stream;
     }
     catch (Exception e) { return throwSystemError(engine, "open", path, e); }
@@ -1681,12 +1723,12 @@ JSHandle jsStreamOn(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
     auto state = cast(DunState*) ctx;
     assert(state !is null, "Null DunState in jsStreamOn");
     auto engine = state.engine;
-    if (args.length < 2) return thisVal;
+    if (args.length < 2) return engine.dupValue(thisVal);
     auto eventName = engine.extractString(args[0]);
     auto listeners = engine.getProperty(thisVal, "_listeners");
-    engine.setProperty(listeners, eventName, args[1]);
+    engine.setProperty(listeners, eventName, engine.dupValue(args[1]));
     engine.freeValue(listeners);
-    return thisVal;
+    return engine.dupValue(thisVal);
 }
 
 JSHandle jsStreamDestroy(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
@@ -1694,6 +1736,13 @@ JSHandle jsStreamDestroy(void* ctx, JSHandle thisVal, scope JSHandle[] args) @tr
     assert(ctx !is null, "Null ctx in jsStreamDestroy");
     auto state = cast(DunState*) ctx;
     return state.engine.newUndefined();
+}
+
+JSHandle jsReadStreamResume(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
+{
+    assert(ctx !is null, "Null ctx in jsReadStreamResume");
+    auto state = cast(DunState*) ctx;
+    return state.engine.dupValue(thisVal);
 }
 
 JSHandle jsReadStreamRead(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
@@ -1741,7 +1790,7 @@ JSHandle jsWriteStreamWrite(void* ctx, JSHandle thisVal, scope JSHandle[] args) 
     auto countProp = engine.getProperty(thisVal, "_chunkCount");
     auto idx = engine.extractInt(countProp);
     engine.freeValue(countProp);
-    engine.setPropertyIndex(chunks, cast(uint) idx, args[0]);
+    engine.setPropertyIndex(chunks, cast(uint) idx, engine.dupValue(args[0]));
     engine.freeValue(chunks);
     engine.setProperty(thisVal, "_chunkCount", engine.newInt(idx + 1));
     return engine.newBool(true);
@@ -1759,7 +1808,7 @@ JSHandle jsWriteStreamEnd(void* ctx, JSHandle thisVal, scope JSHandle[] args) @t
         auto countProp0 = engine.getProperty(thisVal, "_chunkCount");
         auto idx = engine.extractInt(countProp0);
         engine.freeValue(countProp0);
-        engine.setPropertyIndex(chunks0, cast(uint) idx, args[0]);
+        engine.setPropertyIndex(chunks0, cast(uint) idx, engine.dupValue(args[0]));
         engine.freeValue(chunks0);
         engine.setProperty(thisVal, "_chunkCount", engine.newInt(idx + 1));
     }
@@ -2015,12 +2064,12 @@ JSHandle jsWatcherOn(void* ctx, JSHandle thisVal, scope JSHandle[] args) @truste
     assert(state !is null, "Null DunState in jsWatcherOn");
     auto engine = state.engine;
     assert(engine !is null, "Null engine in jsWatcherOn");
-    if (args.length < 2) return thisVal;
+    if (args.length < 2) return engine.dupValue(thisVal);
     auto eventName = engine.extractString(args[0]);
     auto listeners = engine.getProperty(thisVal, "_listeners");
-    engine.setProperty(listeners, eventName, args[1]);
+    engine.setProperty(listeners, eventName, engine.dupValue(args[1]));
     engine.freeValue(listeners);
-    return thisVal;
+    return engine.dupValue(thisVal);
 }
 
 JSHandle jsWatcherRef(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
@@ -2028,7 +2077,7 @@ JSHandle jsWatcherRef(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trust
     assert(ctx !is null, "Null ctx in jsWatcherRef");
     auto state = cast(DunState*) ctx;
     assert(state !is null, "Null DunState in jsWatcherRef");
-    return thisVal;
+    return state.engine.dupValue(thisVal);
 }
 
 JSHandle jsWatcherUnref(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
@@ -2036,7 +2085,7 @@ JSHandle jsWatcherUnref(void* ctx, JSHandle thisVal, scope JSHandle[] args) @tru
     assert(ctx !is null, "Null ctx in jsWatcherUnref");
     auto state = cast(DunState*) ctx;
     assert(state !is null, "Null DunState in jsWatcherUnref");
-    return thisVal;
+    return state.engine.dupValue(thisVal);
 }
 
 // ── mkdtempSync ─────────────────────────────────────────────────
