@@ -482,7 +482,7 @@ dub build -c v8  && BACKEND=v8  ./tests/integration/run.sh
 | WebCrypto | `webcrypto_api` | 37 checks: subtle.digest (SHA-1/256/384/512), importKey, sign/verify (HMAC), encrypt/decrypt (AES-GCM, AES-CBC) |
 | .env loading | `dotenv_loading` | 3 checks: parse KEY=VALUE/quoted, no-override existing env, missing .env OK |
 
-Backend test scores: **QuickJS 89/89**, **JSC 89/89**, **V8 89/89** (full parity across all 3 backends).
+Backend test scores: **QuickJS 91/91**, **JSC 90/90**, **V8 90/90** (full parity across all 3 backends).
 
 Test pattern: fixtures in `tests/integration/fixtures/*.{js,mjs,ts}`, expected stdout in `tests/integration/expected/*.txt`.
 
@@ -803,3 +803,12 @@ Benchmark impact (25 benchmarks, feature_bench.js):
 | 18d | WebCrypto subtle | Native crypto.subtle via OpenSSL: digest, importKey, sign/verify (HMAC), encrypt/decrypt (AES-GCM/CBC) | **Done** |
 | 18e | TIGER_STYLE audit | Precondition assertions in 45+ @trusted functions across all builtins and engine backends | **Done** |
 | 18f | DIP1000 scope | `scope` annotations on 8 IJSEngine interface methods + all backend implementations | **Done** |
+| 19a | ESM imports | Bare module imports (`fs`, `path`, `crypto`), `node:` prefix, `.mjs` files, JSON import attributes | **Done** |
+| 19b | Error stacks | Full stack traces for uncaught exceptions, Error.captureStackTrace polyfill | **Done** |
+| 19c | Binary crypto | D-side buffer registry for binary-safe Hash/HMAC, Buffer key support, multi-encoding digest | **Done** |
+| 19d | Hash algorithms | sha3-256/384/512, ripemd160, blake2s256, blake2b512 via OpenSSL EVP | **Done** |
+| 19e | Buffer encoding | base64url encode/decode, latin1/binary encoding with UTF-8 codepoint mapping | **Done** |
+| 19f | createReadStream | Event emission (data/end/close), Buffer default, encoding option, chained .on() | **Done** |
+| 19g | HTTP headers | Multi-value header support (Set-Cookie), array in setHeader/writeHead, per-value emission | **Done** |
+| 19h | JSHandle safety | Fixed 38 dupValue/freeValue bugs across 9 builtin modules (use-after-free on QuickJS) | **Done** |
+| 19i | timingSafeEqual | Buffer and Uint8Array input support via extractArgBytes helper | **Done** |
