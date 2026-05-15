@@ -107,5 +107,50 @@ try {
   check('yargs-parser --baz', result.baz === true);
 } catch(e) { console.log('FAIL: yargs-parser load:', e.message); total += 3; }
 
+// depd (CJS, uses Error.captureStackTrace + CallSite API)
+try {
+  const depd = require('depd');
+  check('depd is function', typeof depd === 'function');
+  var deprecate = depd('test-namespace');
+  check('depd() returns function', typeof deprecate === 'function');
+  check('depd.function exists', typeof deprecate.function === 'function');
+  check('depd.property exists', typeof deprecate.property === 'function');
+} catch(e) { console.log('FAIL: depd load:', e.message); total += 4; }
+
+// on-finished (CJS, HTTP utility)
+try {
+  const onFinished = require('on-finished');
+  check('on-finished is function', typeof onFinished === 'function');
+  check('on-finished.isFinished exists', typeof onFinished.isFinished === 'function');
+} catch(e) { console.log('FAIL: on-finished load:', e.message); total += 2; }
+
+// mime-types (CJS, content-type mapping)
+try {
+  const mime = require('mime-types');
+  check('mime-types.lookup html', mime.lookup('file.html') === 'text/html');
+  check('mime-types.lookup json', mime.lookup('file.json') === 'application/json');
+  check('mime-types.lookup css', mime.lookup('file.css') === 'text/css');
+  check('mime-types.contentType', typeof mime.contentType === 'function');
+  check('mime-types.extension', typeof mime.extension === 'function');
+} catch(e) { console.log('FAIL: mime-types load:', e.message); total += 5; }
+
+// cookie (CJS, cookie parsing)
+try {
+  const cookie = require('cookie');
+  check('cookie.parse exists', typeof cookie.parse === 'function');
+  check('cookie.serialize exists', typeof cookie.serialize === 'function');
+  var parsed = cookie.parse('foo=bar; baz=qux');
+  check('cookie.parse foo', parsed.foo === 'bar');
+  check('cookie.parse baz', parsed.baz === 'qux');
+} catch(e) { console.log('FAIL: cookie load:', e.message); total += 4; }
+
+// escape-html (CJS, XSS prevention)
+try {
+  const escapeHtml = require('escape-html');
+  check('escape-html is function', typeof escapeHtml === 'function');
+  check('escape-html <script>', escapeHtml('<script>') === '&lt;script&gt;');
+  check('escape-html &', escapeHtml('a&b') === 'a&amp;b');
+} catch(e) { console.log('FAIL: escape-html load:', e.message); total += 3; }
+
 console.log('npm_real_packages: ' + passed + '/' + total + ' checks passed');
 if (passed === total) console.log('ALL CHECKS PASSED');
