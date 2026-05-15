@@ -315,6 +315,14 @@ JSHandle jsRequire(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
     auto cached = engine.getProperty(cache, resolved);
     if (!engine.isUndefined(cached))
     {
+        // Cache stores module wrapper {exports: ...}, extract .exports
+        if (engine.isObject(cached))
+        {
+            auto exportsVal = engine.getProperty(cached, "exports");
+            engine.freeValue(cached);
+            engine.freeValue(cache);
+            return exportsVal;
+        }
         engine.freeValue(cache);
         return cached;
     }
@@ -337,7 +345,9 @@ JSHandle jsRequire(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
             auto parseResult = engine.eval("(" ~ jsonSource ~ ")", resolved);
             if (!parseResult.isError)
             {
-                engine.setProperty(cache, resolved, engine.dupValue(parseResult.value));
+                auto wrapper = engine.newObject();
+                engine.setProperty(wrapper, "exports", engine.dupValue(parseResult.value));
+                engine.setProperty(cache, resolved, wrapper);
                 engine.freeValue(cache);
                 return parseResult.value;
             }
@@ -358,7 +368,9 @@ JSHandle jsRequire(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
             }
             import dun.napi.loader : loadNativeAddon;
             auto addonResult = loadNativeAddon(engine, state, resolved);
-            engine.setProperty(cache, resolved, engine.dupValue(addonResult));
+            auto wrapper = engine.newObject();
+            engine.setProperty(wrapper, "exports", engine.dupValue(addonResult));
+            engine.setProperty(cache, resolved, wrapper);
             engine.freeValue(cache);
             return addonResult;
         }
@@ -418,11 +430,14 @@ JSHandle jsRequire(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
     string dirname_;
     try { dirname_ = dirName(resolved); } catch (Exception) { dirname_ = "."; }
 
-    // Pre-cache an empty exports object before evaluation to support circular requires.
-    // When a cycle is detected, require() returns the partial (incomplete) exports.
-    auto placeholder = engine.newObject();
-    engine.setProperty(cache, resolved, engine.dupValue(placeholder));
-    engine.freeValue(placeholder);
+    // Pre-cache a module wrapper {exports: {}} before evaluation.
+    // This enables circular require: when module A is mid-evaluation and
+    // module B requires A, B gets A's current module.exports (partial state).
+    // The wrapper object stays in cache; module.exports mutations are visible
+    // to all subsequent require() calls for this path.
+    auto wrapperResult = engine.eval("({exports:{}})", "<module-wrapper>");
+    assert(!wrapperResult.isError);
+    engine.setProperty(cache, resolved, engine.dupValue(wrapperResult.value));
 
     JSHandle result;
     try
@@ -433,7 +448,7 @@ JSHandle jsRequire(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 
         auto wrapped =
             "(function() {\n"
-            ~ "var __m = {exports: __dunCjsCache__[\"" ~ escPath ~ "\"]};\n"
+            ~ "var __m = __dunCjsCache__[\"" ~ escPath ~ "\"];\n"
             ~ "(function(module, exports, require, __filename, __dirname) {\n"
             ~ source ~ "\n"
             ~ "})(__m, __m.exports, require, \""
@@ -443,6 +458,7 @@ JSHandle jsRequire(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
             ~ "})()";
 
         auto evalResult = engine.eval(wrapped, resolved);
+        engine.freeValue(wrapperResult.value);
         if (evalResult.isError)
         {
             engine.setProperty(stack, "length", engine.newInt(stackLen));
@@ -454,6 +470,7 @@ JSHandle jsRequire(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
     }
     catch (Exception)
     {
+        engine.freeValue(wrapperResult.value);
         engine.setProperty(stack, "length", engine.newInt(stackLen));
         engine.freeValue(stack);
         engine.freeValue(cache);
@@ -469,8 +486,10 @@ JSHandle jsRequire(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 
     engine.freeValue(stack);
 
-    // Update cache with final exports (module.exports may have been reassigned)
-    engine.setProperty(cache, resolved, engine.dupValue(result));
+    // Update wrapper's exports with final value (handles module.exports = X reassignment)
+    auto wrapperCached = engine.getProperty(cache, resolved);
+    engine.setProperty(wrapperCached, "exports", engine.dupValue(result));
+    engine.freeValue(wrapperCached);
     engine.freeValue(cache);
     return result;
 }

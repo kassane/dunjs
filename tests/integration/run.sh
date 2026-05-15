@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 DUN=${DUN:-./build/dun}
-# Auto-detect backend from binary strings if not set explicitly
+# Auto-detect backend from dun --version output if not set explicitly
 if [ -z "${BACKEND:-}" ]; then
-  _engine=$(strings "$DUN" 2>/dev/null | grep -oE '\b(QuickJS|JavaScriptCore|V8)\b' | head -1)
+  _engine=$("$DUN" --version 2>/dev/null | grep -oE '(QuickJS|JavaScriptCore|V8)' | head -1)
   case "$_engine" in
     JavaScriptCore) BACKEND=jsc ;;
     V8)             BACKEND=v8 ;;
