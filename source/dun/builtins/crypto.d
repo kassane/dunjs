@@ -3007,8 +3007,16 @@ string cryptoExtensionSource() pure @safe nothrow
     if (typeof key === 'string') key = Buffer.from(key, encoding || 'utf8');
     return new KeyObject('secret', key);
   }
-  function createPublicKey(key) { return new KeyObject('public', typeof key === 'string' ? Buffer.from(key) : (key.key || key)); }
-  function createPrivateKey(key) { return new KeyObject('private', typeof key === 'string' ? Buffer.from(key) : (key.key || key)); }
+  function createPublicKey(key) {
+    var data = typeof key === 'string' ? key : (key && key.key ? (typeof key.key === 'string' ? key.key : key.key.toString()) : '');
+    if (typeof data === 'string' && data.indexOf('-----BEGIN') !== 0) throw new TypeError('Invalid key data');
+    return new KeyObject('public', typeof key === 'string' ? Buffer.from(key) : (key.key || key));
+  }
+  function createPrivateKey(key) {
+    var data = typeof key === 'string' ? key : (key && key.key ? (typeof key.key === 'string' ? key.key : key.key.toString()) : '');
+    if (typeof data === 'string' && data.indexOf('-----BEGIN') !== 0) throw new TypeError('Invalid key data');
+    return new KeyObject('private', typeof key === 'string' ? Buffer.from(key) : (key.key || key));
+  }
 
   function X509Certificate(buf) { this._buf = buf; this.subject = ''; this.issuer = ''; this.validFrom = ''; this.validTo = ''; this.serialNumber = ''; this.fingerprint = ''; this.fingerprint256 = ''; }
   X509Certificate.prototype.toString = function() { return this._buf ? this._buf.toString() : ''; };

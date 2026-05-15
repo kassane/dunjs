@@ -256,5 +256,54 @@ try {
   check('http-errors message', err.message === 'Not Found');
 } catch(e) { console.log('FAIL: http-errors load:', e.message); total += 3; }
 
+// validator (CJS, string validation)
+try {
+  const validator = require('validator');
+  check('validator.isEmail valid', validator.isEmail('test@example.com') === true);
+  check('validator.isEmail invalid', validator.isEmail('invalid') === false);
+  check('validator.isURL', validator.isURL('https://example.com') === true);
+  check('validator.escape', validator.escape('<script>') === '&lt;script&gt;');
+} catch(e) { console.log('FAIL: validator load:', e.message); total += 4; }
+
+// moment (CJS, date library)
+try {
+  const moment = require('moment');
+  check('moment loads', typeof moment === 'function');
+  var d = moment('2024-01-15');
+  check('moment parse valid', d.isValid());
+  check('moment year', d.year() === 2024);
+  check('moment format', typeof d.format === 'function');
+} catch(e) { console.log('FAIL: moment load:', e.message); total += 4; }
+
+// underscore (CJS, utility library)
+try {
+  const _ = require('underscore');
+  check('underscore loads', typeof _ === 'function');
+  check('underscore.map', _.map([1,2,3], function(x){return x*2}).join(',') === '2,4,6');
+  check('underscore.keys', _.keys({a:1,b:2}).length === 2);
+} catch(e) { console.log('FAIL: underscore load:', e.message); total += 3; }
+
+// jsonwebtoken (CJS, JWT signing/verification)
+try {
+  const jwt = require('jsonwebtoken');
+  check('jwt.sign exists', typeof jwt.sign === 'function');
+  check('jwt.verify exists', typeof jwt.verify === 'function');
+  var token = jwt.sign({ sub: '1234', name: 'Test' }, 'secret-key');
+  check('jwt.sign creates token', typeof token === 'string' && token.length > 0);
+  var decoded = jwt.verify(token, 'secret-key');
+  check('jwt.verify sub', decoded.sub === '1234');
+  check('jwt.verify name', decoded.name === 'Test');
+} catch(e) { console.log('FAIL: jwt load:', e.message); total += 5; }
+
+// axios (CJS, HTTP client)
+try {
+  const axios = require('axios');
+  check('axios loads', typeof axios === 'function');
+  check('axios.create', typeof axios.create === 'function');
+  check('axios.interceptors', typeof axios.interceptors === 'object');
+  var instance = axios.create({ baseURL: 'http://localhost:9999', timeout: 1000 });
+  check('axios instance', typeof instance.get === 'function');
+} catch(e) { console.log('FAIL: axios load:', e.message); total += 4; }
+
 console.log('npm_real_packages: ' + passed + '/' + total + ' checks passed');
 if (passed === total) console.log('ALL CHECKS PASSED');
