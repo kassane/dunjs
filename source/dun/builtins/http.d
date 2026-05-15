@@ -24,6 +24,7 @@ private enum {
     HTTP_HEADERS_TIMEOUT_MS     = 300_000,
     HTTP_CONNECT_TIMEOUT_MS     = 2_000,
     HTTP_MAX_HEADERS_COUNT      = 2_000,
+    HTTP_MAX_CONNECTIONS         = 10_000,
 }
 
 private string sizeToStr(size_t n) nothrow @trusted
@@ -449,10 +450,17 @@ int allocConnSlot() nothrow @trusted
     return nextHttpConnId++;
 }
 
-// Return a connection slot to the free list
+// Return a connection slot to the free list and release large buffers
 void freeConnSlot(int slot) nothrow @trusted
 {
     _activeConnCount--;
+    // Release connection buffers to free memory
+    if (slot >= 0 && slot < cast(int) httpConns.length)
+    {
+        httpConns[slot].buf = null;
+        httpConns[slot].respBuf = null;
+        httpConns[slot].closed = true;
+    }
     try { httpFreeSlots ~= slot; } catch (Throwable) {}
 }
 
@@ -1724,6 +1732,14 @@ void acceptHttpConnection(int srvId) nothrow @trusted
                 fd = accept(srv.listenFd, null, null);
             }
             if (fd < 0) { if (errno == EAGAIN || errno == EWOULDBLOCK) break; break; }
+
+            // Enforce max connection limit to prevent FD exhaustion
+            if (_activeConnCount >= HTTP_MAX_CONNECTIONS)
+            {
+                import core.sys.posix.unistd : close;
+                close(fd);
+                break;
+            }
 
             version (linux) {} else
             {
