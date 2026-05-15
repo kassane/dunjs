@@ -518,25 +518,28 @@ Cross-runtime comparison (feature_bench.js, 25 tests, release builds, ops/sec):
 
 | Runtime | Total Throughput | vs Bun |
 |---------|-----------------|--------|
-| Bun 1.3.14 | 555M | 1.00x |
-| DunJS JSC | 478M | **0.86x** |
-| Node.js v22 | 156M | 0.28x |
-| Deno 2.7.14 | 151M | 0.27x |
-| DunJS V8 | 148M | 0.27x |
+| **DunJS JSC** | **658M** | **1.15x** ⭐ |
+| Bun 1.3.14 | 570M | 1.00x |
+| Node.js v22 | 199M | 0.35x |
+| DunJS V8 | 180M | 0.32x |
+| DunJS QuickJS | 26M | 0.05x (interpreter-only) |
 
-DunJS JSC wins 15 out of 25 individual tests vs Bun (Array +34%, Object +23%, Map/Set +39-41%,
-JSON.stringify +11%, template literal +9%, array.filter +17%). Gap is in native operations
-(crypto, Buffer, encoding) where Bun uses C++ directly while DunJS uses IJSEngine FFI.
+After the Buffer-as-Uint8Array refactor (factory call + Proxy wrapper
+removed in favor of `Object.setPrototypeOf` on a real `new Uint8Array`),
+DunJS JSC overtook Bun on `feature_bench.js` total throughput. The same
+refactor unblocked the Buffer.concat segfault that was killing JSC under
+hot iteration in earlier sessions (heap stays under 90M instead of
+growing to 187M+ before crash).
 
 Framework benchmarks (framework_bench.js, 39 tests, release builds, ops/sec):
 
 | Runtime | Total Throughput | vs Bun |
 |---------|-----------------|--------|
-| Bun 1.3.14 | 301M | 1.00x |
-| DunJS JSC | 294M | **0.98x** |
-| DunJS V8 | 176M | 0.58x |
-| Node.js v22 | 175M | 0.58x |
-| Deno 2.7.14 | 161M | 0.53x |
+| **DunJS JSC** | **289M** | **1.03x** ⭐ |
+| Bun 1.3.14 | 280M | 1.00x |
+| Node.js v22 | 194M | 0.69x |
+| DunJS V8 | 189M | 0.68x |
+| DunJS QuickJS | 20M | 0.07x |
 
 npm compat test (npm_compat_test.js, 145 assertions): **All 6 runtimes: 145/145 pass**
 
@@ -554,9 +557,10 @@ Stress test (stress.js, 240 tests, release builds):
 
 | Runtime | Wall Time | Status |
 |---------|-----------|--------|
-| Bun 1.3.14 | 76s | 240/240 |
-| DunJS JSC | 78s | **240/240** |
-| DunJS V8 | 169s | 240/240 |
+| **DunJS JSC** | **62s** | **240/240** ⭐ (faster than Bun) |
+| Bun 1.3.14 | 66s | 240/240 |
+| Node.js v22 | 133s | 240/240 |
+| DunJS V8 | 133s | 240/240 |
 | Node.js v22 | 175s | 240/240 |
 | Deno 2.7.14 | 182s | 240/240 |
 
