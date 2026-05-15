@@ -66,13 +66,13 @@ version (EngineQuickJS)
             }
             if (found != size_t.max)
             {
-                try
-                {
-                    state.eventLoop.unhandledRejections =
-                        state.eventLoop.unhandledRejections[0 .. found] ~
-                        state.eventLoop.unhandledRejections[found + 1 .. $];
-                }
-                catch (Throwable) {}
+                // Order-preserving in-place remove. Avoids O(N) realloc
+                // per cleanup but keeps FIFO order so unhandledRejection
+                // reports come out in the order they were registered.
+                auto arr = state.eventLoop.unhandledRejections;
+                foreach (i; found .. arr.length - 1)
+                    arr[i] = arr[i + 1];
+                state.eventLoop.unhandledRejections = arr[0 .. $ - 1];
             }
             return;
         }
