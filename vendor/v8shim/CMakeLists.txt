@@ -36,7 +36,12 @@ target_include_directories(v8shim PRIVATE
 )
 
 target_compile_options(v8shim PRIVATE
-    $<$<CXX_COMPILER_ID:GNU,Clang,AppleClang>:-O2 -Wall -Wextra -Wno-unused-parameter>
+    # Aggressive optimization for the FFI boundary — every Buffer.from /
+    # crypto.* / fetch call goes through this shim, so inlining the
+    # withContext template + Persistent::Reset pays back fast. -O3 +
+    # -fvisibility=hidden tells the linker most symbols are internal
+    # so it can DCE / inline across function boundaries.
+    $<$<CXX_COMPILER_ID:GNU,Clang,AppleClang>:-O3 -fvisibility=hidden -fno-exceptions -fno-rtti -Wall -Wextra -Wno-unused-parameter>
     $<$<CXX_COMPILER_ID:MSVC>:/O2 /W3 /EHsc>
 )
 
