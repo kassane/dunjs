@@ -294,6 +294,7 @@ Applied across all 7 layers (~290 assertions in 25 files).
 - **UUID random byte pool**: Pre-fills 64 UUIDs worth of random bytes per `getrandom` syscall, amortizing kernel overhead
 - **getrandom syscall**: Linux fast path uses `__NR_getrandom` syscall directly (no fd management)
 - **JSHandle leak fixes**: `freeValue()` added to 40+ `getProperty`/`getGlobal` call sites across all builtins
+- **Console format batch**: `__dun_format_console__` formats all args in single JS call (1 FFI call vs N per console.log)
 - **LTO + mcpu=native**: Release builds use `--flto=thin`, `--mcpu=native`, `--inline-threshold=350`, `--hot-cold-split`
 
 ### 8. Event Loop Phases (per tick)
@@ -440,7 +441,7 @@ dub build -c v8  && BACKEND=v8  ./tests/integration/run.sh
 
 | Category | Tests | Coverage |
 |----------|-------|----------|
-| Core JS | `hello`, `types`, `console_methods` | Basic output, typeof, multi-arg logging |
+| Core JS | `hello`, `types`, `console_methods`, `console_inspect` | Basic output, typeof, multi-arg logging, Node-style object inspect |
 | Async | `promises`, `promises_advanced`, `timers`, `phase2`, `phase2_rejection`, `async_io` | Promise.all/race/any, async/await, setTimeout, unhandledRejection |
 | ES2023+ | `es2023`, `closures`, `iterators`, `classes`, `regex`, `json_parsing` | findLast, generators, Map/Set, private fields, matchAll |
 | Errors | `error_handling` | try/catch, Error subtypes, Error.cause, finally |
@@ -483,7 +484,7 @@ dub build -c v8  && BACKEND=v8  ./tests/integration/run.sh
 | WebCrypto | `webcrypto_api` | 55 checks: subtle.digest (SHA-1/256/384/512), importKey, sign/verify (HMAC), encrypt/decrypt (AES-GCM/CBC), generateKey (AES/HMAC), exportKey, deriveBits (PBKDF2/HKDF) |
 | .env loading | `dotenv_loading` | 3 checks: parse KEY=VALUE/quoted, no-override existing env, missing .env OK |
 
-Backend test scores: **QuickJS 103/103**, **JSC 103/103**, **V8 103/103** (full parity across all 3 backends).
+Backend test scores: **QuickJS 104/104**, **JSC 104/104**, **V8 104/104** — **0 failures** across all 3 backends.
 
 Test pattern: fixtures in `tests/integration/fixtures/*.{js,mjs,ts}`, expected stdout in `tests/integration/expected/*.txt`.
 
@@ -818,3 +819,8 @@ Benchmark impact (25 benchmarks, feature_bench.js):
 | 20c | Expanded ciphers | 22 cipher algorithms: AES-CTR/ECB/OFB/CFB, AES-192-GCM, DES-EDE3, ChaCha20-Poly1305 | **Done** |
 | 20d | stream.compose | Pipe-based stream composition (was throwing "not yet implemented") | **Done** |
 | 20e | GC safety fix | Fix double-free in process.env (QuickJS setProperty consumes refcount) | **Done** |
+| 20f | console.log inspect | Node-style object formatting: `{ key: value }`, Map/Set/TypedArray, circular detection, depth limit | **Done** |
+| 20g | Format strings | console.log `%s`/`%d`/`%i`/`%f`/`%o`/`%O`/`%j`/`%%` substitution | **Done** |
+| 20h | Buffer extended | swap16/32/64, lastIndexOf, readIntBE/LE, readUIntBE/LE, writeIntBE/LE, writeUIntBE/LE | **Done** |
+| 20i | fs.createWriteStream | Deferred finish/close events to nextTick (matches Node.js event ordering) | **Done** |
+| 20j | Inspect unification | Deno.inspect, console.dir, util.inspect, REPL all delegate to __dun_inspect__ | **Done** |
