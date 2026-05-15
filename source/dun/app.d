@@ -419,7 +419,7 @@ void printUsage()
         ~ "  --audit=block          Block install of critical/high severity\n"
         ~ "  --audit=off            Disable CVE checking during install\n\n"
         ~ "Runtime options:\n"
-        ~ "  --max-memory=<bytes>   JS heap memory limit (default: 256MB)\n"
+        ~ "  --max-memory=<bytes>   JS heap memory limit (default: 2GB)\n"
         ~ "  --max-stack=<bytes>    Max stack size (default: 8MB)\n"
         ~ "  --eval-file=<path>     Execute file before entering REPL\n"
         ~ "  --watch / -w           Restart script on file changes\n\n"

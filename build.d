@@ -74,7 +74,7 @@ enum JSC_LIB_MARKER     = "lib/libJavaScriptCore.a";
 // Pre-built monolith from github.com/kassane/libv8 (preferred: self-contained, no system dep).
 // Archive layout: libv8-<ver>-<platform>-<arch>-<profile>/lib/libv8_monolith.a + include/ + args.gn
 // Fallback: system libv8-dev headers via /usr/include/v8 or Node.js headers tarball.
-enum V8_PREBUILT_VERSION  = "v14.9.207.4";
+enum V8_PREBUILT_VERSION  = "v15.0.91";
 enum V8_PREBUILT_BASE_URL = "https://github.com/kassane/libv8/releases/download/"
                             ~ V8_PREBUILT_VERSION ~ "/";
 enum V8_NODE_VERSION   = "v22.15.0";   // kept for fallback header download
