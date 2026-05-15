@@ -28,7 +28,42 @@ bool invokeUncaughtExceptionHandler(IJSEngine engine, string errorMsg) @trusted 
     if (!gHasUncaughtHandler || engine is null) return false;
     try
     {
-        auto errObj = engine.newString(errorMsg);
+        import std.string : indexOf;
+        // Parse "ErrorType: message\n  stack..." into components
+        string errName = "Error";
+        string errMessage = errorMsg;
+        auto colonIdx = errorMsg.indexOf(": ");
+        if (colonIdx > 0 && colonIdx < 40)
+        {
+            errName = errorMsg[0 .. colonIdx];
+            auto nlIdx = errorMsg.indexOf("\n");
+            errMessage = nlIdx > colonIdx
+                ? errorMsg[colonIdx + 2 .. nlIdx]
+                : errorMsg[colonIdx + 2 .. $];
+        }
+
+        auto result = engine.eval(
+            "(function(n,m,s){var E=globalThis[n]||Error;var e=new E(m);if(s)e.stack=s;return e;})",
+            "<uncaught:mk>"
+        );
+        JSHandle errObj;
+        if (!result.isError)
+        {
+            auto nameVal = engine.newString(errName);
+            auto msgVal = engine.newString(errMessage);
+            auto stackVal = engine.newString(errorMsg);
+            JSHandle[3] mkArgs = [nameVal, msgVal, stackVal];
+            errObj = engine.callFunction(result.value, engine.newUndefined(), mkArgs[]);
+            engine.freeValue(nameVal);
+            engine.freeValue(msgVal);
+            engine.freeValue(stackVal);
+            engine.freeValue(result.value);
+        }
+        else
+        {
+            engine.freeValue(result.value);
+            errObj = engine.newString(errorMsg);
+        }
         JSHandle[1] args = [errObj];
         auto global = engine.getGlobal();
         engine.callFunction(gUncaughtHandler, global, args[]);
