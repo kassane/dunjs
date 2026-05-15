@@ -88,7 +88,9 @@ template <> struct V8TypeMap<V8Tag::Function> { using type = v8::Function; };
 template <V8Tag Tag>
     requires (isValidTag(Tag))
 [[nodiscard]] bool isV8Type(v8::Isolate* isolate, DunV8Value* vw) {
-    auto val = vw->value.Get(isolate);
+    // Borrow-aware read: vw can be a borrowed Local from a trampoline
+    // arg (Persistent is empty in that case).
+    auto val = vw->is_borrowed ? vw->borrowed_local : vw->value.Get(isolate);
     if constexpr (Tag == V8Tag::Undefined) return val->IsUndefined();
     else if constexpr (Tag == V8Tag::Null)     return val->IsNull();
     else if constexpr (Tag == V8Tag::Bool)     return val->IsBoolean();

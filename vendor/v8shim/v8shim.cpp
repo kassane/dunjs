@@ -54,10 +54,23 @@ struct DunV8Context {
 };
 
 struct DunV8Value {
+    // Persistent slot — populated when this wrapper owns a v8 root
+    // (i.e. created via wrapValue, or promoted from a borrowed wrap).
     v8::Global<v8::Value> value;
+    // Borrowed Local — populated when this wrapper just lends a Local
+    // from the surrounding HandleScope (the trampoline frame), to skip
+    // the Persistent::Reset pair that dominates per-call FFI cost on
+    // V8 native callbacks. Promoted to Persistent on first dupValue.
+    v8::Local<v8::Value> borrowed_local;
     DunV8Isolate* isolate_wrapper;
     int ref_count;
+    int is_borrowed;     // 0 = persistent, 1 = borrowed Local (no Reset)
 };
+
+// Read the live v8::Local for a wrapper, regardless of mode.
+static inline v8::Local<v8::Value> getLocal(DunV8Value* vw, v8::Isolate* iso) {
+    return vw->is_borrowed ? vw->borrowed_local : vw->value.Get(iso);
+}
 
 // Compile-time FFI safety: verify struct invariants
 static_assert(std::is_standard_layout_v<DunV8Isolate>,
@@ -102,6 +115,23 @@ static thread_local ValuePool g_value_pool;
     wrapped->value.Reset(iw->isolate, val);
     wrapped->isolate_wrapper = iw;
     wrapped->ref_count = 1;
+    wrapped->is_borrowed = 0;
+    return wrapped;
+}
+
+// Cheap wrapper for values whose lifetime is bounded by the calling
+// HandleScope — typically `info.This()` and `info[i]` inside a native
+// trampoline. Skips Persistent::Reset (the dominant per-call FFI cost
+// on V8 native callbacks). If the D-side later calls dupValue (= ref),
+// we promote the borrowed Local to a real Persistent inside
+// dun_v8_value_ref so it survives past the trampoline frame.
+[[nodiscard]] static DunV8Value* wrapBorrowed(DunV8Isolate* iw, v8::Local<v8::Value> val) {
+    auto* wrapped = g_value_pool.acquire();
+    // pool.release() already Reset() the Persistent to empty; don't touch it.
+    wrapped->borrowed_local = val;
+    wrapped->isolate_wrapper = iw;
+    wrapped->ref_count = 1;
+    wrapped->is_borrowed = 1;
     return wrapped;
 }
 
@@ -151,10 +181,17 @@ static void v8FunctionTrampoline(const v8::FunctionCallbackInfo<v8::Value>& info
         heap_argv = std::make_unique<DunV8Value*[]>(static_cast<size_t>(argc));
         argv = heap_argv.get();
     }
+    // info.This() and info[i] are alive for the lifetime of this
+    // HandleScope. Wrap them as borrowed Locals to skip the
+    // Persistent::Reset pair per arg — the largest per-call cost on
+    // the V8 native-callback path. If the D callback wants to keep
+    // one past this frame it must call dupValue, which promotes to a
+    // real Persistent inside dun_v8_value_ref.
+    auto* iw = fd->context->isolate_wrapper;
     for (int i = 0; i < argc; i++)
-        argv[i] = wrapValue(fd->context->isolate_wrapper, info[i]);
+        argv[i] = wrapBorrowed(iw, info[i]);
 
-    DunV8Value* thisVal = wrapValue(fd->context->isolate_wrapper, info.This());
+    DunV8Value* thisVal = wrapBorrowed(iw, info.This());
 
     DunV8Value* result = fd->callback(fd->context, thisVal,
         argc, argc > 0 ? argv : nullptr, fd->user_data);
@@ -164,7 +201,7 @@ static void v8FunctionTrampoline(const v8::FunctionCallbackInfo<v8::Value>& info
         dun_v8_value_unref(argv[i]);
 
     if (result) {
-        info.GetReturnValue().Set(result->value.Get(isolate));
+        info.GetReturnValue().Set(getLocal(result, isolate));
         dun_v8_value_unref(result);
     }
 }
@@ -344,7 +381,7 @@ const char* dun_v8_value_to_string(DunV8Context* cw, DunV8Value* vw, size_t* len
     assert(vw && "dun_v8_value_to_string: null value");
     assert(len && "dun_v8_value_to_string: null len");
     return dun::withContext(cw, [&](auto isolate, auto, auto*) -> const char* {
-        v8::String::Utf8Value utf8(isolate, vw->value.Get(isolate));
+        v8::String::Utf8Value utf8(isolate, getLocal(vw, isolate));
         if (!*utf8) { *len = 0; return nullptr; }
         *len = utf8.length();
         char* copy = new char[*len + 1];
@@ -360,19 +397,19 @@ void dun_v8_free_string(const char* str) {
 
 int dun_v8_value_to_int(DunV8Context* cw, DunV8Value* vw) {
     return dun::withContext(cw, [&](auto isolate, auto context, auto*) {
-        return vw->value.Get(isolate)->Int32Value(context).FromMaybe(0);
+        return getLocal(vw, isolate)->Int32Value(context).FromMaybe(0);
     });
 }
 
 double dun_v8_value_to_number(DunV8Context* cw, DunV8Value* vw) {
     return dun::withContext(cw, [&](auto isolate, auto context, auto*) {
-        return vw->value.Get(isolate)->NumberValue(context).FromMaybe(0.0);
+        return getLocal(vw, isolate)->NumberValue(context).FromMaybe(0.0);
     });
 }
 
 int dun_v8_value_to_bool(DunV8Context* cw, DunV8Value* vw) {
     return dun::withContext(cw, [&](auto isolate, auto, auto*) {
-        return vw->value.Get(isolate)->BooleanValue(isolate) ? 1 : 0;
+        return getLocal(vw, isolate)->BooleanValue(isolate) ? 1 : 0;
     });
 }
 
@@ -392,7 +429,7 @@ int dun_v8_value_is_array(DunV8Value* vw)       { return valueIsType<dun::V8Tag:
 int dun_v8_value_get_type(DunV8Value* vw) {
     if (!vw) return 0;
     return dun::withIsolate(vw->isolate_wrapper, [&](auto isolate) -> int {
-        auto val = vw->value.Get(isolate);
+        auto val = getLocal(vw, isolate);
         if (val->IsUndefined()) return static_cast<int>(dun::V8Tag::Undefined);
         if (val->IsNull())      return static_cast<int>(dun::V8Tag::Null);
         if (val->IsBoolean())   return static_cast<int>(dun::V8Tag::Bool);
@@ -413,7 +450,7 @@ DunV8Value* dun_v8_get_property(DunV8Context* cw, DunV8Value* obj, const char* n
     assert(obj && "dun_v8_get_property: null obj");
     assert(name && "dun_v8_get_property: null name");
     return dun::withContext(cw, [&](auto isolate, auto context, auto* iw) {
-        auto o = obj->value.Get(isolate).template As<v8::Object>();
+        auto o = getLocal(obj, isolate).template As<v8::Object>();
         auto key = v8::String::NewFromUtf8(isolate, name).ToLocalChecked();
         auto val = o->Get(context, key);
         if (val.IsEmpty())
@@ -430,9 +467,9 @@ void dun_v8_set_property(DunV8Context* cw, DunV8Value* obj,
     assert(name && "dun_v8_set_property: null name");
     assert(val && "dun_v8_set_property: null val");
     dun::withContext(cw, [&](auto isolate, auto context, auto*) {
-        auto o = obj->value.Get(isolate).template As<v8::Object>();
+        auto o = getLocal(obj, isolate).template As<v8::Object>();
         auto key = v8::String::NewFromUtf8(isolate, name).ToLocalChecked();
-        o->Set(context, key, val->value.Get(isolate)).FromMaybe(false);
+        o->Set(context, key, getLocal(val, isolate)).FromMaybe(false);
         return 0; // withContext needs a return value
     });
 }
@@ -446,8 +483,8 @@ void dun_v8_set_prototype(DunV8Context* cw, DunV8Value* obj, DunV8Value* proto)
     assert(obj && "dun_v8_set_prototype: null obj");
     assert(proto && "dun_v8_set_prototype: null proto");
     dun::withContext(cw, [&](auto isolate, auto context, auto*) {
-        auto o = obj->value.Get(isolate).template As<v8::Object>();
-        o->SetPrototype(context, proto->value.Get(isolate)).FromMaybe(false);
+        auto o = getLocal(obj, isolate).template As<v8::Object>();
+        o->SetPrototype(context, getLocal(proto, isolate)).FromMaybe(false);
         return 0;
     });
 }
@@ -456,7 +493,7 @@ DunV8Value* dun_v8_get_property_index(DunV8Context* cw, DunV8Value* obj, unsigne
     assert(cw && "dun_v8_get_property_index: null context");
     assert(obj && "dun_v8_get_property_index: null obj");
     return dun::withContext(cw, [&](auto isolate, auto context, auto* iw) {
-        auto o = obj->value.Get(isolate).template As<v8::Object>();
+        auto o = getLocal(obj, isolate).template As<v8::Object>();
         auto val = o->Get(context, idx);
         if (val.IsEmpty())
             return wrapValue(iw, v8::Undefined(isolate));
@@ -471,8 +508,8 @@ void dun_v8_set_property_index(DunV8Context* cw, DunV8Value* obj,
     assert(obj && "dun_v8_set_property_index: null obj");
     assert(val && "dun_v8_set_property_index: null val");
     dun::withContext(cw, [&](auto isolate, auto context, auto*) {
-        auto o = obj->value.Get(isolate).template As<v8::Object>();
-        o->Set(context, idx, val->value.Get(isolate)).FromMaybe(false);
+        auto o = getLocal(obj, isolate).template As<v8::Object>();
+        o->Set(context, idx, getLocal(val, isolate)).FromMaybe(false);
         return 0;
     });
 }
@@ -519,7 +556,7 @@ DunV8Value* dun_v8_new_uint8array_with_proto(DunV8Context* cw,
         auto ta = v8::Uint8Array::New(ab, 0, len);
         auto obj = ta.template As<v8::Object>();
         if (proto) {
-            obj->SetPrototype(context, proto->value.Get(isolate)).FromMaybe(false);
+            obj->SetPrototype(context, getLocal(proto, isolate)).FromMaybe(false);
         }
         return wrapValue(iw, ta.template As<v8::Value>());
     });
@@ -534,7 +571,7 @@ DunV8Value* dun_v8_buffer_from_utf8_string(DunV8Context* cw,
     DunV8Value* jsString, DunV8Value* proto)
 {
     return dun::withContext(cw, [&](auto isolate, auto context, auto* iw) {
-        auto local = jsString->value.Get(isolate);
+        auto local = getLocal(jsString, isolate);
         if (!local->IsString()) {
             return wrapValue(iw, v8::Undefined(isolate).template As<v8::Value>());
         }
@@ -548,7 +585,7 @@ DunV8Value* dun_v8_buffer_from_utf8_string(DunV8Context* cw,
         auto ta = v8::Uint8Array::New(ab, 0, utf8len);
         auto obj = ta.template As<v8::Object>();
         if (proto) {
-            obj->SetPrototype(context, proto->value.Get(isolate)).FromMaybe(false);
+            obj->SetPrototype(context, getLocal(proto, isolate)).FromMaybe(false);
         }
         return wrapValue(iw, ta.template As<v8::Value>());
     });
@@ -559,7 +596,7 @@ unsigned char* dun_v8_typed_array_data(DunV8Context* cw,
 {
     if (!val || !out_len) { if (out_len) *out_len = 0; return nullptr; }
     return dun::withContext(cw, [&](auto isolate, auto context, auto* iw) -> unsigned char* {
-        auto local = val->value.Get(isolate);
+        auto local = getLocal(val, isolate);
         if (!local->IsTypedArray()) { *out_len = 0; return nullptr; }
         auto ta = local.template As<v8::TypedArray>();
         *out_len = ta->ByteLength();
@@ -572,12 +609,27 @@ unsigned char* dun_v8_typed_array_data(DunV8Context* cw,
 // --- Reference management ---
 
 void dun_v8_value_ref(DunV8Value* vw) {
-    if (vw) vw->ref_count++;
+    if (!vw) return;
+    // First dup of a borrowed value: promote to a real Persistent. The
+    // caller intends to keep the value past the surrounding HandleScope
+    // (e.g. `return engine.dupValue(thisVal)` from a chain method).
+    if (vw->is_borrowed) {
+        vw->value.Reset(vw->isolate_wrapper->isolate, vw->borrowed_local);
+        vw->borrowed_local.Clear();
+        vw->is_borrowed = 0;
+    }
+    vw->ref_count++;
 }
 
 void dun_v8_value_unref(DunV8Value* vw) {
     if (!vw) return;
     if (--vw->ref_count <= 0) {
+        // Borrowed Local doesn't own anything — its slot dies with the
+        // HandleScope. Just drop the reference and recycle the wrapper.
+        if (vw->is_borrowed) {
+            vw->borrowed_local.Clear();
+            vw->is_borrowed = 0;
+        }
         g_value_pool.release(vw);
     }
 }
@@ -632,7 +684,7 @@ DunV8Value* dun_v8_throw_value(DunV8Context* cw, DunV8Value* val) {
     assert(cw && "dun_v8_throw_value: null context");
     assert(val && "dun_v8_throw_value: null value");
     return dun::withContext(cw, [&](auto isolate, auto, auto* iw) {
-        auto local = val->value.Get(isolate);
+        auto local = getLocal(val, isolate);
         isolate->ThrowException(local);
         return wrapValue(iw, local);
     });
@@ -649,9 +701,9 @@ DunV8Value* dun_v8_call(DunV8Context* cw, DunV8Value* func,
     return dun::withContext(cw, [&](auto isolate, auto context, auto* iw) -> DunV8Value* {
         v8::TryCatch try_catch(isolate);
 
-        auto fn = func->value.Get(isolate).template As<v8::Function>();
+        auto fn = getLocal(func, isolate).template As<v8::Function>();
         v8::Local<v8::Value> recv = this_obj ?
-            this_obj->value.Get(isolate) :
+            getLocal(this_obj, isolate) :
             context->Global().template As<v8::Value>();
 
         constexpr int kStackLimit = 16;
@@ -667,7 +719,7 @@ DunV8Value* dun_v8_call(DunV8Context* cw, DunV8Value* func,
         }
         auto argv_span = std::span{argv, static_cast<size_t>(argc)};
         for (size_t i = 0; i < argv_span.size(); i++)
-            args[i] = argv_span[i]->value.Get(isolate);
+            args[i] = getLocal(argv_span[i], isolate);
 
         auto result = fn->Call(context, recv, argc,
             argc > 0 ? args : nullptr);
@@ -708,7 +760,7 @@ DunV8Value* dun_v8_new_promise(DunV8Context* cw,
                 auto iso = info.GetIsolate();
                 auto ctx = iso->GetCurrentContext();
                 auto resolver = v8::Local<v8::Promise::Resolver>::Cast(
-                    rw->value.Get(iso));
+                    getLocal(rw, iso));
                 v8::Local<v8::Value> val;
                 if (info.Length() > 0) val = info[0];
                 else val = v8::Undefined(iso);
@@ -724,7 +776,7 @@ DunV8Value* dun_v8_new_promise(DunV8Context* cw,
                 auto iso = info.GetIsolate();
                 auto ctx = iso->GetCurrentContext();
                 auto resolver = v8::Local<v8::Promise::Resolver>::Cast(
-                    rw->value.Get(iso));
+                    getLocal(rw, iso));
                 v8::Local<v8::Value> val;
                 if (info.Length() > 0) val = info[0];
                 else val = v8::Undefined(iso);
