@@ -683,7 +683,9 @@ JSHandle jsReqOn(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
         size_t bodyLen = conn.bufLen > conn.bodyStart ? conn.bufLen - conn.bodyStart : 0;
         if (bodyLen > 0)
         {
-            auto jsBody = engine.newString(cast(string) conn.buf[conn.bodyStart .. conn.bufLen].idup);
+            import dun.builtins.buffer : makeBufferObj;
+            auto bodyData = cast(const(ubyte)[]) conn.buf[conn.bodyStart .. conn.bufLen];
+            auto jsBody = makeBufferObj(engine, bodyData);
             JSHandle[1] callArgs = [jsBody];
             pushAgnosticPending(engine, cb, callArgs[]);
             engine.freeValue(jsBody);
