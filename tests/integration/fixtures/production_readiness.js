@@ -165,4 +165,21 @@ check("Array.findLast", function() { return [1,2,3].findLast(function(x){return 
 check("Error.cause", function() { return new Error('x',{cause:new Error('y')}).cause.message==='y'; });
 check("structuredClone deep", function() { var o={a:[1,{b:2}]}; var c=structuredClone(o); c.a[1].b=9; return o.a[1].b===2; });
 
+// === Production Parity Additions (15) ===
+check("process.hrtime.bigint", function() { return typeof process.hrtime.bigint() === 'bigint'; });
+check("crypto.getRandomValues module", function() { return typeof require('crypto').getRandomValues === 'function'; });
+check("Buffer.from ArrayBuffer offset", function() { var ab=new ArrayBuffer(4); new Uint8Array(ab).set([0,0,65,66]); return Buffer.from(ab,2,2).toString()==='AB'; });
+check("execSync returns Buffer", function() { return Buffer.isBuffer(require('child_process').execSync('echo x')); });
+check("execSync encoding returns string", function() { return typeof require('child_process').execSync('echo x', {encoding:'utf8'}) === 'string'; });
+check("spawnSync returns Buffer stdout", function() { return Buffer.isBuffer(require('child_process').spawnSync('echo',['x']).stdout); });
+check("path.join empty", function() { return require('path').join('') === '.'; });
+check("Intl.DateTimeFormat", function() { return typeof Intl.DateTimeFormat === 'function'; });
+check("Intl.NumberFormat", function() { return typeof Intl.NumberFormat === 'function'; });
+check("Number.toLocaleString", function() { return typeof (1).toLocaleString() === 'string'; });
+check("Date.toLocaleDateString", function() { return typeof new Date().toLocaleDateString() === 'string'; });
+check("String.localeCompare", function() { return typeof 'a'.localeCompare('b') === 'number'; });
+check("Buffer.byteLength utf8", function() { return Buffer.byteLength('€') === 3; });
+check("URL.canParse", function() { return URL.canParse('https://example.com'); });
+check("CompressionStream", function() { return typeof CompressionStream === 'function'; });
+
 console.log("Production readiness: " + pass + "/" + (pass + fail) + " passed");
