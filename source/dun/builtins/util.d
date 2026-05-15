@@ -254,14 +254,21 @@ string utilSource() pure @safe nothrow
 
   // --- util.inspect --- delegates to __dun_inspect__ for Node-style formatting
   function inspect(obj, opts) {
-    if (typeof globalThis.__dun_inspect__ === 'function') return globalThis.__dun_inspect__(obj);
+    var depth = 2;
+    if (opts !== undefined) {
+      if (typeof opts === 'number') depth = opts;
+      else if (typeof opts === 'object' && opts !== null) {
+        if (opts.depth === null || opts.depth === Infinity) depth = 20;
+        else if (typeof opts.depth === 'number') depth = opts.depth;
+      }
+    }
+    if (typeof globalThis.__dun_inspect__ === 'function') return globalThis.__dun_inspect__(obj, depth);
     if (obj === null) return 'null';
     if (obj === undefined) return 'undefined';
     if (typeof obj === 'string') return "'" + obj + "'";
     if (typeof obj === 'number' || typeof obj === 'boolean') return String(obj);
     if (typeof obj === 'function') return '[Function: ' + (obj.name || 'anonymous') + ']';
     if (typeof obj === 'symbol') return obj.toString();
-    var depth = (opts && typeof opts.depth === 'number') ? opts.depth : 2;
     try { return JSON.stringify(obj, null, 2); } catch(e) { return '[Circular]'; }
   }
 

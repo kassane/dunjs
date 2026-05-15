@@ -205,9 +205,9 @@ private string inspectSource() @safe pure nothrow
     ~     "seen.pop();"
     ~   "}"
     ~ "}"
-    ~ "return function(v) {"
+    ~ "return function(v, d) {"
     ~   "seen = [];"
-    ~   "return inspect(v, 2);"
+    ~   "return inspect(v, d !== undefined ? d : 2);"
     ~ "};"
     ~ "})();"
 
