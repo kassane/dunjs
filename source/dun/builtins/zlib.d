@@ -262,7 +262,7 @@ JSHandle jsBrotliCompressSync(void* ctx, JSHandle thisVal, scope JSHandle[] args
 
     int quality = BROTLI_DEFAULT_QUALITY;
     int lgwin = BROTLI_DEFAULT_WINDOW;
-    int mode = BROTLI_MODE_GENERIC;
+    BrotliEncoderMode mode = BROTLI_MODE_GENERIC;
 
     if (args.length >= 2 && engine.isObject(args[1]))
     {
@@ -284,7 +284,7 @@ JSHandle jsBrotliCompressSync(void* ctx, JSHandle thisVal, scope JSHandle[] args
         if (engine.isNumber(mVal))
         {
             auto m = engine.extractInt(mVal);
-            if (m >= 0 && m <= 2) mode = m;
+            if (m >= 0 && m <= 2) mode = cast(BrotliEncoderMode) m;
         }
         engine.freeValue(mVal);
     }

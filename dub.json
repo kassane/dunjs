@@ -384,9 +384,11 @@
 	},
 	"importPaths": [
 		"source",
-		"vendor/sqlite"
+		"vendor/sqlite",
+		"vendor/brotli"
 	],
 	"cImportPaths": [
-		"vendor/sqlite"
+		"vendor/sqlite",
+		"vendor/brotli"
 	]
 }
