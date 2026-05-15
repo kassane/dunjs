@@ -1014,7 +1014,7 @@ JSHandle jsResWriteHead(void* ctx, JSHandle thisVal, scope JSHandle[] args) @tru
         catch (Exception) {}
     }
 
-    bufferStatusLine(conn);
+    engine.setProperty(thisVal, "headersSent", engine.newBool(true));
     return engine.newUndefined();
 }
 

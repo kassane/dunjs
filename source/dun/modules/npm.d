@@ -139,6 +139,7 @@ bool installPackage(string spec, AuditMode auditMode = AuditMode.warn) @trusted
     }
 
     runLifecycleScripts(nmDir, name);
+    createBinLinks(nmDir, name);
 
     writefln("installed %s@%s", name, version_);
     return true;
@@ -219,6 +220,62 @@ void runLifecycleScripts(string pkgDir, string pkgName) @trusted
                 if (rc != 0)
                     writefln("  warning: %s script exited with code %d", phase, rc);
             }
+        }
+    }
+    catch (Exception) {}
+}
+
+void createBinLinks(string pkgDir, string pkgName) @trusted
+{
+    import std.file : exists, readText, mkdirRecurse;
+    import std.json : parseJSON, JSONType;
+    import std.path : buildNormalizedPath, absolutePath, relativePath;
+
+    auto pkgJson = buildNormalizedPath(pkgDir, "package.json");
+    if (!exists(pkgJson)) return;
+
+    try
+    {
+        auto j = parseJSON(readText(pkgJson));
+        if ("bin" !in j) return;
+
+        auto binDir = buildNormalizedPath(".", "node_modules", ".bin");
+        mkdirRecurse(binDir);
+
+        if (j["bin"].type == JSONType.string)
+        {
+            auto target = j["bin"].str;
+            auto targetAbs = absolutePath(buildNormalizedPath(pkgDir, target));
+            auto linkPath = buildNormalizedPath(binDir, pkgName);
+            createSymlinkAndChmod(linkPath, targetAbs);
+        }
+        else if (j["bin"].type == JSONType.object)
+        {
+            foreach (binName, binTarget; j["bin"].object)
+            {
+                auto target = binTarget.str;
+                auto targetAbs = absolutePath(buildNormalizedPath(pkgDir, target));
+                auto linkPath = buildNormalizedPath(binDir, binName);
+                createSymlinkAndChmod(linkPath, targetAbs);
+            }
+        }
+    }
+    catch (Exception) {}
+}
+
+private void createSymlinkAndChmod(string linkPath, string targetPath) @trusted
+{
+    import std.file : exists, remove, symlink;
+    version (Posix) import core.sys.posix.sys.stat : chmod;
+
+    try
+    {
+        if (exists(linkPath)) remove(linkPath);
+        symlink(targetPath, linkPath);
+        version (Posix)
+        {
+            import std.string : toStringz;
+            chmod(toStringz(targetPath), 0b111_101_101); // 0755
         }
     }
     catch (Exception) {}
