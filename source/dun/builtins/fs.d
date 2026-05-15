@@ -1617,6 +1617,17 @@ JSHandle jsFdatasyncSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @tr
 
 // ── createReadStream ────────────────────────────────────────────
 
+// ReadStream state for chunked I/O
+private enum RS_HIGH_WATER_MARK = 65_536; // 64 KiB default chunk size
+private enum RS_MAX_STREAMS = 256;
+private struct ReadStreamState {
+    int fd = -1;
+    bool ended;
+    string encoding;
+}
+private __gshared ReadStreamState[RS_MAX_STREAMS] rsStates;
+private __gshared int rsCount = 0;
+
 JSHandle jsCreateReadStream(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsCreateReadStream");
@@ -1629,28 +1640,55 @@ JSHandle jsCreateReadStream(void* ctx, JSHandle thisVal, scope JSHandle[] args) 
         return throwPermError(engine, "read", path);
 
     string encoding;
+    int highWaterMark = RS_HIGH_WATER_MARK;
     if (args.length >= 2 && engine.isObject(args[1]))
     {
         auto encProp = engine.getProperty(args[1], "encoding");
         if (engine.isString(encProp))
             encoding = engine.extractString(encProp);
         engine.freeValue(encProp);
+        auto hwmProp = engine.getProperty(args[1], "highWaterMark");
+        if (engine.isNumber(hwmProp))
+            highWaterMark = engine.extractInt(hwmProp);
+        engine.freeValue(hwmProp);
     }
 
-    try
+    version (Posix)
     {
-        import std.file : read, exists;
-        if (!exists(path))
-            return engine.throwTypeError("ENOENT: no such file or directory, open '" ~ path ~ "'");
-        auto rawData = cast(ubyte[]) read(path);
-        auto stream = engine.newObject();
-        if (encoding.length > 0)
-            engine.setProperty(stream, "_data", engine.newString(cast(string) rawData));
-        else
+        import core.sys.posix.fcntl : open, O_RDONLY;
+        import core.sys.posix.unistd : close;
+        import core.stdc.string : strerror;
+        import core.stdc.errno : errno;
+
+        // Null-terminate path for POSIX open()
+        char[4096] pathBuf = void;
+        if (path.length >= pathBuf.length)
+            return engine.throwTypeError("Path too long");
+        pathBuf[0 .. path.length] = path[];
+        pathBuf[path.length] = '\0';
+
+        int fd = open(pathBuf.ptr, O_RDONLY);
+        if (fd < 0)
         {
-            import dun.builtins.buffer : makeBufferObj;
-            engine.setProperty(stream, "_data", makeBufferObj(engine, rawData));
+            int err = errno;
+            if (err == 2) // ENOENT
+                return engine.throwTypeError("ENOENT: no such file or directory, open '" ~ path ~ "'");
+            return engine.throwTypeError("Failed to open '" ~ path ~ "'");
         }
+
+        if (rsCount >= RS_MAX_STREAMS)
+        {
+            close(fd);
+            return engine.throwTypeError("Too many open read streams");
+        }
+        int rsId = rsCount++;
+        rsStates[rsId].fd = fd;
+        rsStates[rsId].ended = false;
+        rsStates[rsId].encoding = encoding;
+
+        auto stream = engine.newObject();
+        engine.setProperty(stream, "_rsId", engine.newInt(rsId));
+        engine.setProperty(stream, "_hwm", engine.newInt(highWaterMark));
         engine.setProperty(stream, "_listeners", engine.newObject());
         engine.setProperty(stream, "_ended", engine.newBool(false));
         engine.setProperty(stream, "readable", engine.newBool(true));
@@ -1658,35 +1696,16 @@ JSHandle jsCreateReadStream(void* ctx, JSHandle thisVal, scope JSHandle[] args) 
         engine.setProperty(stream, "on", engine.newFunction(&jsStreamOn, "on", 2));
         engine.setProperty(stream, "once", engine.newFunction(&jsStreamOn, "once", 2));
         engine.setProperty(stream, "pipe", engine.newFunction(&jsReadStreamPipe, "pipe", 1));
-        engine.setProperty(stream, "destroy", engine.newFunction(&jsStreamDestroy, "destroy", 0));
+        engine.setProperty(stream, "destroy", engine.newFunction(&jsReadStreamDestroy, "destroy", 0));
         engine.setProperty(stream, "read", engine.newFunction(&jsReadStreamRead, "read", 0));
         engine.setProperty(stream, "resume", engine.newFunction(&jsReadStreamResume, "resume", 0));
 
-        // Schedule data+end event emission on next tick
-        auto global = engine.getGlobal();
-        engine.setProperty(global, "__rs_pending__", engine.dupValue(stream));
-        engine.freeValue(global);
-        auto emitRes = engine.eval(
-            "(function(){"
-            ~ "var s=globalThis.__rs_pending__;"
-            ~ "delete globalThis.__rs_pending__;"
-            ~ "if(!s)return;"
-            ~ "setTimeout(function(){"
-            ~ "var ls=s._listeners;if(!ls)return;"
-            ~ "var d=ls.data;if(typeof d==='function')d(s._data);"
-            ~ "s._ended=true;s.readable=false;"
-            ~ "var e=ls.end;if(typeof e==='function')e();"
-            ~ "var c=ls.close;if(typeof c==='function')c();"
-            ~ "},0);"
-            ~ "})()", "<rs-emit>");
-        if (!emitRes.isError)
-            engine.freeValue(emitRes.value);
-        else
-            engine.freeValue(emitRes.value);
-
         return stream;
     }
-    catch (Exception e) { return throwSystemError(engine, "open", path, e); }
+    else
+    {
+        return engine.throwTypeError("createReadStream not supported on this platform");
+    }
 }
 
 // ── createWriteStream ───────────────────────────────────────────
@@ -1738,6 +1757,32 @@ JSHandle jsStreamDestroy(void* ctx, JSHandle thisVal, scope JSHandle[] args) @tr
     return state.engine.newUndefined();
 }
 
+JSHandle jsReadStreamDestroy(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
+{
+    assert(ctx !is null, "Null ctx in jsReadStreamDestroy");
+    auto state = cast(DunState*) ctx;
+    assert(state !is null, "Null DunState in jsReadStreamDestroy");
+    auto engine = state.engine;
+
+    auto rsIdProp = engine.getProperty(thisVal, "_rsId");
+    int rsId = engine.extractInt(rsIdProp);
+    engine.freeValue(rsIdProp);
+
+    if (rsId >= 0 && rsId < rsCount && rsStates[rsId].fd >= 0)
+    {
+        version (Posix)
+        {
+            import core.sys.posix.unistd : close;
+            close(rsStates[rsId].fd);
+        }
+        rsStates[rsId].fd = -1;
+        rsStates[rsId].ended = true;
+    }
+    engine.setProperty(thisVal, "_ended", engine.newBool(true));
+    engine.setProperty(thisVal, "readable", engine.newBool(false));
+    return engine.newUndefined();
+}
+
 JSHandle jsReadStreamResume(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsReadStreamResume");
@@ -1751,12 +1796,62 @@ JSHandle jsReadStreamRead(void* ctx, JSHandle thisVal, scope JSHandle[] args) @t
     auto state = cast(DunState*) ctx;
     assert(state !is null, "Null DunState in jsReadStreamRead");
     auto engine = state.engine;
+
     auto endedProp = engine.getProperty(thisVal, "_ended");
     auto ended = engine.extractBool(endedProp);
     engine.freeValue(endedProp);
     if (ended) return engine.newNull();
-    engine.setProperty(thisVal, "_ended", engine.newBool(true));
-    return engine.getProperty(thisVal, "_data");
+
+    auto rsIdProp = engine.getProperty(thisVal, "_rsId");
+    int rsId = engine.extractInt(rsIdProp);
+    engine.freeValue(rsIdProp);
+
+    if (rsId < 0 || rsId >= rsCount || rsStates[rsId].fd < 0)
+    {
+        engine.setProperty(thisVal, "_ended", engine.newBool(true));
+        return engine.newNull();
+    }
+
+    version (Posix)
+    {
+        import core.sys.posix.unistd : read, close;
+        import dun.builtins.buffer : makeBufferObj;
+
+        int fd = rsStates[rsId].fd;
+        auto hwmProp = engine.getProperty(thisVal, "_hwm");
+        int hwm = engine.extractInt(hwmProp);
+        engine.freeValue(hwmProp);
+        if (hwm <= 0) hwm = RS_HIGH_WATER_MARK;
+
+        ubyte[] collected;
+        auto chunk = new ubyte[hwm];
+
+        while (true)
+        {
+            auto nread = read(fd, chunk.ptr, chunk.length);
+            if (nread <= 0) break;
+            collected ~= chunk[0 .. nread];
+        }
+
+        close(fd);
+        rsStates[rsId].fd = -1;
+        rsStates[rsId].ended = true;
+        engine.setProperty(thisVal, "_ended", engine.newBool(true));
+        engine.setProperty(thisVal, "readable", engine.newBool(false));
+
+        if (collected.length == 0)
+            return engine.newNull();
+
+        string enc = rsStates[rsId].encoding;
+        if (enc == "utf8" || enc == "utf-8")
+            return engine.newString(cast(string) cast(char[]) collected);
+
+        return makeBufferObj(engine, collected);
+    }
+    else
+    {
+        return engine.newNull();
+    }
 }
 
 JSHandle jsReadStreamPipe(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
@@ -1766,17 +1861,22 @@ JSHandle jsReadStreamPipe(void* ctx, JSHandle thisVal, scope JSHandle[] args) @t
     assert(state !is null, "Null DunState in jsReadStreamPipe");
     auto engine = state.engine;
     if (args.length < 1) return engine.throwTypeError("pipe requires a destination");
-    auto data = engine.getProperty(thisVal, "_data");
-    auto writeFn = engine.getProperty(args[0], "write");
-    if (engine.isFunction(writeFn))
-        engine.callFunction(writeFn, args[0], [data]);
+
+    auto data = jsReadStreamRead(ctx, thisVal, null);
+    if (!engine.isNull(data))
+    {
+        auto writeFn = engine.getProperty(args[0], "write");
+        if (engine.isFunction(writeFn))
+            engine.callFunction(writeFn, args[0], [data]);
+        engine.freeValue(writeFn);
+    }
+    engine.freeValue(data);
+
     auto endFn = engine.getProperty(args[0], "end");
     if (engine.isFunction(endFn))
         engine.callFunction(endFn, args[0], []);
-    engine.freeValue(data);
-    engine.freeValue(writeFn);
     engine.freeValue(endFn);
-    return args[0];
+    return engine.dupValue(args[0]);
 }
 
 JSHandle jsWriteStreamWrite(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted

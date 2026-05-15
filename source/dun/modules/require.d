@@ -69,12 +69,20 @@ JSHandle jsRequireResolve(void* ctx, JSHandle thisVal, scope JSHandle[] args) @t
             string curDir = getCjsStackDir(engine, global);
             resolved = buildNormalizedPath(curDir, specifier);
         }
+        else if (specifier.startsWith("#"))
+        {
+            string curDir = getCjsStackDir(engine, global);
+            resolved = resolvePackageImports(specifier, curDir);
+            if (resolved.length == 0)
+                return throwModuleNotFound(engine, specifier);
+            return engine.newString(resolved);
+        }
         else
         {
             string curDir = getCjsStackDir(engine, global);
             resolved = findNodeModule(specifier, curDir);
             if (resolved.length == 0)
-                return engine.throwTypeError("Cannot find module '" ~ specifier ~ "'");
+                return throwModuleNotFound(engine, specifier);
             return engine.newString(resolved);
         }
 
@@ -91,11 +99,11 @@ JSHandle jsRequireResolve(void* ctx, JSHandle thisVal, scope JSHandle[] args) @t
             if (exists(resolved ~ ext) && isFile(resolved ~ ext))
                 return engine.newString(resolved ~ ext);
 
-        return engine.throwTypeError("Cannot find module '" ~ specifier ~ "'");
+        return throwModuleNotFound(engine, specifier);
     }
     catch (Exception)
     {
-        return engine.throwTypeError("Cannot find module '" ~ specifier ~ "'");
+        return throwModuleNotFound(engine, specifier);
     }
 }
 
@@ -161,6 +169,18 @@ JSHandle jsRequire(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
     else if (specifier == "timers") specifier = "dun:timers";
     else if (specifier == "process") specifier = "dun:process";
     else if (specifier == "console") specifier = "dun:console";
+
+    // Handle #imports (package.json "imports" field)
+    if (specifier.startsWith("#"))
+    {
+        auto global2 = engine.getGlobal();
+        string curDir = getCjsStackDir(engine, global2);
+        engine.freeValue(global2);
+        string resolved2 = resolvePackageImports(specifier, curDir);
+        if (resolved2.length == 0)
+            return throwModuleNotFound(engine, specifier);
+        specifier = resolved2;
+    }
 
     auto global = engine.getGlobal();
     scope(exit) engine.freeValue(global);
@@ -236,10 +256,10 @@ JSHandle jsRequire(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
             string curDir = getCjsStackDir(engine, global);
             resolved = findNodeModule(specifier, curDir);
             if (resolved.length == 0)
-                return engine.throwTypeError("Cannot find module");
+                return throwModuleNotFound(engine, specifier);
         }
     }
-    catch (Exception) { return engine.throwTypeError("Failed to resolve module path"); }
+    catch (Exception) { return throwModuleNotFound(engine, specifier); }
 
     try
     {
@@ -355,7 +375,7 @@ JSHandle jsRequire(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
         import std.file : readText;
         source = readText(resolved);
     }
-    catch (Exception) { return engine.throwTypeError("Cannot find module"); }
+    catch (Exception) { return throwModuleNotFound(engine, specifier); }
 
     try
     {
@@ -484,6 +504,54 @@ bool checkPerm(DunState* state, Permission perm, string resource) nothrow @trust
     catch (Exception) { return false; }
 }
 
+private string resolvePackageImports(string specifier, string fromDir) @trusted
+{
+    import std.path : buildNormalizedPath, dirName;
+    import std.file : exists, isFile, readText;
+    import std.json : parseJSON, JSONType;
+
+    string dir = fromDir;
+    while (true)
+    {
+        auto pkgJson = buildNormalizedPath(dir, "package.json");
+        if (exists(pkgJson))
+        {
+            try
+            {
+                auto j = parseJSON(readText(pkgJson));
+                if ("imports" in j && j["imports"].type == JSONType.object)
+                {
+                    auto imports = j["imports"].object;
+                    if (specifier in imports)
+                        return resolveExportTarget(imports[specifier], dir);
+                    foreach (key, val; imports)
+                    {
+                        import std.string : indexOf;
+                        auto starIdx = indexOf(key, '*');
+                        if (starIdx < 0) continue;
+                        auto prefix = key[0 .. starIdx];
+                        auto suffix = key[starIdx + 1 .. $];
+                        if (specifier.length >= prefix.length + suffix.length
+                            && specifier[0 .. prefix.length] == prefix
+                            && (suffix.length == 0
+                                || specifier[$ - suffix.length .. $] == suffix))
+                        {
+                            auto matched = specifier[prefix.length .. $ - suffix.length];
+                            auto resolved = resolveExportTarget(val, dir, matched);
+                            if (resolved.length > 0) return resolved;
+                        }
+                    }
+                }
+            }
+            catch (Exception) {}
+        }
+        auto parent = dirName(dir);
+        if (parent == dir) break;
+        dir = parent;
+    }
+    return "";
+}
+
 public string findNodeModule(string specifier, string fromDir) @trusted
 {
     import std.path : buildNormalizedPath;
@@ -493,16 +561,32 @@ public string findNodeModule(string specifier, string fromDir) @trusted
 
     string pkg = specifier, sub = "";
     {
-        size_t start = specifier.startsWith("@") ? 1u : 0u;
-        auto slash = specifier.length;
-        foreach (i, c; specifier)
+        if (specifier.startsWith("@"))
         {
-            if (i > start && c == '/') { slash = i; break; }
+            // Scoped: @scope/pkg or @scope/pkg/subpath
+            size_t firstSlash = specifier.length;
+            foreach (i, c; specifier)
+                if (i > 0 && c == '/') { firstSlash = i; break; }
+            if (firstSlash < specifier.length)
+            {
+                size_t secondSlash = specifier.length;
+                foreach (i, c; specifier)
+                    if (i > firstSlash && c == '/') { secondSlash = i; break; }
+                pkg = specifier[0 .. secondSlash];
+                if (secondSlash < specifier.length)
+                    sub = specifier[secondSlash + 1 .. $];
+            }
         }
-        if (slash < specifier.length)
+        else
         {
-            pkg = specifier[0 .. slash];
-            sub = specifier[slash + 1 .. $];
+            auto slash = specifier.length;
+            foreach (i, c; specifier)
+                if (c == '/') { slash = i; break; }
+            if (slash < specifier.length)
+            {
+                pkg = specifier[0 .. slash];
+                sub = specifier[slash + 1 .. $];
+            }
         }
     }
 
@@ -529,7 +613,8 @@ public string findNodeModule(string specifier, string fromDir) @trusted
                     if (exported.length > 0) return exported;
                 }
                 static immutable subExts = ["", ".js", ".cjs", ".mjs",
-                    ".json", "/index.js", "/index.cjs"];
+                    ".ts", ".cts", ".mts", ".json",
+                    "/index.js", "/index.cjs", "/index.ts"];
                 foreach (ext; subExts)
                 {
                     auto p = buildNormalizedPath(nmDir, sub ~ ext);
@@ -547,7 +632,8 @@ public string findNodeModule(string specifier, string fromDir) @trusted
                     if (entry.length > 0) return entry;
                 }
                 static immutable idxCandidates = [
-                    "index.js", "index.cjs", "index.mjs", "index.json"];
+                    "index.js", "index.cjs", "index.mjs", "index.ts",
+                    "index.json"];
                 foreach (idx; idxCandidates)
                 {
                     auto p = buildNormalizedPath(nmDir, idx);
@@ -598,18 +684,42 @@ private string resolveExports(JSONValue j, string subpath, string pkgDir) @trust
             return resolveExportTarget(dotExport, pkgDir);
     }
 
+    // Wildcard pattern matching: "./*" -> "./dist/*.js"
+    foreach (key, val; obj)
+    {
+        import std.string : indexOf;
+        auto starIdx = indexOf(key, '*');
+        if (starIdx < 0) continue;
+        auto prefix = key[0 .. starIdx];
+        auto suffix = key[starIdx + 1 .. $];
+        if (subpath.length >= prefix.length + suffix.length
+            && subpath[0 .. prefix.length] == prefix
+            && (suffix.length == 0 || subpath[$ - suffix.length .. $] == suffix))
+        {
+            auto matched = subpath[prefix.length .. $ - suffix.length];
+            auto resolved = resolveExportTarget(val, pkgDir, matched);
+            if (resolved.length > 0) return resolved;
+        }
+    }
+
     return "";
 }
 
-private string resolveExportTarget(JSONValue target, string pkgDir) @trusted
+private string resolveExportTarget(JSONValue target, string pkgDir,
+    string wildcardMatch = null) @trusted
 {
     import std.path : buildNormalizedPath;
     import std.file : exists, isFile;
     import std.json : JSONType;
+    import std.string : indexOf;
+    import std.array : replace;
 
     if (target.type == JSONType.string)
     {
-        auto p = buildNormalizedPath(pkgDir, target.str);
+        string targetStr = target.str;
+        if (wildcardMatch.length > 0 && indexOf(targetStr, '*') >= 0)
+            targetStr = replace(targetStr, "*", wildcardMatch);
+        auto p = buildNormalizedPath(pkgDir, targetStr);
         if (exists(p) && isFile(p)) return p;
         return "";
     }
@@ -617,12 +727,12 @@ private string resolveExportTarget(JSONValue target, string pkgDir) @trusted
     if (target.type == JSONType.object)
     {
         auto obj = target.object;
-        static immutable conditions = ["require", "default", "node", "import"];
+        static immutable conditions = ["dun", "require", "node", "import", "default"];
         foreach (cond; conditions)
         {
             if (cond in obj)
             {
-                auto resolved = resolveExportTarget(obj[cond], pkgDir);
+                auto resolved = resolveExportTarget(obj[cond], pkgDir, wildcardMatch);
                 if (resolved.length > 0) return resolved;
             }
         }
@@ -632,12 +742,44 @@ private string resolveExportTarget(JSONValue target, string pkgDir) @trusted
     {
         foreach (ref alt; target.array)
         {
-            auto resolved = resolveExportTarget(alt, pkgDir);
+            auto resolved = resolveExportTarget(alt, pkgDir, wildcardMatch);
             if (resolved.length > 0) return resolved;
         }
     }
 
     return "";
+}
+
+JSHandle throwModuleNotFound(IJSEngine engine, string specifier) @trusted
+{
+    auto msg = "Cannot find module '" ~ specifier ~ "'";
+    auto errResult = engine.eval(
+        "(function(){var e=new Error('" ~ escapeForJs(msg) ~ "');"
+        ~ "e.code='MODULE_NOT_FOUND';"
+        ~ "e.requireStack=[];return e;})()", "<require-error>");
+    if (!errResult.isError)
+    {
+        auto thrown = engine.throwValue(errResult.value);
+        engine.freeValue(errResult.value);
+        return thrown;
+    }
+    engine.freeValue(errResult.value);
+    return engine.throwTypeError(msg);
+}
+
+private string escapeForJs(string s) @trusted nothrow
+{
+    import std.array : Appender;
+    Appender!(char[]) buf;
+    try { buf.reserve(s.length + 10); } catch (Exception) {}
+    foreach (c; s)
+    {
+        if (c == '\'') { try { buf.put("\\'"); } catch (Exception) {} }
+        else if (c == '\\') { try { buf.put("\\\\"); } catch (Exception) {} }
+        else if (c == '\n') { try { buf.put("\\n"); } catch (Exception) {} }
+        else { try { buf.put(c); } catch (Exception) {} }
+    }
+    try { return cast(string) buf[]; } catch (Exception) { return s; }
 }
 
 private string resolveMainEntry(JSONValue j, string pkgDir) @trusted
