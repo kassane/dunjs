@@ -32,6 +32,7 @@ void registerWsModule(IJSEngine engine) @trusted
 
     auto global = engine.getGlobal();
     engine.setProperty(global, "__dun_cjs_ws__", obj);
+    engine.setProperty(global, "WebSocket", engine.newFunction(&jsWsConnect, "WebSocket", 1));
     engine.freeValue(global);
 
     version (EngineQuickJS)

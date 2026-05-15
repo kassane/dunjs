@@ -119,6 +119,9 @@ void registerHttpModule(IJSEngine engine) @trusted
     }
     engine.freeValue(httpExtResult.value);
 
+    // http.Server (alias for createServer constructor)
+    engine.setProperty(obj, "Server", engine.newFunction(&jsHttpCreateServer, "Server", 1));
+
     // http.maxHeaderSize
     engine.setProperty(obj, "maxHeaderSize", engine.newInt(HTTP_MAX_HEADER_SIZE));
 

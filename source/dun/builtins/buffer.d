@@ -37,6 +37,8 @@ void registerBufferModule(IJSEngine engine) @trusted
     engine.setProperty(global, "__dun_cjs_buffer__", bufModule);
     engine.freeValue(global);
 
+    ensureBufferFnsCached(engine);
+
     version (EngineQuickJS)
         registerQuickJSModule(engine);
 }
@@ -218,6 +220,19 @@ void ensureBufferFnsCached(IJSEngine engine) @trusted
         "p.writeUIntLE=function(v,o,bl){var u=this.__u8;for(var i=0;i<bl;i++){u[o+i]=v&0xFF;v=Math.floor(v/256);}return o+bl;};" ~
         "p.writeIntBE=function(v,o,bl){if(v<0)v+=(1<<(bl*8));return this.writeUIntBE(v,o,bl);};" ~
         "p.writeIntLE=function(v,o,bl){if(v<0)v+=(1<<(bl*8));return this.writeUIntLE(v,o,bl);};" ~
+
+        // BigInt read/write methods
+        "p.readBigInt64BE=function(o){if(typeof BigInt==='undefined')throw new Error('BigInt not available');var u=this.__u8;o=o||0;var hi=((u[o]<<24)|(u[o+1]<<16)|(u[o+2]<<8)|u[o+3]);var lo=((u[o+4]<<24)|(u[o+5]<<16)|(u[o+6]<<8)|u[o+7])>>>0;return(BigInt(hi)<<BigInt(32))|BigInt(lo);};" ~
+        "p.readBigUInt64BE=function(o){if(typeof BigInt==='undefined')throw new Error('BigInt not available');var u=this.__u8;o=o||0;var hi=((u[o]<<24)|(u[o+1]<<16)|(u[o+2]<<8)|u[o+3])>>>0;var lo=((u[o+4]<<24)|(u[o+5]<<16)|(u[o+6]<<8)|u[o+7])>>>0;return(BigInt(hi)<<BigInt(32))|BigInt(lo);};" ~
+        "p.readBigInt64LE=function(o){if(typeof BigInt==='undefined')throw new Error('BigInt not available');var u=this.__u8;o=o||0;var lo=((u[o+3]<<24)|(u[o+2]<<16)|(u[o+1]<<8)|u[o])>>>0;var hi=((u[o+7]<<24)|(u[o+6]<<16)|(u[o+5]<<8)|u[o+4]);return(BigInt(hi)<<BigInt(32))|BigInt(lo);};" ~
+        "p.readBigUInt64LE=function(o){if(typeof BigInt==='undefined')throw new Error('BigInt not available');var u=this.__u8;o=o||0;var lo=((u[o+3]<<24)|(u[o+2]<<16)|(u[o+1]<<8)|u[o])>>>0;var hi=((u[o+7]<<24)|(u[o+6]<<16)|(u[o+5]<<8)|u[o+4])>>>0;return(BigInt(hi)<<BigInt(32))|BigInt(lo);};" ~
+        "p.writeBigInt64BE=function(v,o){var u=this.__u8;o=o||0;v=BigInt(v);for(var i=7;i>=0;i--){u[o+i]=Number(v&BigInt(0xFF));v>>=BigInt(8);}return o+8;};" ~
+        "p.writeBigInt64LE=function(v,o){var u=this.__u8;o=o||0;v=BigInt(v);for(var i=0;i<8;i++){u[o+i]=Number(v&BigInt(0xFF));v>>=BigInt(8);}return o+8;};" ~
+        "p.writeBigUInt64BE=p.writeBigInt64BE;" ~
+        "p.writeBigUInt64LE=p.writeBigInt64LE;" ~
+
+        // Sync Buffer.prototype with __dunBufProto__ for npm compat (safe-buffer, etc.)
+        "if(typeof Buffer!=='undefined')Buffer.prototype=p;" ~
 
         "})()",
         "<buffer-iter>");
