@@ -1,2 +1,2 @@
 
-WebCrypto subtle: 37/37 passed
+WebCrypto subtle: 55/55 passed

@@ -2092,6 +2092,10 @@ private __gshared JSHandle _cachedSubtleSignFn;
 private __gshared JSHandle _cachedSubtleVerifyFn;
 private __gshared JSHandle _cachedSubtleEncryptFn;
 private __gshared JSHandle _cachedSubtleDecryptFn;
+private __gshared JSHandle _cachedSubtleGenerateKeyFn;
+private __gshared JSHandle _cachedSubtleExportKeyFn;
+private __gshared JSHandle _cachedSubtleDeriveBitsFn;
+private __gshared JSHandle _cachedSubtleDeriveKeyFn;
 private __gshared bool _subtleFnsCached = false;
 
 private void ensureSubtleFnsCached(IJSEngine engine) @trusted
@@ -2103,6 +2107,10 @@ private void ensureSubtleFnsCached(IJSEngine engine) @trusted
     _cachedSubtleVerifyFn = engine.newFunction(&jsSubtleVerify, "verify", 4);
     _cachedSubtleEncryptFn = engine.newFunction(&jsSubtleEncrypt, "encrypt", 3);
     _cachedSubtleDecryptFn = engine.newFunction(&jsSubtleDecrypt, "decrypt", 3);
+    _cachedSubtleGenerateKeyFn = engine.newFunction(&jsSubtleGenerateKey, "generateKey", 3);
+    _cachedSubtleExportKeyFn = engine.newFunction(&jsSubtleExportKey, "exportKey", 2);
+    _cachedSubtleDeriveBitsFn = engine.newFunction(&jsSubtleDeriveBits, "deriveBits", 3);
+    _cachedSubtleDeriveKeyFn = engine.newFunction(&jsSubtleDeriveKey, "deriveKey", 5);
     _subtleFnsCached = true;
 }
 
@@ -2120,15 +2128,15 @@ void installNativeSubtle(IJSEngine engine, JSHandle cryptoObj) @trusted
     engine.setProperty(subtle, "verify", engine.dupValue(_cachedSubtleVerifyFn));
     engine.setProperty(subtle, "encrypt", engine.dupValue(_cachedSubtleEncryptFn));
     engine.setProperty(subtle, "decrypt", engine.dupValue(_cachedSubtleDecryptFn));
+    engine.setProperty(subtle, "generateKey", engine.dupValue(_cachedSubtleGenerateKeyFn));
+    engine.setProperty(subtle, "exportKey", engine.dupValue(_cachedSubtleExportKeyFn));
+    engine.setProperty(subtle, "deriveBits", engine.dupValue(_cachedSubtleDeriveBitsFn));
+    engine.setProperty(subtle, "deriveKey", engine.dupValue(_cachedSubtleDeriveKeyFn));
 
-    // Stubs for unimplemented methods (return rejected promises)
-    auto stubNames = [
-        "generateKey", "exportKey", "deriveBits", "deriveKey", "wrapKey", "unwrapKey"
-    ];
+    auto stubNames = ["wrapKey", "unwrapKey"];
     foreach (name; stubNames)
         engine.setProperty(subtle, name, engine.newFunction(&jsSubtleNotImplemented, name, 0));
 
-    // Set subtle directly on the crypto module
     engine.setProperty(cryptoObj, "subtle", engine.dupValue(subtle));
 
     // Update webcrypto.subtle if webcrypto property already exists
@@ -2158,10 +2166,12 @@ public void installSubtleOnGlobalCrypto(IJSEngine engine) @trusted
         engine.setProperty(subtle, "verify", engine.dupValue(_cachedSubtleVerifyFn));
         engine.setProperty(subtle, "encrypt", engine.dupValue(_cachedSubtleEncryptFn));
         engine.setProperty(subtle, "decrypt", engine.dupValue(_cachedSubtleDecryptFn));
+        engine.setProperty(subtle, "generateKey", engine.dupValue(_cachedSubtleGenerateKeyFn));
+        engine.setProperty(subtle, "exportKey", engine.dupValue(_cachedSubtleExportKeyFn));
+        engine.setProperty(subtle, "deriveBits", engine.dupValue(_cachedSubtleDeriveBitsFn));
+        engine.setProperty(subtle, "deriveKey", engine.dupValue(_cachedSubtleDeriveKeyFn));
 
-        auto stubNames = [
-            "generateKey", "exportKey", "deriveBits", "deriveKey", "wrapKey", "unwrapKey"
-        ];
+        auto stubNames = ["wrapKey", "unwrapKey"];
         foreach (name; stubNames)
             engine.setProperty(subtle, name, engine.newFunction(&jsSubtleNotImplemented, name, 0));
 
@@ -2915,6 +2925,387 @@ private JSHandle subtleAesCbcDecrypt(IJSEngine engine, scope JSHandle[] args) @t
 
     auto resultArr = engine.newUint8Array(outBuf[0 .. outLen]);
     return resolvedPromise(engine, resultArr);
+}
+
+// ── subtle.generateKey(algorithm, extractable, keyUsages) ──
+JSHandle jsSubtleGenerateKey(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
+{
+    assert(ctx !is null, "Null ctx in subtle.generateKey");
+    auto state = cast(DunState*) ctx;
+    assert(state !is null, "Null DunState in subtle.generateKey");
+    auto engine = state.engine;
+    assert(engine !is null, "Null engine in subtle.generateKey");
+
+    if (args.length < 3)
+        return rejectedPromise(engine, "subtle.generateKey requires algorithm, extractable, keyUsages");
+
+    auto algoName = extractAlgoName(engine, args[0]);
+    if (algoName is null)
+        return rejectedPromise(engine, "subtle.generateKey: algorithm must specify a name");
+
+    char[32] nameBuf = void;
+    size_t nameLen = 0;
+    foreach (c; algoName)
+    {
+        if (nameLen >= nameBuf.length) break;
+        nameBuf[nameLen++] = (c >= 'a' && c <= 'z') ? cast(char)(c - 32) : c;
+    }
+    auto upperName = (() @trusted => cast(string) nameBuf[0 .. nameLen])();
+
+    int keyLenBytes = 0;
+
+    if (upperName == "AES-GCM" || upperName == "AES-CBC" || upperName == "AES-CTR"
+        || upperName == "AESGCM" || upperName == "AESCBC" || upperName == "AESCTR")
+    {
+        auto lengthProp = engine.getProperty(args[0], "length");
+        int bits = engine.isNumber(lengthProp) ? engine.extractInt(lengthProp) : 256;
+        engine.freeValue(lengthProp);
+        if (bits != 128 && bits != 192 && bits != 256)
+            return rejectedPromise(engine, "subtle.generateKey: AES key length must be 128, 192, or 256");
+        keyLenBytes = bits / 8;
+    }
+    else if (upperName == "HMAC")
+    {
+        auto lengthProp = engine.getProperty(args[0], "length");
+        if (engine.isNumber(lengthProp))
+        {
+            keyLenBytes = engine.extractInt(lengthProp) / 8;
+        }
+        else
+        {
+            auto hashAlgo = extractHmacHash(engine, args[0]);
+            if (hashAlgo == "sha1") keyLenBytes = 64;
+            else if (hashAlgo == "sha256") keyLenBytes = 64;
+            else if (hashAlgo == "sha384") keyLenBytes = 128;
+            else if (hashAlgo == "sha512") keyLenBytes = 128;
+            else keyLenBytes = 64;
+        }
+        engine.freeValue(lengthProp);
+        if (keyLenBytes <= 0 || keyLenBytes > 1024)
+            return rejectedPromise(engine, "subtle.generateKey: invalid HMAC key length");
+    }
+    else
+        return rejectedPromise(engine, "subtle.generateKey: unsupported algorithm '" ~ algoName ~ "'");
+
+    auto keyBytes = new ubyte[keyLenBytes];
+    fillRandomBytes(keyBytes);
+
+    auto keyObj = engine.newObject();
+    engine.setProperty(keyObj, "type", engine.newString("secret"));
+    engine.setProperty(keyObj, "extractable", engine.newBool(engine.extractBool(args[1])));
+
+    auto algoObj = engine.newObject();
+    engine.setProperty(algoObj, "name", engine.newString(upperName));
+
+    if (upperName == "HMAC")
+    {
+        auto hashAlgo = extractHmacHash(engine, args[0]);
+        if (hashAlgo !is null)
+        {
+            auto hashObj = engine.newObject();
+            engine.setProperty(hashObj, "name", engine.newString(subtleHashName(hashAlgo)));
+            engine.setProperty(algoObj, "hash", hashObj);
+        }
+        engine.setProperty(algoObj, "length", engine.newFloat(cast(double)(keyLenBytes * 8)));
+    }
+    else
+        engine.setProperty(algoObj, "length", engine.newFloat(cast(double)(keyLenBytes * 8)));
+
+    engine.setProperty(keyObj, "algorithm", algoObj);
+    engine.setProperty(keyObj, "_keyData", engine.newUint8Array(keyBytes));
+    engine.setProperty(keyObj, "usages", engine.dupValue(args[2]));
+
+    return resolvedPromise(engine, keyObj);
+}
+
+// ── subtle.exportKey(format, key) ──
+JSHandle jsSubtleExportKey(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
+{
+    assert(ctx !is null, "Null ctx in subtle.exportKey");
+    auto state = cast(DunState*) ctx;
+    assert(state !is null, "Null DunState in subtle.exportKey");
+    auto engine = state.engine;
+    assert(engine !is null, "Null engine in subtle.exportKey");
+
+    if (args.length < 2)
+        return rejectedPromise(engine, "subtle.exportKey requires format and key arguments");
+
+    auto format = engine.extractString(args[0]);
+    if (format != "raw")
+        return rejectedPromise(engine, "subtle.exportKey: only 'raw' format is supported");
+
+    auto extractable = engine.getProperty(args[1], "extractable");
+    bool canExtract = engine.isBool(extractable) ? engine.extractBool(extractable) : false;
+    engine.freeValue(extractable);
+    if (!canExtract)
+        return rejectedPromise(engine, "subtle.exportKey: key is not extractable");
+
+    auto keyDataProp = engine.getProperty(args[1], "_keyData");
+    auto keyBytes = engine.getTypedArrayBytes(keyDataProp);
+    engine.freeValue(keyDataProp);
+    if (keyBytes is null)
+        return rejectedPromise(engine, "subtle.exportKey: key has no data");
+
+    auto result = engine.newUint8Array(keyBytes);
+    return resolvedPromise(engine, result);
+}
+
+// ── subtle.deriveBits(algorithm, baseKey, length) ──
+JSHandle jsSubtleDeriveBits(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
+{
+    assert(ctx !is null, "Null ctx in subtle.deriveBits");
+    auto state = cast(DunState*) ctx;
+    assert(state !is null, "Null DunState in subtle.deriveBits");
+    auto engine = state.engine;
+    assert(engine !is null, "Null engine in subtle.deriveBits");
+
+    if (args.length < 3)
+        return rejectedPromise(engine, "subtle.deriveBits requires algorithm, baseKey, length");
+
+    auto algoName = extractAlgoName(engine, args[0]);
+    if (algoName is null)
+        return rejectedPromise(engine, "subtle.deriveBits: algorithm must specify a name");
+
+    char[32] nameBuf = void;
+    size_t nameLen = 0;
+    foreach (c; algoName)
+    {
+        if (nameLen >= nameBuf.length) break;
+        nameBuf[nameLen++] = (c >= 'a' && c <= 'z') ? cast(char)(c - 32) : c;
+    }
+    auto upperName = (() @trusted => cast(string) nameBuf[0 .. nameLen])();
+
+    int lengthBits = engine.isNumber(args[2]) ? engine.extractInt(args[2]) : 0;
+    if (lengthBits <= 0 || lengthBits % 8 != 0 || lengthBits > 8192)
+        return rejectedPromise(engine, "subtle.deriveBits: length must be a positive multiple of 8");
+    int lengthBytes = lengthBits / 8;
+
+    auto keyDataProp = engine.getProperty(args[1], "_keyData");
+    auto baseKeyBytes = engine.getTypedArrayBytes(keyDataProp);
+    engine.freeValue(keyDataProp);
+    if (baseKeyBytes is null || baseKeyBytes.length == 0)
+        return rejectedPromise(engine, "subtle.deriveBits: invalid base key");
+
+    if (upperName == "PBKDF2")
+    {
+        auto hashAlgo = extractHmacHash(engine, args[0]);
+        if (hashAlgo is null) hashAlgo = normalizeSubtleAlgo(engine, args[0]);
+        if (hashAlgo is null) hashAlgo = "sha256";
+
+        auto md = getEvpMd(hashAlgo);
+        if (md is null)
+            return rejectedPromise(engine, "subtle.deriveBits: unsupported hash for PBKDF2");
+
+        auto saltProp = engine.getProperty(args[0], "salt");
+        auto salt = extractDataArg(engine, saltProp);
+        engine.freeValue(saltProp);
+
+        auto iterProp = engine.getProperty(args[0], "iterations");
+        int iterations = engine.isNumber(iterProp) ? engine.extractInt(iterProp) : 1;
+        engine.freeValue(iterProp);
+
+        if (iterations < 1)
+            return rejectedPromise(engine, "subtle.deriveBits: iterations must be >= 1");
+
+        auto outBuf = new ubyte[lengthBytes];
+        int ret = PKCS5_PBKDF2_HMAC(
+            cast(const(char)*) baseKeyBytes.ptr, cast(int) baseKeyBytes.length,
+            salt !is null ? salt.ptr : null, cast(int)(salt !is null ? salt.length : 0),
+            iterations, md, lengthBytes, outBuf.ptr);
+
+        if (ret != 1)
+            return rejectedPromise(engine, "subtle.deriveBits: PBKDF2 derivation failed");
+
+        return resolvedPromise(engine, engine.newUint8Array(outBuf));
+    }
+    else if (upperName == "HKDF")
+    {
+        auto hashName = extractHmacHash(engine, args[0]);
+        if (hashName is null)
+        {
+            auto hashProp = engine.getProperty(args[0], "hash");
+            if (engine.isString(hashProp))
+                hashName = normalizeSubtleAlgo(engine, hashProp);
+            else if (engine.isObject(hashProp))
+                hashName = normalizeSubtleAlgo(engine, hashProp);
+            engine.freeValue(hashProp);
+        }
+        if (hashName is null) hashName = "sha256";
+
+        auto md = getEvpMd(hashName);
+        if (md is null)
+            return rejectedPromise(engine, "subtle.deriveBits: unsupported hash for HKDF");
+
+        auto saltProp = engine.getProperty(args[0], "salt");
+        auto salt = extractDataArg(engine, saltProp);
+        engine.freeValue(saltProp);
+
+        auto infoProp = engine.getProperty(args[0], "info");
+        auto info = extractDataArg(engine, infoProp);
+        engine.freeValue(infoProp);
+
+        int hashLen = EVP_MD_get_size(md);
+        if (hashLen <= 0) hashLen = 32;
+
+        // HKDF-Extract: PRK = HMAC(salt, IKM)
+        ubyte[SUBTLE_MAX_DIGEST_SIZE] prk = void;
+        uint prkLen = 0;
+        auto hmacResult = HMAC(md,
+            salt !is null ? cast(const(void)*) salt.ptr : cast(const(void)*) "".ptr,
+            salt !is null ? cast(int) salt.length : 0,
+            baseKeyBytes.ptr, baseKeyBytes.length,
+            prk.ptr, &prkLen);
+        if (hmacResult is null || prkLen == 0)
+            return rejectedPromise(engine, "subtle.deriveBits: HKDF extract failed");
+
+        // HKDF-Expand
+        auto outBuf = new ubyte[lengthBytes];
+        ubyte[SUBTLE_MAX_DIGEST_SIZE] T = void;
+        size_t tLen = 0;
+        size_t done = 0;
+        ubyte counter = 1;
+
+        while (done < lengthBytes)
+        {
+            // T(n) = HMAC(PRK, T(n-1) || info || counter)
+            auto inputBuf = new ubyte[tLen + (info !is null ? info.length : 0) + 1];
+            if (tLen > 0) inputBuf[0 .. tLen] = T[0 .. tLen];
+            if (info !is null && info.length > 0) inputBuf[tLen .. tLen + info.length] = info[];
+            inputBuf[$ - 1] = counter;
+
+            uint tmpLen = 0;
+            auto tmpResult = HMAC(md,
+                cast(const(void)*) prk.ptr, cast(int) prkLen,
+                inputBuf.ptr, inputBuf.length,
+                T.ptr, &tmpLen);
+            if (tmpResult is null || tmpLen == 0)
+                return rejectedPromise(engine, "subtle.deriveBits: HKDF expand failed");
+            tLen = tmpLen;
+
+            size_t copyLen = lengthBytes - done;
+            if (copyLen > tLen) copyLen = tLen;
+            outBuf[done .. done + copyLen] = T[0 .. copyLen];
+            done += copyLen;
+            counter++;
+        }
+
+        return resolvedPromise(engine, engine.newUint8Array(outBuf));
+    }
+    else
+        return rejectedPromise(engine, "subtle.deriveBits: unsupported algorithm '" ~ algoName ~ "'");
+}
+
+// ── subtle.deriveKey(algorithm, baseKey, derivedKeyType, extractable, keyUsages) ──
+JSHandle jsSubtleDeriveKey(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
+{
+    assert(ctx !is null, "Null ctx in subtle.deriveKey");
+    auto state = cast(DunState*) ctx;
+    assert(state !is null, "Null DunState in subtle.deriveKey");
+    auto engine = state.engine;
+    assert(engine !is null, "Null engine in subtle.deriveKey");
+
+    if (args.length < 5)
+        return rejectedPromise(engine, "subtle.deriveKey requires algorithm, baseKey, derivedKeyType, extractable, keyUsages");
+
+    // Get the desired key length from derivedKeyType
+    auto derivedAlgoName = extractAlgoName(engine, args[2]);
+    int derivedBits = 256;
+    if (derivedAlgoName !is null)
+    {
+        auto lengthProp = engine.getProperty(args[2], "length");
+        if (engine.isNumber(lengthProp))
+            derivedBits = engine.extractInt(lengthProp);
+        engine.freeValue(lengthProp);
+    }
+
+    // Call deriveBits with the computed length
+    JSHandle[3] deriveBitsArgs;
+    deriveBitsArgs[0] = args[0];
+    deriveBitsArgs[1] = args[1];
+    deriveBitsArgs[2] = engine.newFloat(cast(double) derivedBits);
+
+    auto bitsResult = jsSubtleDeriveBits(ctx, thisVal, deriveBitsArgs[0 .. 3]);
+    engine.freeValue(deriveBitsArgs[2]);
+
+    // The result is a promise — we need to wrap the derived bits into a CryptoKey
+    // For simplicity, derive bits synchronously and wrap in a key object
+    // Since deriveBits already returns a resolved promise, we build the key from the algorithm
+    // Re-derive the bits directly instead of unwrapping the promise
+    auto algoName = extractAlgoName(engine, args[0]);
+    char[32] nameBuf = void;
+    size_t nameLen = 0;
+    if (algoName !is null)
+    {
+        foreach (c; algoName)
+        {
+            if (nameLen >= nameBuf.length) break;
+            nameBuf[nameLen++] = (c >= 'a' && c <= 'z') ? cast(char)(c - 32) : c;
+        }
+    }
+    auto upperName = (() @trusted => cast(string) nameBuf[0 .. nameLen])();
+    engine.freeValue(bitsResult);
+
+    if (derivedBits <= 0 || derivedBits % 8 != 0 || derivedBits > 8192)
+        return rejectedPromise(engine, "subtle.deriveKey: invalid derived key length");
+    int derivedBytes = derivedBits / 8;
+
+    auto keyDataProp = engine.getProperty(args[1], "_keyData");
+    auto baseKeyBytes = engine.getTypedArrayBytes(keyDataProp);
+    engine.freeValue(keyDataProp);
+    if (baseKeyBytes is null || baseKeyBytes.length == 0)
+        return rejectedPromise(engine, "subtle.deriveKey: invalid base key");
+
+    ubyte[] derivedKeyBytes;
+
+    if (upperName == "PBKDF2")
+    {
+        auto hashAlgo = extractHmacHash(engine, args[0]);
+        if (hashAlgo is null) hashAlgo = "sha256";
+        auto md = getEvpMd(hashAlgo);
+        if (md is null)
+            return rejectedPromise(engine, "subtle.deriveKey: unsupported hash");
+
+        auto saltProp = engine.getProperty(args[0], "salt");
+        auto salt = extractDataArg(engine, saltProp);
+        engine.freeValue(saltProp);
+
+        auto iterProp = engine.getProperty(args[0], "iterations");
+        int iterations = engine.isNumber(iterProp) ? engine.extractInt(iterProp) : 1;
+        engine.freeValue(iterProp);
+
+        derivedKeyBytes = new ubyte[derivedBytes];
+        int ret = PKCS5_PBKDF2_HMAC(
+            cast(const(char)*) baseKeyBytes.ptr, cast(int) baseKeyBytes.length,
+            salt !is null ? salt.ptr : null, cast(int)(salt !is null ? salt.length : 0),
+            iterations, md, derivedBytes, derivedKeyBytes.ptr);
+        if (ret != 1)
+            return rejectedPromise(engine, "subtle.deriveKey: PBKDF2 failed");
+    }
+    else
+        return rejectedPromise(engine, "subtle.deriveKey: unsupported algorithm '" ~ (algoName !is null ? algoName : "null") ~ "'");
+
+    auto keyObj = engine.newObject();
+    engine.setProperty(keyObj, "type", engine.newString("secret"));
+    engine.setProperty(keyObj, "extractable", engine.newBool(engine.extractBool(args[3])));
+
+    auto derivedAlgo = engine.newObject();
+    if (derivedAlgoName !is null)
+    {
+        char[32] dBuf = void;
+        size_t dLen = 0;
+        foreach (c; derivedAlgoName)
+        {
+            if (dLen >= dBuf.length) break;
+            dBuf[dLen++] = (c >= 'a' && c <= 'z') ? cast(char)(c - 32) : c;
+        }
+        engine.setProperty(derivedAlgo, "name", engine.newString((() @trusted => cast(string) dBuf[0 .. dLen])()));
+    }
+    engine.setProperty(derivedAlgo, "length", engine.newFloat(cast(double) derivedBits));
+    engine.setProperty(keyObj, "algorithm", derivedAlgo);
+    engine.setProperty(keyObj, "_keyData", engine.newUint8Array(derivedKeyBytes));
+    engine.setProperty(keyObj, "usages", engine.dupValue(args[4]));
+
+    return resolvedPromise(engine, keyObj);
 }
 
 // ── subtle stub for unimplemented methods ──

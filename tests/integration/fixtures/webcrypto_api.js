@@ -197,6 +197,117 @@ crypto.subtle.digest('SHA-256', new Uint8Array(0))
 })
 .then(function(sigs) {
   check('HMAC deterministic', toHex(sigs[0]) === toHex(sigs[1]));
+
+  // generateKey tests
+  return crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, true, ['encrypt', 'decrypt']);
+})
+.then(function(genKey) {
+  check('generateKey returns object', typeof genKey === 'object');
+  check('generateKey type secret', genKey.type === 'secret');
+  check('generateKey extractable', genKey.extractable === true);
+  check('generateKey algorithm name', genKey.algorithm.name === 'AES-GCM');
+
+  // exportKey test
+  return crypto.subtle.exportKey('raw', genKey).then(function(raw) {
+    return { genKey: genKey, raw: raw };
+  });
+})
+.then(function(ctx) {
+  check('exportKey returns Uint8Array', ctx.raw instanceof Uint8Array);
+  check('exportKey AES-256 length', ctx.raw.length === 32);
+
+  // generateKey + encrypt/decrypt round-trip
+  var iv = new Uint8Array(12);
+  for (var i = 0; i < 12; i++) iv[i] = i + 42;
+  var plaintext = new TextEncoder().encode('generated key test');
+  return crypto.subtle.encrypt({ name: 'AES-GCM', iv: iv }, ctx.genKey, plaintext)
+    .then(function(enc) {
+      return crypto.subtle.decrypt({ name: 'AES-GCM', iv: iv }, ctx.genKey, enc);
+    });
+})
+.then(function(dec) {
+  check('generateKey encrypt/decrypt round-trip', new TextDecoder().decode(dec) === 'generated key test');
+
+  // HMAC generateKey
+  return crypto.subtle.generateKey({ name: 'HMAC', hash: 'SHA-256' }, true, ['sign', 'verify']);
+})
+.then(function(hmacKey) {
+  check('generateKey HMAC type', hmacKey.type === 'secret');
+  check('generateKey HMAC algo', hmacKey.algorithm.name === 'HMAC');
+  check('generateKey HMAC hash', hmacKey.algorithm.hash.name === 'SHA-256');
+
+  var data = new TextEncoder().encode('hmac generated key test');
+  return crypto.subtle.sign('HMAC', hmacKey, data).then(function(sig) {
+    return crypto.subtle.verify('HMAC', hmacKey, sig, data);
+  });
+})
+.then(function(valid) {
+  check('generateKey HMAC sign/verify', valid === true);
+
+  // AES-128 generateKey
+  return crypto.subtle.generateKey({ name: 'AES-CBC', length: 128 }, true, ['encrypt', 'decrypt']);
+})
+.then(function(aes128Key) {
+  return crypto.subtle.exportKey('raw', aes128Key);
+})
+.then(function(raw128) {
+  check('generateKey AES-128 length', raw128.length === 16);
+
+  // deriveBits with PBKDF2
+  var password = new TextEncoder().encode('my-password');
+  return crypto.subtle.importKey('raw', password, { name: 'PBKDF2' }, false, ['deriveBits'])
+    .then(function(baseKey) {
+      return crypto.subtle.deriveBits({
+        name: 'PBKDF2',
+        salt: new TextEncoder().encode('salt123'),
+        iterations: 1000,
+        hash: 'SHA-256'
+      }, baseKey, 256);
+    });
+})
+.then(function(derived) {
+  check('deriveBits returns Uint8Array', derived instanceof Uint8Array);
+  check('deriveBits PBKDF2 length', derived.length === 32);
+
+  // deriveBits deterministic
+  var password = new TextEncoder().encode('my-password');
+  return crypto.subtle.importKey('raw', password, { name: 'PBKDF2' }, false, ['deriveBits'])
+    .then(function(baseKey) {
+      return Promise.all([
+        crypto.subtle.deriveBits({ name: 'PBKDF2', salt: new TextEncoder().encode('salt123'), iterations: 1000, hash: 'SHA-256' }, baseKey, 256),
+        crypto.subtle.deriveBits({ name: 'PBKDF2', salt: new TextEncoder().encode('salt123'), iterations: 1000, hash: 'SHA-256' }, baseKey, 256)
+      ]);
+    });
+})
+.then(function(pair) {
+  check('deriveBits PBKDF2 deterministic', toHex(pair[0]) === toHex(pair[1]));
+
+  // HKDF deriveBits
+  var ikm = new TextEncoder().encode('input-keying-material');
+  return crypto.subtle.importKey('raw', ikm, { name: 'HKDF' }, false, ['deriveBits'])
+    .then(function(hkdfKey) {
+      return crypto.subtle.deriveBits({
+        name: 'HKDF',
+        hash: 'SHA-256',
+        salt: new TextEncoder().encode('hkdf-salt'),
+        info: new TextEncoder().encode('hkdf-info')
+      }, hkdfKey, 256);
+    });
+})
+.then(function(hkdfDerived) {
+  check('deriveBits HKDF length', hkdfDerived.length === 32);
+  check('deriveBits HKDF non-zero', hkdfDerived[0] !== 0 || hkdfDerived[1] !== 0 || hkdfDerived[2] !== 0);
+
+  // Non-extractable key should fail export
+  return crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, false, ['encrypt'])
+    .then(function(nonExtKey) {
+      return crypto.subtle.exportKey('raw', nonExtKey)
+        .then(function() { return false; })
+        .catch(function() { return true; });
+    });
+})
+.then(function(exportFailed) {
+  check('non-extractable key export rejected', exportFailed === true);
   done();
 })
 .catch(function(e) {
