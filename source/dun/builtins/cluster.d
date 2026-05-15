@@ -352,7 +352,7 @@ JSHandle jsWorkerOn(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null);
     auto state = cast(DunState*) ctx;
-    return thisVal;
+    return state.engine.dupValue(thisVal);
 }
 
 JSHandle jsWorkerDisconnect(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted

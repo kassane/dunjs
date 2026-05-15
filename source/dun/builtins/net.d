@@ -514,12 +514,12 @@ JSHandle jsServerOn(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
     auto state = cast(DunState*) ctx;
     assert(state !is null, "Null DunState in jsServerOn");
     auto engine = state.engine;
-    if (args.length < 2) return thisVal;
+    if (args.length < 2) return engine.dupValue(thisVal);
 
     auto idProp = engine.getProperty(thisVal, "__id");
     int idVal = engine.extractInt(idProp);
     engine.freeValue(idProp);
-    if (idVal < 0 || idVal >= cast(int) servers.length) return thisVal;
+    if (idVal < 0 || idVal >= cast(int) servers.length) return engine.dupValue(thisVal);
 
     auto srv = &servers[idVal];
     auto evName = engine.extractString(args[0]);
@@ -530,7 +530,7 @@ JSHandle jsServerOn(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
         srv.onConnection = engine.dupValue(args[1]);
         srv.connCbSet = true;
     }
-    return thisVal;
+    return engine.dupValue(thisVal);
 }
 
 JSHandle jsSocketOn(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
@@ -539,12 +539,12 @@ JSHandle jsSocketOn(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
     auto state = cast(DunState*) ctx;
     assert(state !is null, "Null DunState in jsSocketOn");
     auto engine = state.engine;
-    if (args.length < 2) return thisVal;
+    if (args.length < 2) return engine.dupValue(thisVal);
 
     auto idProp = engine.getProperty(thisVal, "__id");
     int idVal = engine.extractInt(idProp);
     engine.freeValue(idProp);
-    if (idVal < 0 || idVal >= cast(int) sockets.length) return thisVal;
+    if (idVal < 0 || idVal >= cast(int) sockets.length) return engine.dupValue(thisVal);
 
     auto sock = &sockets[idVal];
     auto evName = engine.extractString(args[0]);
@@ -561,7 +561,7 @@ JSHandle jsSocketOn(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
             sock.onError = engine.dupValue(args[1]);
         sock.eventsSet = true;
     }
-    return thisVal;
+    return engine.dupValue(thisVal);
 }
 
 JSHandle jsSocketWrite(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted

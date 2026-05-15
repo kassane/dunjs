@@ -424,7 +424,7 @@ JSHandle jsHttpServerSetTimeout(void* ctx, JSHandle thisVal, scope JSHandle[] ar
     assert(state.engine !is null);
     auto engine = state.engine;
     if (args.length >= 1 && engine.isNumber(args[0]))
-        engine.setProperty(thisVal, "timeout", args[0]);
+        engine.setProperty(thisVal, "timeout", engine.dupValue(args[0]));
     return engine.dupValue(thisVal);
 }
 
@@ -600,12 +600,12 @@ JSHandle jsHttpServerOn(void* ctx, JSHandle thisVal, scope JSHandle[] args) @tru
     auto state = cast(DunState*) ctx;
     assert(state !is null, "Null DunState in jsHttpServerOn");
     auto engine = state.engine;
-    if (args.length < 2) return thisVal;
+    if (args.length < 2) return engine.dupValue(thisVal);
 
     auto idProp = engine.getProperty(thisVal, "__hid");
     int idVal = engine.extractInt(idProp);
     engine.freeValue(idProp);
-    if (idVal < 0 || idVal >= cast(int) httpServers.length) return thisVal;
+    if (idVal < 0 || idVal >= cast(int) httpServers.length) return engine.dupValue(thisVal);
 
     auto ev = engine.extractString(args[0]);
     if (ev == "request" && engine.isFunction(args[1]))
@@ -615,7 +615,7 @@ JSHandle jsHttpServerOn(void* ctx, JSHandle thisVal, scope JSHandle[] args) @tru
         srv.requestCb = engine.dupValue(args[1]);
         srv.cbSet = true;
     }
-    return thisVal;
+    return engine.dupValue(thisVal);
 }
 
 // Request object
@@ -667,12 +667,12 @@ JSHandle jsReqOn(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
     auto state = cast(DunState*) ctx;
     assert(state !is null, "Null DunState in jsReqOn");
     auto engine = state.engine;
-    if (args.length < 2 || !engine.isFunction(args[1])) return thisVal;
+    if (args.length < 2 || !engine.isFunction(args[1])) return engine.dupValue(thisVal);
 
     auto idProp = engine.getProperty(thisVal, "__cid");
     int connId = engine.extractInt(idProp);
     engine.freeValue(idProp);
-    if (connId < 0 || connId >= cast(int) httpConns.length) return thisVal;
+    if (connId < 0 || connId >= cast(int) httpConns.length) return engine.dupValue(thisVal);
 
     auto ev = engine.extractString(args[0]);
     auto conn = &httpConns[connId];
@@ -700,7 +700,7 @@ JSHandle jsReqOn(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
     {
         engine.freeValue(cb);
     }
-    return thisVal;
+    return engine.dupValue(thisVal);
 }
 
 // Response object

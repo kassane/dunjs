@@ -711,7 +711,7 @@ JSHandle jsBufferFill(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trust
     auto state = cast(DunState*) ctx;
     assert(state.engine !is null, "Null engine in jsBufferFill");
     auto engine = state.engine;
-    if (args.length < 1) return thisVal;
+    if (args.length < 1) return engine.dupValue(thisVal);
     auto bytes = extractBytes(engine, thisVal);
 
     ubyte fillVal = 0;
@@ -724,7 +724,7 @@ JSHandle jsBufferFill(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trust
     }
 
     bytes[] = fillVal;
-    return thisVal;
+    return engine.dupValue(thisVal);
 }
 
 // buf.write(string, [offset])

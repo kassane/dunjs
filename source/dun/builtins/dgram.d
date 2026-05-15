@@ -594,7 +594,7 @@ JSHandle jsUdpOn(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 
     int id = getSocketId(engine, thisVal);
     if (id < 0 || id >= MAX_UDP_SOCKETS)
-        return thisVal;
+        return engine.dupValue(thisVal);
 
     auto event = engine.extractString(args[0]);
     auto ref sock = gUdpSockets[id];

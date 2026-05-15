@@ -263,7 +263,7 @@ JSHandle jsH3ServerOn(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trust
     assert(ctx !is null, "Null ctx in http3.server.on");
     auto state = cast(DunState*) ctx;
     assert(state.engine !is null);
-    return thisVal;
+    return state.engine.dupValue(thisVal);
 }
 
 JSHandle jsH3Connect(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted

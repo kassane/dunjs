@@ -30,6 +30,14 @@ private extern (C) @nogc nothrow
     const(EVP_MD)* EVP_sha256();
     const(EVP_MD)* EVP_sha384();
     const(EVP_MD)* EVP_sha512();
+    const(EVP_MD)* EVP_sha3_256();
+    const(EVP_MD)* EVP_sha3_384();
+    const(EVP_MD)* EVP_sha3_512();
+    const(EVP_MD)* EVP_ripemd160();
+    const(EVP_MD)* EVP_blake2s256();
+    const(EVP_MD)* EVP_blake2b512();
+    const(EVP_MD)* EVP_md_null();
+    const(EVP_MD)* EVP_get_digestbyname(const(char)* name);
 
     // HMAC: returns pointer to result buffer (static internal), outLen set to digest length
     ubyte* HMAC(const(EVP_MD)* evp_md, const(void)* key, int key_len,
@@ -161,6 +169,12 @@ private const(EVP_MD)* getEvpMd(string algo) @trusted nothrow @nogc
     if (algo == "sha256") return EVP_sha256();
     if (algo == "sha384") return EVP_sha384();
     if (algo == "sha512") return EVP_sha512();
+    if (algo == "sha3-256") return EVP_sha3_256();
+    if (algo == "sha3-384") return EVP_sha3_384();
+    if (algo == "sha3-512") return EVP_sha3_512();
+    if (algo == "ripemd160") return EVP_ripemd160();
+    if (algo == "blake2s256") return EVP_blake2s256();
+    if (algo == "blake2b512") return EVP_blake2b512();
     return null;
 }
 
@@ -187,6 +201,12 @@ private string normalizeAlgo(string algo) @safe pure nothrow
     if (lower == "sha256") return "sha256";
     if (lower == "sha384") return "sha384";
     if (lower == "sha512") return "sha512";
+    if (lower == "sha3-256") return "sha3-256";
+    if (lower == "sha3-384") return "sha3-384";
+    if (lower == "sha3-512") return "sha3-512";
+    if (lower == "ripemd160") return "ripemd160";
+    if (lower == "blake2s256") return "blake2s256";
+    if (lower == "blake2b512") return "blake2b512";
     return null;
 }
 
@@ -547,6 +567,11 @@ private __gshared JSHandle _cachedHmacUpdateFn;
 private __gshared JSHandle _cachedHmacDigestFn;
 private __gshared bool _hmacFnsCached = false;
 
+// D-side buffer registry for binary-safe HMAC accumulation
+private __gshared ubyte[][int] _hmacBuffers;
+private __gshared ubyte[][int] _hmacKeys;
+private __gshared int _nextHmacId = 0;
+
 JSHandle jsCryptoCreateHmac(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsCryptoCreateHmac");
@@ -556,7 +581,6 @@ JSHandle jsCryptoCreateHmac(void* ctx, JSHandle thisVal, scope JSHandle[] args) 
     if (args.length < 2)
         return engine.throwTypeError("createHmac requires algorithm and key arguments");
     auto algo = engine.extractString(args[0]);
-    auto key = engine.extractString(args[1]);
     if (getEvpMd(algo) is null)
         return engine.throwTypeError("Unsupported HMAC algorithm: " ~ algo);
 
@@ -567,10 +591,32 @@ JSHandle jsCryptoCreateHmac(void* ctx, JSHandle thisVal, scope JSHandle[] args) 
         _hmacFnsCached = true;
     }
 
+    // Extract key as binary (supports Buffer and string)
+    ubyte[] keyBytes;
+    if (engine.isObject(args[1]))
+    {
+        auto isBuf = engine.getProperty(args[1], "__isBuffer");
+        bool isBuffer = engine.isBool(isBuf) && engine.extractBool(isBuf);
+        engine.freeValue(isBuf);
+        if (isBuffer)
+        {
+            import dun.builtins.buffer : extractBytes;
+            keyBytes = extractBytes(engine, args[1]).dup;
+        }
+        else
+            keyBytes = cast(ubyte[]) engine.extractString(args[1]).dup;
+    }
+    else
+        keyBytes = cast(ubyte[]) engine.extractString(args[1]).dup;
+
+    auto id = _nextHmacId++;
+    assert(_nextHmacId < MAX_HASH_SLOTS, "HMAC slot overflow");
+    _hmacBuffers[id] = [];
+    _hmacKeys[id] = keyBytes;
+
     auto obj = engine.newObject();
     engine.setProperty(obj, "_algo", engine.newString(algo));
-    engine.setProperty(obj, "_key", engine.newString(key));
-    engine.setProperty(obj, "_data", engine.newString(""));
+    engine.setProperty(obj, "_hid", engine.newInt(id));
     engine.setProperty(obj, "update", engine.dupValue(_cachedHmacUpdateFn));
     engine.setProperty(obj, "digest", engine.dupValue(_cachedHmacDigestFn));
     return obj;
@@ -585,11 +631,29 @@ JSHandle jsHmacUpdate(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trust
     if (args.length < 1) return engine.dupValue(thisVal);
     try
     {
-        auto dataProp = engine.getProperty(thisVal, "_data");
-        auto prev = engine.extractString(dataProp);
-        engine.freeValue(dataProp);
-        auto chunk = engine.extractString(args[0]);
-        engine.setProperty(thisVal, "_data", engine.newString(prev ~ chunk));
+        auto hidProp = engine.getProperty(thisVal, "_hid");
+        int hid = engine.extractInt(hidProp);
+        engine.freeValue(hidProp);
+
+        ubyte[] chunk;
+        if (engine.isObject(args[0]))
+        {
+            auto isBuf = engine.getProperty(args[0], "__isBuffer");
+            bool isBuffer = engine.isBool(isBuf) && engine.extractBool(isBuf);
+            engine.freeValue(isBuf);
+            if (isBuffer)
+            {
+                import dun.builtins.buffer : extractBytes;
+                chunk = extractBytes(engine, args[0]).dup;
+            }
+            else
+                chunk = cast(ubyte[]) engine.extractString(args[0]).dup;
+        }
+        else
+            chunk = cast(ubyte[]) engine.extractString(args[0]).dup;
+
+        if (auto p = hid in _hmacBuffers)
+            *p ~= chunk;
     }
     catch (Exception) {}
     return engine.dupValue(thisVal);
@@ -606,13 +670,41 @@ JSHandle jsHmacDigest(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trust
         auto algoProp = engine.getProperty(thisVal, "_algo");
         auto algo = engine.extractString(algoProp);
         engine.freeValue(algoProp);
-        auto keyProp = engine.getProperty(thisVal, "_key");
-        auto key = engine.extractString(keyProp);
-        engine.freeValue(keyProp);
-        auto dataProp = engine.getProperty(thisVal, "_data");
-        auto data = engine.extractString(dataProp);
-        engine.freeValue(dataProp);
-        return engine.newString(computeHmac(algo, key, data));
+        auto hidProp = engine.getProperty(thisVal, "_hid");
+        int hid = engine.extractInt(hidProp);
+        engine.freeValue(hidProp);
+
+        ubyte[] data;
+        if (auto p = hid in _hmacBuffers)
+        {
+            data = *p;
+            _hmacBuffers.remove(hid);
+        }
+        ubyte[] key;
+        if (auto p = hid in _hmacKeys)
+        {
+            key = *p;
+            _hmacKeys.remove(hid);
+        }
+
+        string encoding = "hex";
+        if (args.length >= 1 && engine.isString(args[0]))
+            encoding = engine.extractString(args[0]);
+
+        auto result = computeHmacBinary(algo, key, data);
+        if (encoding == "hex")
+            return engine.newString(bytesToHexStr(result));
+        else if (encoding == "base64")
+        {
+            import std.base64 : Base64;
+            return engine.newString((() @trusted => cast(string) Base64.encode(result))());
+        }
+        else if (encoding == "buffer" || encoding == "binary")
+        {
+            import dun.builtins.buffer : makeBufferObj;
+            return makeBufferObj(engine, result);
+        }
+        return engine.newString(bytesToHexStr(result));
     }
     catch (Exception) { return engine.throwTypeError("Failed to compute HMAC"); }
 }
@@ -629,8 +721,8 @@ JSHandle jsCryptoTimingSafeEqual(void* ctx, JSHandle thisVal, scope JSHandle[] a
         return engine.throwTypeError("timingSafeEqual requires two arguments");
     try
     {
-        auto a = engine.extractString(args[0]);
-        auto b = engine.extractString(args[1]);
+        const(ubyte)[] a = extractArgBytes(engine, args[0]);
+        const(ubyte)[] b = extractArgBytes(engine, args[1]);
         if (a.length != b.length)
             return engine.throwTypeError("Input buffers must have the same byte length");
         if (a.length == 0)
@@ -639,6 +731,25 @@ JSHandle jsCryptoTimingSafeEqual(void* ctx, JSHandle thisVal, scope JSHandle[] a
         return engine.newBool(result == 0);
     }
     catch (Exception) { return engine.throwTypeError("timingSafeEqual failed"); }
+}
+
+private const(ubyte)[] extractArgBytes(IJSEngine engine, JSHandle arg) @trusted
+{
+    if (engine.isObject(arg))
+    {
+        auto isBuf = engine.getProperty(arg, "__isBuffer");
+        bool isBuffer = engine.isBool(isBuf) && engine.extractBool(isBuf);
+        engine.freeValue(isBuf);
+        if (isBuffer)
+        {
+            import dun.builtins.buffer : extractBytes;
+            return extractBytes(engine, arg);
+        }
+        auto bytes = engine.getTypedArrayBytes(arg);
+        if (bytes !is null)
+            return bytes;
+    }
+    return cast(const(ubyte)[]) engine.extractString(arg);
 }
 
 // --- randomInt ---
@@ -1393,7 +1504,9 @@ JSHandle jsCryptoGetHashes(void* ctx, JSHandle thisVal, scope JSHandle[] args) @
     auto engine = state.engine;
     auto arr = engine.newArray();
     uint idx = 0;
-    foreach (name; ["md5", "sha1", "sha224", "sha256", "sha384", "sha512"])
+    foreach (name; ["blake2b512", "blake2s256", "md5", "ripemd160",
+                    "sha1", "sha224", "sha256", "sha384", "sha512",
+                    "sha3-256", "sha3-384", "sha3-512"])
         engine.setPropertyIndex(arr, idx++, engine.newString(name));
     return arr;
 }
@@ -1483,23 +1596,28 @@ private string bytesToHexStr(const(ubyte)[] data) @safe pure
     return (() @trusted => cast(string) buf[])();
 }
 
-private string computeHmac(string algo, string key, string data) @trusted
+private ubyte[] computeHmacBinary(string algo, const(ubyte)[] key, const(ubyte)[] data) @trusted
 {
     auto md = getEvpMd(algo);
-    if (md is null) return "";
+    if (md is null) return [];
 
     ubyte[64] outBuf;
     uint outLen = 0;
 
     auto result = HMAC(md,
         cast(const(void)*) key.ptr, cast(int) key.length,
-        cast(const(ubyte)*) data.ptr, data.length,
+        data.ptr, data.length,
         outBuf.ptr, &outLen);
 
-    if (result is null || outLen == 0) return "";
+    if (result is null || outLen == 0) return [];
+    return outBuf[0 .. outLen].dup;
+}
 
-    import std.digest : toHexString, LetterCase;
-    return toHexString!(LetterCase.lower)(outBuf[0 .. outLen]).idup;
+private string computeHmac(string algo, string key, string data) @trusted
+{
+    auto result = computeHmacBinary(algo, cast(const(ubyte)[]) key, cast(const(ubyte)[]) data);
+    if (result.length == 0) return "";
+    return bytesToHexStr(result);
 }
 
 // --- generateKeyPairSync ---

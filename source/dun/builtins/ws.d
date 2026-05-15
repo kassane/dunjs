@@ -443,12 +443,12 @@ JSHandle jsWsServerOn(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trust
     auto state = cast(DunState*) ctx;
     assert(state !is null, "Null DunState in jsWsServerOn");
     auto engine = state.engine;
-    if (args.length < 2) return thisVal;
+    if (args.length < 2) return engine.dupValue(thisVal);
 
     auto idProp = engine.getProperty(thisVal, "__wsid");
     int idVal = engine.extractInt(idProp);
     engine.freeValue(idProp);
-    if (idVal < 0 || idVal >= cast(int) wsServers.length) return thisVal;
+    if (idVal < 0 || idVal >= cast(int) wsServers.length) return engine.dupValue(thisVal);
 
     auto ev = engine.extractString(args[0]);
     if (ev == "connection" && engine.isFunction(args[1]))
@@ -458,7 +458,7 @@ JSHandle jsWsServerOn(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trust
         srv.connectionCb = engine.dupValue(args[1]);
         srv.hasCb = true;
     }
-    return thisVal;
+    return engine.dupValue(thisVal);
 }
 
 JSHandle jsWsServerClose(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
@@ -602,12 +602,12 @@ JSHandle jsWsClientOn(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trust
     auto state = cast(DunState*) ctx;
     assert(state !is null, "Null DunState in jsWsClientOn");
     auto engine = state.engine;
-    if (args.length < 2 || !engine.isFunction(args[1])) return thisVal;
+    if (args.length < 2 || !engine.isFunction(args[1])) return engine.dupValue(thisVal);
 
     auto idProp = engine.getProperty(thisVal, "__wcid");
     int cid = engine.extractInt(idProp);
     engine.freeValue(idProp);
-    if (cid < 0 || cid >= cast(int) wsConns.length) return thisVal;
+    if (cid < 0 || cid >= cast(int) wsConns.length) return engine.dupValue(thisVal);
 
     auto conn = &wsConns[cid];
     auto ev = engine.extractString(args[0]);
@@ -636,7 +636,7 @@ JSHandle jsWsClientOn(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trust
         conn.onerror = engine.dupValue(args[1]);
         conn.hasOnerror = true;
     }
-    return thisVal;
+    return engine.dupValue(thisVal);
 }
 
 JSHandle jsWsClientSend(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted

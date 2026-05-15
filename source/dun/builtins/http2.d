@@ -2260,12 +2260,12 @@ JSHandle jsH2ClientSessionOn(void* ctx, JSHandle thisVal, scope JSHandle[] args)
     assert(state.engine !is null);
     auto engine = state.engine;
 
-    if (args.length < 2 || !engine.isFunction(args[1])) return thisVal;
+    if (args.length < 2 || !engine.isFunction(args[1])) return engine.dupValue(thisVal);
 
     auto sidProp = engine.getProperty(thisVal, "__h2_csid");
     int sessionId = engine.extractInt(sidProp);
     engine.freeValue(sidProp);
-    if (sessionId < 0 || sessionId >= cast(int) h2ClientSessions.length) return thisVal;
+    if (sessionId < 0 || sessionId >= cast(int) h2ClientSessions.length) return engine.dupValue(thisVal);
 
     auto ev = engine.extractString(args[0]);
     auto session = &h2ClientSessions[sessionId];
@@ -2282,7 +2282,7 @@ JSHandle jsH2ClientSessionOn(void* ctx, JSHandle thisVal, scope JSHandle[] args)
         session.errorSessionCb = engine.dupValue(args[1]);
         session.hasErrorSessionCb = true;
     }
-    return thisVal;
+    return engine.dupValue(thisVal);
 }
 
 JSHandle jsH2ClientRequest(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
@@ -2413,7 +2413,7 @@ JSHandle jsH2StreamOn(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trust
     assert(state.engine !is null);
     auto engine = state.engine;
 
-    if (args.length < 2 || !engine.isFunction(args[1])) return thisVal;
+    if (args.length < 2 || !engine.isFunction(args[1])) return engine.dupValue(thisVal);
 
     auto csidProp = engine.getProperty(thisVal, "__h2_csid");
     int sessionId = engine.extractInt(csidProp);
@@ -2424,7 +2424,7 @@ JSHandle jsH2StreamOn(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trust
     engine.freeValue(sidProp);
 
     if (sessionId < 0 || sessionId >= cast(int) h2ClientSessions.length)
-        return thisVal;
+        return engine.dupValue(thisVal);
 
     auto session = &h2ClientSessions[sessionId];
     auto ev = engine.extractString(args[0]);
@@ -2447,7 +2447,7 @@ JSHandle jsH2StreamOn(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trust
     {
         engine.freeValue(cb);
     }
-    return thisVal;
+    return engine.dupValue(thisVal);
 }
 
 JSHandle jsH2StreamEnd(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
@@ -2651,12 +2651,12 @@ JSHandle jsH2ServerOn(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trust
     assert(ctx !is null);
     auto state = cast(DunState*) ctx;
     auto engine = state.engine;
-    if (args.length < 2) return thisVal;
+    if (args.length < 2) return engine.dupValue(thisVal);
 
     auto idProp = engine.getProperty(thisVal, "__h2sid");
     int idVal = engine.extractInt(idProp);
     engine.freeValue(idProp);
-    if (idVal < 0 || idVal >= cast(int) h2Servers.length) return thisVal;
+    if (idVal < 0 || idVal >= cast(int) h2Servers.length) return engine.dupValue(thisVal);
 
     auto ev = engine.extractString(args[0]);
     if ((ev == "stream" || ev == "request") && engine.isFunction(args[1]))
@@ -2666,7 +2666,7 @@ JSHandle jsH2ServerOn(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trust
         srv.requestCb = engine.dupValue(args[1]);
         srv.hasCb = true;
     }
-    return thisVal;
+    return engine.dupValue(thisVal);
 }
 
 // ── HTTP/2 Response Object ───────────────────────────────────────
