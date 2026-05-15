@@ -2198,9 +2198,14 @@ string httpExtensionSource() pure @safe nothrow
   ServerResponse.prototype.setHeader = function(name, value) { this._headers[name.toLowerCase()] = value; };
   ServerResponse.prototype.getHeader = function(name) { return this._headers[name.toLowerCase()]; };
   ServerResponse.prototype.removeHeader = function(name) { delete this._headers[name.toLowerCase()]; };
-  ServerResponse.prototype.writeHead = function(statusCode, headers) {
+  ServerResponse.prototype.writeHead = function(statusCode, statusMessage, headers) {
     this.statusCode = statusCode;
-    if (headers) { var k = Object.keys(headers); for (var i = 0; i < k.length; i++) this.setHeader(k[i], headers[k[i]]); }
+    if (typeof statusMessage === 'string') { this.statusMessage = statusMessage; }
+    else if (statusMessage && typeof statusMessage === 'object') { headers = statusMessage; }
+    if (headers) {
+      if (Array.isArray(headers)) { for (var i = 0; i < headers.length; i += 2) this.setHeader(headers[i], headers[i+1]); }
+      else { var k = Object.keys(headers); for (var j = 0; j < k.length; j++) this.setHeader(k[j], headers[k[j]]); }
+    }
     return this;
   };
   ServerResponse.prototype.write = function() { return true; };

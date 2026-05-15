@@ -138,6 +138,35 @@ private string errorCapturePolyfill() pure nothrow @safe
         ~   "};"
         ~ "}"
         ~ "if(Error.stackTraceLimit===undefined)Error.stackTraceLimit=10;"
+
+        // Patch Error stack to include "ErrorName: message" prefix (QuickJS only)
+        // V8/JSC already format stacks with prefix; QuickJS starts with "    at ..."
+        ~ "(function(){"
+        ~   "var testStack=(new Error('x')).stack||'';"
+        ~   "if(testStack.indexOf('Error')===0)return;"
+        ~   "function _fixStack(err){"
+        ~     "var raw=err.stack;"
+        ~     "if(typeof raw==='string'&&raw.length>0&&raw.charAt(0)===' '){"
+        ~       "var prefix=(err.name||'Error');"
+        ~       "if(err.message)prefix+=': '+err.message;"
+        ~       "Object.defineProperty(err,'stack',{value:prefix+'\\n'+raw,writable:true,configurable:true,enumerable:false});"
+        ~     "}"
+        ~   "}"
+        ~   "['Error','TypeError','RangeError','ReferenceError','SyntaxError','URIError','EvalError'].forEach(function(name){"
+        ~     "var Orig=globalThis[name];"
+        ~     "if(!Orig)return;"
+        ~     "globalThis[name]=function(){"
+        ~       "var inst=new(Function.prototype.bind.apply(Orig,[null].concat(Array.from(arguments))));"
+        ~       "_fixStack(inst);"
+        ~       "return inst;"
+        ~     "};"
+        ~     "globalThis[name].prototype=Orig.prototype;"
+        ~     "globalThis[name].prototype.constructor=globalThis[name];"
+        ~     "Object.setPrototypeOf(globalThis[name],Orig);"
+        ~     "Object.defineProperty(globalThis[name],'name',{value:name});"
+        ~   "});"
+        ~ "})()"
+
         ~ "})();";
 }
 

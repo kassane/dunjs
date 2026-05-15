@@ -195,7 +195,9 @@ class JSCEngine : IJSEngine
         if (exc !is null || len == 0) return null;
         auto ptr = cast(ubyte*) JSObjectGetTypedArrayBytesPtr(ctx, obj, &exc);
         if (exc !is null || ptr is null) return null;
-        return ptr[0 .. len];
+        auto offset = JSObjectGetTypedArrayByteOffset(ctx, obj, &exc);
+        if (exc !is null) return null;
+        return (ptr + offset)[0 .. len];
     }
 
     JSHandle newFunction(NativeCallback cb, string name, int argc) @trusted

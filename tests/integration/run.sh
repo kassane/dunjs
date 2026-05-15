@@ -40,7 +40,7 @@ for fixture in "$FIXTURES"/*.js "$FIXTURES"/*.ts "$FIXTURES"/*.mjs; do
   fi
 
   # shellcheck disable=SC2086
-  actual_out=$("$DUN" run $extra_flags "$fixture" 2>/tmp/dun_stderr.txt || true)
+  actual_out=$(timeout ${DUN_TEST_TIMEOUT:-30} "$DUN" run $extra_flags "$fixture" 2>/tmp/dun_stderr.txt || true)
   actual_err=$(cat /tmp/dun_stderr.txt)
 
   if [ -f "$stderr_exp" ]; then

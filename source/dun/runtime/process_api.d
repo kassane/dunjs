@@ -423,8 +423,10 @@ void installProcess(IJSEngine engine) @trusted
         engine.setProperty(versionsObj, "quickjs", engine.newString("0.8.0"));
     else version (EngineJSC)
         engine.setProperty(versionsObj, "jsc", engine.newString("620.1"));
-    else version (EngineV8)
+    version (EngineV8)
         engine.setProperty(versionsObj, "v8", engine.newString("12.4.0"));
+    else
+        engine.setProperty(versionsObj, "v8", engine.newString("11.3.244.8"));
     engine.setProperty(versionsObj, "modules", engine.newString("127"));
     engine.setProperty(versionsObj, "openssl", engine.newString("3.0.0"));
     engine.setProperty(process, "versions", versionsObj);

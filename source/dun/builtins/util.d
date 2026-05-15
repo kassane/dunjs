@@ -255,11 +255,18 @@ string utilSource() pure @safe nothrow
   // --- util.inspect --- delegates to __dun_inspect__ for Node-style formatting
   function inspect(obj, opts) {
     var depth = 2;
+    var colors = false;
+    var maxArrayLength = 100;
+    var maxStringLength = 10000;
     if (opts !== undefined) {
       if (typeof opts === 'number') depth = opts;
+      else if (typeof opts === 'boolean') { depth = 2; colors = opts; }
       else if (typeof opts === 'object' && opts !== null) {
         if (opts.depth === null || opts.depth === Infinity) depth = 20;
         else if (typeof opts.depth === 'number') depth = opts.depth;
+        if (opts.colors === true) colors = true;
+        if (typeof opts.maxArrayLength === 'number') maxArrayLength = opts.maxArrayLength;
+        if (typeof opts.maxStringLength === 'number') maxStringLength = opts.maxStringLength;
       }
     }
     if (typeof globalThis.__dun_inspect__ === 'function') return globalThis.__dun_inspect__(obj, depth);
@@ -271,6 +278,18 @@ string utilSource() pure @safe nothrow
     if (typeof obj === 'symbol') return obj.toString();
     try { return JSON.stringify(obj, null, 2); } catch(e) { return '[Circular]'; }
   }
+  inspect.defaultOptions = { depth: 2, colors: false, maxArrayLength: 100, maxStringLength: 10000, showHidden: false, compact: 3 };
+  inspect.colors = {
+    bold: [1,22], italic: [3,23], underline: [4,24], inverse: [7,27],
+    white: [37,39], grey: [90,39], black: [30,39], blue: [34,39],
+    cyan: [36,39], green: [32,39], magenta: [35,39], red: [31,39], yellow: [33,39]
+  };
+  inspect.styles = {
+    special: 'cyan', number: 'yellow', bigint: 'yellow', boolean: 'yellow',
+    undefined: 'grey', null: 'bold', string: 'green', symbol: 'green',
+    date: 'magenta', regexp: 'red', module: 'underline'
+  };
+  inspect.custom = Symbol.for('nodejs.util.inspect.custom');
 
   // --- util.inherits ---
   function inherits(ctor, superCtor) {

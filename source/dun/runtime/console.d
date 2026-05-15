@@ -239,6 +239,7 @@ private string inspectSource() @safe pure nothrow
     ~           "try { out += JSON.stringify(args[ai++]); } catch(e) { out += '[Circular]'; ai++; }"
     ~           "ci++; continue;"
     ~         "}"
+    ~         "if (ch === 'c') { ai++; ci++; continue; }"
     ~       "}"
     ~     "}"
     ~     "out += fmt[ci];"
