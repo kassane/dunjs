@@ -539,7 +539,26 @@ string streamSource() pure @safe nothrow
     });
   };
 
-  function compose() { throw new Error('stream.compose is not yet implemented'); }
+  function compose() {
+    var streams = Array.prototype.slice.call(arguments);
+    if (streams.length === 1 && Array.isArray(streams[0])) streams = streams[0];
+    if (streams.length === 0) throw new Error('stream.compose requires at least one stream');
+    if (streams.length === 1) return streams[0];
+    var first = streams[0], last = streams[streams.length - 1];
+    for (var i = 0; i < streams.length - 1; i++) {
+      if (typeof streams[i].pipe === 'function') streams[i].pipe(streams[i + 1]);
+    }
+    var composed = new Duplex({
+      write: function(chunk, enc, cb) { first.write(chunk, enc, cb); },
+      read: function() {},
+      final: function(cb) { first.end(cb); }
+    });
+    last.on('data', function(chunk) { if (!composed.push(chunk)) last.pause && last.pause(); });
+    last.on('end', function() { composed.push(null); });
+    last.on('error', function(err) { composed.destroy(err); });
+    first.on('error', function(err) { composed.destroy(err); });
+    return composed;
+  }
   function isErrored(stream) { return stream && stream.destroyed === true && stream.errored != null; }
   function isReadable(stream) { return stream && typeof stream.read === 'function' && stream.destroyed !== true; }
   function isDisturbed(stream) { return stream && (stream.readableDidRead === true || stream._readableState && stream._readableState.dataEmitted === true); }

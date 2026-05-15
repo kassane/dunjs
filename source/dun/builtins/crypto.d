@@ -74,7 +74,24 @@ private extern (C) @nogc nothrow
     const(EVP_CIPHER)* EVP_aes_192_cbc();
     const(EVP_CIPHER)* EVP_aes_256_cbc();
     const(EVP_CIPHER)* EVP_aes_128_gcm();
+    const(EVP_CIPHER)* EVP_aes_192_gcm();
     const(EVP_CIPHER)* EVP_aes_256_gcm();
+    const(EVP_CIPHER)* EVP_aes_128_ctr();
+    const(EVP_CIPHER)* EVP_aes_192_ctr();
+    const(EVP_CIPHER)* EVP_aes_256_ctr();
+    const(EVP_CIPHER)* EVP_aes_128_ecb();
+    const(EVP_CIPHER)* EVP_aes_192_ecb();
+    const(EVP_CIPHER)* EVP_aes_256_ecb();
+    const(EVP_CIPHER)* EVP_aes_128_ofb();
+    const(EVP_CIPHER)* EVP_aes_192_ofb();
+    const(EVP_CIPHER)* EVP_aes_256_ofb();
+    const(EVP_CIPHER)* EVP_aes_128_cfb128();
+    const(EVP_CIPHER)* EVP_aes_192_cfb128();
+    const(EVP_CIPHER)* EVP_aes_256_cfb128();
+    const(EVP_CIPHER)* EVP_des_ede3_cbc();
+    const(EVP_CIPHER)* EVP_des_ede3();
+    const(EVP_CIPHER)* EVP_chacha20_poly1305();
+    const(EVP_CIPHER)* EVP_rc4();
 
     int EVP_EncryptInit_ex(EVP_CIPHER_CTX* ctx, const(EVP_CIPHER)* type,
         void* impl, const(ubyte)* key, const(ubyte)* iv);
@@ -890,13 +907,36 @@ private const(EVP_CIPHER)* getEvpCipher(string algo) @trusted nothrow @nogc
     if (algo == "aes-192-cbc") return EVP_aes_192_cbc();
     if (algo == "aes-256-cbc") return EVP_aes_256_cbc();
     if (algo == "aes-128-gcm") return EVP_aes_128_gcm();
+    if (algo == "aes-192-gcm") return EVP_aes_192_gcm();
     if (algo == "aes-256-gcm") return EVP_aes_256_gcm();
+    if (algo == "aes-128-ctr") return EVP_aes_128_ctr();
+    if (algo == "aes-192-ctr") return EVP_aes_192_ctr();
+    if (algo == "aes-256-ctr") return EVP_aes_256_ctr();
+    if (algo == "aes-128-ecb") return EVP_aes_128_ecb();
+    if (algo == "aes-192-ecb") return EVP_aes_192_ecb();
+    if (algo == "aes-256-ecb") return EVP_aes_256_ecb();
+    if (algo == "aes-128-ofb") return EVP_aes_128_ofb();
+    if (algo == "aes-192-ofb") return EVP_aes_192_ofb();
+    if (algo == "aes-256-ofb") return EVP_aes_256_ofb();
+    if (algo == "aes-128-cfb") return EVP_aes_128_cfb128();
+    if (algo == "aes-192-cfb") return EVP_aes_192_cfb128();
+    if (algo == "aes-256-cfb") return EVP_aes_256_cfb128();
+    if (algo == "des-ede3-cbc" || algo == "des3") return EVP_des_ede3_cbc();
+    if (algo == "des-ede3") return EVP_des_ede3();
+    if (algo == "chacha20-poly1305") return EVP_chacha20_poly1305();
+    if (algo == "rc4") return EVP_rc4();
     return null;
 }
 
 private bool isGcmCipher(string algo) @safe pure nothrow
 {
-    return algo == "aes-128-gcm" || algo == "aes-256-gcm";
+    return algo == "aes-128-gcm" || algo == "aes-192-gcm" || algo == "aes-256-gcm"
+        || algo == "chacha20-poly1305";
+}
+
+private bool isEcbCipher(string algo) @safe pure nothrow
+{
+    return algo == "aes-128-ecb" || algo == "aes-192-ecb" || algo == "aes-256-ecb";
 }
 
 private __gshared JSHandle _cachedCipherUpdateFn;
@@ -932,18 +972,27 @@ JSHandle jsCryptoCreateCipheriv(void* ctx, JSHandle thisVal, scope JSHandle[] ar
         return engine.throwTypeError("Unsupported cipher: " ~ algo);
 
     auto keyBytes = extractCryptoBytes(engine, args[1]);
-    auto ivBytes = extractCryptoBytes(engine, args[2]);
     if (keyBytes is null)
         return engine.throwTypeError("Invalid key");
-    if (ivBytes is null)
-        return engine.throwTypeError("Invalid iv");
+
+    ubyte[] ivBytes;
+    bool ecb = isEcbCipher(algo);
+    if (!ecb)
+    {
+        if (engine.isNull(args[2]) || engine.isUndefined(args[2]))
+            return engine.throwTypeError("Invalid iv");
+        ivBytes = extractCryptoBytes(engine, args[2]);
+        if (ivBytes is null)
+            return engine.throwTypeError("Invalid iv");
+    }
 
     auto evpCtx = EVP_CIPHER_CTX_new();
     if (evpCtx is null)
         return engine.throwTypeError("Failed to create cipher context");
 
     if (EVP_EncryptInit_ex(evpCtx, cipher, null,
-        cast(const(ubyte)*) keyBytes.ptr, cast(const(ubyte)*) ivBytes.ptr) != 1)
+        cast(const(ubyte)*) keyBytes.ptr,
+        ecb ? null : cast(const(ubyte)*) ivBytes.ptr) != 1)
     {
         EVP_CIPHER_CTX_free(evpCtx);
         return engine.throwTypeError("Failed to initialize cipher");
@@ -1126,18 +1175,27 @@ JSHandle jsCryptoCreateDecipheriv(void* ctx, JSHandle thisVal, scope JSHandle[] 
         return engine.throwTypeError("Unsupported cipher: " ~ algo);
 
     auto keyBytes = extractCryptoBytes(engine, args[1]);
-    auto ivBytes = extractCryptoBytes(engine, args[2]);
     if (keyBytes is null)
         return engine.throwTypeError("Invalid key");
-    if (ivBytes is null)
-        return engine.throwTypeError("Invalid iv");
+
+    ubyte[] ivBytes;
+    bool ecb = isEcbCipher(algo);
+    if (!ecb)
+    {
+        if (engine.isNull(args[2]) || engine.isUndefined(args[2]))
+            return engine.throwTypeError("Invalid iv");
+        ivBytes = extractCryptoBytes(engine, args[2]);
+        if (ivBytes is null)
+            return engine.throwTypeError("Invalid iv");
+    }
 
     auto evpCtx = EVP_CIPHER_CTX_new();
     if (evpCtx is null)
         return engine.throwTypeError("Failed to create decipher context");
 
     if (EVP_DecryptInit_ex(evpCtx, cipher, null,
-        cast(const(ubyte)*) keyBytes.ptr, cast(const(ubyte)*) ivBytes.ptr) != 1)
+        cast(const(ubyte)*) keyBytes.ptr,
+        ecb ? null : cast(const(ubyte)*) ivBytes.ptr) != 1)
     {
         EVP_CIPHER_CTX_free(evpCtx);
         return engine.throwTypeError("Failed to initialize decipher");
@@ -1660,8 +1718,13 @@ JSHandle jsCryptoGetCiphers(void* ctx, JSHandle thisVal, scope JSHandle[] args) 
     auto arr = engine.newArray();
     uint idx = 0;
     foreach (name; ["aes-128-cbc", "aes-192-cbc", "aes-256-cbc",
-                    "aes-128-gcm", "aes-256-gcm",
-                    "des-ede3-cbc", "rc4", "chacha20-poly1305"])
+                    "aes-128-ctr", "aes-192-ctr", "aes-256-ctr",
+                    "aes-128-ecb", "aes-192-ecb", "aes-256-ecb",
+                    "aes-128-gcm", "aes-192-gcm", "aes-256-gcm",
+                    "aes-128-ofb", "aes-192-ofb", "aes-256-ofb",
+                    "aes-128-cfb", "aes-192-cfb", "aes-256-cfb",
+                    "chacha20-poly1305",
+                    "des-ede3-cbc", "des-ede3", "des3", "rc4"])
         engine.setPropertyIndex(arr, idx++, engine.newString(name));
     return arr;
 }

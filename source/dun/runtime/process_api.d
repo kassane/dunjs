@@ -138,8 +138,6 @@ void installProcess(IJSEngine engine) @trusted
         auto unsetEnvFn = engine.newFunction(&jsNativeUnsetEnv, "__nativeUnsetEnv", 1);
         engine.setProperty(global, "__nativeSetEnv", setEnvFn);
         engine.setProperty(global, "__nativeUnsetEnv", unsetEnvFn);
-        engine.freeValue(setEnvFn);
-        engine.freeValue(unsetEnvFn);
 
         auto envSrc = `(function() {
   var _env = {};
