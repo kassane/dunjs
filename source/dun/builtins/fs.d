@@ -1978,16 +1978,18 @@ JSHandle jsWriteStreamEnd(void* ctx, JSHandle thisVal, scope JSHandle[] args) @t
         engine.setProperty(thisVal, "_ended", engine.newBool(true));
         engine.setProperty(thisVal, "writable", engine.newBool(false));
         engine.setProperty(thisVal, "bytesWritten", engine.newInt(cast(int) allData.length));
-        auto listeners = engine.getProperty(thisVal, "_listeners");
-        auto finishCb = engine.getProperty(listeners, "finish");
-        if (engine.isFunction(finishCb))
-            engine.callFunction(finishCb, thisVal, []);
-        engine.freeValue(finishCb);
-        auto closeCb = engine.getProperty(listeners, "close");
-        if (engine.isFunction(closeCb))
-            engine.callFunction(closeCb, thisVal, []);
-        engine.freeValue(closeCb);
-        engine.freeValue(listeners);
+        auto streamRef = engine.dupValue(thisVal);
+        auto emitFn = engine.eval(
+            "(function(s){process.nextTick(function(){"
+            ~ "var l=s._listeners;"
+            ~ "if(l&&typeof l.finish==='function')l.finish.call(s);"
+            ~ "if(l&&typeof l.close==='function')l.close.call(s);"
+            ~ "});})", "<ws:emit>"
+        );
+        if (!emitFn.isError)
+            engine.callFunction(emitFn.value, engine.newUndefined(), [streamRef]);
+        engine.freeValue(emitFn.value);
+        engine.freeValue(streamRef);
     }
     catch (Exception) {}
     return engine.newUndefined();

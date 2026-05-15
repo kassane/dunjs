@@ -192,6 +192,33 @@ void ensureBufferFnsCached(IJSEngine engine) @trusted
         "return i<b.length?{value:[i,b.__u8[i++]],done:false}:{value:undefined,done:true};" ~
         "},__proto__:{[Symbol.iterator]:function(){return this;}}};};" ~
         "p[Symbol.iterator]=p.values;" ~
+
+        // swap16/swap32/swap64 — byte swap in-place
+        "p.swap16=function(){var u=this.__u8,l=u.length;" ~
+        "if(l%2!==0)throw new RangeError('Buffer size must be a multiple of 16-bits');" ~
+        "for(var i=0;i<l;i+=2){var t=u[i];u[i]=u[i+1];u[i+1]=t;}return this;};" ~
+        "p.swap32=function(){var u=this.__u8,l=u.length;" ~
+        "if(l%4!==0)throw new RangeError('Buffer size must be a multiple of 32-bits');" ~
+        "for(var i=0;i<l;i+=4){var t=u[i];u[i]=u[i+3];u[i+3]=t;t=u[i+1];u[i+1]=u[i+2];u[i+2]=t;}return this;};" ~
+        "p.swap64=function(){var u=this.__u8,l=u.length;" ~
+        "if(l%8!==0)throw new RangeError('Buffer size must be a multiple of 64-bits');" ~
+        "for(var i=0;i<l;i+=8){for(var j=0;j<4;j++){var t=u[i+j];u[i+j]=u[i+7-j];u[i+7-j]=t;}}return this;};" ~
+
+        // lastIndexOf
+        "p.lastIndexOf=function(v,o){var u=this.__u8,s=typeof v==='string'?new TextEncoder().encode(v):v instanceof Uint8Array?v:[v];" ~
+        "var start=o!==undefined?Math.min(o,u.length-s.length):u.length-s.length;" ~
+        "for(var i=start;i>=0;i--){var m=true;for(var j=0;j<s.length;j++){if(u[i+j]!==s[j]){m=false;break;}}if(m)return i;}return -1;};" ~
+
+        // readIntBE/LE, readUIntBE/LE (1-6 byte variable-width)
+        "p.readUIntBE=function(o,bl){var u=this.__u8,v=0;for(var i=0;i<bl;i++)v=v*256+u[o+i];return v;};" ~
+        "p.readUIntLE=function(o,bl){var u=this.__u8,v=0;for(var i=bl-1;i>=0;i--)v=v*256+u[o+i];return v;};" ~
+        "p.readIntBE=function(o,bl){var v=this.readUIntBE(o,bl);if(v>=(1<<(bl*8-1)))v-=(1<<(bl*8));return v;};" ~
+        "p.readIntLE=function(o,bl){var v=this.readUIntLE(o,bl);if(v>=(1<<(bl*8-1)))v-=(1<<(bl*8));return v;};" ~
+        "p.writeUIntBE=function(v,o,bl){var u=this.__u8;for(var i=bl-1;i>=0;i--){u[o+i]=v&0xFF;v=Math.floor(v/256);}return o+bl;};" ~
+        "p.writeUIntLE=function(v,o,bl){var u=this.__u8;for(var i=0;i<bl;i++){u[o+i]=v&0xFF;v=Math.floor(v/256);}return o+bl;};" ~
+        "p.writeIntBE=function(v,o,bl){if(v<0)v+=(1<<(bl*8));return this.writeUIntBE(v,o,bl);};" ~
+        "p.writeIntLE=function(v,o,bl){if(v<0)v+=(1<<(bl*8));return this.writeUIntLE(v,o,bl);};" ~
+
         "})()",
         "<buffer-iter>");
     if (!iterRes.isError)
