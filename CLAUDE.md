@@ -835,3 +835,9 @@ Benchmark impact (25 benchmarks, feature_bench.js):
 | 21f | Crypto scryptSync | Returns Buffer instead of hex string (Node.js compat) | **Done** |
 | 21g | OS tmpdir | Strip trailing slash from os.tmpdir() | **Done** |
 | 21h | Production readiness | 122-check comprehensive validation test across all core Node.js APIs | **Done** |
+| 22a | Intl polyfills | toLocaleString for Number/Date/String/Array, localeCompare, toLocaleLowerCase/UpperCase | **Done** |
+| 22b | hrtime.bigint | process.hrtime.bigint() returns proper BigInt instead of float | **Done** |
+| 22c | crypto.getRandomValues | Available on require('crypto') module (Node 19+ compat) | **Done** |
+| 22d | Buffer.from ArrayBuffer | 3-arg form: Buffer.from(ArrayBuffer, byteOffset, length) | **Done** |
+| 22e | child_process Buffer | execSync/spawnSync return Buffer by default, encoding option for string | **Done** |
+| 22f | path.join empty | path.join("") returns "." (Node.js compat) | **Done** |
