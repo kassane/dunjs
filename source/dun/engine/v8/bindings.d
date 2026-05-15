@@ -60,6 +60,7 @@ DunV8Value* dun_v8_get_property(DunV8Context* ctx, DunV8Value* obj,
     const(char)* name);
 void dun_v8_set_property(DunV8Context* ctx, DunV8Value* obj,
     const(char)* name, DunV8Value* val);
+void dun_v8_set_prototype(DunV8Context* ctx, DunV8Value* obj, DunV8Value* proto);
 DunV8Value* dun_v8_get_property_index(DunV8Context* ctx, DunV8Value* obj,
     uint idx);
 void dun_v8_set_property_index(DunV8Context* ctx, DunV8Value* obj,

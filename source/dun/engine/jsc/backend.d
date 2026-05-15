@@ -305,6 +305,13 @@ class JSCEngine : IJSEngine
         setProperty(obj, name, fn);
     }
 
+    void setPrototype(JSHandle obj, JSHandle proto) @trusted
+    {
+        assert(ctx !is null, "JSC context not initialized");
+        JSObjectSetPrototype(ctx, cast(JSObjectRef) fromHandle(obj),
+            cast(JSValueRef) fromHandle(proto));
+    }
+
     void setPropertyIndex(JSHandle obj, uint idx, JSHandle val) @trusted
     {
         assert(ctx !is null, "JSC context not initialized");

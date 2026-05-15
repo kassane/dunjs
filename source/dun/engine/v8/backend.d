@@ -209,6 +209,12 @@ class V8Engine : IJSEngine
         setProperty(obj, name, fn);
     }
 
+    void setPrototype(JSHandle obj, JSHandle proto) @trusted
+    {
+        assert(ctx !is null, "V8 context not initialized");
+        dun_v8_set_prototype(ctx, fromHandle(obj), fromHandle(proto));
+    }
+
     void setPropertyIndex(JSHandle obj, uint idx, JSHandle val) @trusted
     {
         assert(ctx !is null, "V8 context not initialized");

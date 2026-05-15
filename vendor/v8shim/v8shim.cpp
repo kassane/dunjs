@@ -430,6 +430,21 @@ void dun_v8_set_property(DunV8Context* cw, DunV8Value* obj,
     });
 }
 
+// Object.setPrototypeOf(obj, proto). Used for Buffer-as-Uint8Array
+// hot path so makeBufferObj can return a real TypedArray with the
+// Buffer prototype glued on, skipping the per-call JS factory call.
+void dun_v8_set_prototype(DunV8Context* cw, DunV8Value* obj, DunV8Value* proto)
+{
+    assert(cw && "dun_v8_set_prototype: null context");
+    assert(obj && "dun_v8_set_prototype: null obj");
+    assert(proto && "dun_v8_set_prototype: null proto");
+    dun::withContext(cw, [&](auto isolate, auto context, auto*) {
+        auto o = obj->value.Get(isolate).template As<v8::Object>();
+        o->SetPrototype(context, proto->value.Get(isolate)).FromMaybe(false);
+        return 0;
+    });
+}
+
 DunV8Value* dun_v8_get_property_index(DunV8Context* cw, DunV8Value* obj, unsigned int idx) {
     assert(cw && "dun_v8_get_property_index: null context");
     assert(obj && "dun_v8_get_property_index: null obj");

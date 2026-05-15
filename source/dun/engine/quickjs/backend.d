@@ -224,6 +224,12 @@ class QuickJSEngine : IJSEngine
             stackTerminate(name, buf), JS_DupValue(ctx, fromHandle(fn)));
     }
 
+    void setPrototype(JSHandle obj, JSHandle proto) @trusted
+    {
+        assert(ctx !is null, "Engine not initialized");
+        JS_SetPrototype(ctx, fromHandle(obj), fromHandle(proto));
+    }
+
     void setPropertyIndex(JSHandle obj, uint idx, JSHandle val) @trusted
     {
         assert(ctx !is null, "Engine not initialized");

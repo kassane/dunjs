@@ -99,6 +99,13 @@ interface IJSEngine
     ///   from leaking one entry on JSC's protect table per call.)
     void bindMethod(JSHandle obj, scope const(char)[] name, JSHandle fn);
 
+    /// Equivalent of `Object.setPrototypeOf(obj, proto)`. Used by Buffer to
+    /// hot-path return a `new Uint8Array` with the Buffer prototype glued
+    /// on, eliminating a JS-level factory call per Buffer.from / .alloc /
+    /// .concat (the previous design returned `new Proxy(plainObj)` via a
+    /// ~5-line cached eval'd JS function).
+    void setPrototype(JSHandle obj, JSHandle proto);
+
     // --- Reference management ---
     JSHandle dupValue(JSHandle val);
     void freeValue(JSHandle val);
