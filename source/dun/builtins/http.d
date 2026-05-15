@@ -1018,6 +1018,43 @@ JSHandle jsResWriteHead(void* ctx, JSHandle thisVal, scope JSHandle[] args) @tru
     return engine.newUndefined();
 }
 
+void syncStatusCode(IJSEngine engine, JSHandle thisVal, HttpConnState* conn) @trusted
+{
+    auto scProp = engine.getProperty(thisVal, "statusCode");
+    if (engine.isNumber(scProp))
+        conn.statusCode = engine.extractInt(scProp);
+    engine.freeValue(scProp);
+}
+
+void syncJsHeaders(IJSEngine engine, JSHandle thisVal, HttpConnState* conn) @trusted
+{
+    auto hdrsProp = engine.getProperty(thisVal, "_headers");
+    if (engine.isUndefined(hdrsProp) || engine.isNull(hdrsProp))
+    {
+        engine.freeValue(hdrsProp);
+        return;
+    }
+    try
+    {
+        static immutable names = [
+            "content-type", "content-length", "connection", "cache-control",
+            "location", "server", "set-cookie", "access-control-allow-origin",
+            "transfer-encoding", "x-powered-by", "x-custom",
+            "access-control-allow-methods", "access-control-allow-headers",
+            "access-control-allow-credentials", "etag",
+        ];
+        foreach (name; names)
+        {
+            auto val = engine.getProperty(hdrsProp, name);
+            if (!engine.isUndefined(val) && !engine.isNull(val))
+                conn.respHeaders[name] = [sanitizeHeaderValue(engine.extractString(val))];
+            engine.freeValue(val);
+        }
+    }
+    catch (Exception) {}
+    engine.freeValue(hdrsProp);
+}
+
 JSHandle jsResWrite(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsResWrite");
@@ -1036,7 +1073,8 @@ JSHandle jsResWrite(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 
     if (!conn.headersSent)
     {
-        // Streaming write: use chunked transfer encoding unless Content-Length is already set
+        syncStatusCode(engine, thisVal, conn);
+        syncJsHeaders(engine, thisVal, conn);
         if ("Content-Length" !in conn.respHeaders && "content-length" !in conn.respHeaders)
         {
             conn.respHeaders["Transfer-Encoding"] = ["chunked"];
@@ -1074,6 +1112,13 @@ JSHandle jsResEnd(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 
         auto conn = &httpConns[connId];
         if (conn.closed) return engine.newUndefined();
+
+        // Sync JS-level statusCode and headers to conn
+        if (!conn.headersSent)
+        {
+            syncStatusCode(engine, thisVal, conn);
+            syncJsHeaders(engine, thisVal, conn);
+        }
 
         // Buffer body data
         if (args.length >= 1)
