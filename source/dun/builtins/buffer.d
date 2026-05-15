@@ -322,8 +322,10 @@ JSHandle jsBufferFrom(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trust
         {
             try
             {
+                // Node.js accepts both base64 and base64url in 'base64' mode
+                auto normalized = base64urlToBase64(str);
                 import std.base64 : Base64;
-                auto bytes = Base64.decode(str);
+                auto bytes = Base64.decode(normalized);
                 return makeBufferObj(engine, bytes);
             }
             catch (Exception)
