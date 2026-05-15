@@ -141,6 +141,11 @@ CliConfig parseArgs(string[] args) @safe
     {
         config.command = Command.repl;
         i++;
+        if (i < args.length && !args[i].startsWith("-"))
+        {
+            config.errorMessage = "unexpected argument '" ~ args[i] ~ "' after 'repl'";
+            return config;
+        }
     }
     else if (args[i] == "eval")
     {
@@ -220,6 +225,11 @@ CliConfig parseArgs(string[] args) @safe
         {
             config.initName = args[i];
             i++;
+        }
+        if (i < args.length)
+        {
+            config.errorMessage = "unexpected argument '" ~ args[i] ~ "' after 'init'";
+            return config;
         }
         return config;
     }
