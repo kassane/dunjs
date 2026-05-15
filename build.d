@@ -1038,15 +1038,27 @@ bool buildSqlite(ref const Toolchain tc, ref const BuildOptions opts)
         copy(builtLib, libPath);
     }
 
-    // Create ImportC bridge if not present
+    // Create ImportC bridge if not present.
+    //
+    // `#pragma attribute(push, nothrow, nogc)` tells LDC's ImportC to mark
+    // every imported sqlite3 function as `nothrow @nogc`, so D callers don't
+    // get landing-pad / GC-root setup wrapped around them. Without this the
+    // ImportC default (throw / may-allocate) drags Druntime into hot paths
+    // that the underlying C library never touches.
     auto bridgePath = buildPath(sqliteDir(), "sqlite3_api.c");
-    if (!exists(bridgePath))
+    enum string sqliteBridgeContent =
+        "// ImportC bridge: processes sqlite3.h declarations for D import\n"
+        ~ "#pragma attribute(push, nothrow, nogc)\n"
+        ~ "#include \"sqlite3.h\"\n"
+        ~ "#pragma attribute(pop)\n";
+    import std.file : write, readText;
+    bool needsWrite = !exists(bridgePath);
+    if (!needsWrite)
     {
-        import std.file : write;
-        write(bridgePath,
-            "// ImportC bridge: processes sqlite3.h declarations for D import\n"
-            ~ "#include \"sqlite3.h\"\n");
+        try { needsWrite = readText(bridgePath) != sqliteBridgeContent; }
+        catch (Exception) { needsWrite = true; }
     }
+    if (needsWrite) write(bridgePath, sqliteBridgeContent);
 
     logInfo(tag, libName ~ " built via CMake FetchContent");
     return true;
