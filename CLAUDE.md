@@ -483,8 +483,11 @@ dub build -c v8  && BACKEND=v8  ./tests/integration/run.sh
 | Crypto keygen | `crypto_keygen` | 12 checks: generateKeyPairSync RSA/EC, PEM output, sign+verify round-trip, DiffieHellman |
 | WebCrypto | `webcrypto_api` | 55 checks: subtle.digest (SHA-1/256/384/512), importKey, sign/verify (HMAC), encrypt/decrypt (AES-GCM/CBC), generateKey (AES/HMAC), exportKey, deriveBits (PBKDF2/HKDF) |
 | .env loading | `dotenv_loading` | 3 checks: parse KEY=VALUE/quoted, no-override existing env, missing .env OK |
+| Production gaps 3 | `production_gaps3` | 15 checks: console.group, TypedArray.from/of, zlib Buffer, sqlite bind |
+| Production gaps 4 | `production_gaps4` | 144 checks: process, Buffer, stream, EventEmitter, path, crypto, fs, Error, util, npm patterns |
+| Production readiness | `production_readiness` | 122 checks: all critical Node.js APIs for production server workloads |
 
-Backend test scores: **QuickJS 104/104**, **JSC 104/104**, **V8 104/104** — **0 failures** across all 3 backends.
+Backend test scores: **QuickJS 108/108**, **JSC 107/107**, **V8 107/107** — **0 failures** across all 3 backends.
 
 Test pattern: fixtures in `tests/integration/fixtures/*.{js,mjs,ts}`, expected stdout in `tests/integration/expected/*.txt`.
 
@@ -824,3 +827,11 @@ Benchmark impact (25 benchmarks, feature_bench.js):
 | 20h | Buffer extended | swap16/32/64, lastIndexOf, readIntBE/LE, readUIntBE/LE, writeIntBE/LE, writeUIntBE/LE | **Done** |
 | 20i | fs.createWriteStream | Deferred finish/close events to nextTick (matches Node.js event ordering) | **Done** |
 | 20j | Inspect unification | Deno.inspect, console.dir, util.inspect, REPL all delegate to __dun_inspect__ | **Done** |
+| 21a | CLI arg validation | Reject unexpected positional args after eval/version/help/audit/clean/repl | **Done** |
+| 21b | zlib/sqlite fixes | zlib returns Buffer, sqlite bind arrays, console.group indentation, TypedArray.from/of | **Done** |
+| 21c | Buffer improvements | BigInt read/write, WebSocket global, http.Server alias, Buffer as function type | **Done** |
+| 21d | Buffer advanced | alloc fill string/Buffer/hex, from ArrayBuffer/Uint8Array, isEncoding case-insensitive, concat totalLength | **Done** |
+| 21e | Stream flowing | Readable auto-flows on 'data' listener (Node.js compat), EventEmitter.rawListeners | **Done** |
+| 21f | Crypto scryptSync | Returns Buffer instead of hex string (Node.js compat) | **Done** |
+| 21g | OS tmpdir | Strip trailing slash from os.tmpdir() | **Done** |
+| 21h | Production readiness | 122-check comprehensive validation test across all core Node.js APIs | **Done** |
