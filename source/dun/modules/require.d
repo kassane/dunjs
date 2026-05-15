@@ -418,6 +418,12 @@ JSHandle jsRequire(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
     string dirname_;
     try { dirname_ = dirName(resolved); } catch (Exception) { dirname_ = "."; }
 
+    // Pre-cache an empty exports object before evaluation to support circular requires.
+    // When a cycle is detected, require() returns the partial (incomplete) exports.
+    auto placeholder = engine.newObject();
+    engine.setProperty(cache, resolved, engine.dupValue(placeholder));
+    engine.freeValue(placeholder);
+
     JSHandle result;
     try
     {
@@ -427,7 +433,7 @@ JSHandle jsRequire(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 
         auto wrapped =
             "(function() {\n"
-            ~ "var __m = {exports: {}};\n"
+            ~ "var __m = {exports: __dunCjsCache__[\"" ~ escPath ~ "\"]};\n"
             ~ "(function(module, exports, require, __filename, __dirname) {\n"
             ~ source ~ "\n"
             ~ "})(__m, __m.exports, require, \""
@@ -463,7 +469,7 @@ JSHandle jsRequire(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 
     engine.freeValue(stack);
 
-    // Cache
+    // Update cache with final exports (module.exports may have been reassigned)
     engine.setProperty(cache, resolved, engine.dupValue(result));
     engine.freeValue(cache);
     return result;
