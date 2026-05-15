@@ -2,18 +2,25 @@ module dun.modules.esm_shim;
 
 import dun.platform.arena : Appender;
 
+struct ExportEntry
+{
+    string original;
+    string alias_;
+}
+
 string transpileESM(string source, string filename) @safe pure
 {
 
     Appender!(char[]) result;
     result.reserve(source.length);
     string[] preamble;
-    string[] exportNames;
+    ExportEntry[] exportEntries;
     bool hasDefaultExport;
     bool usesImportMeta;
 
     auto lines = splitLines(source);
     string pendingImport;  // Accumulates multi-line imports
+    string pendingExport;  // Accumulates multi-line exports
     foreach (line; lines)
     {
         // Handle multi-line import accumulation
@@ -33,6 +40,38 @@ string transpileESM(string source, string filename) @safe pure
                 if (parsed.length > 0)
                     preamble ~= parsed;
                 pendingImport = "";
+            }
+            continue;
+        }
+
+        // Handle multi-line export accumulation
+        if (pendingExport.length > 0)
+        {
+            auto stripped = stripLeft(line);
+            // Strip comments
+            auto cIdx = findInlineComment(stripped);
+            if (cIdx >= 0) stripped = stripped[0 .. cIdx];
+            pendingExport ~= " " ~ stripped;
+            if (findChar(line, '}') >= 0)
+            {
+                // Complete multi-line export — process it
+                auto fromIdx = findFrom(pendingExport);
+                if (fromIdx >= 0)
+                {
+                    auto reexport = parseReexport(pendingExport);
+                    if (reexport.length > 0)
+                    {
+                        preamble ~= reexport;
+                        auto reNames = parseBraceNames(pendingExport[7 .. $]);
+                        foreach (n; reNames) exportEntries ~= ExportEntry(n, n);
+                    }
+                }
+                else
+                {
+                    auto entries = parseBraceEntries(pendingExport[7 .. $]);
+                    foreach (e; entries) exportEntries ~= e;
+                }
+                pendingExport = "";
             }
             continue;
         }
@@ -91,6 +130,15 @@ string transpileESM(string source, string filename) @safe pure
             // export { default as X } from './module.js'
             if (startsWith(rest, "{") || startsWith(rest, "{ "))
             {
+                // Check if this is a multi-line export block
+                auto braceClose = findChar(trimmed, '}');
+                if (braceClose < 0)
+                {
+                    // Multi-line export — accumulate
+                    pendingExport = trimmed;
+                    continue;
+                }
+
                 auto fromIdx = findFrom(trimmed);
                 if (fromIdx >= 0)
                 {
@@ -98,17 +146,16 @@ string transpileESM(string source, string filename) @safe pure
                     if (reexport.length > 0)
                     {
                         preamble ~= reexport;
-                        // Track exported names from re-export
                         auto reNames = parseBraceNames(trimmed[7 .. $]);
                         foreach (n; reNames)
-                            exportNames ~= n;
+                            exportEntries ~= ExportEntry(n, n);
                         continue;
                     }
                 }
-                // export { X, Y } without from — just track names
-                auto names = parseBraceNames(rest);
-                foreach (n; names)
-                    exportNames ~= n;
+                // export { X, Y } or export { X as Y } without from
+                auto entries = parseBraceEntries(rest);
+                foreach (e; entries)
+                    exportEntries ~= e;
                 continue;
             }
 
@@ -127,7 +174,7 @@ string transpileESM(string source, string filename) @safe pure
             {
                 auto name = extractIdent(rest[9 .. $]);
                 if (name.length > 0)
-                    exportNames ~= name;
+                    exportEntries ~= ExportEntry(name, name);
                 result ~= rest;
                 result ~= '\n';
                 continue;
@@ -138,7 +185,7 @@ string transpileESM(string source, string filename) @safe pure
                                  startsWith(rest, "let ") ? 4 : 4;
                 auto name = extractIdent(rest[declStart .. $]);
                 if (name.length > 0)
-                    exportNames ~= name;
+                    exportEntries ~= ExportEntry(name, name);
                 result ~= rest;
                 result ~= '\n';
                 continue;
@@ -147,7 +194,7 @@ string transpileESM(string source, string filename) @safe pure
             {
                 auto name = extractIdent(rest[6 .. $]);
                 if (name.length > 0)
-                    exportNames ~= name;
+                    exportEntries ~= ExportEntry(name, name);
                 result ~= rest;
                 result ~= '\n';
                 continue;
@@ -198,24 +245,57 @@ string transpileESM(string source, string filename) @safe pure
     output ~= body_;
 
     // Emit module.exports for CJS interop (require() of .mjs files)
-    if (exportNames.length > 0 || hasDefaultExport)
+    if (exportEntries.length > 0 || hasDefaultExport)
     {
+        // Check for `export { X as 'module.exports' }` — Node.js CJS interop
+        string moduleExportsName;
+        ExportEntry[] normalEntries;
+        foreach (e; exportEntries)
+        {
+            if (e.alias_ == "module.exports")
+                moduleExportsName = e.original;
+            else
+                normalEntries ~= e;
+        }
+
         output ~= "\nif(typeof module!=='undefined'){";
-        if (hasDefaultExport && exportNames.length == 0)
+        if (moduleExportsName.length > 0)
+        {
+            // `export { X as 'module.exports' }` means X IS the module export
+            output ~= "module.exports=";
+            output ~= moduleExportsName;
+            output ~= ";";
+        }
+        else if (hasDefaultExport && normalEntries.length == 0)
         {
             output ~= "module.exports=__esm_default__;";
         }
         else
         {
             output ~= "module.exports={";
-            foreach (i, name; exportNames)
+            foreach (i, e; normalEntries)
             {
                 if (i > 0) output ~= ',';
-                output ~= name;
+                if (e.original == e.alias_)
+                    output ~= e.alias_;
+                else
+                {
+                    // Quote alias if it contains non-identifier chars
+                    if (containsDot(e.alias_))
+                    {
+                        output ~= '\'';
+                        output ~= e.alias_;
+                        output ~= '\'';
+                    }
+                    else
+                        output ~= e.alias_;
+                    output ~= ':';
+                    output ~= e.original;
+                }
             }
             if (hasDefaultExport)
             {
-                if (exportNames.length > 0) output ~= ',';
+                if (normalEntries.length > 0) output ~= ',';
                 output ~= "default:__esm_default__";
             }
             output ~= "};";
@@ -475,15 +555,16 @@ private string parseImportLine(string line) @safe pure
 
     if (name.length > 0)
     {
+        // Use globalThis.require to avoid TDZ if module redeclares `const require = ...`
         buf ~= "const ";
         buf ~= name;
-        buf ~= " = require('";
+        buf ~= " = globalThis.require('";
         buf ~= specifier;
         buf ~= "');";
     }
     else
     {
-        buf ~= "require('";
+        buf ~= "globalThis.require('";
         buf ~= specifier;
         buf ~= "');";
     }
@@ -625,7 +706,7 @@ private string parseReexport(string line) @safe pure
     // Parse comma-separated names: "default as MAX, parse, default as NIL"
     Appender!(char[]) output;
     output.reserve(256);
-    output ~= "var __reexport_tmp__ = require('";
+    output ~= "var __reexport_tmp__ = globalThis.require('";
     output ~= escapeJsString(specifier);
     output ~= "');\n";
 
@@ -664,10 +745,10 @@ private string parseStarReexport(string line) @safe pure
     if (fromIdx < 0) return "";
     auto specifier = extractStringLiteral(line[fromIdx + 4 .. $]);
     if (specifier.length == 0) return "";
-    return "Object.assign(module.exports, require('" ~ escapeJsString(specifier) ~ "'));\n";
+    return "Object.assign(module.exports, globalThis.require('" ~ escapeJsString(specifier) ~ "'));\n";
 }
 
-// Parse brace content "{ X, Y, Z }" into names array
+// Parse brace content "{ X, Y, Z }" into alias names (for re-exports, uses alias)
 private string[] parseBraceNames(string s) @safe pure
 {
     auto braceStart = findChar(s, '{');
@@ -691,6 +772,46 @@ private string[] parseBraceNames(string s) @safe pure
         }
     }
     return names;
+}
+
+// Parse brace content "{ X, Y as Z }" into ExportEntry[] preserving original->alias mapping
+private ExportEntry[] parseBraceEntries(string s) @safe pure
+{
+    auto braceStart = findChar(s, '{');
+    auto braceEnd = findChar(s, '}');
+    if (braceStart < 0 || braceEnd < 0) return null;
+    auto content = s[braceStart + 1 .. braceEnd];
+    ExportEntry[] entries;
+    foreach (part; splitByComma(content))
+    {
+        auto trimmed = stripLeft(part);
+        auto asIdx = findAs(trimmed);
+        if (asIdx >= 0)
+        {
+            auto srcName = stripRight(extractIdent(trimmed));
+            auto afterAs = stripLeft(trimmed[asIdx + 3 .. $]);
+            // Handle string literal alias: `X as 'module.exports'`
+            if (afterAs.length > 0 && (afterAs[0] == '\'' || afterAs[0] == '"'))
+            {
+                auto strName = extractStringLiteral(afterAs);
+                if (srcName.length > 0 && strName.length > 0)
+                    entries ~= ExportEntry(srcName, strName);
+            }
+            else
+            {
+                auto dstName = extractIdent(afterAs);
+                if (srcName.length > 0 && dstName.length > 0)
+                    entries ~= ExportEntry(srcName, dstName);
+            }
+        }
+        else
+        {
+            auto ident = extractIdent(trimmed);
+            if (ident.length > 0)
+                entries ~= ExportEntry(ident, ident);
+        }
+    }
+    return entries;
 }
 
 private string[] splitByComma(string s) @safe pure
@@ -759,6 +880,13 @@ private string stripRight(string s) @safe pure nothrow
     while (len > 0 && (s[len - 1] == ' ' || s[len - 1] == '\t'))
         len--;
     return s[0 .. len];
+}
+
+private bool containsDot(string s) @safe pure nothrow
+{
+    foreach (c; s)
+        if (c == '.') return true;
+    return false;
 }
 
 private bool startsWith(string s, string prefix) @safe pure nothrow

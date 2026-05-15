@@ -389,6 +389,7 @@ JSHandle jsRequire(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
     }
     catch (Exception) { return throwModuleNotFound(engine, specifier); }
 
+    bool esmTranspiled = false;
     try
     {
         if (resolved.endsWith(".ts") || resolved.endsWith(".cts"))
@@ -416,11 +417,13 @@ JSHandle jsRequire(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
                 source = stripTypes(source, true, sourceMap);
             }
             source = transpileESM(source, resolved);
+            esmTranspiled = true;
         }
         else if (resolved.endsWith(".js") && isEsmPackage(resolved))
         {
             import dun.modules.esm_shim : transpileESM;
             source = transpileESM(source, resolved);
+            esmTranspiled = true;
         }
     }
     catch (Exception) {}
@@ -451,24 +454,46 @@ JSHandle jsRequire(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
         string escPath = resolved.replace("\\", "\\\\").replace("\"", "\\\"");
         string escDir = dirname_.replace("\\", "\\\\").replace("\"", "\\\"");
 
-        auto wrapped =
-            "(function() {\n"
-            ~ "var __m = __dunCjsCache__[\"" ~ escPath ~ "\"];\n"
-            ~ "(function(module, exports, require, __filename, __dirname) {\n"
-            ~ source ~ "\n"
-            ~ "})(__m, __m.exports, require, \""
-            ~ escPath ~ "\", \""
-            ~ escDir ~ "\");\n"
-            ~ "return __m.exports;\n"
-            ~ "})()";
+        string wrapped;
+        if (esmTranspiled)
+        {
+            // ESM-transpiled: don't pass require as parameter (avoids conflict
+            // with `const require = createRequire(...)` in transpiled source)
+            wrapped =
+                "(function() {\n"
+                ~ "var __m = __dunCjsCache__[\"" ~ escPath ~ "\"];\n"
+                ~ "(function(module, exports, __filename, __dirname) {\n"
+                ~ source ~ "\n"
+                ~ "})(__m, __m.exports, \""
+                ~ escPath ~ "\", \""
+                ~ escDir ~ "\");\n"
+                ~ "return __m.exports;\n"
+                ~ "})()";
+        }
+        else
+        {
+            wrapped =
+                "(function() {\n"
+                ~ "var __m = __dunCjsCache__[\"" ~ escPath ~ "\"];\n"
+                ~ "(function(module, exports, require, __filename, __dirname) {\n"
+                ~ source ~ "\n"
+                ~ "})(__m, __m.exports, require, \""
+                ~ escPath ~ "\", \""
+                ~ escDir ~ "\");\n"
+                ~ "return __m.exports;\n"
+                ~ "})()";
+        }
 
         auto evalResult = engine.eval(wrapped, resolved);
         engine.freeValue(wrapperResult.value);
         if (evalResult.isError)
         {
+            auto errMsg = evalResult.errorMessage;
             engine.setProperty(stack, "length", engine.newInt(stackLen));
             engine.freeValue(stack);
             engine.freeValue(cache);
+            if (errMsg.length > 0)
+                return engine.throwTypeError("Failed to evaluate module: " ~ errMsg);
             return engine.throwTypeError("Failed to evaluate module");
         }
         result = evalResult.value;
