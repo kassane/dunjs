@@ -267,13 +267,26 @@ void ensureHttpFnsCached(IJSEngine engine) @trusted
     auto dispatchResult = engine.eval(
         "(function(cb, method, url, cid) {" ~
         "  var _gh = globalThis.__httpGetHeaders;" ~
-        "  var sock = { remoteAddress: '127.0.0.1', remotePort: 0, destroy: function(){} };" ~
+        "  var _ron = globalThis.__httpResOn;" ~
+        "  var _rem = globalThis.__httpResEmit;" ~
+        "  var sock = { remoteAddress: '127.0.0.1', remotePort: 0, localAddress: '0.0.0.0'," ~
+        "    localPort: 0, writable: true, readable: true," ~
+        "    destroy: function(){this.writable=false;return this;}," ~
+        "    write: function(){return true;}, end: function(){} };" ~
         "  var req = { method: method, url: url, httpVersion: 'HTTP/1.1', __cid: cid," ~
+        "    complete: false, readable: true, aborted: false, rawHeaders: []," ~
         "    get headers() { var h = _gh(cid); Object.defineProperty(this, 'headers', {value: h}); return h; }," ~
-        "    on: globalThis.__httpReqOn, connection: sock, socket: sock };" ~
+        "    on: globalThis.__httpReqOn, once: globalThis.__httpReqOn," ~
+        "    emit: _rem, _events: {}," ~
+        "    connection: sock, socket: sock," ~
+        "    resume: function(){return this;}, pause: function(){return this;}," ~
+        "    destroy: function(){this.readable=false;return this;}," ~
+        "    pipe: function(d){this.on('data',function(c){d.write(c)});this.on('end',function(){d.end()});return d;}" ~
+        "  };" ~
         "  var res = { __cid: cid, statusCode: 200, statusMessage: 'OK', headersSent: false," ~
         "    finished: false, writableEnded: false, writableFinished: false," ~
         "    _events: {}, connection: sock, socket: sock," ~
+        "    _headerValues: {}," ~
         "    setHeader: globalThis.__httpSetHeader," ~
         "    getHeader: globalThis.__httpGetHeader," ~
         "    getHeaders: globalThis.__httpGetHeaders," ~
@@ -282,11 +295,10 @@ void ensureHttpFnsCached(IJSEngine engine) @trusted
         "    writeHead: globalThis.__httpWriteHead," ~
         "    write: globalThis.__httpWrite," ~
         "    end: globalThis.__httpEnd," ~
-        "    on: globalThis.__httpResOn," ~
-        "    once: globalThis.__httpResOn," ~
-        "    emit: globalThis.__httpResEmit };" ~
+        "    on: _ron, once: _ron, emit: _rem," ~
+        "    flushHeaders: function(){} };" ~
         "  try { cb(req, res); } catch(e) {" ~
-        "    if (!res.headersSent) { res.writeHead(500); res.end('Internal Server Error'); }" ~
+        "    if (!res.headersSent) { try{res.writeHead(500);res.end('Internal Server Error');}catch(e2){} }" ~
         "    if (typeof process !== 'undefined' && process.emit) process.emit('uncaughtException', e);" ~
         "  }" ~
         "})", "<http-dispatch>");
@@ -617,7 +629,7 @@ JSHandle jsHttpServerListen(void* ctx, JSHandle thisVal, scope JSHandle[] args) 
             pushAgnosticPending(engine, listenCb, noArgs[]);
             engine.freeValue(listenCb);
         }
-        return engine.newUndefined();
+        return engine.dupValue(thisVal);
     }
     else
     {
@@ -692,7 +704,7 @@ JSHandle jsHttpServerClose(void* ctx, JSHandle thisVal, scope JSHandle[] args) @
                 engine.freeValue(undef);
             }
         }
-        return engine.newUndefined();
+        return engine.dupValue(thisVal);
     }
     else
     {

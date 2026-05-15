@@ -1,0 +1,13 @@
+PASS: express loaded
+PASS: app created
+PASS: server.listen returns server
+PASS: server.address() works
+PASS: GET / json body
+PASS: GET /status code 201
+PASS: GET /status body
+PASS: POST /echo body parsed
+PASS: GET /params/:id
+PASS: server closed
+---
+Total: 10/10 passed
+ALL CHECKS PASSED

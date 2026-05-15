@@ -261,13 +261,71 @@ void installProcess(IJSEngine engine) @trusted
     engine.setProperty(stderrObj, "rows", engine.newInt(24));
     engine.setProperty(process, "stderr", stderrObj);
 
-    // process.stdin
+    // process.stdin — Readable stream with on('data')/on('end') EventEmitter support
     auto stdinObj = engine.newObject();
     engine.setProperty(stdinObj, "read", engine.newFunction(&jsStdinRead, "read", 0));
     engine.setProperty(stdinObj, "readable", engine.newBool(true));
     engine.setProperty(stdinObj, "isTTY", engine.newBool(isattyFd(0)));
     engine.setProperty(stdinObj, "setEncoding", engine.newFunction(&jsStdinSetEncoding, "setEncoding", 1));
     engine.setProperty(stdinObj, "fd", engine.newInt(0));
+    engine.setProperty(stdinObj, "_events", engine.newObject());
+    engine.setProperty(stdinObj, "_paused", engine.newBool(true));
+    // on/once/resume/pause/pipe implemented in JS for EventEmitter compat
+    auto stdinEnhance = engine.eval(
+        "(function(stdin) {" ~
+        "  stdin.on = function(ev, cb) {" ~
+        "    if (!this._events[ev]) this._events[ev] = [];" ~
+        "    this._events[ev].push(cb);" ~
+        "    if (ev === 'data' || ev === 'readable') this.resume();" ~
+        "    return this;" ~
+        "  };" ~
+        "  stdin.once = function(ev, cb) {" ~
+        "    var self = this;" ~
+        "    function wrapper() { cb.apply(this, arguments); self.removeListener(ev, wrapper); }" ~
+        "    return this.on(ev, wrapper);" ~
+        "  };" ~
+        "  stdin.removeListener = stdin.off = function(ev, cb) {" ~
+        "    if (this._events[ev]) this._events[ev] = this._events[ev].filter(function(f){return f !== cb;});" ~
+        "    return this;" ~
+        "  };" ~
+        "  stdin.removeAllListeners = function(ev) {" ~
+        "    if (ev) delete this._events[ev]; else this._events = {};" ~
+        "    return this;" ~
+        "  };" ~
+        "  stdin.emit = function(ev) {" ~
+        "    var args = Array.prototype.slice.call(arguments, 1);" ~
+        "    var listeners = this._events[ev];" ~
+        "    if (!listeners) return false;" ~
+        "    listeners.slice().forEach(function(fn) { fn.apply(this, args); }, this);" ~
+        "    return true;" ~
+        "  };" ~
+        "  stdin.resume = function() { this._paused = false; return this; };" ~
+        "  stdin.pause = function() { this._paused = true; return this; };" ~
+        "  stdin.pipe = function(dest) {" ~
+        "    this.on('data', function(chunk) { dest.write(chunk); });" ~
+        "    this.on('end', function() { dest.end(); });" ~
+        "    return dest;" ~
+        "  };" ~
+        "  stdin.destroy = function() { this._paused = true; this.readable = false; return this; };" ~
+        "  stdin[Symbol.asyncIterator] = function() {" ~
+        "    var self = this; var done = false; var buf = [];" ~
+        "    var resolve = null;" ~
+        "    self.on('data', function(d) { if (resolve) { var r=resolve; resolve=null; r({value:d,done:false}); } else buf.push(d); });" ~
+        "    self.on('end', function() { done=true; if(resolve){var r=resolve;resolve=null;r({value:undefined,done:true});} });" ~
+        "    return { next: function() {" ~
+        "      if (buf.length) return Promise.resolve({value:buf.shift(),done:false});" ~
+        "      if (done) return Promise.resolve({value:undefined,done:true});" ~
+        "      return new Promise(function(r){resolve=r;});" ~
+        "    }};" ~
+        "  };" ~
+        "})", "<stdin-enhance>");
+    if (!stdinEnhance.isError)
+    {
+        JSHandle[1] sArgs = [stdinObj];
+        auto enhRet = engine.callFunction(stdinEnhance.value, engine.newUndefined(), sArgs[]);
+        engine.freeValue(enhRet);
+    }
+    engine.freeValue(stdinEnhance.value);
     engine.setProperty(process, "stdin", stdinObj);
 
     // process.hrtime() and process.hrtime.bigint()
