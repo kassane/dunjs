@@ -841,3 +841,14 @@ Benchmark impact (25 benchmarks, feature_bench.js):
 | 22d | Buffer.from ArrayBuffer | 3-arg form: Buffer.from(ArrayBuffer, byteOffset, length) | **Done** |
 | 22e | child_process Buffer | execSync/spawnSync return Buffer by default, encoding option for string | **Done** |
 | 22f | path.join empty | path.join("") returns "." (Node.js compat) | **Done** |
+| 23a | Error.stack format | QuickJS-only "ErrorName: message\n" prefix for Node-compatible stack traces | **Done** |
+| 23b | writeHead arrays | ServerResponse.writeHead supports array headers and optional statusMessage | **Done** |
+| 23c | console %c | Handle CSS %c format specifier (consume+skip style argument) | **Done** |
+| 23d | process.versions.v8 | Present on all backends for npm package compatibility | **Done** |
+| 23e | util.inspect props | .custom Symbol, .colors, .styles, .defaultOptions properties | **Done** |
+| 23f | JSC typed array offset | getTypedArrayBytes accounts for byteOffset in views | **Done** |
+| 23g | Buffer.fill cycling | Multi-byte fill strings cycle correctly (was using first char only) | **Done** |
+| 23h | Buffer instanceof U8 | Uint8Array[Symbol.hasInstance] returns true for Buffer objects | **Done** |
+| 23i | path.relative empty | Identical paths return "" instead of "." (Node.js compat) | **Done** |
+| 23j | fs.readFileSync empty | Fix ENOENT on empty/device files (/dev/null) | **Done** |
+| 23k | Test runner timeout | 30s per-test timeout prevents JSC hangs | **Done** |
