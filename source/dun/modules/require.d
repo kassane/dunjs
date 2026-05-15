@@ -458,26 +458,39 @@ JSHandle jsRequire(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
         if (esmTranspiled)
         {
             // ESM-transpiled: don't pass require as parameter (avoids conflict
-            // with `const require = createRequire(...)` in transpiled source)
+            // with `const require = createRequire(...)` in transpiled source).
+            // But globalThis.require used by preamble needs module context too.
             wrapped =
                 "(function() {\n"
                 ~ "var __m = __dunCjsCache__[\"" ~ escPath ~ "\"];\n"
+                ~ "__dunCjsStack__.push(\"" ~ escPath ~ "\");\n"
+                ~ "try {\n"
                 ~ "(function(module, exports, __filename, __dirname) {\n"
                 ~ source ~ "\n"
                 ~ "})(__m, __m.exports, \""
                 ~ escPath ~ "\", \""
                 ~ escDir ~ "\");\n"
+                ~ "} finally { __dunCjsStack__.pop(); }\n"
                 ~ "return __m.exports;\n"
                 ~ "})()";
         }
         else
         {
+            // Create module-local require that resolves relative paths from this module's directory
             wrapped =
                 "(function() {\n"
                 ~ "var __m = __dunCjsCache__[\"" ~ escPath ~ "\"];\n"
+                ~ "var __modRequire = function(id) {\n"
+                ~   "__dunCjsStack__.push(\"" ~ escPath ~ "\");\n"
+                ~   "try { var r = globalThis.require(id); __dunCjsStack__.pop(); return r; }\n"
+                ~   "catch(e) { __dunCjsStack__.pop(); throw e; }\n"
+                ~ "};\n"
+                ~ "__modRequire.resolve = require.resolve;\n"
+                ~ "__modRequire.cache = require.cache;\n"
+                ~ "__modRequire.main = require.main;\n"
                 ~ "(function(module, exports, require, __filename, __dirname) {\n"
                 ~ source ~ "\n"
-                ~ "})(__m, __m.exports, require, \""
+                ~ "})(__m, __m.exports, __modRequire, \""
                 ~ escPath ~ "\", \""
                 ~ escDir ~ "\");\n"
                 ~ "return __m.exports;\n"

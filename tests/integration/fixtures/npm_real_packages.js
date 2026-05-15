@@ -152,5 +152,63 @@ try {
   check('escape-html &', escapeHtml('a&b') === 'a&amp;b');
 } catch(e) { console.log('FAIL: escape-html load:', e.message); total += 3; }
 
+// lodash (CJS, complex utility library)
+try {
+  const _ = require('lodash');
+  check('lodash loads', typeof _ === 'function');
+  check('lodash.map', _.map([1,2,3], function(x){return x*2}).join(',') === '2,4,6');
+  check('lodash.uniq', _.uniq([1,2,1,3,2]).join(',') === '1,2,3');
+  check('lodash.groupBy', typeof _.groupBy([1,2,3], function(x){return x%2}) === 'object');
+  check('lodash.cloneDeep', typeof _.cloneDeep === 'function');
+} catch(e) { console.log('FAIL: lodash load:', e.message); total += 5; }
+
+// safe-buffer (CJS, Buffer wrapper)
+try {
+  const safeBuf = require('safe-buffer');
+  check('safe-buffer loads', safeBuf.Buffer !== undefined);
+  check('safe-buffer.from', safeBuf.Buffer.from('hello').toString() === 'hello');
+  check('safe-buffer.alloc', safeBuf.Buffer.alloc(10).length === 10);
+} catch(e) { console.log('FAIL: safe-buffer load:', e.message); total += 3; }
+
+// content-type (CJS, HTTP content-type parsing)
+try {
+  const contentType = require('content-type');
+  check('content-type.parse', typeof contentType.parse === 'function');
+  var ct = contentType.parse('text/html; charset=utf-8');
+  check('content-type type', ct.type === 'text/html');
+  check('content-type charset', ct.parameters.charset === 'utf-8');
+} catch(e) { console.log('FAIL: content-type load:', e.message); total += 3; }
+
+// accepts (CJS, HTTP content negotiation)
+try {
+  const Accepts = require('accepts');
+  check('accepts loads', typeof Accepts === 'function');
+  var req = { headers: { accept: 'text/html, application/json' } };
+  var accept = Accepts(req);
+  check('accepts.types exists', typeof accept.types === 'function');
+} catch(e) { console.log('FAIL: accepts load:', e.message); total += 2; }
+
+// type-is (CJS, content type checking)
+try {
+  const typeis = require('type-is');
+  check('type-is loads', typeof typeis === 'function');
+  check('type-is.is exists', typeof typeis.is === 'function');
+} catch(e) { console.log('FAIL: type-is load:', e.message); total += 2; }
+
+// bytes (CJS, byte size parsing)
+try {
+  const bytes = require('bytes');
+  check('bytes.parse 1kb', bytes.parse('1kb') === 1024);
+  check('bytes.format 1024', bytes.format(1024) === '1KB');
+} catch(e) { console.log('FAIL: bytes load:', e.message); total += 2; }
+
+// iconv-lite (CJS, encoding with lazy internal require)
+try {
+  const iconv = require('iconv-lite');
+  check('iconv-lite loads', typeof iconv.decode === 'function');
+  check('iconv-lite encode exists', typeof iconv.encode === 'function');
+  check('iconv-lite encodingExists', iconv.encodingExists('utf8') === true);
+} catch(e) { console.log('FAIL: iconv-lite load:', e.message); total += 3; }
+
 console.log('npm_real_packages: ' + passed + '/' + total + ' checks passed');
 if (passed === total) console.log('ALL CHECKS PASSED');

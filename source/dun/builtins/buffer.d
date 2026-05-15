@@ -21,9 +21,20 @@ void registerBufferModule(IJSEngine engine) @trusted
     engine.setProperty(bufferClass, "allocUnsafeSlow", engine.newFunction(&jsBufferAllocUnsafe, "allocUnsafeSlow", 1));
     engine.setProperty(bufferClass, "poolSize", engine.newInt(8192));
 
+    // Buffer.prototype for safe-buffer/safer-buffer compat (Object.create(Buffer.prototype))
+    auto bufProtoObj = engine.newObject();
+    engine.setProperty(bufferClass, "prototype", bufProtoObj);
+
     auto global = engine.getGlobal();
     engine.setProperty(global, "Buffer", bufferClass);
-    engine.setProperty(global, "__dun_cjs_buffer__", bufferClass);
+
+    // require('buffer') returns { Buffer: <constructor>, ... } (Node.js compat)
+    auto bufModule = engine.newObject();
+    engine.setProperty(bufModule, "Buffer", engine.dupValue(bufferClass));
+    engine.setProperty(bufModule, "SlowBuffer", engine.dupValue(bufferClass));
+    engine.setProperty(bufModule, "INSPECT_MAX_BYTES", engine.newInt(50));
+    engine.setProperty(bufModule, "kMaxLength", engine.newInt(0x7FFFFFFF));
+    engine.setProperty(global, "__dun_cjs_buffer__", bufModule);
     engine.freeValue(global);
 
     version (EngineQuickJS)
