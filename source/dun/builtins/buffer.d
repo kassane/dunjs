@@ -235,6 +235,11 @@ void ensureBufferFnsCached(IJSEngine engine) @trusted
 
         // Sync Buffer.prototype with __dunBufProto__ for npm compat (safe-buffer, etc.)
         "if(typeof Buffer!=='undefined')Buffer.prototype=p;" ~
+        // Make Buffer instances pass `instanceof Uint8Array` check (npm compat)
+        "var origU8HasInstance=Uint8Array[Symbol.hasInstance];" ~
+        "Object.defineProperty(Uint8Array,Symbol.hasInstance,{value:function(inst){" ~
+        "return (inst&&inst.__isBuffer===true)||origU8HasInstance.call(this,inst);" ~
+        "}});" ~
 
         "})()",
         "<buffer-iter>");
@@ -942,16 +947,25 @@ JSHandle jsBufferFill(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trust
     if (args.length < 1) return engine.dupValue(thisVal);
     auto bytes = extractBytes(engine, thisVal);
 
-    ubyte fillVal = 0;
     if (engine.isNumber(args[0]))
-        fillVal = cast(ubyte) engine.extractInt(args[0]);
+    {
+        ubyte fillVal = cast(ubyte) engine.extractInt(args[0]);
+        bytes[] = fillVal;
+    }
     else if (engine.isString(args[0]))
     {
         auto s = engine.extractString(args[0]);
-        if (s.length > 0) fillVal = cast(ubyte) s[0];
+        if (s.length > 0)
+        {
+            auto fillBytes = cast(const(ubyte)[]) s;
+            foreach (i, ref b; bytes)
+                b = fillBytes[i % fillBytes.length];
+        }
+        else
+            bytes[] = 0;
     }
-
-    bytes[] = fillVal;
+    else
+        bytes[] = 0;
     return engine.dupValue(thisVal);
 }
 
