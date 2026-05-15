@@ -6,6 +6,21 @@ import dun.security.permissions : Permission;
 
 enum MAX_BUFFER = 1024 * 1024;
 
+string readAllFromPipe(P)(P pipe) @trusted
+{
+    import std.array : Appender;
+    Appender!(ubyte[]) buf;
+    enum CHUNK = 4096;
+    ubyte[CHUNK] tmp;
+    while (true)
+    {
+        auto chunk = pipe.rawRead(tmp[]);
+        if (chunk.length == 0) break;
+        buf.put(chunk);
+    }
+    return cast(string) buf[];
+}
+
 void registerChildProcessModule(IJSEngine engine) @trusted
 {
     assert(engine !is null, "Null IJSEngine in registerChildProcessModule");
@@ -130,6 +145,38 @@ int extractOptInt(IJSEngine engine, JSHandle opts, string key, int def) @trusted
     return def;
 }
 
+string[string] extractOptEnv(IJSEngine engine, JSHandle opts) @trusted
+{
+    string[string] result;
+    auto envVal = engine.getProperty(opts, "env");
+    scope(exit) engine.freeValue(envVal);
+    if (engine.isUndefined(envVal) || engine.isNull(envVal) || !engine.isObject(envVal))
+        return result;
+    auto keysResult = engine.eval(
+        `(function(o) { return Object.keys(o); })`, "<env-keys>");
+    if (keysResult.isError) { engine.freeValue(keysResult.value); return result; }
+    auto undef = engine.newUndefined();
+    JSHandle[1] callArgs = [envVal];
+    auto keysArr = engine.callFunction(keysResult.value, undef, callArgs[]);
+    engine.freeValue(keysResult.value);
+    engine.freeValue(undef);
+    if (engine.isArray(keysArr))
+    {
+        int len = engine.getArrayLength(keysArr);
+        for (int i = 0; i < len; i++)
+        {
+            auto keyH = engine.getPropertyIndex(keysArr, cast(uint) i);
+            auto key = engine.extractString(keyH);
+            engine.freeValue(keyH);
+            auto valH = engine.getProperty(envVal, key);
+            result[key] = engine.extractString(valH);
+            engine.freeValue(valH);
+        }
+    }
+    engine.freeValue(keysArr);
+    return result;
+}
+
 string truncateToMaxBuffer(string s, int maxBuffer) @safe pure nothrow
 {
     if (s.length > cast(size_t) maxBuffer)
@@ -236,10 +283,14 @@ JSHandle jsSpawnSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @truste
 
     string cwd = "";
     int maxBuffer = MAX_BUFFER;
+    string[string] envMap;
+    bool hasEnv = false;
     if (args.length >= 3 && engine.isObject(args[2]))
     {
         cwd = extractOptString(engine, args[2], "cwd");
         maxBuffer = extractOptInt(engine, args[2], "maxBuffer", MAX_BUFFER);
+        envMap = extractOptEnv(engine, args[2]);
+        hasEnv = envMap.length > 0;
     }
 
     auto resultObj = engine.newObject();
@@ -257,35 +308,17 @@ JSHandle jsSpawnSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @truste
         }
 
         string[] fullCmd = [command] ~ cmdArgs;
-        auto pipes = pipeProcess(fullCmd, Redirect.stdout | Redirect.stderr);
+        auto pipes = hasEnv
+            ? pipeProcess(fullCmd, Redirect.stdout | Redirect.stderr, envMap)
+            : pipeProcess(fullCmd, Redirect.stdout | Redirect.stderr);
 
         string stdoutStr = "";
         string stderrStr = "";
 
-        try
-        {
-            import std.array : Appender;
-            Appender!(char[]) outBuf;
-            foreach (line; pipes.stdout.byLineCopy)
-            {
-                if (outBuf[].length > 0) outBuf.put('\n');
-                outBuf.put(line);
-            }
-            stdoutStr = cast(string) outBuf[];
-        }
+        try { stdoutStr = readAllFromPipe(pipes.stdout); }
         catch (Exception) {}
 
-        try
-        {
-            import std.array : Appender;
-            Appender!(char[]) errBuf;
-            foreach (line; pipes.stderr.byLineCopy)
-            {
-                if (errBuf[].length > 0) errBuf.put('\n');
-                errBuf.put(line);
-            }
-            stderrStr = cast(string) errBuf[];
-        }
+        try { stderrStr = readAllFromPipe(pipes.stderr); }
         catch (Exception) {}
 
         int status = wait(pipes.pid);
@@ -480,8 +513,14 @@ JSHandle jsSpawn(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 
     // Parse options (optional)
     string cwd = "";
+    string[string] envMap;
+    bool hasEnv = false;
     if (args.length > optsIdx && engine.isObject(args[optsIdx]))
+    {
         cwd = extractOptString(engine, args[optsIdx], "cwd");
+        envMap = extractOptEnv(engine, args[optsIdx]);
+        hasEnv = envMap.length > 0;
+    }
 
     // Create ChildProcess object via JS helper
     auto cpResult = engine.eval(childProcessHelperSource, "<spawn>");
@@ -505,7 +544,9 @@ JSHandle jsSpawn(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
         }
 
         string[] fullCmd = [command] ~ cmdArgs;
-        auto pipes = pipeProcess(fullCmd, Redirect.stdout | Redirect.stderr);
+        auto pipes = hasEnv
+            ? pipeProcess(fullCmd, Redirect.stdout | Redirect.stderr, envMap)
+            : pipeProcess(fullCmd, Redirect.stdout | Redirect.stderr);
 
         if (origDir.length > 0)
             chdir(origDir);
@@ -519,37 +560,14 @@ JSHandle jsSpawn(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
         }
         engine.setProperty(cp, "pid", engine.newInt(pid));
 
-        // Read stdout
         string stdoutStr = "";
-        try
-        {
-            import std.array : Appender;
-            Appender!(char[]) outBuf;
-            foreach (line; pipes.stdout.byLineCopy)
-            {
-                if (outBuf[].length > 0) outBuf.put('\n');
-                outBuf.put(line);
-            }
-            stdoutStr = cast(string) outBuf[];
-        }
+        try { stdoutStr = readAllFromPipe(pipes.stdout); }
         catch (Exception) {}
 
-        // Read stderr
         string stderrStr = "";
-        try
-        {
-            import std.array : Appender;
-            Appender!(char[]) errBuf;
-            foreach (line; pipes.stderr.byLineCopy)
-            {
-                if (errBuf[].length > 0) errBuf.put('\n');
-                errBuf.put(line);
-            }
-            stderrStr = cast(string) errBuf[];
-        }
+        try { stderrStr = readAllFromPipe(pipes.stderr); }
         catch (Exception) {}
 
-        // Wait for exit
         int status = wait(pipes.pid);
 
         // Set exitCode
@@ -713,31 +731,11 @@ JSHandle jsExecFile(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
         auto pipes = pipeProcess(fullCmd, Redirect.stdout | Redirect.stderr);
 
         string stdoutStr = "";
-        try
-        {
-            import std.array : Appender;
-            Appender!(char[]) outBuf;
-            foreach (line; pipes.stdout.byLineCopy)
-            {
-                if (outBuf[].length > 0) outBuf.put('\n');
-                outBuf.put(line);
-            }
-            stdoutStr = cast(string) outBuf[];
-        }
+        try { stdoutStr = readAllFromPipe(pipes.stdout); }
         catch (Exception) {}
 
         string stderrStr = "";
-        try
-        {
-            import std.array : Appender;
-            Appender!(char[]) errBuf;
-            foreach (line; pipes.stderr.byLineCopy)
-            {
-                if (errBuf[].length > 0) errBuf.put('\n');
-                errBuf.put(line);
-            }
-            stderrStr = cast(string) errBuf[];
-        }
+        try { stderrStr = readAllFromPipe(pipes.stderr); }
         catch (Exception) {}
 
         int status = wait(pipes.pid);

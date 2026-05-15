@@ -688,9 +688,19 @@ JSHandle jsReaddirSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trus
     auto dirPath = engine.extractString(args[0]);
     if (!checkPerm(state, Permission.read, dirPath))
         return throwPermError(engine, "read", dirPath);
+
+    bool withFileTypes = false;
+    if (args.length >= 2 && engine.isObject(args[1]))
+    {
+        auto wftProp = engine.getProperty(args[1], "withFileTypes");
+        withFileTypes = engine.extractBool(wftProp);
+        engine.freeValue(wftProp);
+    }
+
     version (Posix)
     {
-        import core.sys.posix.dirent : DIR, dirent, opendir, readdir, closedir;
+        import core.sys.posix.dirent : DIR, dirent, opendir, readdir, closedir, DT_REG,
+            DT_DIR, DT_LNK, DT_FIFO, DT_SOCK, DT_CHR, DT_BLK, DT_UNKNOWN;
         import core.stdc.string : strlen;
         auto cpath = (dirPath ~ '\0');
         auto dir = opendir(cpath.ptr);
@@ -705,7 +715,16 @@ JSHandle jsReaddirSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trus
             if (entry is null) break;
             auto name = cast(string) entry.d_name.ptr[0 .. strlen(entry.d_name.ptr)];
             if (name == "." || name == "..") continue;
-            engine.setPropertyIndex(arr, idx++, engine.newString(name));
+            if (withFileTypes)
+            {
+                int dtype = dtypeToDirent(entry.d_type, dirPath, name);
+                auto direntObj = createDirentObject(engine, name, dtype);
+                engine.setPropertyIndex(arr, idx++, direntObj);
+            }
+            else
+            {
+                engine.setPropertyIndex(arr, idx++, engine.newString(name));
+            }
         }
         return arr;
     }
@@ -2464,6 +2483,64 @@ string fsConstantsSource() pure nothrow @safe
 })()`;
 }
 
+version (Posix)
+{
+    int dtypeToDirent(ubyte dtype, string dirPath, string name) nothrow @trusted
+    {
+        import core.sys.posix.dirent : DT_REG, DT_DIR, DT_LNK, DT_FIFO, DT_SOCK, DT_CHR, DT_BLK, DT_UNKNOWN;
+        switch (dtype)
+        {
+            case DT_REG: return 1;
+            case DT_DIR: return 2;
+            case DT_LNK: return 3;
+            case DT_FIFO: return 4;
+            case DT_SOCK: return 5;
+            case DT_CHR: return 6;
+            case DT_BLK: return 7;
+            default:
+                import core.sys.posix.sys.stat : stat_t, lstat, S_ISREG, S_ISDIR, S_ISLNK;
+                try
+                {
+                    auto fullPath = dirPath ~ "/" ~ name ~ '\0';
+                    stat_t st;
+                    if (lstat(fullPath.ptr, &st) == 0)
+                    {
+                        if (S_ISREG(st.st_mode)) return 1;
+                        if (S_ISDIR(st.st_mode)) return 2;
+                        if (S_ISLNK(st.st_mode)) return 3;
+                    }
+                }
+                catch (Exception) {}
+                return 0;
+        }
+    }
+}
+
+JSHandle createDirentObject(IJSEngine engine, string name, int dtype) @trusted
+{
+    auto global = engine.getGlobal();
+    auto factory = engine.getProperty(global, "__dunDirentFactory__");
+    engine.freeValue(global);
+    if (engine.isFunction(factory))
+    {
+        auto nameVal = engine.newString(name);
+        auto typeVal = engine.newInt(dtype);
+        auto undef = engine.newUndefined();
+        JSHandle[2] callArgs = [nameVal, typeVal];
+        auto result = engine.callFunction(factory, undef, callArgs[]);
+        engine.freeValue(nameVal);
+        engine.freeValue(typeVal);
+        engine.freeValue(undef);
+        engine.freeValue(factory);
+        return result;
+    }
+    engine.freeValue(factory);
+    auto obj = engine.newObject();
+    engine.setProperty(obj, "name", engine.newString(name));
+    engine.setProperty(obj, "_type", engine.newInt(dtype));
+    return obj;
+}
+
 string fsDirentSource() pure nothrow @safe
 {
     return `(function() {
@@ -2478,6 +2555,7 @@ string fsDirentSource() pure nothrow @safe
     Dirent.prototype.isSocket = function() { return this._type === 5; };
     Dirent.prototype.isCharacterDevice = function() { return this._type === 6; };
     Dirent.prototype.isBlockDevice = function() { return this._type === 7; };
+    globalThis.__dunDirentFactory__ = function(name, type) { return new Dirent(name, type); };
     return Dirent;
 })()`;
 }

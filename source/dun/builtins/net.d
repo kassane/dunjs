@@ -233,14 +233,39 @@ JSHandle jsCreateConnection(void* ctx, JSHandle thisVal, scope JSHandle[] args) 
         JSHandle connectCb;
         bool hasCb = false;
 
-        if (args.length >= 1 && engine.isNumber(args[0]))
-            port = engine.extractInt(args[0]);
-        if (args.length >= 2 && engine.isString(args[1]))
-            host = engine.extractString(args[1]);
-        if (args.length >= 3 && engine.isFunction(args[2]))
+        if (args.length >= 1 && engine.isObject(args[0]) && !engine.isFunction(args[0]))
         {
-            connectCb = engine.dupValue(args[2]);
-            hasCb = true;
+            // Options object form: net.connect({ port, host }, callback)
+            auto portProp = engine.getProperty(args[0], "port");
+            if (engine.isNumber(portProp))
+                port = engine.extractInt(portProp);
+            engine.freeValue(portProp);
+            auto hostProp = engine.getProperty(args[0], "host");
+            if (engine.isString(hostProp))
+                host = engine.extractString(hostProp);
+            engine.freeValue(hostProp);
+            if (args.length >= 2 && engine.isFunction(args[1]))
+            {
+                connectCb = engine.dupValue(args[1]);
+                hasCb = true;
+            }
+        }
+        else
+        {
+            if (args.length >= 1 && engine.isNumber(args[0]))
+                port = engine.extractInt(args[0]);
+            if (args.length >= 2 && engine.isString(args[1]))
+                host = engine.extractString(args[1]);
+            if (args.length >= 3 && engine.isFunction(args[2]))
+            {
+                connectCb = engine.dupValue(args[2]);
+                hasCb = true;
+            }
+            else if (args.length >= 2 && engine.isFunction(args[1]))
+            {
+                connectCb = engine.dupValue(args[1]);
+                hasCb = true;
+            }
         }
 
         int fd = socket(AF_INET, SOCK_STREAM, 0);

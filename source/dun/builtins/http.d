@@ -272,7 +272,8 @@ struct HttpServerState
     version (Posix) { void* sslCtx; } // SSL_CTX* for TLS servers
 }
 
-enum MAX_BUF = 16 * 1024;
+enum INITIAL_BUF = 16 * 1024;
+enum MAX_REQUEST_BODY = 16 * 1024 * 1024; // 16MB max request body
 
 struct HttpConnState
 {
@@ -280,7 +281,7 @@ struct HttpConnState
     int srvId;
     int fd = -1;
     bool closed;
-    char[MAX_BUF] buf;
+    char[] buf;
     size_t bufLen;
     const(char)[] method;
     const(char)[] url;
@@ -293,10 +294,56 @@ struct HttpConnState
     string[][string] respHeaders;
     bool headersSent;
     bool keepAlive;
-    // Buffered response — headers+body combined into single write()
-    char[MAX_BUF] respBuf;
+    char[] respBuf;
     size_t respLen;
     version (Posix) { void* ssl; } // SSL* for TLS connections
+
+    void ensureBufCapacity(size_t needed) nothrow @trusted {
+        if (needed <= buf.length) return;
+        size_t newCap = buf.length;
+        while (newCap < needed) newCap = newCap * 2;
+        if (newCap > MAX_REQUEST_BODY) newCap = MAX_REQUEST_BODY;
+        try {
+            auto newBuf = new char[](newCap);
+            newBuf[0 .. bufLen] = buf[0 .. bufLen];
+            buf = newBuf;
+        } catch (Exception) {}
+    }
+
+    void ensureRespCapacity(size_t needed) nothrow @trusted {
+        if (needed <= respBuf.length) return;
+        size_t newCap = respBuf.length;
+        while (newCap < needed) newCap = newCap * 2;
+        try {
+            auto newBuf = new char[](newCap);
+            newBuf[0 .. respLen] = respBuf[0 .. respLen];
+            respBuf = newBuf;
+        } catch (Exception) {}
+    }
+
+    void initBuffers() nothrow @trusted {
+        if (buf.length == 0) {
+            try {
+                buf = new char[](INITIAL_BUF);
+                respBuf = new char[](INITIAL_BUF);
+            } catch (Exception) {}
+        }
+    }
+
+    void resetForKeepAlive() nothrow @trusted {
+        bufLen = 0;
+        method = null;
+        url = null;
+        httpVersion = null;
+        try { headers = typeof(headers).init; } catch (Exception) {}
+        contentLength = 0;
+        bodyStart = 0;
+        headersDone = false;
+        statusCode = HTTP_STATUS_OK;
+        try { respHeaders = typeof(respHeaders).init; } catch (Exception) {}
+        headersSent = false;
+        respLen = 0;
+    }
 }
 
 // fd → connection index for O(1) lookup (avoids O(n) scan in pollHttpIO)
@@ -1041,10 +1088,8 @@ JSHandle jsResEnd(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
         if (conn.keepAlive)
         {
             // Reset for next request on same connection
-            size_t consumed = conn.bodyStart;
-            if (conn.contentLength <= MAX_BUF - consumed)
-                consumed += conn.contentLength;
-            else
+            size_t consumed = conn.bodyStart + conn.contentLength;
+            if (consumed > conn.bufLen)
                 consumed = conn.bufLen;
             size_t remaining = conn.bufLen > consumed ? conn.bufLen - consumed : 0;
             if (remaining > 0)
@@ -1157,7 +1202,9 @@ void bufferStatusLine(HttpConnState* conn) nothrow @trusted
     try
     {
         void bufAppend(const(char)[] s) nothrow @trusted {
-            size_t avail = MAX_BUF - conn.respLen;
+            if (s.length == 0) return;
+            conn.ensureRespCapacity(conn.respLen + s.length);
+            size_t avail = conn.respBuf.length - conn.respLen;
             size_t n = s.length < avail ? s.length : avail;
             if (n > 0) {
                 conn.respBuf[conn.respLen .. conn.respLen + n] = s[0 .. n];
@@ -1191,7 +1238,9 @@ void bufferStatusLine(HttpConnState* conn) nothrow @trusted
 void bufferData(HttpConnState* conn, const(char)[] data) nothrow @trusted
 {
     assert(conn !is null, "Null HttpConnState in bufferData");
-    size_t avail = MAX_BUF - conn.respLen;
+    if (data.length == 0) return;
+    conn.ensureRespCapacity(conn.respLen + data.length);
+    size_t avail = conn.respBuf.length - conn.respLen;
     size_t n = data.length < avail ? data.length : avail;
     if (n > 0)
     {
@@ -1236,6 +1285,7 @@ void flushResponse(HttpConnState* conn) nothrow @trusted
 void sendError(HttpConnState* conn, int status, string text, int connSlot = -1) nothrow @trusted
 {
     assert(conn !is null, "Null HttpConnState in sendError");
+    conn.initBuffers();
     bufferData(conn, statusLine(status));
     bufferData(conn, "Content-Length: 0\r\nConnection: close\r\n\r\n");
     flushResponse(conn);
@@ -1450,6 +1500,7 @@ void acceptHttpConnection(int srvId) nothrow @trusted
                 c.fd = fd;
                 c.statusCode = 200;
                 c.ssl = connSsl;
+                c.initBuffers();
                 if (cid < cast(int) httpConns.length)
                     httpConns[cid] = c;
                 else
@@ -1483,14 +1534,20 @@ void readHttpData(int cid) nothrow @trusted
 
         bool gotData = false;
         bool gotEof = false;
-        while (conn.bufLen < MAX_BUF)
+        enum READ_CHUNK = 16 * 1024;
+        while (true)
         {
+            if (conn.bufLen >= MAX_REQUEST_BODY) break;
+            conn.ensureBufCapacity(conn.bufLen + READ_CHUNK);
+            size_t space = conn.buf.length - conn.bufLen;
+            if (space == 0) break;
+
             long n;
             if (conn.ssl !is null)
             {
                 auto sslp = cast(ssl.SSL*) conn.ssl;
                 auto ret = ssl.SSL_read(sslp, conn.buf.ptr + conn.bufLen,
-                    cast(int)(MAX_BUF - conn.bufLen));
+                    cast(int)(space < int.max ? space : int.max));
                 if (ret > 0) { n = ret; }
                 else
                 {
@@ -1502,7 +1559,7 @@ void readHttpData(int cid) nothrow @trusted
             }
             else
             {
-                n = read(conn.fd, conn.buf.ptr + conn.bufLen, MAX_BUF - conn.bufLen);
+                n = read(conn.fd, conn.buf.ptr + conn.bufLen, space);
             }
             if (n > 0)
             {
@@ -1584,12 +1641,12 @@ void tryParseHeaders(HttpConnState* conn, int cid) nothrow @trusted
         try { conn.contentLength = conn.headers["content-length"].to!size_t; } catch (Exception) {}
     }
 
-    // Reject requests with Content-Length exceeding buffer capacity
-    if (conn.contentLength > MAX_BUF || conn.bodyStart + conn.contentLength > MAX_BUF)
+    if (conn.contentLength > MAX_REQUEST_BODY)
     {
         sendError(conn, 413, "Payload Too Large", cid);
         return;
     }
+    conn.ensureBufCapacity(conn.bodyStart + conn.contentLength);
 
     bool bodyComplete = conn.bufLen >= conn.bodyStart + conn.contentLength;
     if (!bodyComplete) return;
