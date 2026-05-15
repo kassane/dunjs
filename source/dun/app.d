@@ -102,7 +102,10 @@ int runScript(T)(T config)
         return 1;
     }
 
-    if (isTypeScript(config.scriptPath))
+    // Strip TS for .ts/.mts/.cts files AND for stdin (where we have no
+    // extension to dispatch on). Stripper is a whitespace-preserving
+    // no-op for plain JS, so the false-positive cost is zero.
+    if (isTypeScript(config.scriptPath) || isStdinPath(config.scriptPath))
     {
         import dun.ts.strip : stripTypes;
         source = stripTypes(source);
@@ -274,7 +277,12 @@ int evalInline(T)(T config)
     state.verbose = config.verbose;
     state.eventLoop.initialize(engine);
     installGlobals(engine, &state);
-    auto result = engine.eval(config.evalSource, "<eval>");
+    // Always strip TS — for plain JS the stripper is a no-op (it only
+    // erases `: type` / `as T` / `interface` / etc.). Matches Bun/Deno
+    // behavior where `dun eval` accepts TS source directly.
+    import dun.ts.strip : stripTypes;
+    auto evalSource = stripTypes(config.evalSource);
+    auto result = engine.eval(evalSource, "<eval>");
     if (result.isError)
     {
         import dun.cli.errors : isColorEnabled, formatUncaughtError;
@@ -503,7 +511,7 @@ int runSingleTest(T)(T config, string filePath) @trusted
         return 1;
     }
 
-    if (isTypeScript(filePath))
+    if (isTypeScript(filePath) || isStdinPath(filePath))
     {
         import dun.ts.strip : stripTypes;
         source = stripTypes(source);
@@ -655,7 +663,7 @@ int runSingleBench(T)(T config, string filePath) @trusted
         return 1;
     }
 
-    if (isTypeScript(filePath))
+    if (isTypeScript(filePath) || isStdinPath(filePath))
     {
         import dun.ts.strip : stripTypes;
         source = stripTypes(source);
@@ -1191,6 +1199,13 @@ bool isTypeScript(string path) @safe pure nothrow @nogc
     if (path.length >= 4 && path[$ - 4 .. $] == ".cts")
         return true;
     return false;
+}
+
+bool isStdinPath(string path) @safe pure nothrow @nogc
+{
+    // `dun run -` or `dun run /dev/stdin` should run the TS stripper too
+    // since there's no file extension to dispatch on.
+    return path == "-" || path == "/dev/stdin" || path == "/dev/fd/0";
 }
 
 bool isESM(string path, string source) @safe pure nothrow
