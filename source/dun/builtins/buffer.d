@@ -419,6 +419,13 @@ JSHandle jsBufferFrom(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trust
         }
     }
 
+    // Typed array (Uint8Array, Int8Array, etc.) or ArrayBuffer
+    {
+        auto bytes = engine.getTypedArrayBytes(args[0]);
+        if (bytes !is null)
+            return makeBufferObj(engine, bytes);
+    }
+
     // Array-like or Buffer
     if (engine.isObject(args[0]))
     {
@@ -430,6 +437,33 @@ JSHandle jsBufferFrom(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trust
             auto bytes = extractBytes(engine, args[0]);
             return makeBufferObj(engine, bytes);
         }
+
+        // Check for ArrayBuffer via byteLength property and no length
+        auto byteLenVal = engine.getProperty(args[0], "byteLength");
+        auto lenCheck = engine.getProperty(args[0], "length");
+        bool hasOnlyByteLength = engine.isNumber(byteLenVal) && !engine.isNumber(lenCheck);
+        engine.freeValue(lenCheck);
+        if (hasOnlyByteLength)
+        {
+            int byteLen = engine.extractInt(byteLenVal);
+            engine.freeValue(byteLenVal);
+            auto u8Result = engine.eval(
+                "(function(ab){return new Uint8Array(ab)})", "<buf-ab>");
+            if (!u8Result.isError)
+            {
+                auto u8arr = engine.callFunction(u8Result.value, engine.newUndefined(), [args[0]]);
+                engine.freeValue(u8Result.value);
+                auto bytes = engine.getTypedArrayBytes(u8arr);
+                engine.freeValue(u8arr);
+                if (bytes !is null)
+                    return makeBufferObj(engine, bytes);
+            }
+            else
+                engine.freeValue(u8Result.value);
+            auto fallbackBytes = new ubyte[byteLen];
+            return makeBufferObj(engine, fallbackBytes);
+        }
+        engine.freeValue(byteLenVal);
 
         // Try as array
         auto lenVal = engine.getProperty(args[0], "length");
@@ -466,17 +500,59 @@ JSHandle jsBufferAlloc(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trus
     if (size < 0 || size > BUFFER_MAX_SIZE)
         return engine.throwRangeError("Invalid buffer size");
 
-    bool hasFill = args.length >= 2 && engine.isNumber(args[1]);
-    if (!hasFill)
+    if (args.length < 2 || engine.isUndefined(args[1]))
+        return makeBufferObjZeroed(engine, size);
+
+    if (engine.isNumber(args[1]))
     {
-        return makeBufferObjZeroed(engine, size);
+        ubyte fillByte = cast(ubyte) engine.extractInt(args[1]);
+        if (fillByte == 0)
+            return makeBufferObjZeroed(engine, size);
+        auto bytes = new ubyte[size];
+        bytes[] = fillByte;
+        return makeBufferObj(engine, bytes);
     }
-    ubyte fillByte = cast(ubyte) engine.extractInt(args[1]);
-    if (fillByte == 0)
-        return makeBufferObjZeroed(engine, size);
-    auto bytes = new ubyte[size];
-    bytes[] = fillByte;
-    return makeBufferObj(engine, bytes);
+
+    if (engine.isString(args[1]))
+    {
+        string fillStr = engine.extractString(args[1]);
+        if (fillStr.length == 0)
+            return makeBufferObjZeroed(engine, size);
+
+        string encoding = "utf8";
+        if (args.length >= 3 && engine.isString(args[2]))
+            encoding = engine.extractString(args[2]);
+
+        const(ubyte)[] fillBytes;
+        if (encoding == "hex")
+            fillBytes = hexToBytes(fillStr);
+        else
+            fillBytes = cast(const(ubyte)[]) fillStr;
+
+        if (fillBytes.length == 0)
+            return makeBufferObjZeroed(engine, size);
+        auto bytes = new ubyte[size];
+        foreach (i; 0 .. size)
+            bytes[i] = fillBytes[i % fillBytes.length];
+        return makeBufferObj(engine, bytes);
+    }
+
+    // Fill with Buffer or typed array
+    if (engine.isObject(args[1]))
+    {
+        auto fillBytes = engine.getTypedArrayBytes(args[1]);
+        if (fillBytes is null)
+            fillBytes = extractBytes(engine, args[1]);
+        if (fillBytes.length > 0)
+        {
+            auto bytes = new ubyte[size];
+            foreach (i; 0 .. size)
+                bytes[i] = fillBytes[i % fillBytes.length];
+            return makeBufferObj(engine, bytes);
+        }
+    }
+
+    return makeBufferObjZeroed(engine, size);
 }
 
 // Buffer.allocUnsafe(size)

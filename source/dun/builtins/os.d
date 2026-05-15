@@ -194,7 +194,10 @@ JSHandle jsOsTmpdir(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
     try
     {
         import std.file : tempDir;
-        return engine.newString(tempDir());
+        string td = tempDir();
+        if (td.length > 1 && td[$ - 1] == '/')
+            td = td[0 .. $ - 1];
+        return engine.newString(td);
     }
     catch (Exception) { return engine.newString("/tmp"); }
 }

@@ -174,6 +174,16 @@ string streamSource() pure @safe nothrow
     return this;
   };
 
+  var _readableOn = Readable.prototype.on;
+  Readable.prototype.on = function(event, fn) {
+    var ret = _readableOn.call(this, event, fn);
+    if (event === 'data' && !this._flowing) {
+      this.resume();
+    }
+    return ret;
+  };
+  Readable.prototype.addListener = Readable.prototype.on;
+
   Readable.prototype.pause = function() {
     this._flowing = false;
     return this;

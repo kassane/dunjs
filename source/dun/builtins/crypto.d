@@ -893,8 +893,8 @@ JSHandle jsCryptoScryptSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) 
         if (rc != 1)
             return engine.throwTypeError("scrypt failed");
 
-        import std.digest : toHexString, LetterCase;
-        return engine.newString(toHexString!(LetterCase.lower)(outbuf).idup);
+        import dun.builtins.buffer : makeBufferObj;
+        return makeBufferObj(engine, outbuf);
     }
     catch (Exception) { return engine.throwTypeError("scryptSync failed"); }
 }

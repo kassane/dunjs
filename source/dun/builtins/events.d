@@ -162,7 +162,14 @@ string eventEmitterSource() pure @safe nothrow
 
   EventEmitter.prototype.rawListeners = function(event) {
     if (!this._events || !this._events[event]) return [];
-    return this._events[event].slice();
+    return this._events[event].map(function(l) {
+      if (l.once) {
+        var wrapper = function() { return l.fn.apply(this, arguments); };
+        wrapper.listener = l.fn;
+        return wrapper;
+      }
+      return l.fn;
+    });
   };
 
   EventEmitter.prototype.eventNames = function() {
