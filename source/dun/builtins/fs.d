@@ -1766,11 +1766,15 @@ JSHandle jsCreateWriteStream(void* ctx, JSHandle thisVal, scope JSHandle[] args)
     engine.setProperty(stream, "_chunkCount", engine.newInt(0));
     engine.setProperty(stream, "_listeners", engine.newObject());
     engine.setProperty(stream, "_ended", engine.newBool(false));
+    engine.setProperty(stream, "writable", engine.newBool(true));
     engine.setProperty(stream, "path", engine.newString(path));
+    engine.setProperty(stream, "bytesWritten", engine.newInt(0));
     engine.setProperty(stream, "on", engine.newFunction(&jsStreamOn, "on", 2));
+    engine.setProperty(stream, "once", engine.newFunction(&jsStreamOn, "once", 2));
     engine.setProperty(stream, "write", engine.newFunction(&jsWriteStreamWrite, "write", 1));
     engine.setProperty(stream, "end", engine.newFunction(&jsWriteStreamEnd, "end", 0));
     engine.setProperty(stream, "destroy", engine.newFunction(&jsStreamDestroy, "destroy", 0));
+    engine.setProperty(stream, "close", engine.newFunction(&jsStreamDestroy, "close", 0));
     return stream;
 }
 
@@ -1972,11 +1976,17 @@ JSHandle jsWriteStreamEnd(void* ctx, JSHandle thisVal, scope JSHandle[] args) @t
         import std.file : write;
         write(path, allData);
         engine.setProperty(thisVal, "_ended", engine.newBool(true));
+        engine.setProperty(thisVal, "writable", engine.newBool(false));
+        engine.setProperty(thisVal, "bytesWritten", engine.newInt(cast(int) allData.length));
         auto listeners = engine.getProperty(thisVal, "_listeners");
         auto finishCb = engine.getProperty(listeners, "finish");
         if (engine.isFunction(finishCb))
             engine.callFunction(finishCb, thisVal, []);
         engine.freeValue(finishCb);
+        auto closeCb = engine.getProperty(listeners, "close");
+        if (engine.isFunction(closeCb))
+            engine.callFunction(closeCb, thisVal, []);
+        engine.freeValue(closeCb);
         engine.freeValue(listeners);
     }
     catch (Exception) {}

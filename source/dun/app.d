@@ -185,6 +185,11 @@ int runScript(T)(T config)
     state.eventLoop.run();
     state.eventLoop.flushUnhandledRejections();
     auto exitCode = state.eventLoop.exitCode;
+    {
+        import dun.runtime.process_api : fireBeforeExitHandlers, fireExitHandlers;
+        fireBeforeExitHandlers(exitCode);
+        fireExitHandlers(exitCode);
+    }
     engine.shutdown();
     return exitCode;
 }
@@ -288,6 +293,11 @@ int evalInline(T)(T config)
     state.eventLoop.run();
     state.eventLoop.flushUnhandledRejections();
     auto exitCode = state.eventLoop.exitCode;
+    {
+        import dun.runtime.process_api : fireBeforeExitHandlers, fireExitHandlers;
+        fireBeforeExitHandlers(exitCode);
+        fireExitHandlers(exitCode);
+    }
     engine.shutdown();
     return exitCode;
 }
@@ -592,6 +602,11 @@ int runSingleTest(T)(T config, string filePath) @trusted
     }
 
     auto exitCode = state.eventLoop.exitCode;
+    {
+        import dun.runtime.process_api : fireBeforeExitHandlers, fireExitHandlers;
+        fireBeforeExitHandlers(exitCode);
+        fireExitHandlers(exitCode);
+    }
     engine.shutdown();
     return exitCode;
 }
@@ -702,6 +717,11 @@ int runSingleBench(T)(T config, string filePath) @trusted
 
     state.eventLoop.run();
     auto exitCode = state.eventLoop.exitCode;
+    {
+        import dun.runtime.process_api : fireBeforeExitHandlers, fireExitHandlers;
+        fireBeforeExitHandlers(exitCode);
+        fireExitHandlers(exitCode);
+    }
     engine.shutdown();
     return exitCode;
 }

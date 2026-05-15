@@ -294,6 +294,7 @@ struct HttpConnState
     string[][string] respHeaders;
     bool headersSent;
     bool keepAlive;
+    bool chunkedResponse;
     char[] respBuf;
     size_t respLen;
     version (Posix) { void* ssl; } // SSL* for TLS connections
@@ -342,6 +343,7 @@ struct HttpConnState
         statusCode = HTTP_STATUS_OK;
         try { respHeaders = typeof(respHeaders).init; } catch (Exception) {}
         headersSent = false;
+        chunkedResponse = false;
         respLen = 0;
     }
 }
@@ -1032,11 +1034,25 @@ JSHandle jsResWrite(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
     auto conn = &httpConns[connId];
     if (conn.closed || conn.fd < 0) return engine.newBool(false);
 
-    if (!conn.headersSent) bufferStatusLine(conn);
-    // For streaming writes, flush buffer then send data directly
-    flushResponse(conn);
+    if (!conn.headersSent)
+    {
+        // Streaming write: use chunked transfer encoding unless Content-Length is already set
+        if ("Content-Length" !in conn.respHeaders && "content-length" !in conn.respHeaders)
+        {
+            conn.respHeaders["Transfer-Encoding"] = ["chunked"];
+            conn.chunkedResponse = true;
+        }
+        bufferStatusLine(conn);
+        flushResponse(conn);
+    }
+
     auto body_ = engine.extractString(args[0]);
-    sendRaw(conn, body_);
+    if (body_.length == 0) return engine.newBool(true);
+
+    if (conn.chunkedResponse)
+        sendChunk(conn, body_);
+    else
+        sendRaw(conn, body_);
     return engine.newBool(true);
 }
 
@@ -1063,22 +1079,48 @@ JSHandle jsResEnd(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
         if (args.length >= 1)
         {
             auto body_ = engine.extractString(args[0]);
-            // Auto-set Content-Length if not already set
-            if (!conn.headersSent && "Content-Length" !in conn.respHeaders
-                && "content-length" !in conn.respHeaders)
+            if (conn.chunkedResponse)
             {
-                conn.respHeaders["Content-Length"] = [sizeToStr(body_.length)];
+                // Already streaming — send final data chunk + terminal chunk
+                if (!conn.headersSent) bufferStatusLine(conn);
+                flushResponse(conn);
+                if (body_.length > 0)
+                    sendChunk(conn, body_);
+                sendRaw(conn, "0\r\n\r\n");
             }
-            if (!conn.headersSent) bufferStatusLine(conn);
-            bufferData(conn, body_);
+            else
+            {
+                // Non-streaming: auto-set Content-Length, buffer everything, single flush
+                if (!conn.headersSent && "Content-Length" !in conn.respHeaders
+                    && "content-length" !in conn.respHeaders)
+                {
+                    conn.respHeaders["Content-Length"] = [sizeToStr(body_.length)];
+                }
+                if (!conn.headersSent) bufferStatusLine(conn);
+                bufferData(conn, body_);
+                flushResponse(conn);
+            }
         }
         else
         {
-            if (!conn.headersSent) bufferStatusLine(conn);
+            if (conn.chunkedResponse)
+            {
+                if (!conn.headersSent) bufferStatusLine(conn);
+                flushResponse(conn);
+                sendRaw(conn, "0\r\n\r\n");
+            }
+            else
+            {
+                if (!conn.headersSent)
+                {
+                    if ("Content-Length" !in conn.respHeaders
+                        && "content-length" !in conn.respHeaders)
+                        conn.respHeaders["Content-Length"] = ["0"];
+                    bufferStatusLine(conn);
+                }
+                flushResponse(conn);
+            }
         }
-
-        // Flush everything in ONE write() — avoids Nagle+delayed-ACK latency
-        flushResponse(conn);
 
         // Mark response as finished (Node.js compat)
         engine.setProperty(thisVal, "finished", engine.newBool(true));
@@ -1100,6 +1142,7 @@ JSHandle jsResEnd(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
             conn.bufLen = remaining;
             conn.headersDone = false;
             conn.headersSent = false;
+            conn.chunkedResponse = false;
             conn.bodyStart = 0;
             conn.contentLength = 0;
             conn.statusCode = HTTP_STATUS_OK;
@@ -1297,6 +1340,23 @@ void sendError(HttpConnState* conn, int status, string text, int connSlot = -1) 
         closeConnFd(conn);
         if (connSlot >= 0) freeConnSlot(connSlot);
     }
+}
+
+void sendChunk(HttpConnState* conn, string data) nothrow @trusted
+{
+    assert(conn !is null, "Null HttpConnState in sendChunk");
+    if (data.length == 0) return;
+    // Format: <hex-size>\r\n<data>\r\n
+    char[18] hexBuf = void; // max 16 hex digits + \r\n
+    int pos = 16;
+    size_t n = data.length;
+    if (n == 0) { hexBuf[--pos] = '0'; }
+    else while (n > 0) { hexBuf[--pos] = "0123456789abcdef"[n & 0xf]; n >>= 4; }
+    hexBuf[16] = '\r';
+    hexBuf[17] = '\n';
+    sendRaw(conn, cast(string) hexBuf[pos .. 18]);
+    sendRaw(conn, data);
+    sendRaw(conn, "\r\n");
 }
 
 void sendRaw(HttpConnState* conn, string data) nothrow @trusted

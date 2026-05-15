@@ -16,6 +16,8 @@ private __gshared JSHandle gRejectionHandler;
 private __gshared IJSEngine gRejectionEngine;
 private __gshared bool gHasRejectionHandler;
 
+private __gshared IJSEngine gExitEngine;
+
 bool hasUncaughtExceptionHandler() @trusted nothrow @nogc
 {
     return gHasUncaughtHandler;
@@ -56,6 +58,36 @@ bool invokeUnhandledRejectionHandler(IJSEngine engine, JSHandle reason, JSHandle
     catch (Throwable) { return false; }
 }
 
+void fireExitHandlers(int code) @trusted nothrow
+{
+    if (gExitEngine is null) return;
+    try
+    {
+        import std.conv : to;
+        auto result = gExitEngine.eval(
+            "typeof process!=='undefined'&&typeof process.emit==='function'&&process.emit('exit',"
+            ~ code.to!string ~ ")", "<exit>");
+        if (!result.isError)
+            gExitEngine.freeValue(result.value);
+    }
+    catch (Throwable) {}
+}
+
+void fireBeforeExitHandlers(int code) @trusted nothrow
+{
+    if (gExitEngine is null) return;
+    try
+    {
+        import std.conv : to;
+        auto result = gExitEngine.eval(
+            "typeof process!=='undefined'&&typeof process.emit==='function'&&process.emit('beforeExit',"
+            ~ code.to!string ~ ")", "<beforeExit>");
+        if (!result.isError)
+            gExitEngine.freeValue(result.value);
+    }
+    catch (Throwable) {}
+}
+
 // Store process start time for uptime()
 private __gshared long _processStartTimeTicks;
 private __gshared bool _startTimeInit = false;
@@ -86,6 +118,7 @@ private bool isattyFd(int fd) @trusted nothrow
 void installProcess(IJSEngine engine) @trusted
 {
     assert(engine !is null, "Null engine in installProcess");
+    gExitEngine = engine;
     ensureStartTime();
     auto state = cast(DunState*) engine.getContextOpaque();
     assert(state !is null, "Null DunState in installProcess");
@@ -415,6 +448,7 @@ JSHandle jsExit(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
     int code = 0;
     if (args.length >= 1 && engine.isNumber(args[0]))
         code = engine.extractInt(args[0]);
+    fireExitHandlers(code);
     import core.stdc.stdlib : exit;
     exit(code);
     assert(0);
