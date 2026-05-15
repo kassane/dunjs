@@ -429,7 +429,7 @@ dub test -c unittest    # All unit tests
 | V8 TMP bridge | `source/dun/engine/v8/cppbindings.d` | compile-time | V8TypeName coverage, tag->name mapping |
 | JSC TMP bridge | `source/dun/engine/jsc/cppbindings.d` | compile-time | JSCTypeName coverage, kJSType* alignment |
 
-### Integration Tests (89 tests, 452 npm compat checks)
+### Integration Tests (103 tests, 474 npm compat checks)
 
 ```sh
 # Run against a specific backend
@@ -467,6 +467,7 @@ dub build -c v8  && BACKEND=v8  ./tests/integration/run.sh
 | Util | `util_enhanced` | 27 checks: types (20+), debuglog, _extend, format, inherits, promisify, callbackify |
 | Readline | `readline_api` | 18 checks: createInterface, events, write/line, punycode, domain, diagnostics_channel |
 | Env Proxy | `process_env_proxy` | 8 checks: set/delete/in/keys, NODE_ENV pattern |
+| Env Native | `process_env_native` | 11 checks: setenv/unsetenv, child process inheritance, numeric coercion |
 | npm compat | `npm_compat_modules` | 452 checks: 35 modules, key API surface, globals, crypto (25+ APIs), stream, events, util, http/https, tls/dns/dgram, os, perf_hooks, ES2023+, Symbol well-known |
 | UDP/dgram | `dgram_api` | 25 checks: createSocket, bind, address, setBroadcast, setTTL, on/close, Socket alias |
 | spawn/execFile | `spawn_api` | 19 checks: spawn pid/stdout/stderr/stdin/on/kill, execFile with callback |
@@ -479,10 +480,10 @@ dub build -c v8  && BACKEND=v8  ./tests/integration/run.sh
 | Express compat | `express_compat` | 102 checks: EventEmitter, streams, Buffer, URL, path, crypto, querystring, http, assert, os, util |
 | Bundler compat | `bundler_compat` | 91 checks: fs ops, path resolution, crypto hashing, Map/Set, RegExp, string ops, Promise, modules |
 | Crypto keygen | `crypto_keygen` | 12 checks: generateKeyPairSync RSA/EC, PEM output, sign+verify round-trip, DiffieHellman |
-| WebCrypto | `webcrypto_api` | 37 checks: subtle.digest (SHA-1/256/384/512), importKey, sign/verify (HMAC), encrypt/decrypt (AES-GCM, AES-CBC) |
+| WebCrypto | `webcrypto_api` | 55 checks: subtle.digest (SHA-1/256/384/512), importKey, sign/verify (HMAC), encrypt/decrypt (AES-GCM/CBC), generateKey (AES/HMAC), exportKey, deriveBits (PBKDF2/HKDF) |
 | .env loading | `dotenv_loading` | 3 checks: parse KEY=VALUE/quoted, no-override existing env, missing .env OK |
 
-Backend test scores: **QuickJS 91/91**, **JSC 90/90**, **V8 90/90** (full parity across all 3 backends).
+Backend test scores: **QuickJS 103/103**, **JSC 103/103**, **V8 103/103** (full parity across all 3 backends).
 
 Test pattern: fixtures in `tests/integration/fixtures/*.{js,mjs,ts}`, expected stdout in `tests/integration/expected/*.txt`.
 
@@ -800,7 +801,7 @@ Benchmark impact (25 benchmarks, feature_bench.js):
 | 18a | .env auto-loading | Bun-compatible .env parsing at startup (KEY=VALUE, quotes, no-override) | **Done** |
 | 18b | --watch mode | `--watch` / `-w` flag: poll mtime, restart script on file changes | **Done** |
 | 18c | CompressionStream | Web Compression API: CompressionStream/DecompressionStream (gzip/deflate/deflate-raw) | **Done** |
-| 18d | WebCrypto subtle | Native crypto.subtle via OpenSSL: digest, importKey, sign/verify (HMAC), encrypt/decrypt (AES-GCM/CBC) | **Done** |
+| 18d | WebCrypto subtle | Native crypto.subtle via OpenSSL: digest, importKey, sign/verify (HMAC), encrypt/decrypt (AES-GCM/CBC), generateKey, exportKey, deriveBits (PBKDF2/HKDF), deriveKey | **Done** |
 | 18e | TIGER_STYLE audit | Precondition assertions in 45+ @trusted functions across all builtins and engine backends | **Done** |
 | 18f | DIP1000 scope | `scope` annotations on 8 IJSEngine interface methods + all backend implementations | **Done** |
 | 19a | ESM imports | Bare module imports (`fs`, `path`, `crypto`), `node:` prefix, `.mjs` files, JSON import attributes | **Done** |
@@ -812,3 +813,8 @@ Benchmark impact (25 benchmarks, feature_bench.js):
 | 19g | HTTP headers | Multi-value header support (Set-Cookie), array in setHeader/writeHead, per-value emission | **Done** |
 | 19h | JSHandle safety | Fixed 38 dupValue/freeValue bugs across 9 builtin modules (use-after-free on QuickJS) | **Done** |
 | 19i | timingSafeEqual | Buffer and Uint8Array input support via extractArgBytes helper | **Done** |
+| 20a | Native setenv | process.env set/delete calls POSIX setenv/unsetenv, child processes inherit | **Done** |
+| 20b | WebCrypto keygen | subtle.generateKey (AES/HMAC), exportKey (raw), deriveBits (PBKDF2/HKDF), deriveKey | **Done** |
+| 20c | Expanded ciphers | 22 cipher algorithms: AES-CTR/ECB/OFB/CFB, AES-192-GCM, DES-EDE3, ChaCha20-Poly1305 | **Done** |
+| 20d | stream.compose | Pipe-based stream composition (was throwing "not yet implemented") | **Done** |
+| 20e | GC safety fix | Fix double-free in process.env (QuickJS setProperty consumes refcount) | **Done** |
