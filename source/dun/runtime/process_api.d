@@ -134,8 +134,19 @@ void installProcess(IJSEngine engine) @trusted
         state.permissions.check(Permission.env);
     if (envAllowed)
     {
+        auto setEnvFn = engine.newFunction(&jsNativeSetEnv, "__nativeSetEnv", 2);
+        auto unsetEnvFn = engine.newFunction(&jsNativeUnsetEnv, "__nativeUnsetEnv", 1);
+        engine.setProperty(global, "__nativeSetEnv", setEnvFn);
+        engine.setProperty(global, "__nativeUnsetEnv", unsetEnvFn);
+        engine.freeValue(setEnvFn);
+        engine.freeValue(unsetEnvFn);
+
         auto envSrc = `(function() {
   var _env = {};
+  var _setEnv = globalThis.__nativeSetEnv;
+  var _unsetEnv = globalThis.__nativeUnsetEnv;
+  delete globalThis.__nativeSetEnv;
+  delete globalThis.__nativeUnsetEnv;
   return new Proxy(_env, {
     get: function(target, prop) {
       if (typeof prop !== 'string') return undefined;
@@ -143,10 +154,12 @@ void installProcess(IJSEngine engine) @trusted
     },
     set: function(target, prop, value) {
       target[prop] = String(value);
+      if (_setEnv) _setEnv(prop, String(value));
       return true;
     },
     deleteProperty: function(target, prop) {
       delete target[prop];
+      if (_unsetEnv) _unsetEnv(prop);
       return true;
     },
     has: function(target, prop) {
@@ -992,6 +1005,39 @@ JSHandle jsProcessResourceUsage(void* ctx, JSHandle thisVal, scope JSHandle[] ar
         engine.setProperty(obj, "involuntaryContextSwitches", engine.newFloat(0));
     }
     return obj;
+}
+
+JSHandle jsNativeSetEnv(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
+{
+    assert(ctx !is null, "Null ctx in jsNativeSetEnv");
+    auto state = cast(DunState*) ctx;
+    auto engine = state.engine;
+    if (args.length < 2) return engine.newUndefined();
+    version (Posix)
+    {
+        import core.sys.posix.stdlib : setenv;
+        import std.string : toStringz;
+        auto key = engine.extractString(args[0]);
+        auto val = engine.extractString(args[1]);
+        setenv(toStringz(key), toStringz(val), 1);
+    }
+    return engine.newUndefined();
+}
+
+JSHandle jsNativeUnsetEnv(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
+{
+    assert(ctx !is null, "Null ctx in jsNativeUnsetEnv");
+    auto state = cast(DunState*) ctx;
+    auto engine = state.engine;
+    if (args.length < 1) return engine.newUndefined();
+    version (Posix)
+    {
+        import core.sys.posix.stdlib : unsetenv;
+        import std.string : toStringz;
+        auto key = engine.extractString(args[0]);
+        unsetenv(toStringz(key));
+    }
+    return engine.newUndefined();
 }
 
 JSHandle jsStdinRead(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted

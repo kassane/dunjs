@@ -1,0 +1,14 @@
+PASS: set env var
+PASS: overwrite env var
+PASS: delete env var
+PASS: multiple vars A
+PASS: multiple vars B
+PASS: numeric coercion
+PASS: in operator true
+PASS: in operator false after delete
+PASS: Object.keys includes var
+PASS: child process inherits env
+PASS: child process sees deleted env
+---
+Total: 11/11 passed
+ALL CHECKS PASSED
