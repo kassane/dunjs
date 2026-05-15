@@ -98,6 +98,17 @@ CliConfig parseArgs(string[] args) @safe
             }
             return config;
         }
+        else if (args[i] == "-e" || args[i] == "--eval")
+        {
+            config.command = Command.eval_;
+            i++;
+            if (i < args.length)
+            {
+                config.evalSource = args[i];
+                i++;
+            }
+            break;
+        }
         else if (isKnownFlag(args[i]))
         {
             break; // Permission/runtime flags handled after command detection
@@ -111,12 +122,17 @@ CliConfig parseArgs(string[] args) @safe
 
     if (i >= args.length)
     {
-        config.command = Command.repl;
+        if (config.command == Command.help)
+            config.command = Command.repl;
         return config;
     }
 
-    // Parse command
-    if (args[i] == "run")
+    // Parse command keyword (skip if already determined by pre-scan flags like -e)
+    if (config.command == Command.eval_)
+    {
+        // Already set by -e/--eval; skip to flag parsing
+    }
+    else if (args[i] == "run")
     {
         config.command = Command.run;
         i++;
