@@ -76,7 +76,7 @@ echo "$repl_out" | grep -q 'ReferenceError' || { echo "FAIL repl_error"; repl_fa
 
 # Test 3: Multi-line input with bracket matching
 repl_out=$(printf 'let obj = {\na: 1,\nb: 2\n}\nobj\n.exit\n' | "$DUN" repl 2>/dev/null || true)
-echo "$repl_out" | grep -q '"a": 1' || { echo "FAIL repl_multiline"; repl_fails=1; }
+echo "$repl_out" | grep -q 'a: 1' || { echo "FAIL repl_multiline"; repl_fails=1; }
 
 # Test 4: .help shows commands
 repl_out=$(printf '.help\n.exit\n' | "$DUN" repl 2>/dev/null || true)
@@ -91,7 +91,7 @@ rm -f /tmp/dun_repl_test_load.js /tmp/dun_repl_test_save.txt
 # Test 6: --eval-file flag
 echo 'const PRELOADED = "yes";' > /tmp/dun_repl_test_eval.js
 repl_out=$(printf 'PRELOADED\n.exit\n' | "$DUN" repl --eval-file=/tmp/dun_repl_test_eval.js 2>/dev/null || true)
-echo "$repl_out" | grep -q '"yes"' || { echo "FAIL repl_eval_file"; repl_fails=1; }
+echo "$repl_out" | grep -q "'yes'" || { echo "FAIL repl_eval_file"; repl_fails=1; }
 rm -f /tmp/dun_repl_test_eval.js
 
 # Test 7: .break cancels incomplete input
