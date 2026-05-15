@@ -638,6 +638,14 @@ JSHandle jsBufferConcat(void* ctx, JSHandle thisVal, scope JSHandle[] args) @tru
         }
     }
 
+    // Apply totalLength parameter if provided
+    if (args.length >= 2 && engine.isNumber(args[1]))
+    {
+        int requestedLen = engine.extractInt(args[1]);
+        if (requestedLen >= 0)
+            totalLen = cast(size_t) requestedLen;
+    }
+
     // Create result typed array directly and memcpy segments into it
     ensureBufferFnsCached(engine);
     auto u8 = engine.newUint8ArrayZeroed(totalLen);
@@ -645,10 +653,13 @@ JSHandle jsBufferConcat(void* ctx, JSHandle thisVal, scope JSHandle[] args) @tru
     size_t pos = 0;
     for (int i = 0; i < count; i++)
     {
-        if (slices[i] !is null && slices[i].length > 0 && destBytes !is null)
+        if (slices[i] !is null && slices[i].length > 0 && destBytes !is null && pos < totalLen)
         {
-            memcpy(destBytes.ptr + pos, slices[i].ptr, slices[i].length);
-            pos += slices[i].length;
+            size_t copyLen = slices[i].length;
+            if (pos + copyLen > totalLen)
+                copyLen = totalLen - pos;
+            memcpy(destBytes.ptr + pos, slices[i].ptr, copyLen);
+            pos += copyLen;
         }
         engine.freeValue(elemHandles[i]);
     }
@@ -991,7 +1002,11 @@ JSHandle jsBufferIsEncoding(void* ctx, JSHandle thisVal, scope JSHandle[] args) 
     assert(state.engine !is null, "Null engine in jsBufferIsEncoding");
     auto engine = state.engine;
     if (args.length < 1 || !engine.isString(args[0])) return engine.newBool(false);
-    auto enc = engine.extractString(args[0]);
+    import std.uni : toLower;
+    import std.conv : to;
+    string enc;
+    try { enc = engine.extractString(args[0]).to!string.toLower; }
+    catch (Exception) { return engine.newBool(false); }
     if (enc == "utf8" || enc == "utf-8" || enc == "ascii" || enc == "latin1" ||
         enc == "binary" || enc == "hex" || enc == "base64" || enc == "base64url" ||
         enc == "ucs2" || enc == "ucs-2" || enc == "utf16le" || enc == "utf-16le")
