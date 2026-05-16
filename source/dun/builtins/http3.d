@@ -2,6 +2,7 @@ module dun.builtins.http3;
 
 import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
 import dun.runtime.globals : DunState;
+import dun.security.permissions : Permission;
 
 /// HTTP/3 constants (RFC 9114)
 enum H3_DEFAULT_MAX_HEADER_LIST_SIZE = 65_536;
@@ -246,8 +247,87 @@ JSHandle jsH3ServerListen(void* ctx, JSHandle thisVal, scope JSHandle[] args) @t
     auto state = cast(DunState*) ctx;
     assert(state.engine !is null);
     auto engine = state.engine;
-    // TODO: bind UDP socket, init lsquic engine, start serving
-    return engine.newUndefined();
+
+    int port = 0;
+    string host = "0.0.0.0";
+    if (args.length >= 1 && engine.isNumber(args[0]))
+        port = engine.extractInt(args[0]);
+    if (args.length >= 2 && engine.isString(args[1]))
+        host = engine.extractString(args[1]);
+
+    if (!state.permissions.check(Permission.net, host))
+        return engine.throwTypeError("http3.listen: requires --allow-net");
+
+    version (Posix)
+    {
+        // Bind a UDP socket on the requested port and store the fd on
+        // the server object. Real H3 multiplexing still needs lsquic
+        // wiring (the constants + varint codec are already there from
+        // earlier work) but having a real socket bound means the
+        // 'listening' event fires correctly and the port is reachable
+        // with QUIC probe traffic. Full request handling is incremental.
+        import core.sys.posix.sys.socket : socket, bind, AF_INET, SOCK_DGRAM, sockaddr;
+        import core.sys.posix.netinet.in_ : sockaddr_in, IPPROTO_UDP, htons, INADDR_ANY;
+        import core.sys.posix.arpa.inet : inet_pton, AF_INET;
+        import core.sys.posix.unistd : close;
+        import core.stdc.string : memset;
+        import std.string : toStringz;
+
+        int fd = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+        if (fd < 0)
+            return engine.throwTypeError("http3.listen: socket() failed");
+
+        sockaddr_in addr;
+        memset(&addr, 0, sockaddr_in.sizeof);
+        addr.sin_family = AF_INET;
+        addr.sin_port = htons(cast(ushort) port);
+        if (host == "0.0.0.0" || host == "*")
+            addr.sin_addr.s_addr = INADDR_ANY;
+        else
+        {
+            if (inet_pton(AF_INET, host.toStringz, &addr.sin_addr) != 1)
+            {
+                close(fd);
+                return engine.throwTypeError("http3.listen: invalid host '" ~ host ~ "'");
+            }
+        }
+
+        if (bind(fd, cast(sockaddr*) &addr, sockaddr_in.sizeof) < 0)
+        {
+            close(fd);
+            return engine.throwTypeError("http3.listen: bind failed");
+        }
+
+        // Recover the bound port (for port == 0 case).
+        import core.sys.posix.sys.socket : getsockname, socklen_t;
+        sockaddr_in actual;
+        socklen_t actualLen = sockaddr_in.sizeof;
+        if (getsockname(fd, cast(sockaddr*) &actual, &actualLen) == 0)
+        {
+            ushort actualPort;
+            actualPort = cast(ushort)((cast(ubyte*) &actual.sin_port)[0] << 8 | (cast(ubyte*) &actual.sin_port)[1]);
+            port = actualPort;
+        }
+
+        engine.setProperty(thisVal, "fd", engine.newInt(fd));
+        engine.setProperty(thisVal, "address", engine.newString(host));
+        engine.setProperty(thisVal, "port", engine.newInt(port));
+        engine.setProperty(thisVal, "listening", engine.newBool(true));
+
+        // Fire 'listening' callback if one was registered via .on().
+        auto cb = engine.getProperty(thisVal, "__listenCb");
+        if (engine.isFunction(cb))
+        {
+            JSHandle[] emptyArgs;
+            auto undef = engine.newUndefined();
+            auto rv = engine.callFunction(cb, undef, emptyArgs);
+            engine.freeValue(rv);
+            engine.freeValue(undef);
+        }
+        engine.freeValue(cb);
+    }
+
+    return engine.dupValue(thisVal);
 }
 
 JSHandle jsH3ServerClose(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
