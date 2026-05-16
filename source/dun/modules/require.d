@@ -425,6 +425,21 @@ JSHandle jsRequire(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
                 source ~= "\n//# sourceMappingURL=data:application/json;base64,"
                     ~ cast(string) encoded;
             }
+
+            // .ts files can still be ESM (top-level import/export). The
+            // CJS require() path needs them transpiled to CJS shims or
+            // JSC/V8's parser will fail on the `import` keyword. The
+            // stripper has just finished, so the source is now pure JS
+            // (modulo the import/export statements transpileESM rewrites).
+            import dun.modules.esm_shim : transpileESM;
+            import std.algorithm : canFind;
+            if (source.canFind("\nimport ") || source.canFind("\nexport ")
+                || (source.length >= 7 && source[0 .. 7] == "import ")
+                || (source.length >= 7 && source[0 .. 7] == "export "))
+            {
+                source = transpileESM(source, resolved);
+                esmTranspiled = true;
+            }
         }
         else if (resolved.endsWith(".mjs") || resolved.endsWith(".mts"))
         {
@@ -476,19 +491,33 @@ JSHandle jsRequire(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
         string wrapped;
         if (esmTranspiled)
         {
-            // ESM-transpiled: don't pass require as parameter (avoids conflict
-            // with `const require = createRequire(...)` in transpiled source).
-            // But globalThis.require used by preamble needs module context too.
+            // ESM-transpiled: pass module/exports as parameters so the
+            // transpiled body can do `module.exports = ...`. Skip
+            // __filename/__dirname injection if the source redeclares
+            // them — common in Deno-ported scripts that compute them
+            // from `import.meta.url`. JSC strict mode would error on
+            // `const X` shadowing a parameter `X`.
+            import std.algorithm : canFind;
+            bool srcDeclaresDirname = source.canFind("__dirname") &&
+                (source.canFind("const __dirname") || source.canFind("let __dirname")
+                 || source.canFind("var __dirname"));
+            bool srcDeclaresFilename = source.canFind("__filename") &&
+                (source.canFind("const __filename") || source.canFind("let __filename")
+                 || source.canFind("var __filename"));
+            string dirnameInject = srcDeclaresDirname ? "" :
+                "var __dirname = \"" ~ escDir ~ "\";\n";
+            string filenameInject = srcDeclaresFilename ? "" :
+                "var __filename = \"" ~ escPath ~ "\";\n";
             wrapped =
                 "(function() {\n"
                 ~ "var __m = __dunCjsCache__[\"" ~ escPath ~ "\"];\n"
                 ~ "__dunCjsStack__.push(\"" ~ escPath ~ "\");\n"
                 ~ "try {\n"
-                ~ "(function(module, exports, __filename, __dirname) {\n"
+                ~ "(function(module, exports) {\n"
+                ~ filenameInject
+                ~ dirnameInject
                 ~ source ~ "\n"
-                ~ "})(__m, __m.exports, \""
-                ~ escPath ~ "\", \""
-                ~ escDir ~ "\");\n"
+                ~ "})(__m, __m.exports);\n"
                 ~ "} finally { __dunCjsStack__.pop(); }\n"
                 ~ "return __m.exports;\n"
                 ~ "})()";

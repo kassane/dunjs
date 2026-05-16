@@ -183,7 +183,9 @@ int runScript(T)(T config)
 
     // Inject __filename / __dirname and seed the CJS require stack so that
     // relative require() calls in the entry script resolve against the
-    // script's own directory (not cwd).
+    // script's own directory (not cwd). Also patch Intl.Collator on V8
+    // here because V8 lazy-loads Intl — running this from installIntl
+    // is too early (Intl isn't materialized yet).
     {
         import std.path : absolutePath, dirName;
         import std.string : replace;
@@ -193,6 +195,11 @@ int runScript(T)(T config)
         auto edir = dir.replace(`\`, `\\`).replace(`"`, `\"`);
         string initCode = `var __filename="` ~ eabs ~ `";var __dirname="` ~ edir ~ `";`;
         initCode ~= `__dunCjsStack__.push("` ~ eabs ~ `");`;
+        version (EngineV8)
+        {
+            import dun.runtime.intl : intlCollatorBindCompareSource;
+            initCode ~= intlCollatorBindCompareSource();
+        }
         auto initRes = engine.eval(initCode, "<init>");
         if (!initRes.isError)
             engine.freeValue(initRes.value);

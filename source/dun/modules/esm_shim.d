@@ -10,6 +10,10 @@ struct ExportEntry
 
 string transpileESM(string source, string filename) @safe pure
 {
+    // Shebang line — `#!/usr/bin/env -S deno run --allow-all` style.
+    // Comment it out so JSC/V8 don't choke on `#`.
+    if (source.length >= 2 && source[0] == '#' && source[1] == '!')
+        source = "//" ~ source[2 .. $];
 
     Appender!(char[]) result;
     result.reserve(source.length);

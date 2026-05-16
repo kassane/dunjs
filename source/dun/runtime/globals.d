@@ -421,7 +421,8 @@ version (EngineQuickJS)
             // the global key prefix.
             string globalKey = *p;
             string moduleName = "";
-            if (globalKey.length > 12 && globalKey[0 .. 11] == "__dun_cjs_"
+            // globalKey looks like "__dun_cjs_<name>__".
+            if (globalKey.length > 12 && globalKey[0 .. 10] == "__dun_cjs_"
                 && globalKey[$ - 2 .. $] == "__")
                 moduleName = globalKey[10 .. $ - 2];
             foreach (name; namedExportsFor(moduleName))
