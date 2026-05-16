@@ -16,11 +16,12 @@ enum Command
     init_,
     fmt,
     clean,
+    bundle,
     version_,
     help,
 }
 
-static assert(__traits(allMembers, Command).length == 12,
+static assert(__traits(allMembers, Command).length == 13,
     "Command enum member count changed -- update parseArgs and main dispatch");
 
 /// Parsed CLI configuration.
@@ -46,6 +47,9 @@ struct CliConfig
     string testFilter;
     string initName;
     string[] fmtFiles;
+    string[] bundleEntries;
+    string bundleOutDir;
+    bool bundleMinify;
     bool inspect;
     bool inspectBrk;
     ushort inspectPort = 9229;
@@ -241,6 +245,35 @@ CliConfig parseArgs(string[] args) @safe
         {
             config.fmtFiles ~= args[i];
             i++;
+        }
+        return config;
+    }
+    else if (args[i] == "bundle" || args[i] == "build")
+    {
+        config.command = Command.bundle;
+        i++;
+        while (i < args.length)
+        {
+            if (args[i] == "--outdir" && i + 1 < args.length)
+            {
+                config.bundleOutDir = args[i + 1];
+                i += 2;
+            }
+            else if (args[i] == "--minify")
+            {
+                config.bundleMinify = true;
+                i++;
+            }
+            else if (!args[i].startsWith("-"))
+            {
+                config.bundleEntries ~= args[i];
+                i++;
+            }
+            else
+            {
+                config.errorMessage = "unknown flag '" ~ args[i] ~ "' for 'bundle'";
+                return config;
+            }
         }
         return config;
     }
@@ -455,6 +488,7 @@ CliConfig parseArgs(string[] args) @safe
                 case Command.repl: cmdName = "repl"; break;
                 case Command.run: case Command.install: case Command.test_:
                 case Command.bench: case Command.init_: case Command.fmt:
+                case Command.bundle:
                     break;
             }
             if (cmdName.length > 0)

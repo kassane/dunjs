@@ -141,8 +141,66 @@ bool installPackage(string spec, AuditMode auditMode = AuditMode.warn) @trusted
     runLifecycleScripts(nmDir, name);
     createBinLinks(nmDir, name);
 
+    // Record the install in dun.lock + package-lock.json so downstream
+    // tooling (CI cache restorers, IDE plugins, other runtimes that
+    // honor those formats) can reproduce the resolution. Best-effort —
+    // a failure to write the lockfile doesn't fail the install.
+    try { recordLockEntry(name, version_, tarballUrl); } catch (Exception) {}
+
     writefln("installed %s@%s", name, version_);
     return true;
+}
+
+/// Append `{ name, version, resolved }` to dun.lock + package-lock.json.
+/// Both files are written in node-compatible npm-style format so other
+/// tools can consume them.
+private void recordLockEntry(string name, string version_, string resolved) @trusted
+{
+    import std.file : exists, readText, write;
+    import std.json : parseJSON, JSONValue, JSONType;
+    import std.path : buildPath;
+
+    // dun.lock: { lockfileVersion: 1, packages: { "node_modules/<name>": {...} } }
+    string dunLockPath = "dun.lock";
+    JSONValue lock;
+    if (exists(dunLockPath))
+    {
+        try { lock = parseJSON(readText(dunLockPath)); }
+        catch (Exception) { lock = JSONValue.emptyObject; }
+    }
+    else lock = JSONValue.emptyObject;
+
+    if ("lockfileVersion" !in lock) lock["lockfileVersion"] = 1;
+    if ("packages" !in lock) lock["packages"] = JSONValue.emptyObject;
+
+    auto pkgKey = "node_modules/" ~ name;
+    JSONValue entry = JSONValue.emptyObject;
+    entry["version"] = version_;
+    entry["resolved"] = resolved;
+    lock["packages"][pkgKey] = entry;
+
+    try { write(dunLockPath, lock.toPrettyString); } catch (Exception) {}
+
+    // package-lock.json (npm v3 format) — same data, different schema.
+    string npmLockPath = "package-lock.json";
+    JSONValue npmLock;
+    if (exists(npmLockPath))
+    {
+        try { npmLock = parseJSON(readText(npmLockPath)); }
+        catch (Exception) { npmLock = JSONValue.emptyObject; }
+    }
+    else npmLock = JSONValue.emptyObject;
+
+    if ("name" !in npmLock) npmLock["name"] = "dun-project";
+    if ("lockfileVersion" !in npmLock) npmLock["lockfileVersion"] = 3;
+    if ("packages" !in npmLock) npmLock["packages"] = JSONValue.emptyObject;
+
+    JSONValue npmEntry = JSONValue.emptyObject;
+    npmEntry["version"] = version_;
+    npmEntry["resolved"] = resolved;
+    npmLock["packages"][pkgKey] = npmEntry;
+
+    try { write(npmLockPath, npmLock.toPrettyString); } catch (Exception) {}
 }
 
 /// Run a named script from the project's package.json.

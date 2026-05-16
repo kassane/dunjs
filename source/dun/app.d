@@ -47,6 +47,8 @@ int main(string[] args)
             return runFmt(config);
         case Command.clean:
             return runClean(config);
+        case Command.bundle:
+            return runBundle(config);
         case Command.version_:
             printVersion();
             return 0;
@@ -471,6 +473,7 @@ void printUsage()
         ~ "  audit            Scan node_modules/ for known CVEs\n"
         ~ "  init [name]      Initialize a new project\n"
         ~ "  fmt [files]      Format JavaScript/TypeScript files\n"
+        ~ "  bundle <entry>   Bundle JS/TS modules (--outdir DIR)\n"
         ~ "  clean            Remove cache and build artifacts\n"
         ~ "  version          Print version\n"
         ~ "  help             Show this help\n\n"
@@ -902,6 +905,71 @@ int runFmt(T)(T config)
         }
     }
     writeln(formatted, " file", formatted != 1 ? "s" : "", " formatted");
+    return 0;
+}
+
+/// Bundle one or more entry files via Bun.build. Output written to
+/// --outdir (defaults to ./dist).
+int runBundle(T)(T config)
+{
+    import dun.engine.iface : createEngine, EngineConfig;
+    import dun.runtime.globals : DunState, installGlobals;
+    import dun.security.permissions : Permission;
+    import std.array : join;
+    import std.string : replace;
+
+    if (config.bundleEntries.length == 0)
+    {
+        writeStderr("usage: dun bundle <entry...> [--outdir DIR] [--minify]\n");
+        return 1;
+    }
+
+    auto engine = createEngine();
+    engine.initialize(EngineConfig(config.memoryLimit, config.stackSize));
+
+    // `dun bundle` is a build operation — grant read+write so the
+    // command doesn't need an explicit --allow-* the way `dun run` does.
+    config.permissions.grant(Permission.read);
+    config.permissions.grant(Permission.write);
+
+    DunState state;
+    state.engine = engine;
+    state.permissions = &config.permissions;
+    state.scriptArgs = ["dun", "bundle"];
+    state.verbose = config.verbose;
+    state.eventLoop.initialize(engine);
+    installGlobals(engine, &state);
+
+    string outDir = config.bundleOutDir.length > 0 ? config.bundleOutDir : "./dist";
+
+    // Build JS source that invokes Bun.build with the requested entries.
+    string entriesJs = "[";
+    foreach (i, e; config.bundleEntries)
+    {
+        if (i > 0) entriesJs ~= ",";
+        entriesJs ~= "\"" ~ e.replace(`\`, `\\`).replace(`"`, `\"`) ~ "\"";
+    }
+    entriesJs ~= "]";
+    string src =
+        "Bun.build({ entrypoints: " ~ entriesJs ~
+        ", outdir: \"" ~ outDir.replace(`\`, `\\`).replace(`"`, `\"`) ~ "\"" ~
+        " }).then(function(r) {" ~
+        "  if (!r.success) { console.error('bundle failed'); process.exit(1); }" ~
+        "  console.log('bundle ok →', r.outputs[0].path, '(' + r.outputs[0].size + ' bytes)');" ~
+        "}).catch(function(e) { console.error(String(e)); process.exit(1); });";
+
+    auto result = engine.eval(src, "<bundle>");
+    if (result.isError)
+    {
+        writeStderr("bundle: ");
+        writeStderr(result.errorMessage);
+        writeStderr("\n");
+        engine.shutdown();
+        return 1;
+    }
+    engine.freeValue(result.value);
+    state.eventLoop.run();
+    engine.shutdown();
     return 0;
 }
 
