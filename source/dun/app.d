@@ -11,6 +11,15 @@ int main(string[] args)
     version (Posix)
         loadDotEnv();
 
+    // Fire any pending N-API finalizers on the way out, regardless of
+    // which return path we take below. Mirrors Node.js's behavior of
+    // running cleanup hooks on process exit (sharp/bcrypt rely on it).
+    scope(exit)
+    {
+        import dun.napi.napi : napiFireFinalizers;
+        napiFireFinalizers();
+    }
+
     import dun.cli.args : parseArgs, Command;
 
     auto config = parseArgs(args);
@@ -885,24 +894,38 @@ int runFmt(T)(T config)
     }
 
     int formatted = 0;
+    int needFormat = 0;
     foreach (file; files)
     {
         try
         {
             import std.file : readText, write;
             auto content = readText(file);
-            auto result = basicFormat(content);
+            auto result = basicFormat(content, config.fmtQuotes);
             if (result != content)
             {
-                write(file, result);
-                writeln("formatted: ", file);
-                formatted++;
+                if (config.fmtCheck)
+                {
+                    writeln("would reformat: ", file);
+                    needFormat++;
+                }
+                else
+                {
+                    write(file, result);
+                    writeln("formatted: ", file);
+                    formatted++;
+                }
             }
         }
         catch (Exception e)
         {
             writeStderr("Error formatting " ~ file ~ ": " ~ e.msg ~ "\n");
         }
+    }
+    if (config.fmtCheck)
+    {
+        writeln(needFormat, " file", needFormat != 1 ? "s" : "", " need formatting");
+        return needFormat > 0 ? 1 : 0;
     }
     writeln(formatted, " file", formatted != 1 ? "s" : "", " formatted");
     return 0;
@@ -1046,8 +1069,97 @@ bool matchGlob(string name, string pattern) @safe pure nothrow
     return name == pattern;
 }
 
-string basicFormat(string source) @safe pure
+/// Rewrite string literals to the requested quote style without
+/// touching strings that contain the target quote char (would need
+/// escape-aware rewriting that's beyond the token-level formatter).
+private string normalizeQuotes(string source, string style) @safe pure
 {
+    if (style != "single" && style != "double") return source;
+    immutable target = style == "single" ? '\'' : '"';
+    immutable other  = style == "single" ? '"'  : '\'';
+    import std.array : appender;
+    auto buf = appender!string;
+    buf.reserve(source.length);
+    size_t i = 0;
+    bool inLine = false, inBlock = false;
+    while (i < source.length)
+    {
+        char c = source[i];
+        if (inLine) { buf.put(c); if (c == '\n') inLine = false; i++; continue; }
+        if (inBlock) {
+            buf.put(c);
+            if (c == '*' && i + 1 < source.length && source[i + 1] == '/') {
+                buf.put('/'); i += 2; inBlock = false; continue;
+            }
+            i++; continue;
+        }
+        if (c == '/' && i + 1 < source.length) {
+            if (source[i + 1] == '/') { inLine = true; buf.put("//"); i += 2; continue; }
+            if (source[i + 1] == '*') { inBlock = true; buf.put("/*"); i += 2; continue; }
+        }
+        if (c == '`') {
+            // Template literal — copy as-is including `${...}` (rewriting
+            // quotes inside is too risky without parsing).
+            buf.put(c); i++;
+            while (i < source.length && source[i] != '`') {
+                if (source[i] == '\\' && i + 1 < source.length) {
+                    buf.put(source[i .. i + 2]); i += 2; continue;
+                }
+                buf.put(source[i]); i++;
+            }
+            if (i < source.length) { buf.put('`'); i++; }
+            continue;
+        }
+        if (c == other) {
+            // Candidate for rewrite. Read body, abort if it contains
+            // an unescaped `target` char.
+            size_t start = i + 1;
+            size_t end = start;
+            bool aborted = false;
+            while (end < source.length && source[end] != c) {
+                if (source[end] == '\\' && end + 1 < source.length) { end += 2; continue; }
+                if (source[end] == target) { aborted = true; break; }
+                if (source[end] == '\n') { aborted = true; break; }
+                end++;
+            }
+            if (!aborted && end < source.length) {
+                buf.put(target);
+                buf.put(source[start .. end]);
+                buf.put(target);
+                i = end + 1;
+                continue;
+            }
+            // Couldn't safely rewrite -- copy the original literal verbatim.
+            buf.put(c); i++;
+            while (i < source.length && source[i] != c) {
+                if (source[i] == '\\' && i + 1 < source.length) {
+                    buf.put(source[i .. i + 2]); i += 2; continue;
+                }
+                buf.put(source[i]); i++;
+            }
+            if (i < source.length) { buf.put(c); i++; }
+            continue;
+        }
+        if (c == target) {
+            // Already in target style -- skip past as a normal string.
+            buf.put(c); i++;
+            while (i < source.length && source[i] != c) {
+                if (source[i] == '\\' && i + 1 < source.length) {
+                    buf.put(source[i .. i + 2]); i += 2; continue;
+                }
+                buf.put(source[i]); i++;
+            }
+            if (i < source.length) { buf.put(c); i++; }
+            continue;
+        }
+        buf.put(c); i++;
+    }
+    return buf.data;
+}
+
+string basicFormat(string source, string quoteStyle = "") @safe pure
+{
+    if (quoteStyle.length > 0) source = normalizeQuotes(source, quoteStyle);
     // JS/TS formatter — conservative, string-aware.
     //
     // Per-line normalization:
@@ -1383,16 +1495,86 @@ bool isESM(string path, string source) @safe pure nothrow
     if (path.length >= 4 && (path[$ - 4 .. $] == ".cjs" || path[$ - 4 .. $] == ".cts"))
         return false;
 
-    // Content-based: scan for top-level import/export statements
-    for (size_t i = 0; i < source.length; i++)
+    // Content-based: top-level `import`, `export`, or `await` all
+    // imply ESM. (Top-level await only parses in module context, so
+    // the presence of it is also a tell -- scripts can use Promise
+    // chains instead.) `import`/`export` are line-start only;
+    // `await` can appear anywhere at top-level statement scope, so
+    // we track brace/paren/bracket depth to disqualify nested
+    // appearances.
+    bool atLineStart = true;
+    int braceD = 0, parenD = 0, bracketD = 0;
+    size_t i = 0;
+    while (i < source.length)
     {
-        if (i == 0 || source[i - 1] == '\n')
+        char c = source[i];
+        // Line / block comments and string / template literals -- skip.
+        if (c == '/' && i + 1 < source.length)
         {
-            if (source.length - i >= 7 && source[i .. i + 7] == "import ")
-                return true;
-            if (source.length - i >= 7 && source[i .. i + 7] == "export ")
-                return true;
+            if (source[i + 1] == '/')
+            {
+                while (i < source.length && source[i] != '\n') i++;
+                continue;
+            }
+            if (source[i + 1] == '*')
+            {
+                i += 2;
+                while (i + 1 < source.length && !(source[i] == '*' && source[i + 1] == '/')) i++;
+                if (i + 1 < source.length) i += 2;
+                continue;
+            }
         }
+        if (c == '\'' || c == '"')
+        {
+            char q = c; i++;
+            while (i < source.length && source[i] != q)
+            {
+                if (source[i] == '\\' && i + 1 < source.length) i += 2;
+                else i++;
+            }
+            if (i < source.length) i++;
+            continue;
+        }
+        if (c == '`')
+        {
+            i++;
+            while (i < source.length && source[i] != '`')
+            {
+                if (source[i] == '\\' && i + 1 < source.length) i += 2;
+                else i++;
+            }
+            if (i < source.length) i++;
+            continue;
+        }
+        if (c == '{') braceD++;
+        else if (c == '}') { if (braceD > 0) braceD--; }
+        else if (c == '(') parenD++;
+        else if (c == ')') { if (parenD > 0) parenD--; }
+        else if (c == '[') bracketD++;
+        else if (c == ']') { if (bracketD > 0) bracketD--; }
+        if (atLineStart)
+        {
+            if (source.length - i >= 7 && source[i .. i + 7] == "import ") return true;
+            if (source.length - i >= 7 && source[i .. i + 7] == "export ") return true;
+            // skip leading whitespace -- still at line start
+            if (c == ' ' || c == '\t') { i++; continue; }
+        }
+        // top-level await -- anywhere at depth-0 statement scope.
+        if (braceD == 0 && parenD == 0 && bracketD == 0
+            && source.length - i >= 6 && source[i .. i + 5] == "await"
+            && (source[i + 5] == ' ' || source[i + 5] == '\t'
+                || source[i + 5] == '\n' || source[i + 5] == '(')
+            && (i == 0 || !(((source[i - 1] >= 'a' && source[i - 1] <= 'z')
+                            || (source[i - 1] >= 'A' && source[i - 1] <= 'Z')
+                            || (source[i - 1] >= '0' && source[i - 1] <= '9')
+                            || source[i - 1] == '_' || source[i - 1] == '$'))))
+        {
+            // `function x() { await ... }` would have braceD > 0,
+            // so a depth-0 match is necessarily top-level.
+            return true;
+        }
+        atLineStart = (c == '\n');
+        i++;
     }
     return false;
 }

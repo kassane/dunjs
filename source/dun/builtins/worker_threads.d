@@ -11,12 +11,23 @@ void registerWorkerThreadsModule(IJSEngine engine) @trusted
 
     engine.setProperty(obj, "isMainThread", engine.newBool(true));
     engine.setProperty(obj, "threadId", engine.newInt(0));
-    engine.setProperty(obj, "Worker",
-        engine.newFunction(&jsWorkerThreadsWorker, "Worker", 1));
     engine.setProperty(obj, "parentPort", engine.newNull());
 
     auto global = engine.getGlobal();
     engine.setProperty(global, "__dun_cjs_worker_threads__", obj);
+
+    // Worker must be `new`-able. JS_NewCFunction makes a regular
+    // callable, not a constructor, so wrap in a JS class that
+    // delegates to the global `Worker(path)` factory installed by
+    // worker_api.d. Both `new Worker(p)` and `Worker(p)` then work.
+    auto wrapRes = engine.eval(
+        `globalThis.__dun_cjs_worker_threads__.Worker = `
+        ~ `class Worker { `
+        ~ `  constructor(p, opts) { return new globalThis.Worker(p, opts); } `
+        ~ `};`,
+        "<worker-threads-init>");
+    if (!wrapRes.isError) engine.freeValue(wrapRes.value);
+
     engine.freeValue(global);
 
     version (EngineQuickJS)

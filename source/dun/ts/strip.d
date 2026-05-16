@@ -52,6 +52,15 @@ string stripTypes(const(char)[] source) @trusted
     // on the heap because parenDepth can grow arbitrarily.
     int[] braceAtParenOpen;
     braceAtParenOpen.reserve(16);
+    // Stack of braceDepth values that opened a class body. Used to
+    // identify class fields (`name: type;`) which look like object
+    // properties otherwise. The top is the depth *inside* the body.
+    int[] classBraceStack;
+    classBraceStack.reserve(8);
+    // After `class X` / `class X extends Y` / `class X implements Z`,
+    // the next `{` opens a class body. We mark that the next-brace-open
+    // is a class so the `{` handler can push it.
+    bool nextBraceIsClass = false;
 
     while (pos < buf.length)
     {
@@ -92,8 +101,81 @@ string stripTypes(const(char)[] source) @trusted
                 braceAtParenOpen.length = braceAtParenOpen.length - 1;
             pos++; continue;
         }
-        if (c == '{') { braceDepth++; afterVarKw = false; pos++; continue; }
-        if (c == '}') { if (braceDepth > 0) braceDepth--; pos++; continue; }
+        if (c == '{') {
+            braceDepth++;
+            afterVarKw = false;
+            if (nextBraceIsClass)
+            {
+                classBraceStack ~= braceDepth;
+                nextBraceIsClass = false;
+            }
+            pos++; continue;
+        }
+        if (c == '}') {
+            if (classBraceStack.length > 0 && classBraceStack[$ - 1] == braceDepth)
+                classBraceStack.length = classBraceStack.length - 1;
+            if (braceDepth > 0) braceDepth--;
+            pos++; continue;
+        }
+
+        // --- generic call site / generic arrow `<T>(...)` ---
+        // The `<...>` looks like comparison to the JS parser. Detect by
+        // requiring that what follows the matching `>` is `(` (call /
+        // generic arrow), `` ` `` (tagged template), or `.<` (chained
+        // generic). Bail out as soon as we see a non-type character
+        // inside the angle brackets, so `a < b > c` stays untouched.
+        // Accepted prev contexts cover: call (ident/)/]), expression
+        // start (`(`, `=`, `,`, `:`, `?`, `&&`, `||`, `return`, etc.).
+        if (c == '<' && pos > 0)
+        {
+            auto prev = prevNonWS(buf, pos);
+            if (prev < buf.length && (isIdentChar(buf[prev])
+                    || buf[prev] == ')' || buf[prev] == ']'
+                    || buf[prev] == '(' || buf[prev] == ','
+                    || buf[prev] == '=' || buf[prev] == ':'
+                    || buf[prev] == '?' || buf[prev] == '>'
+                    || buf[prev] == '|' || buf[prev] == '&'))
+            {
+                size_t scan = pos + 1;
+                int ad = 1;  // angle depth
+                int bd = 0;  // brace depth inside the args
+                int pd = 0;  // paren depth inside the args
+                bool ok = true;
+                while (scan < buf.length && ad > 0)
+                {
+                    char sc = buf[scan];
+                    if (sc == '\'' || sc == '"') { scan = skipStringLit(buf, scan); continue; }
+                    if (sc == '`') { scan = skipTemplateLit(buf, scan); continue; }
+                    if (sc == '{') { bd++; scan++; continue; }
+                    if (sc == '}') { if (bd > 0) bd--; else { ok = false; break; } scan++; continue; }
+                    if (sc == '(') { pd++; scan++; continue; }
+                    if (sc == ')') { if (pd > 0) pd--; else { ok = false; break; } scan++; continue; }
+                    if (sc == '<') { ad++; scan++; continue; }
+                    if (sc == '>') { ad--; scan++; continue; }
+                    if (sc == ';' || sc == '\n') { ok = false; break; }
+                    // Disallow JS-only operators that wouldn't appear in a
+                    // type arg list. `|` and `&` are kept since they're
+                    // union / intersection separators.
+                    if ((sc == '+' || sc == '*' || sc == '/' || sc == '!')
+                        && bd == 0 && pd == 0) { ok = false; break; }
+                    if (sc == '=' && scan + 1 < buf.length && buf[scan + 1] != '>'
+                        && bd == 0 && pd == 0) { ok = false; break; }
+                    scan++;
+                }
+                if (ok && ad == 0)
+                {
+                    auto after = skipWS(buf, scan);
+                    if (after < buf.length
+                        && (buf[after] == '(' || buf[after] == '`'
+                            || (buf[after] == '.' && after + 1 < buf.length && buf[after + 1] == '<')))
+                    {
+                        blankRange(buf, pos, scan);
+                        pos = scan;
+                        continue;
+                    }
+                }
+            }
+        }
 
         // --- non-null assertion postfix `!` ---
         // Erasable when it follows an identifier, `)`, `]`, or `?` and
@@ -182,11 +264,109 @@ string stripTypes(const(char)[] source) @trusted
                 pos++;
             auto word = cast(const(char)[]) buf[wordStart .. pos];
 
-            // Track let/const/var for variable type annotations
-            if (word == "let" || word == "const" || word == "var")
+            // `class X ...` -- mark the next `{` as a class body so we can
+            // distinguish class fields from object-literal properties.
+            // Same for `abstract class X` (abstract keyword erased
+            // elsewhere; we just want to catch the `class` after it).
+            if (word == "class")
+            {
+                nextBraceIsClass = true;
+                // Don't continue -- let other handlers see "class" too.
+            }
+
+            // TS-only access modifiers on class members. JS has `static`
+            // and `#`-private, so we only strip the keywords that have no
+            // runtime semantics. `override` is also TS-only.
+            if (classBraceStack.length > 0 && braceDepth == classBraceStack[$ - 1]
+                && parenDepth == 0
+                && (word == "public" || word == "private" || word == "protected"
+                    || word == "readonly" || word == "abstract" || word == "override"))
+            {
+                blankRange(buf, wordStart, pos);
+                continue;
+            }
+
+            // TS `this:` parameter annotation: `f(this: X, a, b)`. The
+            // `this` token is not a real JS parameter (reserved word in
+            // strict mode) -- erase the whole `this: TYPE` span up to
+            // the comma. Only fires at top of a parameter list (right
+            // after `(` or after `,`).
+            if (word == "this" && parenDepth > 0
+                && braceAtParenOpen.length > 0
+                && braceDepth == braceAtParenOpen[$ - 1])
+            {
+                auto prev = prevNonWS(buf, wordStart);
+                if (prev < buf.length && (buf[prev] == '(' || buf[prev] == ','))
+                {
+                    auto afterThis = skipWS(buf, pos);
+                    if (afterThis < buf.length && buf[afterThis] == ':')
+                    {
+                        auto typeEnd = scanTypeExpr(buf, afterThis + 1, ",)=");
+                        // If a trailing comma follows, eat it so we don't
+                        // leave `(, a, b)`.
+                        auto eat = typeEnd;
+                        while (eat < buf.length && (buf[eat] == ' ' || buf[eat] == '\t')) eat++;
+                        if (eat < buf.length && buf[eat] == ',') eat++;
+                        blankRange(buf, wordStart, eat);
+                        pos = eat;
+                        continue;
+                    }
+                }
+            }
+
+            // `function NAME<T, U>(...)` and `class NAME<T, U> ...` —
+            // strip the type-parameter list. The <...> looks like a
+            // comparison to JS parsers, so we blank the entire range.
+            // Same heuristic works for methods inside a class body
+            // (we already track those via the colon-type handler).
+            if (word == "function" || word == "class")
+            {
+                auto fnNameStart = skipWS(buf, pos);
+                if (fnNameStart < buf.length && isIdentStart(buf[fnNameStart]))
+                {
+                    auto fnNameEnd = fnNameStart;
+                    while (fnNameEnd < buf.length && isIdentChar(buf[fnNameEnd]))
+                        fnNameEnd++;
+                    auto afterName = skipWS(buf, fnNameEnd);
+                    if (afterName < buf.length && buf[afterName] == '<')
+                    {
+                        size_t gd = 1;
+                        size_t gp = afterName + 1;
+                        while (gp < buf.length && gd > 0)
+                        {
+                            char gc = buf[gp];
+                            if (gc == '<') gd++;
+                            else if (gc == '>') gd--;
+                            else if (gc == '\'' || gc == '"') { gp = skipStringLit(buf, gp); continue; }
+                            else if (gc == '`') { gp = skipTemplateLit(buf, gp); continue; }
+                            gp++;
+                        }
+                        if (gd == 0)
+                            blankRange(buf, afterName, gp);
+                    }
+                }
+            }
+
+            // Track let/const/var for variable type annotations. Skip the
+            // fast-path continue for `const enum`, since that case needs to
+            // reach the const-enum rewriter further down.
+            if (word == "let" || word == "var")
             {
                 afterVarKw = true;
                 continue;
+            }
+            if (word == "const")
+            {
+                auto peek = skipWS(buf, pos);
+                if (peek < buf.length && matchWord(buf, peek, "enum"))
+                {
+                    // Fall through to the const-enum handler below.
+                }
+                else
+                {
+                    afterVarKw = true;
+                    continue;
+                }
             }
 
             // --- interface declaration ---
@@ -223,6 +403,41 @@ string stripTypes(const(char)[] source) @trusted
                     afterVarKw = false;
                     continue;
                 }
+                // `import X = require("m")` / `import X = Y.Z` (TS namespace
+                // aliases). The first becomes `const X = require("m")`,
+                // the second has no runtime form -- erase.
+                if (ws < buf.length && isIdentStart(buf[ws]))
+                {
+                    auto idEnd = ws;
+                    while (idEnd < buf.length && isIdentChar(buf[idEnd])) idEnd++;
+                    auto eqPos = skipWS(buf, idEnd);
+                    if (eqPos < buf.length && buf[eqPos] == '=')
+                    {
+                        auto rhsStart = skipWS(buf, eqPos + 1);
+                        if (rhsStart < buf.length && matchWord(buf, rhsStart, "require"))
+                        {
+                            // import X = require(...) -> const X = require(...)
+                            // (6 char replacement, same length as "import").
+                            buf[wordStart .. wordStart + 6] = "const ";
+                            buf[wordStart + 5] = ' ';
+                            // Erase the `=` -- the const decl uses its own.
+                            // Actually keep it: `const X = require(...)` is valid.
+                            pos = idEnd;
+                            afterVarKw = true;
+                            continue;
+                        }
+                        // import X = OtherNs.Member -- erase entirely.
+                        auto end = findSemiOrEOL(buf, wordStart);
+                        blankRange(buf, wordStart, end);
+                        pos = end;
+                        afterVarKw = false;
+                        continue;
+                    }
+                }
+                // Inline `type` modifiers: `import { a, type B, c } from 'm'`
+                // Blank just the `type B` specifier(s), leave the rest.
+                if (ws < buf.length && buf[ws] == '{')
+                    blankTypeSpecifiersInBraces(buf, ws);
             }
 
             // --- export type ... / export interface ... ---
@@ -268,6 +483,10 @@ string stripTypes(const(char)[] source) @trusted
                         afterVarKw = false;
                         continue;
                     }
+                    // Inline `type` modifiers: `export { a, type B } from 'm'`
+                    // or `export { a, type B }` (re-export).
+                    if (buf[ws] == '{')
+                        blankTypeSpecifiersInBraces(buf, ws);
                 }
             }
 
@@ -402,8 +621,11 @@ string stripTypes(const(char)[] source) @trusted
                 }
             }
 
-            // --- as Type assertion ---
-            if (word == "as" && parenDepth >= 0)
+            // --- as Type assertion / satisfies Type ---
+            // Both are postfix type checks that erase to nothing at
+            // runtime. `satisfies` was added in TS 4.9 and is part of
+            // `--erasableSyntaxOnly`.
+            if ((word == "as" || word == "satisfies") && parenDepth >= 0)
             {
                 auto prev = prevNonWS(buf, wordStart);
                 if (prev < buf.length && (isIdentChar(buf[prev]) || buf[prev] == ')'
@@ -431,7 +653,27 @@ string stripTypes(const(char)[] source) @trusted
             // Return type: ) : Type { or =>
             if (qPos < buf.length && buf[qPos] == ')' && parenDepth == 0)
             {
-                auto typeEnd = scanTypeExpr(buf, pos + 1, "{");
+                // If the return type itself starts with `{` (object
+                // type literal like `): { x: number }`), walk past the
+                // matching `}` so scanTypeExpr doesn't treat the
+                // opening `{` as the function body.
+                auto afterColon = skipWS(buf, pos + 1);
+                size_t typeStart = pos + 1;
+                if (afterColon < buf.length && buf[afterColon] == '{')
+                {
+                    size_t bd = 1;
+                    size_t bp = afterColon + 1;
+                    while (bp < buf.length && bd > 0)
+                    {
+                        if (buf[bp] == '\'' || buf[bp] == '"') { bp = skipStringLit(buf, bp); continue; }
+                        if (buf[bp] == '`') { bp = skipTemplateLit(buf, bp); continue; }
+                        if (buf[bp] == '{') bd++;
+                        else if (buf[bp] == '}') bd--;
+                        bp++;
+                    }
+                    typeStart = bp;
+                }
+                auto typeEnd = scanTypeExpr(buf, typeStart, "{");
                 if (typeEnd < buf.length)
                 {
                     bool isArrow = typeEnd + 1 < buf.length
@@ -455,7 +697,15 @@ string stripTypes(const(char)[] source) @trusted
                 && braceDepth == braceAtParenOpen[$ - 1];
             if (atParamLevel)
             {
-                if (qPos < buf.length && (isIdentChar(buf[qPos]) || buf[qPos] == '?'))
+                // qPos = char immediately before `:`. Treat as a param-
+                // type annotation if it ends a destructuring pattern
+                // (`}`), a tuple pattern (`]`), the optional marker
+                // (`?`), or a plain identifier. (The destructure /
+                // tuple cases support `function f({a}: T) {}` and
+                // `function f([a]: T) {}`.)
+                if (qPos < buf.length
+                    && (isIdentChar(buf[qPos]) || buf[qPos] == '?'
+                        || buf[qPos] == '}' || buf[qPos] == ']'))
                 {
                     // Blank optional ? too
                     auto blankStart = pos;
@@ -479,6 +729,21 @@ string stripTypes(const(char)[] source) @trusted
                     afterVarKw = false;
                     continue;
                 }
+            }
+
+            // Class field type: `name: T;` or `name: T = expr;` at the
+            // top level of a class body. The braceDepth must match the
+            // class body's depth (so we don't strip annotations from
+            // object-literal properties or nested function locals).
+            if (classBraceStack.length > 0
+                && braceDepth == classBraceStack[$ - 1]
+                && parenDepth == 0
+                && qPos < buf.length && isIdentChar(buf[qPos]))
+            {
+                auto typeEnd = scanTypeExpr(buf, pos + 1, "=;");
+                blankRange(buf, pos, typeEnd);
+                pos = typeEnd;
+                continue;
             }
 
             pos++;
@@ -678,40 +943,52 @@ private size_t rewriteEnum(char[] buf, size_t blockStart, size_t enumKwStart,
         if (bodyPos < braceEnd - 1 && (buf[bodyPos] == ',' || buf[bodyPos] == ';')) bodyPos++;
     }
 
-    // Build the JS replacement that the caller will append to the
-    // file footer.
+    // Build the JS replacement. Use an IIFE that binds each member to a
+    // local const, then attaches it to the enum object. This is the only
+    // way to preserve TS's lexical-scope semantics for intra-enum
+    // references like `All = Read | Write | Execute`:
+    //
+    //   const Flags = (() => {
+    //     const __e = {};
+    //     const None = 0;          __e.None = None; __e[None] = "None";
+    //     const Read = 1 << 0;     __e.Read = Read; __e[Read] = "Read";
+    //     ...
+    //     const All = Read | Write | Execute;  __e.All = All; __e[All] = "All";
+    //     return Object.freeze(__e);
+    //   })();
     import std.array : Appender;
     Appender!(char[]) out_;
-    out_.reserve(64 + members.length * 32);
+    out_.reserve(128 + members.length * 48);
     auto prefix = cast(string) buf[blockStart .. enumKwStart];
     import std.algorithm : canFind;
     bool wasExport = prefix.canFind("export");
     if (wasExport) out_.put("export ");
     out_.put("const ");
     out_.put(name);
-    out_.put("=Object.freeze({");
-    bool firstMember = true;
+    out_.put("=(()=>{const __e={};");
     foreach (m; members)
     {
-        if (!firstMember) out_.put(',');
-        firstMember = false;
-        out_.put('"');
+        out_.put("const ");
         out_.put(m.nameStr);
-        out_.put('"');
-        out_.put(':');
+        out_.put('=');
         if (m.valueStr.length > 0) out_.put(m.valueStr);
         else { import std.conv : to; out_.put(to!string(m.inferred)); }
+        out_.put(";__e.");
+        out_.put(m.nameStr);
+        out_.put('=');
+        out_.put(m.nameStr);
+        out_.put(';');
         if (m.isNumeric)
         {
-            out_.put(',');
-            import std.conv : to;
-            out_.put(to!string(m.inferred));
-            out_.put(":\"");
+            // Numeric enums get the reverse lookup `__e[42] = "Name"`.
+            out_.put("__e[");
             out_.put(m.nameStr);
-            out_.put('"');
+            out_.put("]=\"");
+            out_.put(m.nameStr);
+            out_.put("\";");
         }
     }
-    out_.put("});");
+    out_.put("return Object.freeze(__e);})();");
     decl = cast(string) out_.data;
 
     // Blank the original block in-place, keeping newlines so error
@@ -769,6 +1046,56 @@ private size_t rewriteNamespace(char[] buf, size_t blockStart,
     }
     if (depth != 0) return 0;
     size_t braceEnd = p;  // one past closing brace
+
+    // Pre-scan the *raw* body for `export namespace X` / `export enum X`.
+    // The recursive stripTypes() below rewrites those to plain `var X =`,
+    // erasing the `export` keyword that the post-strip walker uses to
+    // detect attachments -- so we have to capture the names now.
+    string[] nestedExportNames;
+    {
+        auto raw = cast(string) buf[braceStart + 1 .. braceEnd - 1];
+        size_t k = 0;
+        while (k < raw.length)
+        {
+            char rc = raw[k];
+            if (rc == '\'' || rc == '"') { k = skipStringLit(raw, k); continue; }
+            if (rc == '`') { k = skipTemplateLit(raw, k); continue; }
+            if (rc == '/' && k + 1 < raw.length && raw[k+1] == '/') {
+                while (k < raw.length && raw[k] != '\n') k++; continue;
+            }
+            if (rc == '/' && k + 1 < raw.length && raw[k+1] == '*') {
+                k += 2;
+                while (k + 1 < raw.length && !(raw[k] == '*' && raw[k+1] == '/')) k++;
+                if (k + 1 < raw.length) k += 2;
+                continue;
+            }
+            if (isIdentStart(rc) && (k == 0 || raw[k-1] == '\n' || raw[k-1] == ' ' || raw[k-1] == '\t' || raw[k-1] == ';' || raw[k-1] == '{')
+                && matchWord(raw, k, "export"))
+            {
+                auto after = skipWS(raw, k + 6);
+                if (after < raw.length
+                    && (matchWord(raw, after, "namespace")
+                        || matchWord(raw, after, "module")
+                        || matchWord(raw, after, "enum")
+                        || (matchWord(raw, after, "const")
+                            && matchWord(raw, skipWS(raw, after + 5), "enum"))))
+                {
+                    size_t skipKw =
+                        matchWord(raw, after, "namespace") ? 9 :
+                        matchWord(raw, after, "module")    ? 6 :
+                        matchWord(raw, after, "const")     ?
+                            (skipWS(raw, after + 5) + 4 - after) :
+                            4;  // enum
+                    auto nmStart = skipWS(raw, after + skipKw);
+                    auto nm = readIdent(raw, nmStart);
+                    if (nm.length > 0) nestedExportNames ~= nm.idup;
+                }
+                k += 6;
+                continue;
+            }
+            k++;
+        }
+    }
 
     // Recursively strip TS from the body (parameter type annotations,
     // nested interfaces, etc.) — the outer stripper has already moved
@@ -852,6 +1179,19 @@ private size_t rewriteNamespace(char[] buf, size_t blockStart,
         i++;
     }
 
+    // Attach nested namespace / enum exports captured pre-strip. The
+    // walker above couldn't see them because the recursive stripTypes
+    // had already rewritten `export namespace Inner {...}` to
+    // `var Inner=(function(){...})();`.
+    foreach (nm; nestedExportNames)
+    {
+        attach.put("__ns.");
+        attach.put(nm);
+        attach.put('=');
+        attach.put(nm);
+        attach.put(';');
+    }
+
     // Build the prologue snippet that defines and populates the namespace.
     Appender!(char[]) sb;
     sb.put("var ");
@@ -890,6 +1230,15 @@ private size_t scanConstructorParamProps(char[] buf, size_t kwStart, size_t kwEn
     // Walk to the matching `)`, collecting parameter spans.
     struct ParamProp { string name; }
     ParamProp[] props;
+    // Local helper: skipWS doesn't cross newlines, but parameter lists
+    // span lines in real-world code.
+    size_t skipAllWS(size_t k) pure nothrow
+    {
+        while (k < buf.length && (buf[k] == ' ' || buf[k] == '\t'
+                || buf[k] == '\r' || buf[k] == '\n'))
+            k++;
+        return k;
+    }
     size_t p = parenStart + 1;
     size_t depth = 1;
     while (p < buf.length && depth > 0)
@@ -903,7 +1252,7 @@ private size_t scanConstructorParamProps(char[] buf, size_t kwStart, size_t kwEn
 
         // Look for a modifier at parameter position. A parameter is at the
         // start of the list, or right after a `,`. Skip whitespace first.
-        size_t paramStart = skipWS(buf, p);
+        size_t paramStart = skipAllWS(p);
         if (paramStart >= buf.length) break;
 
         // Detect public/private/protected/readonly. Multiple may stack
@@ -915,28 +1264,28 @@ private size_t scanConstructorParamProps(char[] buf, size_t kwStart, size_t kwEn
             if (matchWord(buf, scanPos, "public") && !isIdentChar(buf[scanPos + 6]))
             {
                 foreach (i; scanPos .. scanPos + 6) buf[i] = ' ';
-                scanPos = skipWS(buf, scanPos + 6);
+                scanPos = skipAllWS(scanPos + 6);
                 sawModifier = true;
                 continue;
             }
             if (matchWord(buf, scanPos, "private") && !isIdentChar(buf[scanPos + 7]))
             {
                 foreach (i; scanPos .. scanPos + 7) buf[i] = ' ';
-                scanPos = skipWS(buf, scanPos + 7);
+                scanPos = skipAllWS(scanPos + 7);
                 sawModifier = true;
                 continue;
             }
             if (matchWord(buf, scanPos, "readonly") && !isIdentChar(buf[scanPos + 8]))
             {
                 foreach (i; scanPos .. scanPos + 8) buf[i] = ' ';
-                scanPos = skipWS(buf, scanPos + 8);
+                scanPos = skipAllWS(scanPos + 8);
                 sawModifier = true;
                 continue;
             }
             if (matchWord(buf, scanPos, "protected") && !isIdentChar(buf[scanPos + 9]))
             {
                 foreach (i; scanPos .. scanPos + 9) buf[i] = ' ';
-                scanPos = skipWS(buf, scanPos + 9);
+                scanPos = skipAllWS(scanPos + 9);
                 sawModifier = true;
                 continue;
             }
@@ -988,7 +1337,47 @@ private size_t scanConstructorParamProps(char[] buf, size_t kwStart, size_t kwEn
         sb.put(pp.name);
         sb.put(';');
     }
-    injectAt = bodyOpen + 1;
+    // If this is a derived class constructor, the injected
+    // `this.x = x;` lines must come *after* super(), since you can't
+    // reference `this` before calling super(). Scan the body for a
+    // top-level `super(` call and inject after its matching `);`.
+    size_t inject = bodyOpen + 1;
+    {
+        size_t bp = bodyOpen + 1;
+        size_t bd = 1;  // already inside class brace
+        while (bp < buf.length && bd > 0)
+        {
+            char bc = buf[bp];
+            if (bc == '\'' || bc == '"') { bp = skipStringLit(buf, bp); continue; }
+            if (bc == '`') { bp = skipTemplateLit(buf, bp); continue; }
+            if (bc == '{') { bd++; bp++; continue; }
+            if (bc == '}') { bd--; if (bd == 0) break; bp++; continue; }
+            if (bd == 1 && matchWord(buf, bp, "super") && !isIdentChar(buf[bp + 5]))
+            {
+                auto sw = skipAllWS(bp + 5);
+                if (sw < buf.length && buf[sw] == '(')
+                {
+                    size_t pd = 1;
+                    size_t pp_ = sw + 1;
+                    while (pp_ < buf.length && pd > 0)
+                    {
+                        char pc = buf[pp_];
+                        if (pc == '\'' || pc == '"') { pp_ = skipStringLit(buf, pp_); continue; }
+                        if (pc == '`') { pp_ = skipTemplateLit(buf, pp_); continue; }
+                        if (pc == '(') { pd++; pp_++; continue; }
+                        if (pc == ')') { pd--; pp_++; if (pd == 0) break; continue; }
+                        pp_++;
+                    }
+                    inject = pp_;
+                    // Walk past the trailing `;` if present.
+                    if (inject < buf.length && buf[inject] == ';') inject++;
+                    break;
+                }
+            }
+            bp++;
+        }
+    }
+    injectAt = inject;
     injectText = cast(string) sb.data;
     // Resume scanning at the `(`. The regular loop will increment
     // parenDepth and erase `: T` annotations on each parameter.
@@ -1034,6 +1423,42 @@ size_t prevNonWS(const(char)[] buf, size_t i) @safe pure nothrow @nogc
     if (isWS(buf[j]))
         return buf.length;
     return j;
+}
+
+/// Erase `type X` / `type X as Y` entries inside an import/export
+/// specifier list at `braceStart`. Leaves a trailing comma if the
+/// erased specifier wasn't the last one; otherwise also eats the
+/// preceding comma to keep `import { a, } from` from breaking.
+void blankTypeSpecifiersInBraces(char[] buf, size_t braceStart) @trusted pure nothrow
+{
+    if (braceStart >= buf.length || buf[braceStart] != '{') return;
+    size_t p = braceStart + 1;
+    while (p < buf.length && buf[p] != '}')
+    {
+        // Skip whitespace
+        while (p < buf.length && (buf[p] == ' ' || buf[p] == '\t'
+                || buf[p] == '\n' || buf[p] == '\r' || buf[p] == ',')) p++;
+        if (p >= buf.length || buf[p] == '}') break;
+
+        size_t specStart = p;
+        if (matchWord(buf, p, "type") && p + 4 < buf.length
+            && !isIdentChar(buf[p + 4]))
+        {
+            // Walk past `type IDENT [as ALIAS]` until we hit `,` or `}`.
+            size_t end = p + 4;
+            while (end < buf.length && buf[end] != ',' && buf[end] != '}') end++;
+            // Also eat the trailing comma so we don't leave `, ,`.
+            size_t after = end;
+            if (after < buf.length && buf[after] == ',') after++;
+            // Blank from start, keeping newlines for line numbers.
+            foreach (i; specStart .. after)
+                if (buf[i] != '\n' && buf[i] != '\r') buf[i] = ' ';
+            p = after;
+            continue;
+        }
+        // Skip past this specifier.
+        while (p < buf.length && buf[p] != ',' && buf[p] != '}') p++;
+    }
 }
 
 bool matchWord(const(char)[] buf, size_t i, string word) @safe pure nothrow @nogc
@@ -1207,17 +1632,58 @@ size_t findDeclEnd(const(char)[] buf, size_t start) @safe pure nothrow @nogc
 /// Find semicolon or end of line.
 size_t findSemiOrEOL(const(char)[] buf, size_t start) @safe pure nothrow @nogc
 {
+    // Track nesting so `;` inside `{ ok: true; value: T }` (e.g. inside a
+    // type alias body) doesn't prematurely terminate the declaration.
+    // Also continue past `\n` when the next non-ws char is `|` or `&` --
+    // multi-line union / intersection type aliases are common.
     size_t i = start;
+    int braceD = 0, bracketD = 0, parenD = 0, angleD = 0;
     while (i < buf.length)
     {
-        if (buf[i] == ';')
-            return i + 1;
-        if (buf[i] == '\n')
-            return i;
-        if (buf[i] == '\'' || buf[i] == '"')
+        immutable c = buf[i];
+        if (c == '\'' || c == '"') { i = skipStringLit(buf, i); continue; }
+        if (c == '`') { i = skipTemplateLit(buf, i); continue; }
+        if (c == '{') { braceD++; i++; continue; }
+        if (c == '}') { if (braceD > 0) braceD--; i++; continue; }
+        if (c == '[') { bracketD++; i++; continue; }
+        if (c == ']') { if (bracketD > 0) bracketD--; i++; continue; }
+        if (c == '(') { parenD++; i++; continue; }
+        if (c == ')') { if (parenD > 0) parenD--; i++; continue; }
+        if (c == '<' && braceD == 0 && bracketD == 0 && parenD == 0) { angleD++; i++; continue; }
+        if (c == '>' && angleD > 0) { angleD--; i++; continue; }
+        if (braceD == 0 && bracketD == 0 && parenD == 0 && angleD == 0)
         {
-            i = skipStringLit(buf, i);
-            continue;
+            if (c == ';') return i + 1;
+            if (c == '\n')
+            {
+                // The declaration can wrap to the next line in three
+                // common ways:
+                //   * union / intersection continuation: `| Foo`, `& Bar`
+                //   * conditional-type continuation: prev line ends in
+                //     `?`, `:`, or `=` (the latter for `type X =\n  ...`)
+                //   * the next line starts with an obvious continuation
+                //     keyword like `extends`
+                size_t next = i + 1;
+                while (next < buf.length && (buf[next] == ' ' || buf[next] == '\t'
+                        || buf[next] == '\r')) next++;
+                if (next < buf.length && (buf[next] == '|' || buf[next] == '&')
+                        && (next + 1 >= buf.length || buf[next + 1] != buf[next]))
+                {
+                    i = next;
+                    continue;
+                }
+                // Look back for `?` / `:` / `=` at the end of the prev line.
+                size_t back = i;
+                while (back > 0 && (buf[back - 1] == ' ' || buf[back - 1] == '\t'))
+                    back--;
+                if (back > 0 && (buf[back - 1] == '?' || buf[back - 1] == ':'
+                        || buf[back - 1] == '=' || buf[back - 1] == ','))
+                {
+                    i = next;
+                    continue;
+                }
+                return i;
+            }
         }
         i++;
     }
@@ -1290,15 +1756,29 @@ size_t scanTypeExpr(const(char)[] buf, size_t start, const(char)[] terms) @safe 
         // Check terminators at depth 0 BEFORE updating nesting
         if (parenD == 0 && braceD == 0 && bracketD == 0 && angleD == 0)
         {
+            // `=>` handling: it's *part of* an arrow function type
+            // (`cb: () => void`, return type `): (x: A) => B {`)
+            // when the preceding non-ws char is `)` -- i.e. we just
+            // closed a paren-group inside the type. Otherwise the
+            // caller may want it to terminate (return-type mode, signaled
+            // by `{` being in the terminator list).
+            bool arrowTerminates = false;
+            foreach (t; terms) if (t == '{') { arrowTerminates = true; break; }
+            if (c == '=' && i + 1 < buf.length && buf[i + 1] == '>')
+            {
+                size_t back = i;
+                while (back > 0 && (buf[back - 1] == ' ' || buf[back - 1] == '\t'
+                        || buf[back - 1] == '\n' || buf[back - 1] == '\r')) back--;
+                bool isFunctionTypeArrow = back > 0 && buf[back - 1] == ')';
+                if (arrowTerminates && !isFunctionTypeArrow) return i;
+                i += 2;
+                continue;
+            }
             foreach (t; terms)
             {
                 if (c == t)
                     return i;
             }
-
-            // => terminates (arrow function body)
-            if (c == '=' && i + 1 < buf.length && buf[i + 1] == '>')
-                return i;
 
             // Newline terminates unless next non-ws line starts with | or &
             if (c == '\n')

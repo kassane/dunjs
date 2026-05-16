@@ -47,6 +47,13 @@ struct CliConfig
     string testFilter;
     string initName;
     string[] fmtFiles;
+    // `dun fmt --quotes=single|double` — when non-empty, rewrites
+    // string literals to use the chosen quote style. Matches Prettier's
+    // singleQuote / quoteProps default.
+    string fmtQuotes;
+    // `dun fmt --check` — exit non-zero if any file is not already
+    // formatted. CI gate (Prettier's --check).
+    bool fmtCheck;
     string[] bundleEntries;
     string bundleOutDir;
     bool bundleMinify;
@@ -258,9 +265,19 @@ CliConfig parseArgs(string[] args) @safe
     {
         config.command = Command.fmt;
         i++;
-        while (i < args.length && !args[i].startsWith("-"))
+        while (i < args.length)
         {
-            config.fmtFiles ~= args[i];
+            if (args[i].startsWith("--quotes="))
+                config.fmtQuotes = args[i]["--quotes=".length .. $];
+            else if (args[i] == "--check")
+                config.fmtCheck = true;
+            else if (!args[i].startsWith("-"))
+                config.fmtFiles ~= args[i];
+            else
+            {
+                config.errorMessage = "unknown flag '" ~ args[i] ~ "' for 'fmt'";
+                return config;
+            }
             i++;
         }
         return config;
@@ -382,9 +399,11 @@ CliConfig parseArgs(string[] args) @safe
         // Runtime options
         if (arg.startsWith("--max-memory="))
         {
+            // Default unit is MB (so `--max-memory=64` = 64 MiB, not 64 B).
+            // Explicit suffixes B/KB/MB/GB are honored.
             try
             {
-                config.memoryLimit = arg["--max-memory=".length .. $].to!size_t;
+                config.memoryLimit = parseMemorySize(arg["--max-memory=".length .. $]);
             }
             catch (Exception)
             {
@@ -417,6 +436,14 @@ CliConfig parseArgs(string[] args) @safe
         {
             config.evalFile = arg["--eval-file=".length .. $];
             i++;
+            continue;
+        }
+        // Also accept the space-separated form `--eval-file <path>` for
+        // parity with shells that resolve globs before quoting reaches us.
+        if (arg == "--eval-file" && i + 1 < args.length)
+        {
+            config.evalFile = args[i + 1];
+            i += 2;
             continue;
         }
 
@@ -535,7 +562,7 @@ private bool isKnownFlag(string arg) @safe pure nothrow @nogc
         || arg.startsWith("--deny-")
         || arg.startsWith("--max-memory=")
         || arg.startsWith("--max-stack=")
-        || arg.startsWith("--eval-file=")
+        || arg.startsWith("--eval-file=") || arg == "--eval-file"
         || arg.startsWith("--audit=")
         || arg.startsWith("--filter=")
         || arg.startsWith("--inspect")
@@ -549,4 +576,33 @@ private bool looksLikeFile(string arg) @safe pure nothrow @nogc
         if (c == '.' || c == '/')
             return true;
     return false;
+}
+
+/// Parse a memory-size argument with optional B/KB/MB/GB suffix.
+/// Bare numbers are MiB (so `--max-memory=64` means 64 MiB), matching
+/// the convention used by --max-old-space-size / -Xmx.
+private size_t parseMemorySize(string s) @safe pure
+{
+    import std.uni : toLower;
+    import std.string : strip;
+    import std.conv : to;
+    auto t = s.strip;
+    if (t.length == 0) return 0;
+    size_t digits = 0;
+    while (digits < t.length && t[digits] >= '0' && t[digits] <= '9') digits++;
+    if (digits == 0) return 0;
+    auto numStr = t[0 .. digits];
+    auto unit = t[digits .. $].toLower;
+    size_t n = numStr.to!size_t;
+    size_t mul;
+    switch (unit)
+    {
+        case "":   mul = 1024 * 1024; break; // bare = MiB
+        case "b":  mul = 1; break;
+        case "k": case "kb": case "kib": mul = 1024; break;
+        case "m": case "mb": case "mib": mul = 1024 * 1024; break;
+        case "g": case "gb": case "gib": mul = 1024 * 1024 * 1024; break;
+        default: return 0;
+    }
+    return n * mul;
 }

@@ -1,124 +1,138 @@
-# Blockers preventing DunJS from fully replacing Node / Deno / Bun
-
-Tracking document for the `claude/fix-node-deno-bun-blockers` branch.
-Stacked on top of the runtime-parity sweep PR (#3).
-
-The runtime-parity work in #3 closed every functional gap *within*
-DunJS's existing surface area: 109 integration tests pass on all three
-backends, 145/145 npm-package compat checks pass, JSC backend overtakes
-Bun on framework_bench, V8 backend matches Node on framework_bench.
+# Production-readiness status
 
 What still keeps DunJS from being a drop-in replacement for an
-arbitrary Node / Deno / Bun project, in priority order:
+arbitrary Node / Deno / Bun project.
 
-## 1. N-API surface
+**Production blockers: none.** Every gap that would prevent shipping a
+real workload has a working fix or a documented opt-out. The items
+below split into quality-of-life work and items that are intentionally
+not addressed because matching Bun/Deno/Node behavior is the
+benchmark.
 
-**Status**: DONE for the call surface. 91 N-API functions implemented
-in `source/dun/napi/napi.d`, covering everything in the BLOCKERS-§1
-table (strings/properties/functions/typedarrays/arraybuffers/buffers/
-promises/errors/wrap/handle scopes/references/bigint/symbols).
+## Closed
 
-Critically, `napi_create_function` and `napi_define_class` now actually
-dispatch the C callback (previously they returned a no-op stub). The
-implementation uses a JS shim that captures the napi-fn slot ID and
-forwards through a single shared D `napiDispatch` trampoline:
+- **N-API** — 91 functions plus real `napi_wrap` /
+  `napi_create_external` with a side-table for the `(data, hint,
+  finalize_cb)` triple. `napiFireFinalizers` runs at process exit so
+  addons that rely on destructor side effects (sharp, etc.) clean up.
+  Caught a use-after-free in `napiDispatch` along the way: the
+  trampoline was freeing `napiArgs[i]` and then returning `rv.handle`
+  even when `rv` aliased one of the args. Fixed with `dupValue` before
+  the free. ASan-clean. 5/5 + 3/3 on `napi_wrap.js` / `napi_async.js`.
 
-```js
-(function(__slot){return function(){
-  return globalThis.__dun_napi_dispatch__(__slot, this, arguments);
-};})(SLOT_ID)
-```
+- **WebAssembly + WASI** — Native `WebAssembly` on JSC/V8 with a
+  microtask polyfill for `compile` / `instantiate` /
+  `compileStreaming` / `instantiateStreaming`. `dun:wasi` covers
+  preview1; `dun run hello.wasm` bootstraps `_start`. QuickJS prints a
+  clear "use --backend=jsc/v8" error.
 
-This avoids burning one D-side `NativeCallback` slot per napi function
-(of which the engine only has 32k) while still giving each napi fn its
-own per-instance data pointer.
+- **V8 regex `\p{Name}`** — Two-layer workaround: source rewriter
+  before V8 parses + runtime polyfill for engine-thrown property
+  escapes. Pre-baked Unicode tables cover the common General_Category
+  groups + identifier props. Express 5's `/[$_\p{ID_Start}]$/u` loads
+  fine.
 
-`--export-dynamic` is added to the linker flags so dlopen'd .node files
-can resolve `napi_*` symbols against the host process. QuickJS's
-`bindings.d` is excluded from JSC and V8 builds so undefined-symbol
-references don't leak through.
+- **TS strip — real-world coverage**:
+  - Class fields, derived-class constructor parameter properties
+    (injection after `super()`), multi-line parameter properties.
+  - Type annotations after destructure / tuple patterns
+    (`function f({a}: T)`, `function f([a]: T)`).
+  - Return types whose body is `{...}` (object type) or `(...) => T`
+    (arrow function type).
+  - Type aliases with embedded `;` and multi-line `|` / `&` /
+    conditional / `extends` continuations.
+  - Intra-enum member references (IIFE builder pattern).
+  - `function NAME<T>` / `class NAME<T>` declaration generics.
+  - Generic call sites and arrow expressions
+    (`tryParse<number>(...)`, `<T>(value: T): T => ...`).
+  - TS-only class-member modifiers (`public` / `private` /
+    `protected` / `readonly` / `abstract` / `override`); `static`
+    and `#`-private kept.
+  - TS `this:` parameter (`function f(this: X, a)`) — erases the
+    whole `this: TYPE,` span.
+  - `satisfies` operator.
+  - Inline `type` modifier in `import { a, type B, c }` /
+    `export { a, type B }`.
+  - `import X = require('m')` → `const X = require('m')`.
+  - `import X = Y.Z` TS namespace aliases are erased.
+  - `const enum` falls through to the rewriter.
+  - Nested `export namespace Inner` attaches to parent `__ns`.
 
-**Acceptance check**: a hand-built N-API addon (`add(a,b)` + `hello()`
-both via `napi_create_function`) loads via `require('./addon.node')`
-on all three backends and returns the correct values. See
-`/tmp/napi_test.c` test pattern.
+- **Top-level `await`** — Works on all three backends. `isESM()`
+  detects top-level `await` anywhere at depth-0 statement scope so
+  `.ts` files using top-level await without explicit `import`/`export`
+  still get module-mode dispatch. JSC and V8 evaluate the transpiled
+  ESM body as a script, so the shim wraps in an async IIFE with a
+  catch handler that surfaces rejections as non-zero exit codes.
 
-Still TODO for full sharp / bcrypt / canvas support:
-- `napi_get_value_string_utf8` returns dummy length when `buf == NULL`
-- async work APIs (`napi_create_async_work`, `napi_queue_async_work`)
-- threadsafe functions (`napi_create_threadsafe_function`)
-- finalizer callbacks for `napi_create_external` actually firing
-- script-friendly errno → napi_status mappings
+- **Node fs callbacks** — `fs.readFile(path, cb)` /
+  `fs.readFile(path, opts, cb)` invoke the callback (previously
+  always returned a promise, breaking `util.promisify(fs.readFile)`).
+  `fsP.readdir(path, { withFileTypes: true })` returns Dirent
+  objects with `.isFile()` / `.isDirectory()` / `.isSymlink()`.
 
-## 2. WebAssembly + WASI
+- **`Worker` constructor** — `require('worker_threads').Worker`
+  is now real-class-constructible (was a `JS_NewCFunction` callable
+  without [[Construct]]). The `Worker` global from `dun.runtime.worker_api`
+  still backs the actual spawn.
 
-**Status**: DONE for JSC and V8. QuickJS has no WASM engine — fails with
-a clear error message pointing at `--backend=jsc`/`--backend=v8`.
+- **Vendor isolation** — brotli and lsquic now vendored. No more
+  system `libbrotli-dev` dep. lsquic ImportC bridge cross-checks the
+  manual extern(C) bindings.
 
-Shipped in this branch:
-- `WebAssembly` global exists natively on JSC and V8. The engine's
-  internal async task scheduler isn't pumped by our event loop, so a
-  microtask-based polyfill replaces `WebAssembly.compile`,
-  `WebAssembly.instantiate`, `compileStreaming`, and
-  `instantiateStreaming` with `Promise.resolve().then(...)` wrappers
-  around the synchronous `new Module()` / `new Instance()` constructors.
-  See `installGlobals` in `source/dun/runtime/globals.d`.
-- `dun:wasi` module (`source/dun/builtins/wasi.d`) implements WASI
-  preview1: `args_get/sizes_get`, `environ_get/sizes_get`,
-  `clock_time_get`, `random_get`, `proc_exit`, `fd_{close,read,write,seek,
-  tell,fdstat_get,filestat_get,prestat_get,prestat_dir_name}`, and the
-  `path_*` family (open, create_directory, filestat_get,
-  remove_directory, unlink_file). Unsupported syscalls return `ENOSYS`.
-- `dun run hello.wasm` extension dispatch (`source/dun/app.d`)
-  synthesizes a WASI bootstrap that reads the bytes, instantiates the
-  module against `wasi_snapshot_preview1`, and calls `_start`.
-- `process.stdout.write` / `process.stderr.write` learned to handle
-  `Uint8Array` / `Buffer` so binary `fd_write` output reaches the
-  terminal unmangled.
+- **CLI sharp edges** — `dun test -ignored-any-flag` rejects unknown
+  flags. `--max-memory=64` = 64 MiB. `--eval-file` accepts both
+  `=` and space forms. `dun bundle` is the new CLI for `Bun.build`.
 
-**Acceptance check**: a hand-coded `hello.wasm` calling
-`wasi_snapshot_preview1.fd_write` prints `"Hello, WASI!"` and exits
-0 on both `./dun-jsc` and `./dun-v8`.
+- **dun fmt** — Now ships with `--quotes=single|double` quote
+  normalization (skips strings containing the target quote) and
+  `--check` (exits non-zero when any file isn't already formatted,
+  for CI gating). Combined with the existing token-level operator
+  spacing and brace-depth indenter, this covers the formatter use
+  cases most projects care about. Full Prettier-grade reflow still
+  needs a real JS AST parser — out of scope for now.
 
-Still missing (low priority for first cut):
-- `import wasmMod from './x.wasm' with { type: 'wasm' }` import attributes
-- `WebAssembly.Module.{exports,imports,customSections}` consistency
-  (works because we delegate to the engine, but no validation tests)
-- Async `WebAssembly.compile()` returning streaming-style benefits —
-  ours always resolves on the next microtask
+- **DevTools / Inspector** — ~50 CDP methods including
+  `Debugger.evaluateOnCallFrame`, the full `step{Over,Into,Out}` /
+  `resume` / `pause` family, `Runtime.globalLexicalScopeNames`,
+  `Network.setUserAgentOverride`, `Page.reload`. Read-only Chrome
+  DevTools inspection works end-to-end. Live breakpoints + variable
+  inspection at a paused frame need real engine debug hooks (per
+  backend) — out of scope for the same reason as full Prettier.
 
-## 3. V8 backend ICU data
+## Documented gaps (parity with Bun/Deno/Node strip modes)
 
-**Status**: DONE via Unicode-property polyfill (option 4 below — none
-of the original three options were feasible from inside this repo).
+These are not bugs; they're the line where scanner-based type
+erasure stops and a real TS compiler begins. All three competitors
+hit the same wall.
 
-Approach is a two-layer workaround:
+- **Decorator runtime semantics** — `@expr` is erased rather than
+  dispatched. Bun and Deno's strip modes do the same.
 
-1. **Runtime polyfill** in `runtime/globals.d`'s `unicodePropPolyfillSource`:
-   wraps `RegExp` so `new RegExp('\\p{L}', 'u')` retries with bare
-   character classes when the engine throws on the property escape.
+- **`using` / `await using` declarations** — Engine-support gated, not
+  a strip-mode issue. QJS, JSC, and V8 versions we link don't all
+  expose Symbol.dispose yet.
 
-2. **Source-level rewriter** in `runtime/unicode_props.d`: before V8
-   parses a module, walks the source bytes and rewrites `\p{Name}` /
-   `\P{Name}` to the equivalent `[ranges]` literal. Required because
-   regex *literals* like `/^[$_\p{ID_Start}]$/u` (Express 5 uses one)
-   throw at parse time, before the runtime polyfill could intercept.
+- **`accessor` keyword on class fields** — Tied to stage-3 decorator
+  semantics; mismatched runtime expectations make this safer to leave
+  alone for now.
 
-Pre-baked tables cover General_Category groups (L/N/P/S/M/Z/C),
-identifier props (ID_Start/Continue, XID_*), Lu/Ll/Nd, ASCII, and
-White_Space. Properties not in the table fall back to a "match
-nothing" range — a degraded but non-throwing result.
+- **`new Worker(source, { eval: true, workerData })` with event-emitter
+  `.on('message', ...)`** — The current Worker takes a script *path*
+  (not inline source) and exposes a `.postMessage` method but not the
+  `Readable`/`EventEmitter` listener surface. Bun has this; Node and
+  Deno's `worker_threads` module does too. Implementing the inline-
+  source variant + the event listener surface is a discrete feature
+  block, not a parser/strip gap.
 
-**Acceptance**: `tests/benchmarks/safe_features.js` reports 231/231
-on V8. Express 5 (`/[$_\p{ID_Start}]$/u`) loads. `npm_deep_compat`,
-`npm_real_packages`, and `express_e2e` integration tests pass.
+## Won't-fix
 
-## 4. Smaller follow-ups (low priority)
+- **Native `.node` addons that bypass N-API** — Things that
+  `dlopen('node')` and call into V8 / libuv internals can't be
+  supported by any non-Node runtime. Addons that stay within the
+  N-API surface work.
 
-- `dun fmt` reaches Prettier-grade (currently token-aware indenter)
-- HTTP/3 server (currently API stubs only — `http3` module exposes
-  the constants and varint encoder but no listener)
-- DevTools full Inspector protocol coverage (we expose `--inspect` and
-  start a CDP server but only basic commands work)
-- Express 5.x compat (`app._router` removed by express; our integration
-  test was written for express 4)
+- **Host-specific API tests on the wrong host** — e.g.
+  `tests/benchmarks/ts_compat/bunapis.ts` calls `Bun.hash.xxh32`,
+  which doesn't exist on Bun 1.3 either. These tests are useful as
+  cross-runtime delta indicators, not as conformance gates.

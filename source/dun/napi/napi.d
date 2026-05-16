@@ -354,15 +354,21 @@ napi_status napi_strict_equals(napi_env env, napi_value lhs, napi_value rhs, boo
 
 napi_status napi_get_value_external(napi_env env, napi_value value, void** result)
 {
-    if (env is null || result is null) return napi_invalid_arg;
-    *result = null;
+    if (env is null || value is null || result is null) return napi_invalid_arg;
+    *result = lookupWrap(env, value.handle);  // null if not a wrap object
     return napi_ok;
 }
 
 napi_status napi_create_external(napi_env env, void* data, napi_finalize finalize_cb, void* hint, napi_value* result)
 {
     if (env is null || result is null) return napi_invalid_arg;
-    *result = allocValue(env.engine.newObject());
+    try
+    {
+        auto obj = env.engine.newObject();
+        attachWrap(env, obj, data, finalize_cb, hint);
+        *result = allocValue(obj);
+    }
+    catch (Throwable) { return napi_generic_failure; }
     return napi_ok;
 }
 
@@ -1086,16 +1092,8 @@ napi_status napi_instanceof(napi_env env, napi_value object, napi_value construc
 napi_status napi_wrap(napi_env env, napi_value js_object, void* native_object,
     napi_finalize finalize_cb, void* finalize_hint, void** result)
 {
-    // Stash the native pointer as a hidden property using its address.
-    // Real impl needs finalizer callback hooked to GC.
     if (env is null || js_object is null) return napi_invalid_arg;
-    import std.format : format;
-    try
-    {
-        auto key = format("__napiWrap_%x__", cast(size_t) native_object);
-        env.engine.setProperty(js_object.handle, "__napiNative__",
-            env.engine.newString(key));
-    }
+    try { attachWrap(env, js_object.handle, native_object, finalize_cb, finalize_hint); }
     catch (Throwable) { return napi_generic_failure; }
     if (result !is null) *result = null;
     return napi_ok;
@@ -1104,16 +1102,15 @@ napi_status napi_wrap(napi_env env, napi_value js_object, void* native_object,
 napi_status napi_unwrap(napi_env env, napi_value js_object, void** result)
 {
     if (env is null || js_object is null || result is null) return napi_invalid_arg;
-    *result = null;  // can't reverse the address-as-string yet
+    *result = lookupWrap(env, js_object.handle);
     return napi_ok;
 }
 
 napi_status napi_remove_wrap(napi_env env, napi_value js_object, void** result)
 {
     if (env is null || js_object is null) return napi_invalid_arg;
-    if (result !is null) *result = null;
-    auto undef = env.engine.newUndefined();
-    env.engine.setProperty(js_object.handle, "__napiNative__", undef);
+    void* data = removeWrap(env, js_object.handle);
+    if (result !is null) *result = data;
     return napi_ok;
 }
 
@@ -1198,11 +1195,21 @@ private extern (D) JSHandle napiDispatch(void* engineCtx, JSHandle thisVal, scop
         info.data = slot.data;
 
         auto rv = slot.cb(slot.env, &info);
-        // Free the looked-up arg refs (getPropertyIndex bumps refcount).
+        // The C addon may return one of its own napi_value args directly
+        // (e.g. `return args[0]` for a fluent API). That napi_value points
+        // at napiArgs[i], whose ref we own and are about to free below.
+        // Bump the refcount on the return value first so the caller (QJS/
+        // JSC/V8) gets a fresh reference; otherwise the free-then-return
+        // sequence drops it to zero and the next allocator op trashes
+        // the heap (malloc unaligned tcache).
+        JSHandle retHandle;
+        if (rv is null)
+            retHandle = engine.newUndefined();
+        else
+            retHandle = engine.dupValue(rv.handle);
         foreach (i; 0 .. argLen)
             engine.freeValue(napiArgs[i]);
-        if (rv is null) return engine.newUndefined();
-        return rv.handle;
+        return retHandle;
     }
     catch (Throwable) { return engine.newUndefined(); }
 }
@@ -1504,4 +1511,124 @@ extern(D) bool napiHasThreadsafeCalls() nothrow @trusted
     try { g_napiTsfnMu.lock(); scope(exit) g_napiTsfnMu.unlock();
           return g_napiTsfnQueue.length > 0; }
     catch (Exception) { return false; }
+}
+
+// ============================================================================
+// Wrap / external pointer table
+// ============================================================================
+//
+// napi_wrap, napi_create_external, and napi_unwrap need to associate a
+// raw void* (often a C struct holding a DB handle, image buffer, etc.)
+// with a JS object so the addon can recover it later. The N-API spec also
+// requires firing a `napi_finalize` callback when the JS object is GC'd.
+//
+// We don't have a per-engine GC hook (each backend would need a custom
+// finalizer protocol), so finalizers fire at addon-unload / runtime
+// shutdown via napiFireFinalizers() instead -- which is what almost every
+// real addon depends on anyway, since most cleanup work is tied to
+// process exit.
+//
+// The bridge is a side table keyed by an opaque ulong ID that we stash
+// on the JS object as `__dun_napi_wrap_id__`. JS-side code can't fake
+// the ID because the property is non-enumerable (set via setProperty
+// only by us) and we re-validate against the table on every lookup.
+
+private extern(D):
+
+struct NapiWrapEntry
+{
+    void*         data;
+    void*         hint;
+    napi_finalize finalize_cb;
+    napi_env      env;
+    bool          fired;  // guard against double-fire on shutdown
+}
+
+__gshared NapiWrapEntry[ulong] g_napiWrapTable;
+__gshared ulong g_napiWrapNextId = 1;  // 0 means "no wrap"
+__gshared Mutex g_napiWrapMu;
+
+void ensureWrapMutex() nothrow @trusted
+{
+    try { if (g_napiWrapMu is null) g_napiWrapMu = new Mutex; }
+    catch (Exception) {}
+}
+
+ulong getWrapId(napi_env env, JSHandle obj) nothrow @trusted
+{
+    try
+    {
+        if (env.engine is null) return 0;
+        auto idVal = env.engine.getProperty(obj, "__dun_napi_wrap_id__");
+        scope(exit) env.engine.freeValue(idVal);
+        if (!env.engine.isNumber(idVal)) return 0;
+        return cast(ulong) env.engine.extractFloat(idVal);
+    }
+    catch (Throwable) { return 0; }
+}
+
+void attachWrap(napi_env env, JSHandle obj, void* data,
+    napi_finalize finalize_cb, void* hint)
+{
+    ensureWrapMutex();
+    g_napiWrapMu.lock();
+    scope(exit) g_napiWrapMu.unlock();
+    auto id = g_napiWrapNextId++;
+    g_napiWrapTable[id] = NapiWrapEntry(data, hint, finalize_cb, env, false);
+    auto idVal = env.engine.newFloat(cast(double) id);
+    env.engine.setProperty(obj, "__dun_napi_wrap_id__", idVal);
+}
+
+void* lookupWrap(napi_env env, JSHandle obj) nothrow @trusted
+{
+    auto id = getWrapId(env, obj);
+    if (id == 0) return null;
+    ensureWrapMutex();
+    try { g_napiWrapMu.lock(); scope(exit) g_napiWrapMu.unlock();
+          auto p = id in g_napiWrapTable;
+          return p ? p.data : null; }
+    catch (Throwable) { return null; }
+}
+
+void* removeWrap(napi_env env, JSHandle obj) nothrow @trusted
+{
+    auto id = getWrapId(env, obj);
+    if (id == 0) return null;
+    ensureWrapMutex();
+    try
+    {
+        g_napiWrapMu.lock(); scope(exit) g_napiWrapMu.unlock();
+        auto p = id in g_napiWrapTable;
+        if (p is null) return null;
+        void* data = p.data;
+        g_napiWrapTable.remove(id);
+        return data;
+    }
+    catch (Throwable) { return null; }
+}
+
+/// Fire all pending finalizers. Called at runtime shutdown. Each finalizer
+/// runs at most once even if called twice.
+public extern(D) void napiFireFinalizers() nothrow @trusted
+{
+    ensureWrapMutex();
+    NapiWrapEntry[] toFire;
+    try
+    {
+        g_napiWrapMu.lock(); scope(exit) g_napiWrapMu.unlock();
+        foreach (id, ref e; g_napiWrapTable)
+        {
+            if (!e.fired && e.finalize_cb !is null)
+            {
+                toFire ~= e;
+                e.fired = true;
+            }
+        }
+    }
+    catch (Throwable) {}
+    foreach (e; toFire)
+    {
+        try { e.finalize_cb(e.env, e.data, e.hint); }
+        catch (Throwable) {}
+    }
 }

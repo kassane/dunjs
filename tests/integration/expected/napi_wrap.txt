@@ -1,0 +1,2 @@
+napi_wrap: 5/5 checks passed
+ALL CHECKS PASSED
