@@ -340,11 +340,16 @@ package ubyte[] extractBytes(IJSEngine engine, JSHandle obj) @trusted
     // Buffer is now a Uint8Array subclass — no `.__u8` indirection needed.
     // Falls back to the legacy `.__u8` property in case some non-Buffer
     // object still uses the wrapper shape (e.g. user-constructed pseudo
-    // buffers via `{ __isBuffer: true, __u8: ... }`).
+    // buffers via `{ __isBuffer: true, __u8: ... }`). JSC's
+    // JSObjectGetTypedArrayByteLength is unsafe on non-objects, so gate
+    // on isObject before calling it.
+    if (!engine.isObject(obj)) return null;
     auto bytes = engine.getTypedArrayBytes(obj);
     if (bytes !is null) return bytes;
     auto u8 = engine.getProperty(obj, "__u8");
-    auto fallback = engine.getTypedArrayBytes(u8);
+    ubyte[] fallback = null;
+    if (engine.isObject(u8))
+        fallback = engine.getTypedArrayBytes(u8);
     engine.freeValue(u8);
     return fallback;
 }
