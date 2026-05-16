@@ -885,13 +885,4 @@ JSHandle jsFork(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
     return state.engine.throwTypeError("fork() is not supported; use worker_threads instead");
 }
 
-private string intToStr(int val) @trusted nothrow
-{
-    try
-    {
-        import std.conv : to;
-        return val.to!string;
-    }
-    catch (Exception)
-        return "?";
-}
+public import dun.builtins.fs : intToStr;

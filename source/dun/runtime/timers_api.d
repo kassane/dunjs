@@ -129,18 +129,6 @@ JSHandle makeTimerObject(IJSEngine engine, int id) @trusted
     return obj;
 }
 
-private string intToStr(int v) pure nothrow @trusted
-{
-    if (v == 0) return "0";
-    char[12] buf = void;
-    int pos = 11;
-    bool neg = v < 0;
-    uint uv = neg ? cast(uint)(-v) : cast(uint) v;
-    while (uv > 0) { buf[pos--] = cast(char)('0' + uv % 10); uv /= 10; }
-    if (neg) buf[pos--] = '-';
-    return cast(string) buf[pos + 1 .. 12].dup;
-}
-
 JSHandle jsTimerRef(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null);

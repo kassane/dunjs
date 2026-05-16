@@ -550,7 +550,9 @@ private string escapeJs(string s) @safe pure nothrow
     return r;
 }
 
-private string intToStr(int n) @trusted pure nothrow
+/// Zero-alloc-on-stack base-10 int formatter. Used by FS error
+/// messages so we can stay pure/nothrow without dragging in std.conv.
+package string intToStr(int n) @trusted pure nothrow
 {
     if (n == 0) return "0";
     bool neg = n < 0;
