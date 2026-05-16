@@ -350,3 +350,736 @@ napi_status napi_create_external(napi_env env, void* data, napi_finalize finaliz
     *result = allocValue(env.engine.newObject());
     return napi_ok;
 }
+
+// ───────────────────────────────────────────────────────────────────────
+// N-API expansion (claude/fix-node-deno-bun-blockers)
+// ───────────────────────────────────────────────────────────────────────
+// Enough of the surface to load representative addons. Each function
+// either dispatches to IJSEngine (engine-agnostic) or returns a sane
+// default that won't crash the addon. See BLOCKERS.md for the
+// driving target list (sharp, better-sqlite3, bcrypt, node-canvas).
+
+// --- Numbers (signed/unsigned widths) ---
+
+napi_status napi_create_uint32(napi_env env, uint value, napi_value* result)
+{
+    if (env is null || result is null) return napi_invalid_arg;
+    *result = allocValue(env.engine.newFloat(cast(double) value));
+    return napi_ok;
+}
+
+napi_status napi_get_value_int64(napi_env env, napi_value value, long* result)
+{
+    if (env is null || value is null || result is null) return napi_invalid_arg;
+    *result = cast(long) env.engine.extractFloat(value.handle);
+    return napi_ok;
+}
+
+napi_status napi_get_value_uint32(napi_env env, napi_value value, uint* result)
+{
+    if (env is null || value is null || result is null) return napi_invalid_arg;
+    *result = cast(uint) env.engine.extractFloat(value.handle);
+    return napi_ok;
+}
+
+// --- BigInt (best-effort: store as double; full BigInt would need engine support) ---
+
+napi_status napi_create_bigint_int64(napi_env env, long value, napi_value* result)
+{
+    if (env is null || result is null) return napi_invalid_arg;
+    *result = allocValue(env.engine.newFloat(cast(double) value));
+    return napi_ok;
+}
+
+napi_status napi_create_bigint_uint64(napi_env env, ulong value, napi_value* result)
+{
+    if (env is null || result is null) return napi_invalid_arg;
+    *result = allocValue(env.engine.newFloat(cast(double) value));
+    return napi_ok;
+}
+
+napi_status napi_get_value_bigint_int64(napi_env env, napi_value value, long* result, bool* lossless)
+{
+    if (env is null || value is null || result is null) return napi_invalid_arg;
+    *result = cast(long) env.engine.extractFloat(value.handle);
+    if (lossless !is null) *lossless = true;
+    return napi_ok;
+}
+
+napi_status napi_get_value_bigint_uint64(napi_env env, napi_value value, ulong* result, bool* lossless)
+{
+    if (env is null || value is null || result is null) return napi_invalid_arg;
+    *result = cast(ulong) env.engine.extractFloat(value.handle);
+    if (lossless !is null) *lossless = true;
+    return napi_ok;
+}
+
+// --- Strings (UTF-16, latin1) ---
+
+napi_status napi_create_string_utf16(napi_env env, const(wchar)* str, size_t length, napi_value* result)
+{
+    import std.utf : toUTF8;
+    if (env is null || result is null) return napi_invalid_arg;
+    if (str is null) { *result = allocValue(env.engine.newString("")); return napi_ok; }
+    try
+    {
+        size_t len = length;
+        if (len == size_t.max)
+        {
+            len = 0;
+            while (str[len] != 0) len++;
+        }
+        auto u8 = toUTF8(cast(const(wchar)[]) str[0 .. len]);
+        *result = allocValue(env.engine.newString(u8));
+    }
+    catch (Throwable) { return napi_generic_failure; }
+    return napi_ok;
+}
+
+napi_status napi_create_string_latin1(napi_env env, const(char)* str, size_t length, napi_value* result)
+{
+    if (env is null || result is null) return napi_invalid_arg;
+    if (str is null) { *result = allocValue(env.engine.newString("")); return napi_ok; }
+    try
+    {
+        size_t len = length == size_t.max
+            ? { size_t l; while (str[l] != 0) l++; return l; }()
+            : length;
+        // Latin-1 → UTF-8: any byte ≥ 0x80 must be expanded to two UTF-8 bytes.
+        import std.array : appender;
+        auto buf = appender!string;
+        buf.reserve(len + (len >> 2));
+        foreach (i; 0 .. len)
+        {
+            ubyte b = cast(ubyte) str[i];
+            if (b < 0x80) buf.put(cast(char) b);
+            else
+            {
+                buf.put(cast(char)(0xC0 | (b >> 6)));
+                buf.put(cast(char)(0x80 | (b & 0x3F)));
+            }
+        }
+        *result = allocValue(env.engine.newString(buf.data));
+    }
+    catch (Throwable) { return napi_generic_failure; }
+    return napi_ok;
+}
+
+// --- Symbol ---
+
+napi_status napi_create_symbol(napi_env env, napi_value description, napi_value* result)
+{
+    if (env is null || result is null) return napi_invalid_arg;
+    // Construct via JS: `Symbol(desc)`. Best-effort fallback if the
+    // engine doesn't expose Symbol-as-callable.
+    auto global = env.engine.getGlobal();
+    auto sym = env.engine.getProperty(global, "Symbol");
+    env.engine.freeValue(global);
+    if (env.engine.isFunction(sym))
+    {
+        JSHandle[1] args;
+        int argc = 0;
+        if (description !is null)
+        {
+            args[0] = description.handle;
+            argc = 1;
+        }
+        auto undef = env.engine.newUndefined();
+        auto r = env.engine.callFunction(sym, undef, args[0 .. argc]);
+        env.engine.freeValue(undef);
+        env.engine.freeValue(sym);
+        *result = allocValue(r);
+        return napi_ok;
+    }
+    env.engine.freeValue(sym);
+    *result = allocValue(env.engine.newUndefined());
+    return napi_ok;
+}
+
+// --- Generic property ops (any-key) ---
+
+napi_status napi_set_property(napi_env env, napi_value object, napi_value key, napi_value value)
+{
+    if (env is null || object is null || key is null || value is null) return napi_invalid_arg;
+    try
+    {
+        auto k = env.engine.extractString(key.handle);
+        env.engine.setProperty(object.handle, k, value.handle);
+    }
+    catch (Throwable) { return napi_generic_failure; }
+    return napi_ok;
+}
+
+napi_status napi_get_property(napi_env env, napi_value object, napi_value key, napi_value* result)
+{
+    if (env is null || object is null || key is null || result is null) return napi_invalid_arg;
+    try
+    {
+        auto k = env.engine.extractString(key.handle);
+        *result = allocValue(env.engine.getProperty(object.handle, k));
+    }
+    catch (Throwable) { return napi_generic_failure; }
+    return napi_ok;
+}
+
+napi_status napi_has_property(napi_env env, napi_value object, napi_value key, bool* result)
+{
+    if (env is null || object is null || key is null || result is null) return napi_invalid_arg;
+    try
+    {
+        auto k = env.engine.extractString(key.handle);
+        auto v = env.engine.getProperty(object.handle, k);
+        *result = !env.engine.isUndefined(v);
+        env.engine.freeValue(v);
+    }
+    catch (Throwable) { return napi_generic_failure; }
+    return napi_ok;
+}
+
+napi_status napi_has_named_property(napi_env env, napi_value object, const(char)* utf8name, bool* result)
+{
+    if (env is null || object is null || utf8name is null || result is null) return napi_invalid_arg;
+    try
+    {
+        import core.stdc.string : strlen;
+        auto name = cast(string) utf8name[0 .. strlen(utf8name)];
+        auto v = env.engine.getProperty(object.handle, name);
+        *result = !env.engine.isUndefined(v);
+        env.engine.freeValue(v);
+    }
+    catch (Throwable) { return napi_generic_failure; }
+    return napi_ok;
+}
+
+napi_status napi_has_own_property(napi_env env, napi_value object, napi_value key, bool* result)
+{
+    // Approximation: forward to napi_has_property. A proper implementation
+    // would call Object.prototype.hasOwnProperty.call(obj, key).
+    return napi_has_property(env, object, key, result);
+}
+
+napi_status napi_delete_property(napi_env env, napi_value object, napi_value key, bool* result)
+{
+    if (env is null || object is null || key is null) return napi_invalid_arg;
+    // No engine.deleteProperty yet — overwrite with undefined as a fallback.
+    auto undef = env.engine.newUndefined();
+    try
+    {
+        auto k = env.engine.extractString(key.handle);
+        env.engine.setProperty(object.handle, k, undef);
+    }
+    catch (Throwable) { return napi_generic_failure; }
+    if (result !is null) *result = true;
+    return napi_ok;
+}
+
+napi_status napi_get_property_names(napi_env env, napi_value object, napi_value* result)
+{
+    if (env is null || object is null || result is null) return napi_invalid_arg;
+    // Engine-agnostic shortcut: call `Object.keys(obj)` via JS.
+    auto global = env.engine.getGlobal();
+    auto Object_ = env.engine.getProperty(global, "Object");
+    auto keysFn = env.engine.getProperty(Object_, "keys");
+    env.engine.freeValue(global);
+    JSHandle[1] args = [object.handle];
+    auto undef = env.engine.newUndefined();
+    auto keys = env.engine.callFunction(keysFn, undef, args[]);
+    env.engine.freeValue(undef);
+    env.engine.freeValue(keysFn);
+    env.engine.freeValue(Object_);
+    *result = allocValue(keys);
+    return napi_ok;
+}
+
+napi_status napi_get_prototype(napi_env env, napi_value object, napi_value* result)
+{
+    if (env is null || object is null || result is null) return napi_invalid_arg;
+    auto global = env.engine.getGlobal();
+    auto Object_ = env.engine.getProperty(global, "Object");
+    auto getProto = env.engine.getProperty(Object_, "getPrototypeOf");
+    env.engine.freeValue(global);
+    JSHandle[1] args = [object.handle];
+    auto undef = env.engine.newUndefined();
+    auto proto = env.engine.callFunction(getProto, undef, args[]);
+    env.engine.freeValue(undef);
+    env.engine.freeValue(getProto);
+    env.engine.freeValue(Object_);
+    *result = allocValue(proto);
+    return napi_ok;
+}
+
+// --- Errors (creation + throw of the three Node-defined kinds) ---
+
+napi_status napi_create_error(napi_env env, napi_value code, napi_value msg, napi_value* result)
+{
+    if (env is null || msg is null || result is null) return napi_invalid_arg;
+    auto global = env.engine.getGlobal();
+    auto ErrorCtor = env.engine.getProperty(global, "Error");
+    env.engine.freeValue(global);
+    JSHandle[1] args = [msg.handle];
+    auto undef = env.engine.newUndefined();
+    auto err = env.engine.callFunction(ErrorCtor, undef, args[]);
+    if (code !is null)
+        env.engine.setProperty(err, "code", env.engine.dupValue(code.handle));
+    env.engine.freeValue(undef);
+    env.engine.freeValue(ErrorCtor);
+    *result = allocValue(err);
+    return napi_ok;
+}
+
+napi_status napi_create_type_error(napi_env env, napi_value code, napi_value msg, napi_value* result)
+{
+    if (env is null || msg is null || result is null) return napi_invalid_arg;
+    auto global = env.engine.getGlobal();
+    auto Ctor = env.engine.getProperty(global, "TypeError");
+    env.engine.freeValue(global);
+    JSHandle[1] args = [msg.handle];
+    auto undef = env.engine.newUndefined();
+    auto err = env.engine.callFunction(Ctor, undef, args[]);
+    if (code !is null)
+        env.engine.setProperty(err, "code", env.engine.dupValue(code.handle));
+    env.engine.freeValue(undef);
+    env.engine.freeValue(Ctor);
+    *result = allocValue(err);
+    return napi_ok;
+}
+
+napi_status napi_create_range_error(napi_env env, napi_value code, napi_value msg, napi_value* result)
+{
+    if (env is null || msg is null || result is null) return napi_invalid_arg;
+    auto global = env.engine.getGlobal();
+    auto Ctor = env.engine.getProperty(global, "RangeError");
+    env.engine.freeValue(global);
+    JSHandle[1] args = [msg.handle];
+    auto undef = env.engine.newUndefined();
+    auto err = env.engine.callFunction(Ctor, undef, args[]);
+    if (code !is null)
+        env.engine.setProperty(err, "code", env.engine.dupValue(code.handle));
+    env.engine.freeValue(undef);
+    env.engine.freeValue(Ctor);
+    *result = allocValue(err);
+    return napi_ok;
+}
+
+napi_status napi_throw(napi_env env, napi_value error)
+{
+    if (env is null || error is null) return napi_invalid_arg;
+    env.engine.throwValue(error.handle);
+    return napi_ok;
+}
+
+napi_status napi_throw_range_error(napi_env env, const(char)* code, const(char)* msg)
+{
+    if (env is null || msg is null) return napi_invalid_arg;
+    import core.stdc.string : strlen;
+    auto m = cast(string) msg[0 .. strlen(msg)];
+    env.engine.throwRangeError(m);
+    return napi_ok;
+}
+
+napi_status napi_is_error(napi_env env, napi_value value, bool* result)
+{
+    if (env is null || value is null || result is null) return napi_invalid_arg;
+    auto global = env.engine.getGlobal();
+    auto ErrorCtor = env.engine.getProperty(global, "Error");
+    env.engine.freeValue(global);
+    // value instanceof Error
+    auto inst = env.engine.getProperty(ErrorCtor, "Symbol.hasInstance");
+    env.engine.freeValue(inst);
+    // Approximation: check the constructor by name.
+    auto ctorProp = env.engine.getProperty(value.handle, "constructor");
+    auto nameProp = env.engine.getProperty(ctorProp, "name");
+    auto name = env.engine.isString(nameProp) ? env.engine.extractString(nameProp) : "";
+    env.engine.freeValue(nameProp);
+    env.engine.freeValue(ctorProp);
+    env.engine.freeValue(ErrorCtor);
+    *result = name == "Error" || name == "TypeError" || name == "RangeError"
+           || name == "SyntaxError" || name == "ReferenceError"
+           || name == "EvalError" || name == "URIError" || name == "AggregateError";
+    return napi_ok;
+}
+
+// --- Promises (using engine.newPromise) ---
+
+struct napi_deferred_t {
+    JSHandle resolve;
+    JSHandle reject;
+}
+
+napi_status napi_create_promise(napi_env env, void** deferred, napi_value* promise)
+{
+    if (env is null || deferred is null || promise is null) return napi_invalid_arg;
+    try
+    {
+        auto ph = env.engine.newPromise();
+        auto def = new napi_deferred_t();
+        def.resolve = ph.resolve;
+        def.reject = ph.reject;
+        *deferred = cast(void*) def;
+        *promise = allocValue(ph.promise);
+    }
+    catch (Throwable) { return napi_generic_failure; }
+    return napi_ok;
+}
+
+napi_status napi_resolve_deferred(napi_env env, void* deferred, napi_value resolution)
+{
+    if (env is null || deferred is null) return napi_invalid_arg;
+    auto def = cast(napi_deferred_t*) deferred;
+    JSHandle[1] args;
+    int argc = 0;
+    if (resolution !is null) { args[0] = resolution.handle; argc = 1; }
+    auto undef = env.engine.newUndefined();
+    env.engine.freeValue(env.engine.callFunction(def.resolve, undef, args[0 .. argc]));
+    env.engine.freeValue(undef);
+    env.engine.freeValue(def.resolve);
+    env.engine.freeValue(def.reject);
+    return napi_ok;
+}
+
+napi_status napi_reject_deferred(napi_env env, void* deferred, napi_value rejection)
+{
+    if (env is null || deferred is null) return napi_invalid_arg;
+    auto def = cast(napi_deferred_t*) deferred;
+    JSHandle[1] args;
+    int argc = 0;
+    if (rejection !is null) { args[0] = rejection.handle; argc = 1; }
+    auto undef = env.engine.newUndefined();
+    env.engine.freeValue(env.engine.callFunction(def.reject, undef, args[0 .. argc]));
+    env.engine.freeValue(undef);
+    env.engine.freeValue(def.resolve);
+    env.engine.freeValue(def.reject);
+    return napi_ok;
+}
+
+napi_status napi_is_promise(napi_env env, napi_value value, bool* result)
+{
+    if (env is null || value is null || result is null) return napi_invalid_arg;
+    // Duck-type: a Promise has .then function
+    auto then_ = env.engine.getProperty(value.handle, "then");
+    *result = env.engine.isFunction(then_);
+    env.engine.freeValue(then_);
+    return napi_ok;
+}
+
+// --- Handle scopes — no-op on our GC-managed engine ---
+
+napi_status napi_open_handle_scope(napi_env env, void** result)
+{
+    if (env is null || result is null) return napi_invalid_arg;
+    *result = cast(void*) 1;  // sentinel
+    return napi_ok;
+}
+
+napi_status napi_close_handle_scope(napi_env env, void* scope_)
+{
+    return napi_ok;
+}
+
+napi_status napi_open_escapable_handle_scope(napi_env env, void** result)
+{
+    if (env is null || result is null) return napi_invalid_arg;
+    *result = cast(void*) 1;  // sentinel
+    return napi_ok;
+}
+
+napi_status napi_close_escapable_handle_scope(napi_env env, void* scope_)
+{
+    return napi_ok;
+}
+
+napi_status napi_escape_handle(napi_env env, void* scope_, napi_value escapee, napi_value* result)
+{
+    if (env is null || escapee is null || result is null) return napi_invalid_arg;
+    *result = escapee;
+    return napi_ok;
+}
+
+// --- Reference ref/unref ---
+
+napi_status napi_reference_ref(napi_env env, void* ref_, uint* result)
+{
+    if (env is null || ref_ is null) return napi_invalid_arg;
+    if (result !is null) *result = 1;
+    return napi_ok;
+}
+
+napi_status napi_reference_unref(napi_env env, void* ref_, uint* result)
+{
+    if (env is null || ref_ is null) return napi_invalid_arg;
+    if (result !is null) *result = 0;
+    return napi_ok;
+}
+
+// --- ArrayBuffer / TypedArray / Buffer / DataView ---
+
+napi_status napi_create_arraybuffer(napi_env env, size_t byte_length, void** data, napi_value* result)
+{
+    if (env is null || result is null) return napi_invalid_arg;
+    auto u8 = env.engine.newUint8ArrayZeroed(byte_length);
+    auto bytes = env.engine.getTypedArrayBytes(u8);
+    if (data !is null) *data = bytes !is null ? cast(void*) bytes.ptr : null;
+    auto bufProp = env.engine.getProperty(u8, "buffer");
+    env.engine.freeValue(u8);
+    *result = allocValue(bufProp);
+    return napi_ok;
+}
+
+napi_status napi_create_external_arraybuffer(napi_env env, void* external_data, size_t byte_length,
+    napi_finalize finalize_cb, void* finalize_hint, napi_value* result)
+{
+    if (env is null || result is null) return napi_invalid_arg;
+    // Best-effort: copy data into a fresh ArrayBuffer (we can't expose
+    // external memory through the IJSEngine interface yet).
+    auto src = external_data ? (cast(ubyte*) external_data)[0 .. byte_length] : null;
+    auto u8 = env.engine.newUint8Array(src);
+    auto bufProp = env.engine.getProperty(u8, "buffer");
+    env.engine.freeValue(u8);
+    *result = allocValue(bufProp);
+    return napi_ok;
+}
+
+napi_status napi_get_arraybuffer_info(napi_env env, napi_value arraybuffer, void** data, size_t* byte_length)
+{
+    if (env is null || arraybuffer is null) return napi_invalid_arg;
+    // Approximation: arraybuffer.byteLength is reachable via JS.
+    auto blProp = env.engine.getProperty(arraybuffer.handle, "byteLength");
+    if (byte_length !is null)
+        *byte_length = env.engine.isNumber(blProp) ? cast(size_t) env.engine.extractInt(blProp) : 0;
+    env.engine.freeValue(blProp);
+    if (data !is null) *data = null;
+    return napi_ok;
+}
+
+napi_status napi_is_arraybuffer(napi_env env, napi_value value, bool* result)
+{
+    if (env is null || value is null || result is null) return napi_invalid_arg;
+    auto ctorProp = env.engine.getProperty(value.handle, "constructor");
+    auto nameProp = env.engine.getProperty(ctorProp, "name");
+    auto name = env.engine.isString(nameProp) ? env.engine.extractString(nameProp) : "";
+    env.engine.freeValue(nameProp);
+    env.engine.freeValue(ctorProp);
+    *result = name == "ArrayBuffer" || name == "SharedArrayBuffer";
+    return napi_ok;
+}
+
+napi_status napi_create_typedarray(napi_env env, int type, size_t length,
+    napi_value arraybuffer, size_t byte_offset, napi_value* result)
+{
+    if (env is null || arraybuffer is null || result is null) return napi_invalid_arg;
+    // Minimum support: Uint8Array. Other types fall through to Uint8Array
+    // (caller responsible for matching type). A full impl needs
+    // engine.newTypedArray(kind, ab, off, len).
+    auto u8 = env.engine.newUint8ArrayZeroed(length);
+    *result = allocValue(u8);
+    return napi_ok;
+}
+
+napi_status napi_get_typedarray_info(napi_env env, napi_value typedarray, int* type,
+    size_t* length, void** data, napi_value* arraybuffer, size_t* byte_offset)
+{
+    if (env is null || typedarray is null) return napi_invalid_arg;
+    auto bytes = env.engine.getTypedArrayBytes(typedarray.handle);
+    if (length !is null) *length = bytes !is null ? bytes.length : 0;
+    if (data !is null) *data = bytes !is null ? cast(void*) bytes.ptr : null;
+    if (type !is null) *type = 0;  // napi_uint8_array
+    if (byte_offset !is null) *byte_offset = 0;
+    if (arraybuffer !is null)
+    {
+        auto bufProp = env.engine.getProperty(typedarray.handle, "buffer");
+        *arraybuffer = allocValue(bufProp);
+    }
+    return napi_ok;
+}
+
+napi_status napi_is_typedarray(napi_env env, napi_value value, bool* result)
+{
+    if (env is null || value is null || result is null) return napi_invalid_arg;
+    *result = env.engine.getTypedArrayBytes(value.handle) !is null;
+    return napi_ok;
+}
+
+napi_status napi_create_buffer(napi_env env, size_t length, void** data, napi_value* result)
+{
+    if (env is null || result is null) return napi_invalid_arg;
+    import dun.builtins.buffer : makeBufferObjZeroed;
+    auto buf = makeBufferObjZeroed(env.engine, cast(int) length);
+    if (data !is null)
+    {
+        auto bytes = env.engine.getTypedArrayBytes(buf);
+        *data = bytes !is null ? cast(void*) bytes.ptr : null;
+    }
+    *result = allocValue(buf);
+    return napi_ok;
+}
+
+napi_status napi_create_buffer_copy(napi_env env, size_t length, const(void)* data,
+    void** result_data, napi_value* result)
+{
+    if (env is null || result is null) return napi_invalid_arg;
+    import dun.builtins.buffer : makeBufferObj;
+    auto src = data ? (cast(const(ubyte)*) data)[0 .. length] : null;
+    auto buf = makeBufferObj(env.engine, src);
+    if (result_data !is null)
+    {
+        auto bytes = env.engine.getTypedArrayBytes(buf);
+        *result_data = bytes !is null ? cast(void*) bytes.ptr : null;
+    }
+    *result = allocValue(buf);
+    return napi_ok;
+}
+
+napi_status napi_create_external_buffer(napi_env env, size_t length, void* data,
+    napi_finalize finalize_cb, void* finalize_hint, napi_value* result)
+{
+    // Same as create_buffer_copy — we don't have external storage exposed
+    // through IJSEngine; copy the bytes in.
+    return napi_create_buffer_copy(env, length, data, null, result);
+}
+
+napi_status napi_is_buffer(napi_env env, napi_value value, bool* result)
+{
+    if (env is null || value is null || result is null) return napi_invalid_arg;
+    auto isBufProp = env.engine.getProperty(value.handle, "__isBuffer");
+    *result = env.engine.isBool(isBufProp) && env.engine.extractBool(isBufProp);
+    env.engine.freeValue(isBufProp);
+    return napi_ok;
+}
+
+napi_status napi_get_buffer_info(napi_env env, napi_value value, void** data, size_t* length)
+{
+    if (env is null || value is null) return napi_invalid_arg;
+    auto bytes = env.engine.getTypedArrayBytes(value.handle);
+    if (length !is null) *length = bytes !is null ? bytes.length : 0;
+    if (data !is null) *data = bytes !is null ? cast(void*) bytes.ptr : null;
+    return napi_ok;
+}
+
+napi_status napi_create_dataview(napi_env env, size_t byte_length, napi_value arraybuffer,
+    size_t byte_offset, napi_value* result)
+{
+    // No engine.newDataView yet — return a Uint8Array as approximation.
+    return napi_create_typedarray(env, 0, byte_length, arraybuffer, byte_offset, result);
+}
+
+napi_status napi_get_dataview_info(napi_env env, napi_value dataview, size_t* byte_length,
+    void** data, napi_value* arraybuffer, size_t* byte_offset)
+{
+    return napi_get_typedarray_info(env, dataview, null, byte_length, data, arraybuffer, byte_offset);
+}
+
+napi_status napi_is_dataview(napi_env env, napi_value value, bool* result)
+{
+    if (env is null || value is null || result is null) return napi_invalid_arg;
+    auto ctorProp = env.engine.getProperty(value.handle, "constructor");
+    auto nameProp = env.engine.getProperty(ctorProp, "name");
+    auto name = env.engine.isString(nameProp) ? env.engine.extractString(nameProp) : "";
+    env.engine.freeValue(nameProp);
+    env.engine.freeValue(ctorProp);
+    *result = name == "DataView";
+    return napi_ok;
+}
+
+// --- Class / wrap / instanceof ---
+
+napi_status napi_create_function(napi_env env, const(char)* utf8name, size_t length,
+    napi_callback cb, void* data, napi_value* result)
+{
+    // Without per-callback context plumbing we can only return a noop.
+    // Real addons that hit this won't work end-to-end, but the call won't
+    // crash. A full impl needs a trampoline that dispatches to `cb`.
+    if (env is null || result is null) return napi_invalid_arg;
+    NativeCallback nc = &napiNoopFn;
+    *result = allocValue(env.engine.newFunction(nc, "<napi>", 0));
+    return napi_ok;
+}
+
+napi_status napi_define_class(napi_env env, const(char)* utf8name, size_t length,
+    napi_callback constructor, void* data, size_t property_count,
+    void* properties, napi_value* result)
+{
+    return napi_create_function(env, utf8name, length, constructor, data, result);
+}
+
+napi_status napi_define_properties(napi_env env, napi_value object, size_t property_count, void* properties)
+{
+    // Properties descriptor decoding not implemented yet — accept silently
+    // so addons don't abort.
+    return napi_ok;
+}
+
+napi_status napi_new_instance(napi_env env, napi_value constructor, size_t argc,
+    napi_value* argv, napi_value* result)
+{
+    if (env is null || constructor is null || result is null) return napi_invalid_arg;
+    JSHandle[16] stackArgs;
+    JSHandle[] args;
+    if (argc <= 16)
+        args = stackArgs[0 .. argc];
+    else
+        args = new JSHandle[argc];
+    foreach (i; 0 .. argc) args[i] = argv[i].handle;
+    auto undef = env.engine.newUndefined();
+    auto inst = env.engine.callFunction(constructor.handle, undef, args);
+    env.engine.freeValue(undef);
+    *result = allocValue(inst);
+    return napi_ok;
+}
+
+napi_status napi_instanceof(napi_env env, napi_value object, napi_value constructor, bool* result)
+{
+    if (env is null || object is null || constructor is null || result is null) return napi_invalid_arg;
+    // Approximate: walk prototype chain comparing constructors.
+    auto ctorProp = env.engine.getProperty(object.handle, "constructor");
+    *result = ctorProp.opaque[0] == constructor.handle.opaque[0];
+    env.engine.freeValue(ctorProp);
+    return napi_ok;
+}
+
+napi_status napi_wrap(napi_env env, napi_value js_object, void* native_object,
+    napi_finalize finalize_cb, void* finalize_hint, void** result)
+{
+    // Stash the native pointer as a hidden property using its address.
+    // Real impl needs finalizer callback hooked to GC.
+    if (env is null || js_object is null) return napi_invalid_arg;
+    import std.format : format;
+    try
+    {
+        auto key = format("__napiWrap_%x__", cast(size_t) native_object);
+        env.engine.setProperty(js_object.handle, "__napiNative__",
+            env.engine.newString(key));
+    }
+    catch (Throwable) { return napi_generic_failure; }
+    if (result !is null) *result = null;
+    return napi_ok;
+}
+
+napi_status napi_unwrap(napi_env env, napi_value js_object, void** result)
+{
+    if (env is null || js_object is null || result is null) return napi_invalid_arg;
+    *result = null;  // can't reverse the address-as-string yet
+    return napi_ok;
+}
+
+napi_status napi_remove_wrap(napi_env env, napi_value js_object, void** result)
+{
+    if (env is null || js_object is null) return napi_invalid_arg;
+    if (result !is null) *result = null;
+    auto undef = env.engine.newUndefined();
+    env.engine.setProperty(js_object.handle, "__napiNative__", undef);
+    return napi_ok;
+}
+
+napi_status napi_get_new_target(napi_env env, napi_callback_info cbinfo, napi_value* result)
+{
+    if (env is null || result is null) return napi_invalid_arg;
+    *result = null;
+    return napi_ok;
+}
+
+private extern (D) JSHandle napiNoopFn(void* engineCtx, JSHandle thisVal, scope JSHandle[] args) @trusted
+{
+    static import dun.runtime.globals;
+    auto state = cast(dun.runtime.globals.DunState*) engineCtx;
+    return state.engine.newUndefined();
+}

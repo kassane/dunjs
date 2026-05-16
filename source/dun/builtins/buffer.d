@@ -270,7 +270,7 @@ void ensureBufferFnsCached(IJSEngine engine) @trusted
 __gshared JSHandle _bufFactory;
 __gshared JSHandle _bufFactoryThis;
 
-package JSHandle makeBufferObj(IJSEngine engine, const(ubyte)[] data) @trusted
+public JSHandle makeBufferObj(IJSEngine engine, const(ubyte)[] data) @trusted
 {
     ensureBufferFnsCached(engine);
     // Single backend call: alloc + memcpy + setPrototype. On V8 this
@@ -280,7 +280,7 @@ package JSHandle makeBufferObj(IJSEngine engine, const(ubyte)[] data) @trusted
     return engine.newBufferWithProto(data, _bufProto, false);
 }
 
-JSHandle makeBufferObjZeroed(IJSEngine engine, int size) @trusted
+public JSHandle makeBufferObjZeroed(IJSEngine engine, int size) @trusted
 {
     ensureBufferFnsCached(engine);
     auto u8 = engine.newUint8ArrayZeroed(size);
