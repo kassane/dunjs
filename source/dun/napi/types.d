@@ -141,3 +141,22 @@ struct napi_ref_s
     uint refcount;
 }
 alias napi_ref = napi_ref_s*;
+
+// Tiger-style FFI invariants: every type passed across the C ABI must
+// be standard-layout-sized so addons compiled against the Node N-API
+// headers can pass pointers without ABI mismatch. These static asserts
+// fail at build time if any future edit changes the layout.
+static assert(napi_value_s.sizeof == JSHandle.sizeof,
+    "napi_value_s must stay a pure JSHandle wrapper for FFI parity");
+static assert(napi_status.sizeof == int.sizeof,
+    "napi_status must be a 4-byte int per N-API spec");
+static assert(napi_valuetype.sizeof == int.sizeof,
+    "napi_valuetype must be a 4-byte int per N-API spec");
+static assert((napi_env).sizeof == (void*).sizeof,
+    "napi_env must be pointer-sized for C interop");
+static assert((napi_ref).sizeof == (void*).sizeof,
+    "napi_ref must be pointer-sized for C interop");
+static assert((napi_async_work).sizeof == (void*).sizeof,
+    "napi_async_work must be pointer-sized");
+static assert((napi_threadsafe_function).sizeof == (void*).sizeof,
+    "napi_threadsafe_function must be pointer-sized");

@@ -335,7 +335,29 @@ JSHandle jsH3ServerClose(void* ctx, JSHandle thisVal, scope JSHandle[] args) @tr
     assert(ctx !is null, "Null ctx in http3.server.close");
     auto state = cast(DunState*) ctx;
     assert(state.engine !is null);
-    return state.engine.newUndefined();
+    auto engine = state.engine;
+
+    // RAII-style fd close: read the fd that listen() stored on the
+    // server object and release the kernel resource. Without this the
+    // UDP socket leaks until process exit, eventually exhausting fds
+    // for any long-lived process that opens / closes H3 servers.
+    version (Posix)
+    {
+        auto fdProp = engine.getProperty(thisVal, "fd");
+        if (engine.isNumber(fdProp))
+        {
+            import core.sys.posix.unistd : close;
+            int fd = engine.extractInt(fdProp);
+            if (fd > 0)
+            {
+                close(fd);
+                engine.setProperty(thisVal, "fd", engine.newInt(-1));
+                engine.setProperty(thisVal, "listening", engine.newBool(false));
+            }
+        }
+        engine.freeValue(fdProp);
+    }
+    return engine.newUndefined();
 }
 
 JSHandle jsH3ServerOn(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
