@@ -1498,9 +1498,12 @@ bool isESM(string path, string source) @safe pure nothrow
     // Content-based: top-level `import`, `export`, or `await` all
     // imply ESM. (Top-level await only parses in module context, so
     // the presence of it is also a tell -- scripts can use Promise
-    // chains instead.) Be string- and comment-aware so we don't trip
-    // on text like `"await ..."` inside a string literal.
+    // chains instead.) `import`/`export` are line-start only;
+    // `await` can appear anywhere at top-level statement scope, so
+    // we track brace/paren/bracket depth to disqualify nested
+    // appearances.
     bool atLineStart = true;
+    int braceD = 0, parenD = 0, bracketD = 0;
     size_t i = 0;
     while (i < source.length)
     {
@@ -1543,15 +1546,32 @@ bool isESM(string path, string source) @safe pure nothrow
             if (i < source.length) i++;
             continue;
         }
+        if (c == '{') braceD++;
+        else if (c == '}') { if (braceD > 0) braceD--; }
+        else if (c == '(') parenD++;
+        else if (c == ')') { if (parenD > 0) parenD--; }
+        else if (c == '[') bracketD++;
+        else if (c == ']') { if (bracketD > 0) bracketD--; }
         if (atLineStart)
         {
             if (source.length - i >= 7 && source[i .. i + 7] == "import ") return true;
             if (source.length - i >= 7 && source[i .. i + 7] == "export ") return true;
-            // top-level `await` (line-start `await ` followed by non-keyword token)
-            if (source.length - i >= 6 && source[i .. i + 6] == "await "
-                && i + 6 < source.length) return true;
             // skip leading whitespace -- still at line start
             if (c == ' ' || c == '\t') { i++; continue; }
+        }
+        // top-level await -- anywhere at depth-0 statement scope.
+        if (braceD == 0 && parenD == 0 && bracketD == 0
+            && source.length - i >= 6 && source[i .. i + 5] == "await"
+            && (source[i + 5] == ' ' || source[i + 5] == '\t'
+                || source[i + 5] == '\n' || source[i + 5] == '(')
+            && (i == 0 || !(((source[i - 1] >= 'a' && source[i - 1] <= 'z')
+                            || (source[i - 1] >= 'A' && source[i - 1] <= 'Z')
+                            || (source[i - 1] >= '0' && source[i - 1] <= '9')
+                            || source[i - 1] == '_' || source[i - 1] == '$'))))
+        {
+            // `function x() { await ... }` would have braceD > 0,
+            // so a depth-0 match is necessarily top-level.
+            return true;
         }
         atLineStart = (c == '\n');
         i++;

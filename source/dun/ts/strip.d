@@ -118,17 +118,23 @@ string stripTypes(const(char)[] source) @trusted
             pos++; continue;
         }
 
-        // --- generic call site `fn<TypeArgs>(...)` ---
-        // The `<...>` looks like comparison to the JS parser. Detect the
-        // generic-args pattern by requiring that what follows the matching
-        // `>` is `(` (call), `` ` `` (tagged template) or `.<` (chained
-        // generic). Bail out as soon as we see a non-type character inside
-        // the angle brackets, so `a < b > c` etc. stays untouched.
+        // --- generic call site / generic arrow `<T>(...)` ---
+        // The `<...>` looks like comparison to the JS parser. Detect by
+        // requiring that what follows the matching `>` is `(` (call /
+        // generic arrow), `` ` `` (tagged template), or `.<` (chained
+        // generic). Bail out as soon as we see a non-type character
+        // inside the angle brackets, so `a < b > c` stays untouched.
+        // Accepted prev contexts cover: call (ident/)/]), expression
+        // start (`(`, `=`, `,`, `:`, `?`, `&&`, `||`, `return`, etc.).
         if (c == '<' && pos > 0)
         {
             auto prev = prevNonWS(buf, pos);
             if (prev < buf.length && (isIdentChar(buf[prev])
-                    || buf[prev] == ')' || buf[prev] == ']'))
+                    || buf[prev] == ')' || buf[prev] == ']'
+                    || buf[prev] == '(' || buf[prev] == ','
+                    || buf[prev] == '=' || buf[prev] == ':'
+                    || buf[prev] == '?' || buf[prev] == '>'
+                    || buf[prev] == '|' || buf[prev] == '&'))
             {
                 size_t scan = pos + 1;
                 int ad = 1;  // angle depth
@@ -278,6 +284,34 @@ string stripTypes(const(char)[] source) @trusted
             {
                 blankRange(buf, wordStart, pos);
                 continue;
+            }
+
+            // TS `this:` parameter annotation: `f(this: X, a, b)`. The
+            // `this` token is not a real JS parameter (reserved word in
+            // strict mode) -- erase the whole `this: TYPE` span up to
+            // the comma. Only fires at top of a parameter list (right
+            // after `(` or after `,`).
+            if (word == "this" && parenDepth > 0
+                && braceAtParenOpen.length > 0
+                && braceDepth == braceAtParenOpen[$ - 1])
+            {
+                auto prev = prevNonWS(buf, wordStart);
+                if (prev < buf.length && (buf[prev] == '(' || buf[prev] == ','))
+                {
+                    auto afterThis = skipWS(buf, pos);
+                    if (afterThis < buf.length && buf[afterThis] == ':')
+                    {
+                        auto typeEnd = scanTypeExpr(buf, afterThis + 1, ",)=");
+                        // If a trailing comma follows, eat it so we don't
+                        // leave `(, a, b)`.
+                        auto eat = typeEnd;
+                        while (eat < buf.length && (buf[eat] == ' ' || buf[eat] == '\t')) eat++;
+                        if (eat < buf.length && buf[eat] == ',') eat++;
+                        blankRange(buf, wordStart, eat);
+                        pos = eat;
+                        continue;
+                    }
+                }
             }
 
             // `function NAME<T, U>(...)` and `class NAME<T, U> ...` —
@@ -619,7 +653,27 @@ string stripTypes(const(char)[] source) @trusted
             // Return type: ) : Type { or =>
             if (qPos < buf.length && buf[qPos] == ')' && parenDepth == 0)
             {
-                auto typeEnd = scanTypeExpr(buf, pos + 1, "{");
+                // If the return type itself starts with `{` (object
+                // type literal like `): { x: number }`), walk past the
+                // matching `}` so scanTypeExpr doesn't treat the
+                // opening `{` as the function body.
+                auto afterColon = skipWS(buf, pos + 1);
+                size_t typeStart = pos + 1;
+                if (afterColon < buf.length && buf[afterColon] == '{')
+                {
+                    size_t bd = 1;
+                    size_t bp = afterColon + 1;
+                    while (bp < buf.length && bd > 0)
+                    {
+                        if (buf[bp] == '\'' || buf[bp] == '"') { bp = skipStringLit(buf, bp); continue; }
+                        if (buf[bp] == '`') { bp = skipTemplateLit(buf, bp); continue; }
+                        if (buf[bp] == '{') bd++;
+                        else if (buf[bp] == '}') bd--;
+                        bp++;
+                    }
+                    typeStart = bp;
+                }
+                auto typeEnd = scanTypeExpr(buf, typeStart, "{");
                 if (typeEnd < buf.length)
                 {
                     bool isArrow = typeEnd + 1 < buf.length
@@ -643,7 +697,15 @@ string stripTypes(const(char)[] source) @trusted
                 && braceDepth == braceAtParenOpen[$ - 1];
             if (atParamLevel)
             {
-                if (qPos < buf.length && (isIdentChar(buf[qPos]) || buf[qPos] == '?'))
+                // qPos = char immediately before `:`. Treat as a param-
+                // type annotation if it ends a destructuring pattern
+                // (`}`), a tuple pattern (`]`), the optional marker
+                // (`?`), or a plain identifier. (The destructure /
+                // tuple cases support `function f({a}: T) {}` and
+                // `function f([a]: T) {}`.)
+                if (qPos < buf.length
+                    && (isIdentChar(buf[qPos]) || buf[qPos] == '?'
+                        || buf[qPos] == '}' || buf[qPos] == ']'))
                 {
                     // Blank optional ? too
                     auto blankStart = pos;
@@ -1694,15 +1756,21 @@ size_t scanTypeExpr(const(char)[] buf, size_t start, const(char)[] terms) @safe 
         // Check terminators at depth 0 BEFORE updating nesting
         if (parenD == 0 && braceD == 0 && bracketD == 0 && angleD == 0)
         {
-            // `=>` is *part of* an arrow function type (`cb: () => void`)
-            // UNLESS the caller asked us to stop on it (return-type scan
-            // hands us `{` and wants `=>` to also terminate). Use the
-            // presence of `{` in the terminator list as the cue.
+            // `=>` handling: it's *part of* an arrow function type
+            // (`cb: () => void`, return type `): (x: A) => B {`)
+            // when the preceding non-ws char is `)` -- i.e. we just
+            // closed a paren-group inside the type. Otherwise the
+            // caller may want it to terminate (return-type mode, signaled
+            // by `{` being in the terminator list).
             bool arrowTerminates = false;
             foreach (t; terms) if (t == '{') { arrowTerminates = true; break; }
             if (c == '=' && i + 1 < buf.length && buf[i + 1] == '>')
             {
-                if (arrowTerminates) return i;
+                size_t back = i;
+                while (back > 0 && (buf[back - 1] == ' ' || buf[back - 1] == '\t'
+                        || buf[back - 1] == '\n' || buf[back - 1] == '\r')) back--;
+                bool isFunctionTypeArrow = back > 0 && buf[back - 1] == ')';
+                if (arrowTerminates && !isFunctionTypeArrow) return i;
                 i += 2;
                 continue;
             }

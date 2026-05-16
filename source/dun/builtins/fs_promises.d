@@ -501,6 +501,16 @@ JSHandle jsFspReaddir(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trust
     if (!checkPerm(state, Permission.read, path))
         return throwPermError(engine, "read", path);
 
+    // Detect { withFileTypes: true } so we can return Dirent objects
+    // instead of plain strings. Same option as fs.readdirSync.
+    bool withFileTypes = false;
+    if (args.length >= 2 && engine.isObject(args[1]))
+    {
+        auto wft = engine.getProperty(args[1], "withFileTypes");
+        withFileTypes = engine.extractBool(wft);
+        engine.freeValue(wft);
+    }
+
     auto ph = engine.newPromise();
     engine.dupValue(ph.resolve);
     engine.dupValue(ph.reject);
@@ -508,13 +518,22 @@ JSHandle jsFspReaddir(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trust
     asyncSubmitSafe(engine, ph.resolve, ph.reject, () @trusted nothrow {
         try
         {
-            import std.file : dirEntries, SpanMode;
+            import std.file : dirEntries, SpanMode, isFile, isDir, isSymlink;
             import std.path : baseName;
             string result;
             foreach (entry; dirEntries(path, SpanMode.shallow))
             {
+                // Encode "<name>:<type>" per entry where type is one of
+                // f/d/l/?, separated by newline.
                 if (result.length > 0) result ~= "\n";
+                char t = '?';
+                try { if (entry.isSymlink) t = 'l';
+                      else if (entry.isFile) t = 'f';
+                      else if (entry.isDir)  t = 'd'; }
+                catch (Exception) {}
                 result ~= baseName(entry.name);
+                result ~= ':';
+                result ~= t;
             }
             return AsyncResult.ok(result);
         }
@@ -525,20 +544,44 @@ JSHandle jsFspReaddir(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trust
             return AsyncResult.fail(msg);
         }
     }, (IJSEngine e, string result) @trusted {
+        import dun.builtins.fs : createDirentObject;
+        // Convert the encoded "name:type\n..." back to either Dirent
+        // objects (withFileTypes) or plain strings.
         auto arr = e.newArray();
         if (result.length == 0) return arr;
         uint idx = 0;
         size_t start = 0;
+        void emit(string entry) @trusted {
+            auto colon = entry.length;
+            foreach (i, ch; entry) if (ch == ':') { colon = i; break; }
+            auto name = colon < entry.length ? entry[0 .. colon] : entry;
+            if (withFileTypes)
+            {
+                int dtype = 0;  // DT_UNKNOWN
+                if (colon + 1 < entry.length)
+                {
+                    immutable t = entry[colon + 1];
+                    if (t == 'f') dtype = 8;       // DT_REG
+                    else if (t == 'd') dtype = 4;  // DT_DIR
+                    else if (t == 'l') dtype = 10; // DT_LNK
+                }
+                e.setPropertyIndex(arr, idx++,
+                    createDirentObject(e, name.idup, dtype));
+            }
+            else
+            {
+                e.setPropertyIndex(arr, idx++, e.newString(name.idup));
+            }
+        }
         foreach (i, c; result)
         {
             if (c == '\n')
             {
-                e.setPropertyIndex(arr, idx++, e.newString(result[start .. i]));
+                emit(result[start .. i]);
                 start = i + 1;
             }
         }
-        if (start < result.length)
-            e.setPropertyIndex(arr, idx++, e.newString(result[start .. $]));
+        if (start < result.length) emit(result[start .. $]);
         return arr;
     });
 

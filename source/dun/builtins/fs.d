@@ -881,6 +881,57 @@ JSHandle jsReadFileAsync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @tr
     if (!checkPerm(state, Permission.read, path))
         return throwPermError(engine, "read", path);
 
+    // Node-style trailing callback: `readFile(path, cb)` or
+    // `readFile(path, opts, cb)`. When present, invoke (err, data)
+    // and return undefined; otherwise return a promise.
+    JSHandle callback = JSHandle.init;
+    bool hasCallback = false;
+    if (args.length >= 2 && engine.isFunction(args[args.length - 1]))
+    {
+        callback = engine.dupValue(args[args.length - 1]);
+        hasCallback = true;
+    }
+
+    if (hasCallback)
+    {
+        // Wrap the user's `(err, data)` callback into a `(resolve, reject)`
+        // pair so we can reuse the same asyncSubmitSafe path the promise
+        // form uses. `resolve` becomes `cb(null, data)`, `reject` becomes
+        // `cb(err)`.
+        auto global = engine.getGlobal();
+        engine.setProperty(global, "__dun_fs_cb_tmp__", callback);
+        auto wrapRes = engine.eval(
+            "(function(cb){return {"
+            ~ "resolve: function(data){ cb(null, data); },"
+            ~ "reject:  function(err){ cb(err); }"
+            ~ "};})(globalThis.__dun_fs_cb_tmp__)",
+            "<fs-cb-wrap>");
+        engine.freeValue(global);
+        engine.freeValue(callback);  // consumed by setProperty/dupValue cycle
+
+        if (wrapRes.isError)
+            return engine.newUndefined();
+
+        auto resolve = engine.getProperty(wrapRes.value, "resolve");
+        auto reject  = engine.getProperty(wrapRes.value, "reject");
+        engine.freeValue(wrapRes.value);
+
+        asyncSubmitSafe(engine, resolve, reject, () @trusted nothrow {
+            try
+            {
+                import std.file : readText;
+                return AsyncResult.ok(readText(path));
+            }
+            catch (Exception e)
+            {
+                string msg;
+                try { msg = e.msg; } catch (Exception) { msg = "read error"; }
+                return AsyncResult.fail(msg);
+            }
+        });
+        return engine.newUndefined();
+    }
+
     auto ph = engine.newPromise();
     engine.dupValue(ph.resolve);
     engine.dupValue(ph.reject);
@@ -2467,7 +2518,7 @@ version (Posix)
     }
 }
 
-JSHandle createDirentObject(IJSEngine engine, string name, int dtype) @trusted
+package JSHandle createDirentObject(IJSEngine engine, string name, int dtype) @trusted
 {
     auto global = engine.getGlobal();
     auto factory = engine.getProperty(global, "__dunDirentFactory__");

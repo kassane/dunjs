@@ -307,7 +307,93 @@ string transpileESM(string source, string filename) @safe pure
         output ~= "}\n";
     }
 
-    return (() @trusted => cast(string) output[])();
+    auto transpiled = (() @trusted => cast(string) output[])();
+
+    // V8/JSC backends evaluate the transpiled module as a script, but
+    // top-level `await` only parses in a module context. Detect a
+    // top-level `await` in the source and wrap the whole body in an
+    // async IIFE so the runtime accepts it. Errors propagate via
+    // `.catch` so the host's promise rejection handler sees them.
+    if (hasTopLevelAwait(transpiled))
+        transpiled = "(async()=>{" ~ transpiled
+            ~ "\n})().catch(e=>{ if(typeof process!=='undefined'&&process.exit)"
+            ~ "{try{console.error(e&&e.stack||e);}catch(_){};process.exit(1);}"
+            ~ "else{throw e;}});";
+
+    return transpiled;
+}
+
+/// Detects an `await` token at top-level statement position (not in a
+/// string, comment, nested function, or class). Used to decide whether
+/// the transpiled ESM body needs an async-IIFE wrapper.
+private bool hasTopLevelAwait(string s) @safe pure nothrow
+{
+    int braceD = 0, parenD = 0, bracketD = 0;
+    size_t i = 0;
+    while (i < s.length)
+    {
+        char c = s[i];
+        if (c == '\'' || c == '"')
+        {
+            char q = c; i++;
+            while (i < s.length && s[i] != q)
+            {
+                if (s[i] == '\\' && i + 1 < s.length) i += 2;
+                else i++;
+            }
+            if (i < s.length) i++;
+            continue;
+        }
+        if (c == '`')
+        {
+            i++;
+            while (i < s.length && s[i] != '`')
+            {
+                if (s[i] == '\\' && i + 1 < s.length) i += 2;
+                else i++;
+            }
+            if (i < s.length) i++;
+            continue;
+        }
+        if (c == '/' && i + 1 < s.length)
+        {
+            if (s[i + 1] == '/')
+            {
+                while (i < s.length && s[i] != '\n') i++;
+                continue;
+            }
+            if (s[i + 1] == '*')
+            {
+                i += 2;
+                while (i + 1 < s.length && !(s[i] == '*' && s[i + 1] == '/')) i++;
+                if (i + 1 < s.length) i += 2;
+                continue;
+            }
+        }
+        if (c == '{') braceD++;
+        else if (c == '}') { if (braceD > 0) braceD--; }
+        else if (c == '(') parenD++;
+        else if (c == ')') { if (parenD > 0) parenD--; }
+        else if (c == '[') bracketD++;
+        else if (c == ']') { if (bracketD > 0) bracketD--; }
+        else if (braceD == 0 && parenD == 0 && bracketD == 0)
+        {
+            // Match `await ` only if it's whitespace-isolated.
+            if (i + 6 <= s.length && s[i .. i + 5] == "await"
+                && (s[i + 5] == ' ' || s[i + 5] == '\t' || s[i + 5] == '\n'
+                    || s[i + 5] == '(' || s[i + 5] == '\r')
+                && (i == 0 || !isIdentChar2(s[i - 1])))
+                return true;
+        }
+        i++;
+    }
+    return false;
+}
+
+private bool isIdentChar2(char c) @safe pure nothrow @nogc
+{
+    return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
+        || (c >= '0' && c <= '9') || c == '_' || c == '$';
 }
 
 private bool containsImportMeta(string s) @safe pure nothrow
