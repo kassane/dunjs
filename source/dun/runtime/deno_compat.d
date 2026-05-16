@@ -349,12 +349,7 @@ bool noColorEnabled() @trusted nothrow
     catch (Exception) { return false; }
 }
 
-bool checkPerm(DunState* state, Permission perm, string resource = "") @trusted nothrow
-{
-    if (state is null || state.permissions is null) return false;
-    try { return state.permissions.check(perm, resource); }
-    catch (Exception) { return false; }
-}
+public import dun.security.permissions : checkPerm;
 
 // ── Deno.env ──
 

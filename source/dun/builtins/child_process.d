@@ -89,12 +89,7 @@ bool hasGlobalRun(DunState* state) nothrow @trusted
     catch (Exception) { return false; }
 }
 
-bool checkPerm(DunState* state, Permission perm, string resource = "") nothrow @trusted
-{
-    if (state is null || state.permissions is null) return false;
-    try { return state.permissions.check(perm, resource); }
-    catch (Exception) { return false; }
-}
+public import dun.security.permissions : checkPerm;
 
 JSHandle throwPermError(IJSEngine engine, string cmd) @trusted
 {
