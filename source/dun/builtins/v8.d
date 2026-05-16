@@ -3,6 +3,11 @@ module dun.builtins.v8;
 import dun.engine.iface : IJSEngine, JSHandle;
 import dun.runtime.globals : DunState;
 
+// Default heap limit we report to JS callers. Real DunJS heap usage is
+// gated by `--max-memory`; this is just the "what would V8 say" number
+// expected by `v8.getHeapStatistics().heap_size_limit`.
+private enum DEFAULT_HEAP_LIMIT_BYTES = 2L * 1024 * 1024 * 1024;  // 2 GiB
+
 /// `node:v8` compatibility surface. Currently a small slice: enough for
 /// `v8.writeHeapSnapshot()`, `v8.getHeapStatistics()`, and the
 /// serializer constants that npm packages probe at load time. We don't
@@ -12,29 +17,31 @@ void registerV8Module(IJSEngine engine) @trusted
 {
     assert(engine !is null, "Null engine in registerV8Module");
 
+    // Register the exported functions in one table-driven sweep -- one
+    // entry per (name, native impl, formal arity).
+    struct V8Fn { string name; void* fn; int argc; }
+    static V8Fn[] funcs = [
+        V8Fn("writeHeapSnapshot",    cast(void*) &jsWriteHeapSnapshot,    1),
+        V8Fn("getHeapStatistics",    cast(void*) &jsGetHeapStatistics,    0),
+        V8Fn("getHeapSpaceStatistics", cast(void*) &jsGetHeapSpaceStatistics, 0),
+        V8Fn("getHeapCodeStatistics", cast(void*) &jsGetHeapCodeStatistics,  0),
+        V8Fn("cachedDataVersionTag", cast(void*) &jsCachedDataVersionTag, 0),
+        V8Fn("setFlagsFromString",   cast(void*) &jsSetFlagsFromString,   1),
+        V8Fn("getHeapSnapshot",      cast(void*) &jsGetHeapSnapshot,      0),
+    ];
     auto obj = engine.newObject();
-    engine.setProperty(obj, "writeHeapSnapshot",
-        engine.newFunction(&jsWriteHeapSnapshot, "writeHeapSnapshot", 1));
-    engine.setProperty(obj, "getHeapStatistics",
-        engine.newFunction(&jsGetHeapStatistics, "getHeapStatistics", 0));
-    engine.setProperty(obj, "getHeapSpaceStatistics",
-        engine.newFunction(&jsGetHeapSpaceStatistics, "getHeapSpaceStatistics", 0));
-    engine.setProperty(obj, "getHeapCodeStatistics",
-        engine.newFunction(&jsGetHeapCodeStatistics, "getHeapCodeStatistics", 0));
-    engine.setProperty(obj, "cachedDataVersionTag",
-        engine.newFunction(&jsCachedDataVersionTag, "cachedDataVersionTag", 0));
-    engine.setProperty(obj, "setFlagsFromString",
-        engine.newFunction(&jsSetFlagsFromString, "setFlagsFromString", 1));
-    engine.setProperty(obj, "getHeapSnapshot",
-        engine.newFunction(&jsGetHeapSnapshot, "getHeapSnapshot", 0));
+    import dun.engine.iface : NativeCallback;
+    foreach (f; funcs)
+        engine.setProperty(obj, f.name,
+            engine.newFunction(cast(NativeCallback) f.fn, f.name, f.argc));
 
     // Serializer / Deserializer stubs (npm pkgs probe for class shapes).
     auto serObj = engine.newObject();
     auto desObj = engine.newObject();
-    engine.setProperty(obj, "Serializer", serObj);
-    engine.setProperty(obj, "Deserializer", desObj);
-    engine.setProperty(obj, "DefaultSerializer", serObj);
-    engine.setProperty(obj, "DefaultDeserializer", desObj);
+    foreach (alias_; ["Serializer", "DefaultSerializer"])
+        engine.setProperty(obj, alias_, serObj);
+    foreach (alias_; ["Deserializer", "DefaultDeserializer"])
+        engine.setProperty(obj, alias_, desObj);
     engine.setProperty(obj, "serialize",
         engine.newFunction(&jsSerialize, "serialize", 1));
     engine.setProperty(obj, "deserialize",
@@ -170,21 +177,34 @@ private JSHandle jsGetHeapStatistics(void* ctx, JSHandle thisVal, scope JSHandle
     auto engine = state.engine;
     import core.memory : GC;
     auto stats = GC.stats;
+    auto totalSize = cast(double)(stats.usedSize + stats.freeSize);
+    auto usedSize  = cast(double) stats.usedSize;
+    auto freeSize  = cast(double) stats.freeSize;
     auto obj = engine.newObject();
-    engine.setProperty(obj, "total_heap_size", engine.newFloat(cast(double)(stats.usedSize + stats.freeSize)));
-    engine.setProperty(obj, "total_heap_size_executable", engine.newFloat(0));
-    engine.setProperty(obj, "total_physical_size", engine.newFloat(cast(double)(stats.usedSize + stats.freeSize)));
-    engine.setProperty(obj, "total_available_size", engine.newFloat(cast(double) stats.freeSize));
-    engine.setProperty(obj, "used_heap_size", engine.newFloat(cast(double) stats.usedSize));
-    engine.setProperty(obj, "heap_size_limit", engine.newFloat(2.0 * 1024 * 1024 * 1024));
-    engine.setProperty(obj, "malloced_memory", engine.newFloat(cast(double) stats.usedSize));
-    engine.setProperty(obj, "peak_malloced_memory", engine.newFloat(cast(double) stats.usedSize));
-    engine.setProperty(obj, "does_zap_garbage", engine.newInt(0));
-    engine.setProperty(obj, "number_of_native_contexts", engine.newInt(1));
-    engine.setProperty(obj, "number_of_detached_contexts", engine.newInt(0));
-    engine.setProperty(obj, "total_global_handles_size", engine.newInt(0));
-    engine.setProperty(obj, "used_global_handles_size", engine.newInt(0));
-    engine.setProperty(obj, "external_memory", engine.newInt(0));
+    // Floats (byte counts that can exceed int32 range)
+    static immutable doubleFields = [
+        "total_heap_size", "total_heap_size_executable",
+        "total_physical_size", "total_available_size",
+        "used_heap_size", "heap_size_limit",
+        "malloced_memory", "peak_malloced_memory",
+    ];
+    double[8] doubleValues = [
+        totalSize, 0,
+        totalSize, freeSize,
+        usedSize,  cast(double) DEFAULT_HEAP_LIMIT_BYTES,
+        usedSize,  usedSize,
+    ];
+    foreach (i, name; doubleFields)
+        engine.setProperty(obj, name, engine.newFloat(doubleValues[i]));
+    // Ints (counters small enough to fit in int32)
+    static immutable intFields = [
+        "does_zap_garbage", "number_of_native_contexts",
+        "number_of_detached_contexts", "total_global_handles_size",
+        "used_global_handles_size", "external_memory",
+    ];
+    int[6] intValues = [0, 1, 0, 0, 0, 0];
+    foreach (i, name; intFields)
+        engine.setProperty(obj, name, engine.newInt(intValues[i]));
     return obj;
 }
 
