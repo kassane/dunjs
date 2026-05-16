@@ -59,6 +59,16 @@ version (EngineQuickJS)
             {
                 name = buildNormalizedPath(name);
             }
+            else
+            {
+                // Bare specifier that didn't match a builtin: try
+                // node_modules lookup the same way require() does.
+                import dun.modules.require : findNodeModule;
+                auto fromDir = base.length > 0 ? dirName(base) : ".";
+                auto resolved = findNodeModule(name, fromDir);
+                if (resolved.length > 0)
+                    name = resolved;
+            }
 
             return js_strdup(ctx, name.toStringz);
         }
@@ -105,6 +115,11 @@ version (EngineQuickJS)
             return null;
         }
 
+        // Comment out a leading shebang line so the JS parser doesn't
+        // choke on `#!/usr/bin/env -S deno run ...`.
+        if (source.length >= 2 && source[0] == '#' && source[1] == '!')
+            source = "//" ~ source[2 .. $];
+
         // JSON modules: wrap as `export default <content>`
         if (specifier.endsWith(".json"))
         {
@@ -112,6 +127,26 @@ version (EngineQuickJS)
             source = "export default JSON.parse('" ~
                 source.replace("\\", "\\\\").replace("'", "\\'").replace("\n", "\\n").replace("\r", "\\r") ~
                 "');\n";
+        }
+        // CJS-from-ESM interop: if the imported file uses `module.exports`
+        // or `exports.xyz =` and is not an ESM module file (.mjs / has top-level
+        // `export`/`import`), wrap it with a tiny ESM shim that goes through
+        // require() and re-exports the resulting object as default + named.
+        else if ((specifier.endsWith(".js") || specifier.endsWith(".cjs"))
+              && looksLikeCommonJS(source))
+        {
+            try
+            {
+                import std.string : replace;
+                import std.path : absolutePath;
+                auto absSpec = absolutePath(specifier).replace(`\`, `\\`).replace(`"`, `\"`);
+                source =
+                    `const __dun_cjs_mod = require("` ~ absSpec ~ `");` ~
+                    `export default __dun_cjs_mod;`;
+                // Named-import support for CJS is best-effort — consumers
+                // using `import { x } from "pkg"` get `default` only.
+            }
+            catch (Exception) {}
         }
 
         // Strip TypeScript types
@@ -177,6 +212,30 @@ version (EngineQuickJS)
     }
 }
 
+private bool looksLikeCommonJS(string source) @safe pure nothrow
+{
+    import std.algorithm : canFind;
+    // Quick heuristic: file contains `module.exports` / `exports.` /
+    // top-level `require(...)` AND has no top-level `import`/`export`
+    // statement. Misses some pathological cases but matches the bulk
+    // of the npm ecosystem.
+    bool hasCJS = source.canFind("module.exports") || source.canFind("exports.");
+    if (!hasCJS) return false;
+    // Look for line-start `export ` / `import ` to rule out true ESM
+    // modules that happen to also reference `exports.foo`.
+    for (size_t i = 0; i < source.length; i++)
+    {
+        if (i == 0 || source[i - 1] == '\n')
+        {
+            if (source.length - i >= 7 && source[i .. i + 7] == "export ")
+                return false;
+            if (source.length - i >= 7 && source[i .. i + 7] == "import ")
+                return false;
+        }
+    }
+    return true;
+}
+
 private bool isBareBuiltin(string name) @safe pure nothrow @nogc
 {
     static immutable builtins = [
@@ -185,7 +244,7 @@ private bool isBareBuiltin(string name) @safe pure nothrow @nogc
         "stream", "zlib", "child_process", "worker_threads", "cluster",
         "vm", "assert", "querystring", "string_decoder", "readline",
         "perf_hooks", "async_hooks", "timers/promises", "fs/promises",
-        "ws", "sqlite", "tty",
+        "ws", "sqlite", "tty", "module",
     ];
     foreach (b; builtins)
         if (name == b)

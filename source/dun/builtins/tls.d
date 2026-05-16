@@ -165,6 +165,8 @@ version (EngineQuickJS)
                         "DEFAULT_MIN_VERSION", "DEFAULT_MAX_VERSION",
                         "DEFAULT_CIPHERS"])
             JS_AddModuleExport(ctx, m, name.ptr);
+
+        JS_AddModuleExport(ctx, m, "default");
     }
 
     private extern (C) int tlsModuleInit(JSContext* ctx, JSModuleDef* m) nothrow @trusted
@@ -180,7 +182,7 @@ version (EngineQuickJS)
             auto fn = JS_GetPropertyStr(ctx, tlsObj, name.ptr);
             JS_SetModuleExport(ctx, m, name.ptr, fn);
         }
-        JS_FreeValue(ctx, tlsObj);
+        JS_SetModuleExport(ctx, m, "default", tlsObj);
         JS_FreeValue(ctx, global);
         return 0;
     }

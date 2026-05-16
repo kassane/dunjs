@@ -27,6 +27,13 @@ string stripTypes(const(char)[] source) @trusted
     int parenDepth = 0;
     int braceDepth = 0;
     bool afterVarKw = false;
+    // Track braceDepth at the moment each `(` was opened. A colon
+    // inside parens is a parameter annotation only if the brace depth
+    // hasn't increased since the paren opened (i.e. we're not inside
+    // an inline object literal like `f({ key: value })`). Stack lives
+    // on the heap because parenDepth can grow arbitrarily.
+    int[] braceAtParenOpen;
+    braceAtParenOpen.reserve(16);
 
     while (pos < buf.length)
     {
@@ -60,10 +67,42 @@ string stripTypes(const(char)[] source) @trusted
         }
 
         // --- track nesting ---
-        if (c == '(') { parenDepth++; pos++; continue; }
-        if (c == ')') { if (parenDepth > 0) parenDepth--; pos++; continue; }
+        if (c == '(') { parenDepth++; braceAtParenOpen ~= braceDepth; pos++; continue; }
+        if (c == ')') {
+            if (parenDepth > 0) parenDepth--;
+            if (braceAtParenOpen.length > 0)
+                braceAtParenOpen.length = braceAtParenOpen.length - 1;
+            pos++; continue;
+        }
         if (c == '{') { braceDepth++; afterVarKw = false; pos++; continue; }
         if (c == '}') { if (braceDepth > 0) braceDepth--; pos++; continue; }
+
+        // --- non-null assertion postfix `!` ---
+        // Erasable when it follows an identifier, `)`, `]`, or `?` and
+        // is followed by `.`, `[`, `(`, `;`, `,`, `)`, `}`, `=`, or
+        // whitespace (i.e. it's a TS-specific postfix, not a `!=`,
+        // `!==`, or unary boolean `!`).
+        if (c == '!' && pos > 0)
+        {
+            // Skip `!=` and `!==`
+            if (pos + 1 < buf.length && buf[pos + 1] == '=') { pos++; continue; }
+            auto prev = prevNonWS(buf, pos);
+            auto next = pos + 1;
+            while (next < buf.length && (buf[next] == ' ' || buf[next] == '\t'))
+                next++;
+            bool prevIsPostfixCandidate = prev < buf.length
+                && (isIdentChar(buf[prev]) || buf[prev] == ')' || buf[prev] == ']');
+            bool nextIsAccessor = next < buf.length
+                && (buf[next] == '.' || buf[next] == '[' || buf[next] == '('
+                  || buf[next] == ';' || buf[next] == ',' || buf[next] == ')'
+                  || buf[next] == '}' || buf[next] == ']');
+            if (prevIsPostfixCandidate && nextIsAccessor)
+            {
+                buf[pos] = ' ';
+                pos++;
+                continue;
+            }
+        }
 
         // --- reset var-keyword tracking on = or ; ---
         if (c == '=' || c == ';')
@@ -225,8 +264,14 @@ string stripTypes(const(char)[] source) @trusted
                 }
             }
 
-            // Parameter type: inside ()
-            if (parenDepth > 0 && braceDepth == 0)
+            // Parameter type: inside () AND brace depth hasn't risen
+            // since the enclosing ( opened (otherwise we're inside an
+            // object literal like `f({ key: value })` where the colon
+            // is a property separator, not a type annotation).
+            bool atParamLevel = parenDepth > 0
+                && braceAtParenOpen.length > 0
+                && braceDepth == braceAtParenOpen[$ - 1];
+            if (atParamLevel)
             {
                 if (qPos < buf.length && (isIdentChar(buf[qPos]) || buf[qPos] == '?'))
                 {

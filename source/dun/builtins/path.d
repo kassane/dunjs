@@ -99,6 +99,7 @@ version (EngineQuickJS)
                         "sep", "delimiter", "toNamespacedPath", "posix", "win32",
                         "matchesGlob"])
             JS_AddModuleExport(ctx, m, name.ptr);
+        JS_AddModuleExport(ctx, m, "default");
     }
 
     private extern (C) int pathModuleInit(JSContext* ctx, JSModuleDef* m) nothrow @trusted
@@ -115,7 +116,7 @@ version (EngineQuickJS)
             auto fn = JS_GetPropertyStr(ctx, pathObj, name.ptr);
             JS_SetModuleExport(ctx, m, name.ptr, fn);
         }
-        JS_FreeValue(ctx, pathObj);
+        JS_SetModuleExport(ctx, m, "default", pathObj);
         JS_FreeValue(ctx, global);
         return 0;
     }

@@ -291,6 +291,8 @@ version (EngineQuickJS)
         if (m is null) return;
         foreach (name; cryptoExportNames)
             JS_AddModuleExport(ctx, m, name.ptr);
+
+    JS_AddModuleExport(ctx, m, "default");
     }
 
     private static immutable cryptoExportNames = [
@@ -321,7 +323,7 @@ version (EngineQuickJS)
             auto fn = JS_GetPropertyStr(ctx, cryptoObj, name.ptr);
             JS_SetModuleExport(ctx, m, name.ptr, fn);
         }
-        JS_FreeValue(ctx, cryptoObj);
+        JS_SetModuleExport(ctx, m, "default", cryptoObj);
         JS_FreeValue(ctx, global);
         return 0;
     }

@@ -102,6 +102,11 @@ int runScript(T)(T config)
         return 1;
     }
 
+    // Shebang: `#!/usr/bin/env node`, `#!/usr/bin/env -S deno run`, etc.
+    // Comment the line out instead of stripping it so line numbers in
+    // error messages still match the source file.
+    source = stripShebang(source);
+
     // Strip TS for .ts/.mts/.cts files AND for stdin (where we have no
     // extension to dispatch on). Stripper is a whitespace-preserving
     // no-op for plain JS, so the false-positive cost is zero.
@@ -538,6 +543,8 @@ int runSingleTest(T)(T config, string filePath) @trusted
         return 1;
     }
 
+    source = stripShebang(source);
+
     if (isTypeScript(filePath) || isStdinPath(filePath))
     {
         import dun.ts.strip : stripTypes;
@@ -689,6 +696,8 @@ int runSingleBench(T)(T config, string filePath) @trusted
         writeStderr("Error: Cannot read '" ~ filePath ~ "'\n");
         return 1;
     }
+
+    source = stripShebang(source);
 
     if (isTypeScript(filePath) || isStdinPath(filePath))
     {
@@ -1238,6 +1247,16 @@ bool isStdinPath(string path) @safe pure nothrow @nogc
 bool isWasmFile(string path) @safe pure nothrow @nogc
 {
     return path.length >= 5 && path[$ - 5 .. $] == ".wasm";
+}
+
+string stripShebang(string source) @safe pure nothrow
+{
+    if (source.length < 2 || source[0] != '#' || source[1] != '!')
+        return source;
+    // Replace `#!` with `//` so the rest of the first line becomes a
+    // comment. Keeps line numbers and column positions intact for
+    // stack traces and source maps.
+    return "//" ~ source[2 .. $];
 }
 
 bool isESM(string path, string source) @safe pure nothrow

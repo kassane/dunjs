@@ -159,6 +159,8 @@ version (EngineQuickJS)
                         "IncomingMessage", "ServerResponse", "ClientRequest",
                         "maxHeaderSize", "validateHeaderName", "validateHeaderValue"])
             JS_AddModuleExport(ctx, m, name.ptr);
+
+            JS_AddModuleExport(ctx, m, "default");
     }
 
     private extern (C) int httpModuleInit(JSContext* ctx, JSModuleDef* m) nothrow @trusted
@@ -175,7 +177,7 @@ version (EngineQuickJS)
             auto fn = JS_GetPropertyStr(ctx, httpObj, name.ptr);
             JS_SetModuleExport(ctx, m, name.ptr, fn);
         }
-        JS_FreeValue(ctx, httpObj);
+        JS_SetModuleExport(ctx, m, "default", httpObj);
         JS_FreeValue(ctx, global);
         return 0;
     }

@@ -56,13 +56,15 @@ version (EngineQuickJS)
         auto m = JS_NewCModule(ctx, "dun:buffer", &bufferModuleInit);
         if (m is null) return;
         JS_AddModuleExport(ctx, m, "Buffer");
+        JS_AddModuleExport(ctx, m, "default");
     }
 
     private extern (C) int bufferModuleInit(JSContext* ctx, JSModuleDef* m) nothrow @trusted
     {
         auto global = JS_GetGlobalObject(ctx);
         auto bufObj = JS_GetPropertyStr(ctx, global, "__dun_cjs_buffer__");
-        JS_SetModuleExport(ctx, m, "Buffer", bufObj);
+        JS_SetModuleExport(ctx, m, "Buffer", JS_DupValue(ctx, bufObj));
+        JS_SetModuleExport(ctx, m, "default", bufObj);
         JS_FreeValue(ctx, global);
         return 0;
     }

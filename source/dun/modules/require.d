@@ -391,6 +391,11 @@ JSHandle jsRequire(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
     }
     catch (Exception) { return throwModuleNotFound(engine, specifier); }
 
+    // Comment out a leading shebang so the JS parser doesn't choke on
+    // `#!/usr/bin/env node` style entry-point scripts loaded via require().
+    if (source.length >= 2 && source[0] == '#' && source[1] == '!')
+        source = "//" ~ source[2 .. $];
+
     bool esmTranspiled = false;
     try
     {
@@ -478,18 +483,24 @@ JSHandle jsRequire(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
         }
         else
         {
-            // Create module-local require that resolves relative paths from this module's directory
+            // Create module-local require that resolves relative paths from this module's directory.
+            // Reference globalThis.require (not bare `require`) so this code is
+            // safe to evaluate inside an ESM module that does
+            // `const require = createRequire(import.meta.url)` — bare `require`
+            // hits TDZ there, since `const` declarations hoist but stay
+            // uninitialized until their textual position.
             wrapped =
                 "(function() {\n"
                 ~ "var __m = __dunCjsCache__[\"" ~ escPath ~ "\"];\n"
+                ~ "var __gReq = globalThis.require;\n"
                 ~ "var __modRequire = function(id) {\n"
                 ~   "__dunCjsStack__.push(\"" ~ escPath ~ "\");\n"
-                ~   "try { var r = globalThis.require(id); __dunCjsStack__.pop(); return r; }\n"
+                ~   "try { var r = __gReq(id); __dunCjsStack__.pop(); return r; }\n"
                 ~   "catch(e) { __dunCjsStack__.pop(); throw e; }\n"
                 ~ "};\n"
-                ~ "__modRequire.resolve = require.resolve;\n"
-                ~ "__modRequire.cache = require.cache;\n"
-                ~ "__modRequire.main = require.main;\n"
+                ~ "__modRequire.resolve = __gReq.resolve;\n"
+                ~ "__modRequire.cache = __gReq.cache;\n"
+                ~ "__modRequire.main = __gReq.main;\n"
                 ~ "(function(module, exports, require, __filename, __dirname) {\n"
                 ~ source ~ "\n"
                 ~ "})(__m, __m.exports, __modRequire, \""

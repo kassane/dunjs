@@ -36,6 +36,8 @@ version (EngineQuickJS)
         if (m is null) return;
         foreach (name; ["isMainThread", "threadId", "Worker", "parentPort"])
             JS_AddModuleExport(ctx, m, name.ptr);
+
+        JS_AddModuleExport(ctx, m, "default");
     }
 
     private extern (C) int workerThreadsModuleInit(JSContext* ctx, JSModuleDef* m) nothrow @trusted
@@ -49,7 +51,7 @@ version (EngineQuickJS)
             auto val = JS_GetPropertyStr(ctx, mod, name.ptr);
             JS_SetModuleExport(ctx, m, name.ptr, val);
         }
-        JS_FreeValue(ctx, mod);
+        JS_SetModuleExport(ctx, m, "default", mod);
         JS_FreeValue(ctx, global);
         return 0;
     }

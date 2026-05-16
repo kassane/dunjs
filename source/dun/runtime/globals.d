@@ -271,7 +271,13 @@ private void registerStubModules(IJSEngine engine) @trusted
       'punycode','domain','diagnostics_channel','cluster','async_hooks',
       'worker_threads','tty','constants','module','timers','process','console'],
     Module: function() {},
-    createRequire: function() { return typeof require === 'function' ? require : function(){}; },
+    createRequire: function() {
+      // Use globalThis.require, not bare require, so the common
+      // pattern (const require = createRequire(import.meta.url))
+      // doesn't TDZ-fail on the call site's own const require binding.
+      var r = globalThis.require;
+      return (typeof r === 'function') ? r : function(){};
+    },
     isBuiltin: function(name) { return moduleMod.builtinModules.indexOf(name) !== -1; },
     _cache: {},
     _resolveFilename: function(request) { return request; }
@@ -301,6 +307,124 @@ private void registerStubModules(IJSEngine engine) @trusted
   }
 })()`, "<stubs>");
     engine.freeValue(result.value);
+
+    version (EngineQuickJS)
+        registerStubModulesQuickJS(engine);
+}
+
+version (EngineQuickJS)
+{
+    import dun.engine.quickjs.bindings;
+
+    private void registerStubModulesQuickJS(IJSEngine engine) @trusted
+    {
+        assert(engine !is null, "Null engine in registerStubModulesQuickJS");
+        auto ctx = cast(JSContext*) engine.rawContext();
+        assert(ctx !is null, "Null ctx in registerStubModulesQuickJS");
+
+        // Each stub module is exposed via globalThis.__dun_cjs_<name>__.
+        // Register a matching `dun:<name>` C module so ESM-style
+        // `import x from 'node:<name>'` works as well as `require()`.
+        static immutable string[2][] stubs = [
+            ["punycode",            "__dun_cjs_punycode__"],
+            ["diagnostics_channel", "__dun_cjs_diagnostics_channel__"],
+            ["domain",              "__dun_cjs_domain__"],
+            ["constants",           "__dun_cjs_constants__"],
+            ["module",              "__dun_cjs_module__"],
+            ["timers",              "__dun_cjs_timers__"],
+            ["process",             "__dun_cjs_process__"],
+            ["console",             "__dun_cjs_console__"],
+        ];
+        foreach (s; stubs)
+            registerStubModuleQuickJS(ctx, s[0], s[1]);
+    }
+
+    private void registerStubModuleQuickJS(JSContext* ctx, string name, string globalKey) @trusted
+    {
+        import std.string : toStringz;
+        assert(ctx !is null, "Null ctx in registerStubModuleQuickJS");
+
+        auto fullName = "dun:" ~ name;
+        auto m = JS_NewCModule(ctx, fullName.toStringz, &stubModuleInit);
+        if (m is null) return;
+        // Key the per-module global-key lookup on the JSModuleDef pointer,
+        // since QuickJS doesn't expose JS_GetModuleName in our bindings.
+        g_stubKeys[cast(size_t) m] = globalKey;
+        JS_AddModuleExport(ctx, m, "default");
+        // Expose named exports for keys we know exist on the stub object
+        // so `import { createRequire } from 'node:module'` resolves. We
+        // pre-declare a fixed set per-module rather than introspecting at
+        // registration time (the global isn't installed yet).
+        foreach (export_; namedExportsFor(name))
+            JS_AddModuleExport(ctx, m, export_.ptr);
+    }
+
+    private string[] namedExportsFor(string moduleName) @safe pure nothrow
+    {
+        switch (moduleName)
+        {
+            case "module":
+                return ["createRequire", "Module", "isBuiltin",
+                        "builtinModules", "_cache", "_resolveFilename"];
+            case "process":
+                return ["env", "argv", "platform", "arch", "version",
+                        "versions", "pid", "cwd", "exit", "stdout",
+                        "stderr", "stdin", "nextTick"];
+            case "console":
+                return ["log", "error", "warn", "info", "debug",
+                        "trace", "dir", "table", "time", "timeEnd"];
+            case "timers":
+                return ["setTimeout", "setInterval", "clearTimeout",
+                        "clearInterval", "setImmediate", "clearImmediate"];
+            case "constants":
+                return ["fs", "crypto", "os"];
+            case "punycode":
+                return ["encode", "decode", "toASCII", "toUnicode"];
+            case "domain":
+                return ["create", "active"];
+            case "diagnostics_channel":
+                return ["channel", "subscribe", "unsubscribe", "hasSubscribers"];
+            default:
+                return [];
+        }
+    }
+
+    private __gshared string[size_t] g_stubKeys;
+
+    private extern (C) int stubModuleInit(JSContext* ctx, JSModuleDef* m) nothrow @trusted
+    {
+        assert(ctx !is null, "Null ctx in stubModuleInit");
+        assert(m !is null, "Null m in stubModuleInit");
+        import std.string : toStringz;
+        try
+        {
+            auto p = cast(size_t) m in g_stubKeys;
+            if (p is null) return -1;
+            auto global = JS_GetGlobalObject(ctx);
+            auto modVal = JS_GetPropertyStr(ctx, global, (*p).toStringz);
+            JS_FreeValue(ctx, global);
+            // Named exports: read each property off the stub object and
+            // expose it. Default export is the whole object.
+            JS_SetModuleExport(ctx, m, "default", JS_DupValue(ctx, modVal));
+            // Find the original name by walking g_stubKeys' parallel data.
+            // Since the lookup table is keyed by JSModuleDef* and the
+            // moduleName isn't stored, derive the named-export list from
+            // the global key prefix.
+            string globalKey = *p;
+            string moduleName = "";
+            if (globalKey.length > 12 && globalKey[0 .. 11] == "__dun_cjs_"
+                && globalKey[$ - 2 .. $] == "__")
+                moduleName = globalKey[10 .. $ - 2];
+            foreach (name; namedExportsFor(moduleName))
+            {
+                auto val = JS_GetPropertyStr(ctx, modVal, name.ptr);
+                JS_SetModuleExport(ctx, m, name.ptr, val);
+            }
+            JS_FreeValue(ctx, modVal);
+        }
+        catch (Exception) { return -1; }
+        return 0;
+    }
 }
 
 private JSHandle jsGlobalGC(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
