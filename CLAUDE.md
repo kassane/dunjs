@@ -151,6 +151,7 @@ All runtime globals are **engine-agnostic** (use `IJSEngine` + `NativeCallback`)
 | `tls` | `registerTlsModule(engine)` | `require('tls')`, ESM `import from 'dun:tls'` — connect, getCiphers, TLSSocket, constants |
 | `dgram` | `registerDgramModule(engine)` | `require('dgram')`, ESM `import from 'dun:dgram'` — createSocket, bind, send, close |
 | `perf_hooks` | `registerPerfHooksModule(engine)` | `require('perf_hooks')`, ESM `import from 'dun:perf_hooks'` — mark/measure/getEntries, PerformanceObserver, timerify |
+| `wasi` | `registerWasiModule(engine)` | `require('wasi')`, ESM `import from 'dun:wasi'` — preview1 WASI (args, env, clock, random, fd_*, path_*) |
 | `punycode` | stub (globalThis) | `require('punycode')`, ESM `import from 'dun:punycode'` |
 | `domain` | stub (globalThis) | `require('domain')`, ESM `import from 'dun:domain'` |
 | `diagnostics_channel` | stub (globalThis) | `require('diagnostics_channel')`, ESM `import from 'dun:diagnostics_channel'` |
@@ -856,3 +857,7 @@ Benchmark impact (25 benchmarks, feature_bench.js):
 | 23i | path.relative empty | Identical paths return "" instead of "." (Node.js compat) | **Done** |
 | 23j | fs.readFileSync empty | Fix ENOENT on empty/device files (/dev/null) | **Done** |
 | 23k | Test runner timeout | 30s per-test timeout prevents JSC hangs | **Done** |
+| 24a | WebAssembly | Microtask polyfill for compile/instantiate/streaming (JSC + V8); QuickJS reports friendly error | **Done** |
+| 24b | dun:wasi | WASI preview1 module (args, env, clock, random, fd_*, path_*) wired through dun:fs / process | **Done** |
+| 24c | dun run *.wasm | `.wasm` extension dispatch synthesizes WASI bootstrap that instantiates and calls `_start` | **Done** |
+| 24d | Binary stdout | process.stdout/stderr.write accepts Uint8Array/Buffer (binary-safe fd_write from WASI) | **Done** |

@@ -649,9 +649,27 @@ JSHandle jsStdoutWrite(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trus
     if (args.length < 1) return engine.newBool(true);
     try
     {
-        auto data = engine.extractString(args[0]);
         import core.stdc.stdio : fwrite, stdout, fflush;
-        fwrite(data.ptr, 1, data.length, stdout);
+        // Buffer / Uint8Array path: write raw bytes so binary data (e.g.
+        // from WASI fd_write) reaches the terminal unmangled instead of
+        // being toString'd into "104,101,108,...". Must isObject-gate
+        // because JSC's getTypedArrayBytes is unsafe on non-objects.
+        if (engine.isObject(args[0]) && !engine.isString(args[0]))
+        {
+            auto bytes = engine.getTypedArrayBytes(args[0]);
+            if (bytes.length > 0)
+                fwrite(bytes.ptr, 1, bytes.length, stdout);
+            else
+            {
+                auto data = engine.extractString(args[0]);
+                fwrite(data.ptr, 1, data.length, stdout);
+            }
+        }
+        else
+        {
+            auto data = engine.extractString(args[0]);
+            fwrite(data.ptr, 1, data.length, stdout);
+        }
         fflush(stdout);
     }
     catch (Exception) {}
@@ -666,9 +684,23 @@ JSHandle jsStderrWrite(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trus
     if (args.length < 1) return engine.newBool(true);
     try
     {
-        auto data = engine.extractString(args[0]);
         import core.stdc.stdio : fwrite, stderr, fflush;
-        fwrite(data.ptr, 1, data.length, stderr);
+        if (engine.isObject(args[0]) && !engine.isString(args[0]))
+        {
+            auto bytes = engine.getTypedArrayBytes(args[0]);
+            if (bytes.length > 0)
+                fwrite(bytes.ptr, 1, bytes.length, stderr);
+            else
+            {
+                auto data = engine.extractString(args[0]);
+                fwrite(data.ptr, 1, data.length, stderr);
+            }
+        }
+        else
+        {
+            auto data = engine.extractString(args[0]);
+            fwrite(data.ptr, 1, data.length, stderr);
+        }
         fflush(stderr);
     }
     catch (Exception) {}

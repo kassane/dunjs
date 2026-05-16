@@ -159,6 +159,7 @@ JSHandle jsRequire(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
     else if (specifier == "tls") specifier = "dun:tls";
     else if (specifier == "dgram") specifier = "dun:dgram";
     else if (specifier == "perf_hooks") specifier = "dun:perf_hooks";
+    else if (specifier == "wasi") specifier = "dun:wasi";
     else if (specifier == "readline") specifier = "dun:readline";
     else if (specifier == "punycode") specifier = "dun:punycode";
     else if (specifier == "diagnostics_channel") specifier = "dun:diagnostics_channel";
@@ -219,6 +220,7 @@ JSHandle jsRequire(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
         else if (specifier == "dun:tls") propName = "__dun_cjs_tls__";
         else if (specifier == "dun:dgram") propName = "__dun_cjs_dgram__";
         else if (specifier == "dun:perf_hooks") propName = "__dun_cjs_perf_hooks__";
+        else if (specifier == "dun:wasi") propName = "__dun_cjs_wasi__";
         else if (specifier == "dun:readline") propName = "__dun_cjs_readline__";
         else if (specifier == "dun:punycode") propName = "__dun_cjs_punycode__";
         else if (specifier == "dun:diagnostics_channel") propName = "__dun_cjs_diagnostics_channel__";

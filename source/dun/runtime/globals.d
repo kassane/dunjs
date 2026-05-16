@@ -58,6 +58,7 @@ void installGlobals(IJSEngine engine, DunState* state) @trusted
     import dun.builtins.tty : registerTtyModule;
     import dun.builtins.dgram : registerDgramModule;
     import dun.builtins.perf_hooks : registerPerfHooksModule;
+    import dun.builtins.wasi : registerWasiModule;
     import dun.modules.require : installRequire;
 
     version (Posix)
@@ -98,6 +99,7 @@ void installGlobals(IJSEngine engine, DunState* state) @trusted
     registerReadlineModule(engine);
     registerTtyModule(engine);
     registerDgramModule(engine);
+    registerWasiModule(engine);
 
     version (Posix)
         registerTlsModule(engine);
@@ -112,6 +114,43 @@ void installGlobals(IJSEngine engine, DunState* state) @trusted
 
     import dun.runtime.web_apis : installWebAPIs;
     installWebAPIs(engine);
+
+    // WebAssembly: JSC and V8 ship the constructors but their async
+    // `instantiate` / `compile` / streaming variants schedule onto the
+    // engine's internal task queue, which our event loop doesn't drain.
+    // Replace them with microtask-resolved sync wrappers so callbacks
+    // actually fire. QuickJS lacks WebAssembly entirely; the polyfill
+    // gracefully no-ops there.
+    auto wasmRes = engine.eval(
+        "(function(){"
+        ~ "if (typeof WebAssembly === 'undefined') return;"
+        ~ "const M = WebAssembly.Module, I = WebAssembly.Instance;"
+        ~ "WebAssembly.compile = function(bytes) {"
+        ~   "return Promise.resolve().then(() => new M(bytes));"
+        ~ "};"
+        ~ "WebAssembly.instantiate = function(bytesOrModule, importObject) {"
+        ~   "return Promise.resolve().then(() => {"
+        ~     "if (bytesOrModule instanceof M) {"
+        ~       "return new I(bytesOrModule, importObject);"
+        ~     "}"
+        ~     "const mod = new M(bytesOrModule);"
+        ~     "return { module: mod, instance: new I(mod, importObject) };"
+        ~   "});"
+        ~ "};"
+        ~ "if (typeof Response !== 'undefined') {"
+        ~   "WebAssembly.compileStreaming = function(source) {"
+        ~     "return Promise.resolve(source).then(r => r.arrayBuffer()).then(b => new M(b));"
+        ~   "};"
+        ~   "WebAssembly.instantiateStreaming = function(source, importObject) {"
+        ~     "return Promise.resolve(source).then(r => r.arrayBuffer()).then(b => {"
+        ~       "const mod = new M(b);"
+        ~       "return { module: mod, instance: new I(mod, importObject) };"
+        ~     "});"
+        ~   "};"
+        ~ "}"
+        ~ "})();",
+        "<wasm-polyfill>");
+    if (!wasmRes.isError) engine.freeValue(wasmRes.value);
 
     // perf_hooks must come after installWebAPIs so global performance object exists
     registerPerfHooksModule(engine);

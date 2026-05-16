@@ -49,22 +49,40 @@ behavioral tests.
 
 ## 2. WebAssembly + WASI
 
-Entirely missing. No `WebAssembly` global, no `.wasm` import via ESM
-module attributes, no WASI shims.
+**Status**: DONE for JSC and V8. QuickJS has no WASM engine — fails with
+a clear error message pointing at `--backend=jsc`/`--backend=v8`.
 
-Practical scope for the first cut:
-- `WebAssembly` global with `Module`, `Instance`, `Memory`, `Table`,
-  `compile`, `instantiate`, `validate`, `compileStreaming`,
-  `instantiateStreaming` — wire to QuickJS / JSC / V8 built-in WASM
-  engines (all three engines ship a Wasm runtime, just need to expose
-  the JS API)
-- `import attributes`: `import wasmMod from './x.wasm' with { type: 'wasm' }`
-- WASI: `dun:wasi` or `wasi` module with `preview1` snapshot APIs
-  (preopens, fd_read/write, args, env, exit). Look at how Bun /
-  Node /  Deno layer this — Node's `wasi` module is the closest.
+Shipped in this branch:
+- `WebAssembly` global exists natively on JSC and V8. The engine's
+  internal async task scheduler isn't pumped by our event loop, so a
+  microtask-based polyfill replaces `WebAssembly.compile`,
+  `WebAssembly.instantiate`, `compileStreaming`, and
+  `instantiateStreaming` with `Promise.resolve().then(...)` wrappers
+  around the synchronous `new Module()` / `new Instance()` constructors.
+  See `installGlobals` in `source/dun/runtime/globals.d`.
+- `dun:wasi` module (`source/dun/builtins/wasi.d`) implements WASI
+  preview1: `args_get/sizes_get`, `environ_get/sizes_get`,
+  `clock_time_get`, `random_get`, `proc_exit`, `fd_{close,read,write,seek,
+  tell,fdstat_get,filestat_get,prestat_get,prestat_dir_name}`, and the
+  `path_*` family (open, create_directory, filestat_get,
+  remove_directory, unlink_file). Unsupported syscalls return `ENOSYS`.
+- `dun run hello.wasm` extension dispatch (`source/dun/app.d`)
+  synthesizes a WASI bootstrap that reads the bytes, instantiates the
+  module against `wasi_snapshot_preview1`, and calls `_start`.
+- `process.stdout.write` / `process.stderr.write` learned to handle
+  `Uint8Array` / `Buffer` so binary `fd_write` output reaches the
+  terminal unmangled.
 
-**Acceptance**: `dun run hello.wasm` works for a `wasi-libc`-built
-binary. `WebAssembly.instantiate(bytes).then(...)` works.
+**Acceptance check**: a hand-coded `hello.wasm` calling
+`wasi_snapshot_preview1.fd_write` prints `"Hello, WASI!"` and exits
+0 on both `./dun-jsc` and `./dun-v8`.
+
+Still missing (low priority for first cut):
+- `import wasmMod from './x.wasm' with { type: 'wasm' }` import attributes
+- `WebAssembly.Module.{exports,imports,customSections}` consistency
+  (works because we delegate to the engine, but no validation tests)
+- Async `WebAssembly.compile()` returning streaming-style benefits —
+  ours always resolves on the next microtask
 
 ## 3. V8 backend ICU data (1 test fail)
 

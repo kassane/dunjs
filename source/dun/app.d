@@ -110,6 +110,33 @@ int runScript(T)(T config)
         import dun.ts.strip : stripTypes;
         source = stripTypes(source);
     }
+    else if (isWasmFile(config.scriptPath))
+    {
+        // .wasm entry: synthesize a tiny WASI bootstrap that reads the
+        // raw bytes back from disk, instantiates them and calls _start.
+        // Keeping the bootstrap in JS (vs. inlining the bytes as a base64
+        // literal) avoids ballooning the entry source for large modules.
+        import std.path : absolutePath;
+        import std.string : replace;
+        auto abs = absolutePath(config.scriptPath).replace(`\`, `\\`).replace(`"`, `\"`);
+        source =
+            `if (typeof WebAssembly === 'undefined') {` ~
+            `  console.error('Error: WebAssembly is not available on this engine. ' +` ~
+            `    'Run with --backend=jsc or --backend=v8 to execute .wasm files.');` ~
+            `  if (typeof process !== 'undefined') process.exit(1);` ~
+            `} else {` ~
+            `  const { readFileSync } = require('fs');` ~
+            `  const { WASI } = require('wasi');` ~
+            `  const __wasi_bytes = readFileSync("` ~ abs ~ `");` ~
+            `  const __wasi_args = (typeof process !== 'undefined' && process.argv) ? process.argv.slice(1) : ["` ~ abs ~ `"];` ~
+            `  const __wasi_env = (typeof process !== 'undefined' && process.env) ? Object.assign({}, process.env) : {};` ~
+            `  const __wasi = new WASI({ args: __wasi_args, env: __wasi_env, preopens: { "/": "/" }, returnOnExit: true });` ~
+            `  WebAssembly.instantiate(__wasi_bytes, __wasi.getImportObject()).then(({ instance }) => {` ~
+            `    const rc = __wasi.start(instance);` ~
+            `    if (typeof process !== 'undefined' && rc) process.exitCode = rc;` ~
+            `  }).catch(e => { console.error(e); if (typeof process !== 'undefined') process.exit(1); });` ~
+            `}`;
+    }
 
     auto engine = createEngine();
     engine.initialize(EngineConfig(config.memoryLimit, config.stackSize));
@@ -1206,6 +1233,11 @@ bool isStdinPath(string path) @safe pure nothrow @nogc
     // `dun run -` or `dun run /dev/stdin` should run the TS stripper too
     // since there's no file extension to dispatch on.
     return path == "-" || path == "/dev/stdin" || path == "/dev/fd/0";
+}
+
+bool isWasmFile(string path) @safe pure nothrow @nogc
+{
+    return path.length >= 5 && path[$ - 5 .. $] == ".wasm";
 }
 
 bool isESM(string path, string source) @safe pure nothrow
