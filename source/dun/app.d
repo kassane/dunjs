@@ -1492,6 +1492,26 @@ bool isWasmFile(string path) @safe pure nothrow @nogc
     return path.length >= 5 && path[$ - 5 .. $] == ".wasm";
 }
 
+/// Walk up from the script file looking for `node_modules/typescript`.
+/// Returns true if a typescript install is found at any ancestor.
+bool findTypescriptInstall(string scriptPath) @trusted
+{
+    import std.file : exists;
+    import std.path : absolutePath, dirName, buildPath;
+    string dir;
+    try { dir = absolutePath(scriptPath).dirName; }
+    catch (Exception) { dir = "."; }
+    while (dir.length > 1)
+    {
+        auto candidate = buildPath(dir, "node_modules", "typescript", "lib", "typescript.js");
+        if (exists(candidate)) return true;
+        auto parent = dirName(dir);
+        if (parent == dir) break;
+        dir = parent;
+    }
+    return false;
+}
+
 /// Spin up a short-lived JS engine, require the user's installed
 /// `typescript` package, run `ts.transpileModule()` with diagnostics
 /// enabled, print any type errors, and return the emitted JS.
@@ -1506,9 +1526,29 @@ string runTypecheck(string source, string filename, out int rc) @trusted
     import dun.runtime.globals : DunState, installGlobals;
     import dun.security.permissions : Permission, PermissionRegistry;
     import std.string : replace;
+    import std.file : exists;
+    import std.path : buildNormalizedPath, dirName, absolutePath;
 
     import dun.engine.iface : DEFAULT_MEMORY_LIMIT, DEFAULT_MAX_STACK;
     rc = 0;
+
+    // Auto-install typescript via DunJS's own package manager so users
+    // don't need a separate `npm install typescript`. Walks upward from
+    // the file's directory looking for node_modules/typescript; if not
+    // found, runs `dun install typescript` into the cwd.
+    if (!findTypescriptInstall(filename))
+    {
+        import dun.modules.npm : installPackage, AuditMode;
+        import std.stdio : writeln;
+        writeln("dun: typescript not installed; running `dun install typescript`...");
+        if (!installPackage("typescript", AuditMode.off))
+        {
+            writeStderr("dun: --typecheck: failed to install typescript; "
+                ~ "falling back to scanner strip\n");
+            return "";
+        }
+    }
+
     auto eng = createEngine();
     eng.initialize(EngineConfig(DEFAULT_MEMORY_LIMIT, DEFAULT_MAX_STACK));
     scope(exit) eng.shutdown();
