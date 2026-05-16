@@ -182,11 +182,26 @@ string stripTypes(const(char)[] source) @trusted
                 pos++;
             auto word = cast(const(char)[]) buf[wordStart .. pos];
 
-            // Track let/const/var for variable type annotations
-            if (word == "let" || word == "const" || word == "var")
+            // Track let/const/var for variable type annotations. Skip the
+            // fast-path continue for `const enum`, since that case needs to
+            // reach the const-enum rewriter further down.
+            if (word == "let" || word == "var")
             {
                 afterVarKw = true;
                 continue;
+            }
+            if (word == "const")
+            {
+                auto peek = skipWS(buf, pos);
+                if (peek < buf.length && matchWord(buf, peek, "enum"))
+                {
+                    // Fall through to the const-enum handler below.
+                }
+                else
+                {
+                    afterVarKw = true;
+                    continue;
+                }
             }
 
             // --- interface declaration ---
@@ -770,6 +785,56 @@ private size_t rewriteNamespace(char[] buf, size_t blockStart,
     if (depth != 0) return 0;
     size_t braceEnd = p;  // one past closing brace
 
+    // Pre-scan the *raw* body for `export namespace X` / `export enum X`.
+    // The recursive stripTypes() below rewrites those to plain `var X =`,
+    // erasing the `export` keyword that the post-strip walker uses to
+    // detect attachments -- so we have to capture the names now.
+    string[] nestedExportNames;
+    {
+        auto raw = cast(string) buf[braceStart + 1 .. braceEnd - 1];
+        size_t k = 0;
+        while (k < raw.length)
+        {
+            char rc = raw[k];
+            if (rc == '\'' || rc == '"') { k = skipStringLit(raw, k); continue; }
+            if (rc == '`') { k = skipTemplateLit(raw, k); continue; }
+            if (rc == '/' && k + 1 < raw.length && raw[k+1] == '/') {
+                while (k < raw.length && raw[k] != '\n') k++; continue;
+            }
+            if (rc == '/' && k + 1 < raw.length && raw[k+1] == '*') {
+                k += 2;
+                while (k + 1 < raw.length && !(raw[k] == '*' && raw[k+1] == '/')) k++;
+                if (k + 1 < raw.length) k += 2;
+                continue;
+            }
+            if (isIdentStart(rc) && (k == 0 || raw[k-1] == '\n' || raw[k-1] == ' ' || raw[k-1] == '\t' || raw[k-1] == ';' || raw[k-1] == '{')
+                && matchWord(raw, k, "export"))
+            {
+                auto after = skipWS(raw, k + 6);
+                if (after < raw.length
+                    && (matchWord(raw, after, "namespace")
+                        || matchWord(raw, after, "module")
+                        || matchWord(raw, after, "enum")
+                        || (matchWord(raw, after, "const")
+                            && matchWord(raw, skipWS(raw, after + 5), "enum"))))
+                {
+                    size_t skipKw =
+                        matchWord(raw, after, "namespace") ? 9 :
+                        matchWord(raw, after, "module")    ? 6 :
+                        matchWord(raw, after, "const")     ?
+                            (skipWS(raw, after + 5) + 4 - after) :
+                            4;  // enum
+                    auto nmStart = skipWS(raw, after + skipKw);
+                    auto nm = readIdent(raw, nmStart);
+                    if (nm.length > 0) nestedExportNames ~= nm.idup;
+                }
+                k += 6;
+                continue;
+            }
+            k++;
+        }
+    }
+
     // Recursively strip TS from the body (parameter type annotations,
     // nested interfaces, etc.) — the outer stripper has already moved
     // past these chars, so we need to process them here before they
@@ -850,6 +915,19 @@ private size_t rewriteNamespace(char[] buf, size_t blockStart,
         }
         result.put(c);
         i++;
+    }
+
+    // Attach nested namespace / enum exports captured pre-strip. The
+    // walker above couldn't see them because the recursive stripTypes
+    // had already rewritten `export namespace Inner {...}` to
+    // `var Inner=(function(){...})();`.
+    foreach (nm; nestedExportNames)
+    {
+        attach.put("__ns.");
+        attach.put(nm);
+        attach.put('=');
+        attach.put(nm);
+        attach.put(';');
     }
 
     // Build the prologue snippet that defines and populates the namespace.
