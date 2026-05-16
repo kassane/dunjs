@@ -61,6 +61,10 @@ struct CliConfig
     bool inspectBrk;
     ushort inspectPort = 9229;
     bool watchMode;
+    // `dun run --typecheck file.ts` -- run the file through tsc
+    // (loaded from node_modules) and refuse to execute if there are
+    // type errors. Opt-in; default `dun run` keeps the fast scanner.
+    bool typecheck;
 }
 
 /// Parse command-line arguments into a CliConfig.
@@ -468,6 +472,13 @@ CliConfig parseArgs(string[] args) @safe
             continue;
         }
 
+        if (arg == "--typecheck")
+        {
+            config.typecheck = true;
+            i++;
+            continue;
+        }
+
         if (arg == "--inspect" || arg.startsWith("--inspect="))
         {
             config.inspect = true;
@@ -567,7 +578,8 @@ private bool isKnownFlag(string arg) @safe pure nothrow @nogc
         || arg.startsWith("--filter=")
         || arg.startsWith("--inspect")
         || arg.startsWith("--inspect-brk")
-        || arg == "--watch" || arg == "-w";
+        || arg == "--watch" || arg == "-w"
+        || arg == "--typecheck";
 }
 
 private bool looksLikeFile(string arg) @safe pure nothrow @nogc

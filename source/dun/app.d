@@ -118,6 +118,19 @@ int runScript(T)(T config)
     // error messages still match the source file.
     source = stripShebang(source);
 
+    // --typecheck: hand the file to `tsc` (loaded from node_modules)
+    // and refuse to run if there are type errors. Falls back to the
+    // scanner strip if `typescript` isn't installed.
+    if (config.typecheck && isTypeScript(config.scriptPath))
+    {
+        int tcRc;
+        auto tcResult = runTypecheck(source, config.scriptPath, tcRc);
+        if (tcRc != 0)
+            return tcRc;
+        if (tcResult.length > 0)
+            source = tcResult;
+    }
+
     // Strip TS for .ts/.mts/.cts/.tsx files AND for stdin (where we
     // have no extension to dispatch on). Stripper is a whitespace-
     // preserving no-op for plain JS, so the false-positive cost is zero.
@@ -504,7 +517,9 @@ void printUsage()
         ~ "  --max-memory=<bytes>   JS heap memory limit (default: 2GB)\n"
         ~ "  --max-stack=<bytes>    Max stack size (default: 8MB)\n"
         ~ "  --eval-file=<path>     Execute file before entering REPL\n"
-        ~ "  --watch / -w           Restart script on file changes\n\n"
+        ~ "  --watch / -w           Restart script on file changes\n"
+        ~ "  --typecheck            Run TS files through tsc first;\n"
+        ~ "                         needs `npm install typescript`\n\n"
         ~ "REPL environment variables:\n"
         ~ "  DUN_REPL_HISTORY       Path to history file (~/.dun_repl_history)\n"
         ~ "  DUN_REPL_HISTORY_SIZE  Max history entries (default: 1000)\n\n"
@@ -1475,6 +1490,158 @@ bool isStdinPath(string path) @safe pure nothrow @nogc
 bool isWasmFile(string path) @safe pure nothrow @nogc
 {
     return path.length >= 5 && path[$ - 5 .. $] == ".wasm";
+}
+
+/// Spin up a short-lived JS engine, require the user's installed
+/// `typescript` package, run `ts.transpileModule()` with diagnostics
+/// enabled, print any type errors, and return the emitted JS.
+///
+/// On success returns the emitted JS and sets `rc = 0`. If typecheck
+/// found errors, sets `rc` to a non-zero exit code and returns "".
+/// If `typescript` isn't installed, prints a hint, returns "" and
+/// `rc = 0` so the outer pipeline falls back to the scanner strip.
+string runTypecheck(string source, string filename, out int rc) @trusted
+{
+    import dun.engine.iface : createEngine, EngineConfig;
+    import dun.runtime.globals : DunState, installGlobals;
+    import dun.security.permissions : Permission, PermissionRegistry;
+    import std.string : replace;
+
+    import dun.engine.iface : DEFAULT_MEMORY_LIMIT, DEFAULT_MAX_STACK;
+    rc = 0;
+    auto eng = createEngine();
+    eng.initialize(EngineConfig(DEFAULT_MEMORY_LIMIT, DEFAULT_MAX_STACK));
+    scope(exit) eng.shutdown();
+
+    auto perms = new PermissionRegistry();
+    perms.grant(Permission.read);
+    perms.grant(Permission.env);
+    DunState state;
+    state.engine = eng;
+    state.permissions = perms;
+    state.eventLoop.initialize(eng);
+    installGlobals(eng, &state);
+
+    // Embed the source + filename as JSON strings -- safer than
+    // a template literal because we don't have to defend against
+    // `${` / backtick / control-char interactions.
+    import std.json : JSONValue;
+    auto esrc  = JSONValue(source).toString();    // includes surrounding quotes
+    auto efile = JSONValue(filename).toString();
+
+    // Build a minimal CompilerHost that proxies tsc's filesystem
+    // reads through Node-style fs (which DunJS implements). We point
+    // tsc at the user's `tsconfig.json` if one exists in the cwd so
+    // its compilerOptions / strict flags are respected; otherwise we
+    // fall back to a sensible default.
+    string driver =
+        `(function() {`
+        ~ `  let ts;`
+        ~ `  try { ts = require('typescript'); }`
+        ~ `  catch (e) {`
+        ~ `    console.error('dun: --typecheck needs `~"`npm install typescript`"~`; '`
+        ~ `      + 'falling back to scanner strip (' + (e.message || e) + ')');`
+        ~ `    return { skip: true };`
+        ~ `  }`
+        ~ `  const fs = require('fs');`
+        ~ `  const path = require('path');`
+        ~ `  const src = ` ~ esrc ~ `;`
+        ~ `  const filename = ` ~ efile ~ `;`
+        ~ `  let opts = {`
+        ~ `    target: ts.ScriptTarget.ES2022,`
+        ~ `    module: ts.ModuleKind.CommonJS,`
+        ~ `    strict: false,`
+        ~ `    allowJs: true,`
+        ~ `    esModuleInterop: true,`
+        ~ `    skipLibCheck: true,`
+        ~ `    noEmit: true,`
+        ~ `    moduleResolution: ts.ModuleResolutionKind.Bundler`
+        ~ `      || ts.ModuleResolutionKind.NodeNext`
+        ~ `      || ts.ModuleResolutionKind.Node10,`
+        ~ `    ignoreDeprecations: "6.0",`
+        ~ `  };`
+        ~ `  try {`
+        ~ `    const tcfg = ts.findConfigFile(process.cwd(), ts.sys.fileExists, 'tsconfig.json');`
+        ~ `    if (tcfg) {`
+        ~ `      const parsed = ts.parseConfigFileTextToJson(tcfg, fs.readFileSync(tcfg, 'utf8'));`
+        ~ `      if (parsed.config && parsed.config.compilerOptions) {`
+        ~ `        const conv = ts.convertCompilerOptionsFromJson(parsed.config.compilerOptions, path.dirname(tcfg));`
+        ~ `        if (conv.options) opts = Object.assign(opts, conv.options, { noEmit: true });`
+        ~ `      }`
+        ~ `    }`
+        ~ `  } catch (e) {}`
+        ~ `  const host = ts.createCompilerHost(opts);`
+        ~ `  const origGet = host.getSourceFile;`
+        ~ `  host.getSourceFile = function(name, lang, onErr, shouldCreate) {`
+        ~ `    if (name === filename) {`
+        ~ `      return ts.createSourceFile(name, src, lang || ts.ScriptTarget.ES2022, true);`
+        ~ `    }`
+        ~ `    return origGet.call(host, name, lang, onErr, shouldCreate);`
+        ~ `  };`
+        ~ `  host.fileExists = function(name) {`
+        ~ `    if (name === filename) return true;`
+        ~ `    try { fs.accessSync(name); return true; } catch { return false; }`
+        ~ `  };`
+        ~ `  host.readFile = function(name) {`
+        ~ `    if (name === filename) return src;`
+        ~ `    try { return fs.readFileSync(name, 'utf8'); } catch { return undefined; }`
+        ~ `  };`
+        ~ `  const program = ts.createProgram([filename], opts, host);`
+        ~ `  const diags = ts.getPreEmitDiagnostics(program)`
+        ~ `    .filter(d => d.category === ts.DiagnosticCategory.Error);`
+        ~ `  if (diags.length > 0) {`
+        ~ `    const fmtHost = {`
+        ~ `      getCurrentDirectory: () => process.cwd(),`
+        ~ `      getCanonicalFileName: f => f,`
+        ~ `      getNewLine: () => '\n',`
+        ~ `    };`
+        ~ `    process.stderr.write(ts.formatDiagnosticsWithColorAndContext(diags, fmtHost));`
+        ~ `    return { error: diags.length };`
+        ~ `  }`
+        ~ `  const t = ts.transpileModule(src, { compilerOptions: opts, fileName: filename });`
+        ~ `  return { ok: true, output: t.outputText };`
+        ~ `})()`;
+
+    auto res = eng.eval(driver, "<typecheck>");
+    if (res.isError)
+    {
+        import dun.cli.errors : isColorEnabled, formatUncaughtError;
+        import std.process : environment;
+        if (environment.get("DUN_TYPECHECK_DEBUG", "") == "1")
+        {
+            import std.file : write;
+            write("/tmp/dun-typecheck-driver.js", driver);
+            writeStderr("dun: typecheck driver written to /tmp/dun-typecheck-driver.js\n");
+        }
+        writeStderr(formatUncaughtError(res.errorMessage, isColorEnabled()));
+        rc = 1;
+        return "";
+    }
+
+    auto skipH = eng.getProperty(res.value, "skip");
+    if (eng.isBool(skipH) && eng.extractBool(skipH))
+    {
+        eng.freeValue(skipH);
+        eng.freeValue(res.value);
+        return "";  // fall back to scanner strip
+    }
+    eng.freeValue(skipH);
+
+    auto errH = eng.getProperty(res.value, "error");
+    if (eng.isNumber(errH))
+    {
+        eng.freeValue(errH);
+        eng.freeValue(res.value);
+        rc = 1;
+        return "";
+    }
+    eng.freeValue(errH);
+
+    auto outH = eng.getProperty(res.value, "output");
+    string output = eng.extractString(outH);
+    eng.freeValue(outH);
+    eng.freeValue(res.value);
+    return output;
 }
 
 string stripShebang(string source) @safe pure nothrow
