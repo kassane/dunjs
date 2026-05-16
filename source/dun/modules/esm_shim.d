@@ -324,11 +324,18 @@ string transpileESM(string source, string filename) @safe pure
 }
 
 /// Detects an `await` token at top-level statement position (not in a
-/// string, comment, nested function, or class). Used to decide whether
-/// the transpiled ESM body needs an async-IIFE wrapper.
+/// string, comment, nested function, or class). `try { await … }` at the
+/// top of the file counts as top-level -- `try`/`if`/`for`/`while`/`switch`
+/// blocks don't create a function scope. Used to decide whether the
+/// transpiled ESM body needs an async-IIFE wrapper.
 private bool hasTopLevelAwait(string s) @safe pure nothrow
 {
-    int braceD = 0, parenD = 0, bracketD = 0;
+    // Stack of brace "kinds": true = function/method/class body (await
+    // inside is *not* top-level), false = block body (try / if / for /
+    // while / switch). We push on every `{` based on what precedes it
+    // and pop on `}`.
+    bool[] fnStack;
+    int parenD = 0, bracketD = 0;
     size_t i = 0;
     while (i < s.length)
     {
@@ -370,15 +377,59 @@ private bool hasTopLevelAwait(string s) @safe pure nothrow
                 continue;
             }
         }
-        if (c == '{') braceD++;
-        else if (c == '}') { if (braceD > 0) braceD--; }
-        else if (c == '(') parenD++;
-        else if (c == ')') { if (parenD > 0) parenD--; }
-        else if (c == '[') bracketD++;
-        else if (c == ']') { if (bracketD > 0) bracketD--; }
-        else if (braceD == 0 && parenD == 0 && bracketD == 0)
+        if (c == '{')
         {
-            // Match `await ` only if it's whitespace-isolated.
+            // Decide if this `{` opens a function / class body. The
+            // unambiguous shapes:
+            //   `)` `{`        -- function / method / arrow with params
+            //   `=>` `{`       -- arrow without params (e.g. `() => {`)
+            //   `class X {`    -- class body
+            //   `class X extends Y {` (`Y` is an ident before `{`)
+            // Everything else is a block.
+            bool isFn = false;
+            size_t back = i;
+            while (back > 0 && (s[back - 1] == ' ' || s[back - 1] == '\t'
+                    || s[back - 1] == '\n' || s[back - 1] == '\r')) back--;
+            if (back > 0)
+            {
+                if (s[back - 1] == ')') isFn = true;
+                else if (back >= 2 && s[back - 2] == '=' && s[back - 1] == '>') isFn = true;
+            }
+            // class declarations / expressions
+            if (!isFn && i >= 7)
+            {
+                size_t j = i;
+                while (j > 0 && (s[j - 1] == ' ' || s[j - 1] == '\t'
+                        || s[j - 1] == '\n' || s[j - 1] == '\r'
+                        || isIdentChar2(s[j - 1]))) j--;
+                // Now j is at the start of the prior keyword/ident
+                // (or whitespace boundary). Walk forward to check for
+                // `class` token.
+                while (j < i && (s[j] == ' ' || s[j] == '\t'
+                        || s[j] == '\n' || s[j] == '\r')) j++;
+                if (j + 5 <= i && s[j .. j + 5] == "class") isFn = true;
+            }
+            fnStack ~= isFn;
+            i++;
+            continue;
+        }
+        if (c == '}')
+        {
+            if (fnStack.length > 0) fnStack.length = fnStack.length - 1;
+            i++;
+            continue;
+        }
+        if (c == '(') { parenD++; i++; continue; }
+        if (c == ')') { if (parenD > 0) parenD--; i++; continue; }
+        if (c == '[') { bracketD++; i++; continue; }
+        if (c == ']') { if (bracketD > 0) bracketD--; i++; continue; }
+
+        // "Top-level" = depth-0 parens/brackets AND no enclosing
+        // function/class scope on the brace stack.
+        bool insideFn = false;
+        foreach (b; fnStack) if (b) { insideFn = true; break; }
+        if (!insideFn && parenD == 0 && bracketD == 0)
+        {
             if (i + 6 <= s.length && s[i .. i + 5] == "await"
                 && (s[i + 5] == ' ' || s[i + 5] == '\t' || s[i + 5] == '\n'
                     || s[i + 5] == '(' || s[i + 5] == '\r')
