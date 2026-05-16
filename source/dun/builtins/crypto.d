@@ -1784,11 +1784,6 @@ private ubyte[] osRandomBytes(int n) @trusted
     }
 }
 
-private string computeHash(string algo, string data) @trusted
-{
-    return bytesToHexStr(computeHashBinary(algo, cast(const(ubyte)[]) data));
-}
-
 private ubyte[] computeHashBinary(string algo, const(ubyte)[] data) @trusted
 {
     auto md = getEvpMd(algo);
@@ -1843,13 +1838,6 @@ private ubyte[] computeHmacBinary(string algo, const(ubyte)[] key, const(ubyte)[
 
     if (result is null || outLen == 0) return [];
     return outBuf[0 .. outLen].dup;
-}
-
-private string computeHmac(string algo, string key, string data) @trusted
-{
-    auto result = computeHmacBinary(algo, cast(const(ubyte)[]) key, cast(const(ubyte)[]) data);
-    if (result.length == 0) return "";
-    return bytesToHexStr(result);
 }
 
 // --- generateKeyPairSync ---
