@@ -358,6 +358,69 @@ void handleCDPMessage(string msg) @trusted
             sendCDPResponse(id,
                 `{"targetInfo":{"targetId":"dun","type":"node","title":"DunJS","url":"file:///","attached":true,"canAccessOpener":false}}`);
         }
+        // Debugger evaluation (used by the Sources panel on a paused frame
+        // and by hover-evaluate). Reuses the same engine.eval path as
+        // Runtime.evaluate -- we don't track call frames, but evaluating
+        // against the live global is what most "what's this variable" UI
+        // gestures expect anyway.
+        else if (method == "Debugger.evaluateOnCallFrame")
+        {
+            string expr = "";
+            if ("params" in j && "expression" in j["params"])
+                expr = j["params"]["expression"].str;
+            string resultJson = `{"type":"undefined"}`;
+            if (gInspectorEngine !is null && expr.length > 0)
+            {
+                auto r = gInspectorEngine.eval(expr, "<inspector>");
+                if (!r.isError)
+                {
+                    import std.json : JSONValue;
+                    auto val = gInspectorEngine.extractString(r.value);
+                    resultJson = `{"type":"string","value":`
+                        ~ JSONValue(val).toString() ~ `}`;
+                    gInspectorEngine.freeValue(r.value);
+                }
+                else
+                {
+                    import std.json : JSONValue;
+                    resultJson = `{"type":"object","subtype":"error","description":`
+                        ~ JSONValue(r.errorMessage).toString() ~ `}`;
+                    gInspectorEngine.freeValue(r.value);
+                }
+            }
+            sendCDPResponse(id, `{"result":` ~ resultJson ~ `}`);
+        }
+        // Execution control. We don't have a paused state, so resume /
+        // step are no-ops; acknowledging keeps the UI buttons responsive.
+        else if (method == "Debugger.resume"
+              || method == "Debugger.stepOver"
+              || method == "Debugger.stepInto"
+              || method == "Debugger.stepOut"
+              || method == "Debugger.pause"
+              || method == "Debugger.continueToLocation"
+              || method == "Debugger.restartFrame")
+        {
+            sendCDPResponse(id, "{}");
+        }
+        // Top-level scope inspector. Stub list -- a real impl would walk
+        // the global object via IJSEngine.
+        else if (method == "Runtime.globalLexicalScopeNames")
+        {
+            sendCDPResponse(id, `{"names":[]}`);
+        }
+        else if (method == "Runtime.queryObjects")
+        {
+            sendCDPResponse(id, `{"objects":{"type":"object","subtype":"array","objectId":"dun:queryObjects:1","className":"Array","description":"Array(0)"}}`);
+        }
+        // Network / Page extras for the Sources panel.
+        else if (method == "Network.setUserAgentOverride"
+              || method == "Network.setCacheDisabled"
+              || method == "Page.reload"
+              || method == "Page.navigate"
+              || method == "Page.setLifecycleEventsEnabled")
+        {
+            sendCDPResponse(id, "{}");
+        }
         else
         {
             // Unknown methods get an empty success response. We log

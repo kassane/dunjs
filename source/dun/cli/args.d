@@ -47,6 +47,13 @@ struct CliConfig
     string testFilter;
     string initName;
     string[] fmtFiles;
+    // `dun fmt --quotes=single|double` — when non-empty, rewrites
+    // string literals to use the chosen quote style. Matches Prettier's
+    // singleQuote / quoteProps default.
+    string fmtQuotes;
+    // `dun fmt --check` — exit non-zero if any file is not already
+    // formatted. CI gate (Prettier's --check).
+    bool fmtCheck;
     string[] bundleEntries;
     string bundleOutDir;
     bool bundleMinify;
@@ -258,9 +265,19 @@ CliConfig parseArgs(string[] args) @safe
     {
         config.command = Command.fmt;
         i++;
-        while (i < args.length && !args[i].startsWith("-"))
+        while (i < args.length)
         {
-            config.fmtFiles ~= args[i];
+            if (args[i].startsWith("--quotes="))
+                config.fmtQuotes = args[i]["--quotes=".length .. $];
+            else if (args[i] == "--check")
+                config.fmtCheck = true;
+            else if (!args[i].startsWith("-"))
+                config.fmtFiles ~= args[i];
+            else
+            {
+                config.errorMessage = "unknown flag '" ~ args[i] ~ "' for 'fmt'";
+                return config;
+            }
             i++;
         }
         return config;

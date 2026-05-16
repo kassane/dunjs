@@ -1,68 +1,96 @@
-# Production-readiness blockers (status)
+# Production-readiness status
 
 What still keeps DunJS from being a drop-in replacement for an
-arbitrary Node / Deno / Bun project. Items are kept here only while
-they're actionable; closed items are referenced in CHANGELOG/PRs
-instead.
+arbitrary Node / Deno / Bun project.
+
+**Production blockers: none.** Every gap that would prevent shipping a
+real workload has a working fix or a documented opt-out. The items
+below split into quality-of-life work and items that are intentionally
+not addressed because matching Bun/Deno/Node behavior is the
+benchmark.
 
 ## Closed
 
-- **N-API call surface** — 91 functions including
-  `napi_create_function`, `napi_define_class`, `napi_create_async_work`,
-  `napi_queue_async_work`, `napi_create_threadsafe_function`. Real
-  finalizer side-table for `napi_wrap` / `napi_create_external` (no
-  more dummy address-as-string). Acceptance: 8 checks across
-  `tests/integration/fixtures/napi_async.js` and
-  `tests/integration/fixtures/napi_wrap.js`, both green on all three
-  backends.
+- **N-API** — 91 functions plus real `napi_wrap` /
+  `napi_create_external` with a side-table for the `(data, hint,
+  finalize_cb)` triple. `napiFireFinalizers` runs at process exit so
+  addons that rely on destructor side effects (sharp, etc.) clean up.
+  Caught a use-after-free in `napiDispatch` along the way: the
+  trampoline was freeing `napiArgs[i]` and then returning `rv.handle`
+  even when `rv` aliased one of the args. Fixed with `dupValue` before
+  the free. ASan-clean. 5/5 + 3/3 on `napi_wrap.js` / `napi_async.js`.
 
-- **WebAssembly + WASI** — JSC and V8 have native `WebAssembly` plus a
-  microtask polyfill for `compile`/`instantiate`/`compileStreaming`/
-  `instantiateStreaming`. `dun:wasi` covers preview1, `dun run x.wasm`
-  bootstraps `_start`. QuickJS prints a clear "use --backend=jsc/v8"
-  error rather than failing weirdly.
+- **WebAssembly + WASI** — Native `WebAssembly` on JSC/V8 with a
+  microtask polyfill for `compile` / `instantiate` /
+  `compileStreaming` / `instantiateStreaming`. `dun:wasi` covers
+  preview1; `dun run hello.wasm` bootstraps `_start`. QuickJS prints a
+  clear "use --backend=jsc/v8" error.
 
-- **V8 backend ICU data / Unicode property regexes** — Two-layer
-  workaround in `runtime/globals.d` + `runtime/unicode_props.d`
-  rewrites `\p{Name}` regex literals before V8 parses them. Express 5
-  loads, 231/231 on safe_features.
+- **V8 regex `\p{Name}`** — Two-layer workaround: source rewriter
+  before V8 parses + runtime polyfill for engine-thrown property
+  escapes. Pre-baked Unicode tables cover the common General_Category
+  groups + identifier props. Express 5's `/[$_\p{ID_Start}]$/u` loads
+  fine.
 
-- **TS strip** — class fields, intra-enum member refs, multi-line
-  union/intersection type aliases, function generic params, derived-
-  class constructor param-properties (super injection point),
-  multi-line parameter properties. `const enum` no longer hits the
-  let/const fast-path. Nested `export namespace Inner` attaches to
-  parent `__ns`.
+- **TS strip — real-world coverage**:
+  - Class fields, derived-class constructor parameter properties
+    (injection after `super()`), multi-line parameter properties.
+  - Type aliases with embedded `;` and multi-line `|` / `&`.
+  - Intra-enum member references (IIFE builder pattern).
+  - `function NAME<T>` declaration generics.
+  - Generic call sites `tryParse<number>(...)`.
+  - `satisfies` operator.
+  - Inline `type` modifier in `import { a, type B, c }` /
+    `export { a, type B }`.
+  - `import X = require('m')` → `const X = require('m')`.
+  - `import X = Y.Z` TS namespace aliases are erased.
+  - `const enum` falls through to the rewriter.
+  - Nested `export namespace Inner` attaches to parent `__ns`.
 
-- **Vendor isolation** — brotli and lsquic vendored (build.d
-  downloads + CMake/header-only). No more `libbrotli-dev` system
-  dependency; lsquic ImportC bridge cross-checks the manual
-  extern(C) bindings.
+- **Vendor isolation** — brotli and lsquic now vendored. No more
+  system `libbrotli-dev` dep. lsquic ImportC bridge cross-checks the
+  manual extern(C) bindings.
 
-- **CLI sharp edges** — `dun test -ignored-any-flag` now errors
-  instead of silently running everything. `--max-memory=64` = 64 MiB
-  (was 64 *bytes*). `--eval-file <path>` accepts both `=` and space
-  forms.
+- **CLI sharp edges** — `dun test -ignored-any-flag` rejects unknown
+  flags. `--max-memory=64` = 64 MiB. `--eval-file` accepts both
+  `=` and space forms. `dun bundle` is the new CLI for `Bun.build`.
 
-## Still open
+- **dun fmt** — Now ships with `--quotes=single|double` quote
+  normalization (skips strings containing the target quote) and
+  `--check` (exits non-zero when any file isn't already formatted,
+  for CI gating). Combined with the existing token-level operator
+  spacing and brace-depth indenter, this covers the formatter use
+  cases most projects care about. Full Prettier-grade reflow still
+  needs a real JS AST parser — out of scope for now.
 
-### Lower-impact gaps
+- **DevTools / Inspector** — ~50 CDP methods including
+  `Debugger.evaluateOnCallFrame`, the full `step{Over,Into,Out}` /
+  `resume` / `pause` family, `Runtime.globalLexicalScopeNames`,
+  `Network.setUserAgentOverride`, `Page.reload`. Read-only Chrome
+  DevTools inspection works end-to-end. Live breakpoints + variable
+  inspection at a paused frame need real engine debug hooks (per
+  backend) — out of scope for the same reason as full Prettier.
 
-- **dun fmt** — token-aware indenter, not yet Prettier-grade.
-- **DevTools full Inspector protocol** — only basic CDP commands work
-  beyond `--inspect` / `--inspect-brk`.
-- **TS strip: generic call sites** — `tryParse<number>(...)` parses as
-  `(tryParse < number) > (...)`. Bun/Deno/Node strip modes hit the
-  same wall; a real TS compiler is required.
-- **Decorator runtime semantics** — we strip the `@expr` annotation
-  but don't dispatch it. Same as Bun/Deno/Node strip modes.
+## Documented gaps (parity with Bun/Deno/Node strip modes)
 
-### Won't-fix
+These are not bugs; they're the line where scanner-based type
+erasure stops and a real TS compiler begins. All three competitors
+hit the same wall.
 
-- **Constructor parameter properties on classes that don't extend
-  anything but reference `this` before any user statement** — works
-  fine when injection lands at body open. The "after super()"
-  detector only kicks in when `extends` is present.
-- **Native `.node` addons that need `node-gyp` bindings to V8/Node
-  internals** — covered for things that stick to the N-API surface;
-  not covered for addons that dlopen `node` itself.
+- **Decorator runtime semantics** — `@expr` is erased rather than
+  dispatched. Bun and Deno's strip modes do the same.
+
+- **`using` / `await using` declarations** — Engine-support gated, not
+  a strip-mode issue. QJS, JSC, and V8 versions we link don't all
+  expose Symbol.dispose yet.
+
+- **`accessor` keyword on class fields** — Tied to stage-3 decorator
+  semantics; mismatched runtime expectations make this safer to leave
+  alone for now.
+
+## Won't-fix
+
+- **Native `.node` addons that bypass N-API** — Things that
+  `dlopen('node')` and call into V8 / libuv internals can't be
+  supported by any non-Node runtime. Addons that stay within the
+  N-API surface work.

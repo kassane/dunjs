@@ -356,6 +356,37 @@ string stripTypes(const(char)[] source) @trusted
                     afterVarKw = false;
                     continue;
                 }
+                // `import X = require("m")` / `import X = Y.Z` (TS namespace
+                // aliases). The first becomes `const X = require("m")`,
+                // the second has no runtime form -- erase.
+                if (ws < buf.length && isIdentStart(buf[ws]))
+                {
+                    auto idEnd = ws;
+                    while (idEnd < buf.length && isIdentChar(buf[idEnd])) idEnd++;
+                    auto eqPos = skipWS(buf, idEnd);
+                    if (eqPos < buf.length && buf[eqPos] == '=')
+                    {
+                        auto rhsStart = skipWS(buf, eqPos + 1);
+                        if (rhsStart < buf.length && matchWord(buf, rhsStart, "require"))
+                        {
+                            // import X = require(...) -> const X = require(...)
+                            // (6 char replacement, same length as "import").
+                            buf[wordStart .. wordStart + 6] = "const ";
+                            buf[wordStart + 5] = ' ';
+                            // Erase the `=` -- the const decl uses its own.
+                            // Actually keep it: `const X = require(...)` is valid.
+                            pos = idEnd;
+                            afterVarKw = true;
+                            continue;
+                        }
+                        // import X = OtherNs.Member -- erase entirely.
+                        auto end = findSemiOrEOL(buf, wordStart);
+                        blankRange(buf, wordStart, end);
+                        pos = end;
+                        afterVarKw = false;
+                        continue;
+                    }
+                }
                 // Inline `type` modifiers: `import { a, type B, c } from 'm'`
                 // Blank just the `type B` specifier(s), leave the rest.
                 if (ws < buf.length && buf[ws] == '{')
