@@ -513,6 +513,22 @@ private string unicodePropPolyfillSource() pure @safe nothrow
   T['Lm']          = T['L'];
   T['Nd']          = '0-9\\u0660-\\u0669\\u06F0-\\u06F9';
   T['Nl']          = T['N'];
+  /* Common script names: long form and four-letter codes.
+     Long form: Script=Latin / Script=Han / etc.
+     Short:     sc=Latn / sc=Hani / ...
+     Both map to the same range — the key half is already extracted
+     by the caller, so we just need the script name. */
+  T['Latin']      = T['Latn']  = 'A-Za-z\\u00AA\\u00B5\\u00BA\\u00C0-\\u00D6\\u00D8-\\u00F6\\u00F8-\\u02AF\\u1E00-\\u1EFF';
+  T['Greek']      = T['Grek']  = '\\u0370-\\u03FF\\u1F00-\\u1FFE';
+  T['Cyrillic']   = T['Cyrl']  = '\\u0400-\\u052F\\u1C80-\\u1C8F\\uA640-\\uA69F';
+  T['Han']        = T['Hani']  = '\\u3400-\\u4DBF\\u4E00-\\u9FFF\\uF900-\\uFAFF';
+  T['Hiragana']   = T['Hira']  = '\\u3041-\\u3096\\u309D-\\u309F';
+  T['Katakana']   = T['Kana']  = '\\u30A1-\\u30FA\\u30FC-\\u30FF\\uFF66-\\uFF9F';
+  T['Hangul']     = T['Hang']  = '\\u1100-\\u11FF\\u3131-\\u318E\\uAC00-\\uD7A3';
+  T['Arabic']     = T['Arab']  = '\\u0600-\\u06FF\\u0750-\\u077F\\uFB50-\\uFDFF';
+  T['Hebrew']     = T['Hebr']  = '\\u0590-\\u05FF\\uFB1D-\\uFB4F';
+  T['Devanagari'] = T['Deva']  = '\\u0900-\\u097F';
+  T['Thai']                    = '\\u0E01-\\u0E5B';
   T['No']          = T['N'];
 
   // Hand-walk the pattern so we know whether each \p{} sits inside
