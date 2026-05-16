@@ -120,6 +120,15 @@ version (EngineQuickJS)
         if (source.length >= 2 && source[0] == '#' && source[1] == '!')
             source = "//" ~ source[2 .. $];
 
+        // V8 prebuilt lacks ICU; rewrite Unicode property escapes in
+        // regex LITERALS to expanded character classes so source like
+        // `/\p{ID_Start}/u` parses. Same path used in require.d for CJS.
+        version (EngineV8)
+        {
+            import dun.runtime.unicode_props : expandUnicodePropertyEscapes;
+            source = expandUnicodePropertyEscapes(source);
+        }
+
         // JSON modules: wrap as `export default <content>`
         if (specifier.endsWith(".json"))
         {

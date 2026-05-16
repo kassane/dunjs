@@ -396,6 +396,18 @@ JSHandle jsRequire(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
     if (source.length >= 2 && source[0] == '#' && source[1] == '!')
         source = "//" ~ source[2 .. $];
 
+    // V8 prebuilt ships without ICU, so any `/\p{X}/u` regex LITERAL
+    // throws at parse time before the runtime polyfill can wrap it.
+    // Substitute Unicode property escapes with bare character classes
+    // at source level. Heuristic: only run when source contains \p{ or
+    // \P{; the substitution is identity inside string/comment contexts
+    // because we only replace the exact escape sequence.
+    version (EngineV8)
+    {
+        import dun.runtime.unicode_props : expandUnicodePropertyEscapes;
+        source = expandUnicodePropertyEscapes(source);
+    }
+
     bool esmTranspiled = false;
     try
     {

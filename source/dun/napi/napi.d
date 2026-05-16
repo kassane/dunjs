@@ -985,13 +985,41 @@ napi_status napi_is_dataview(napi_env env, napi_value value, bool* result)
 napi_status napi_create_function(napi_env env, const(char)* utf8name, size_t length,
     napi_callback cb, void* data, napi_value* result)
 {
-    // Without per-callback context plumbing we can only return a noop.
-    // Real addons that hit this won't work end-to-end, but the call won't
-    // crash. A full impl needs a trampoline that dispatches to `cb`.
-    if (env is null || result is null) return napi_invalid_arg;
-    NativeCallback nc = &napiNoopFn;
-    *result = allocValue(env.engine.newFunction(nc, "<napi>", 0));
+    if (env is null || result is null || cb is null) return napi_invalid_arg;
+    try
+    {
+        // Allocate a per-function slot. The slot stores the napi_callback
+        // function pointer plus the addon-provided `data` and the env.
+        auto slot = registerNapiFn(env, cb, data);
+        if (slot < 0) return napi_generic_failure;
+
+        // Build a JS closure that captures the slot ID and forwards to
+        // the shared trampoline. This avoids needing per-function D
+        // function pointers, which we can't generate at runtime.
+        ensureNapiDispatcher(env);
+
+        import std.conv : to;
+        auto src = "(function(__slot){return function(){"
+            ~ "return globalThis.__dun_napi_dispatch__(__slot,this,arguments);"
+            ~ "};})(" ~ to!string(slot) ~ ")";
+        auto wrap = env.engine.eval(src, "<napi-create-function>");
+        if (wrap.isError) return napi_generic_failure;
+        *result = allocValue(wrap.value);
+    }
+    catch (Throwable) { return napi_generic_failure; }
     return napi_ok;
+}
+
+private __gshared bool gNapiDispatcherInstalled = false;
+
+private void ensureNapiDispatcher(napi_env env) @trusted
+{
+    if (gNapiDispatcherInstalled) return;
+    auto fn = env.engine.newFunction(&napiDispatch, "__dun_napi_dispatch__", 0);
+    auto global = env.engine.getGlobal();
+    env.engine.setProperty(global, "__dun_napi_dispatch__", fn);
+    env.engine.freeValue(global);
+    gNapiDispatcherInstalled = true;
 }
 
 napi_status napi_define_class(napi_env env, const(char)* utf8name, size_t length,
@@ -1082,4 +1110,80 @@ private extern (D) JSHandle napiNoopFn(void* engineCtx, JSHandle thisVal, scope 
     static import dun.runtime.globals;
     auto state = cast(dun.runtime.globals.DunState*) engineCtx;
     return state.engine.newUndefined();
+}
+
+// --- Per-napi-function slot table + shared trampoline ---
+//
+// Each napi_create_function call gets a slot. The slot holds the
+// napi_callback function pointer + the addon-provided `data` pointer
+// + the env. The slot ID is stashed on the JS function as
+// `__napiSlot__`; on call the trampoline reads it back to dispatch.
+//
+// One slot per napi function (not per call), grown on demand.
+
+private struct NapiFnSlot
+{
+    napi_callback cb;
+    void* data;
+    napi_env env;
+}
+
+private __gshared NapiFnSlot[] gNapiSlots;
+private __gshared int gNextNapiSlot = 0;
+
+private int registerNapiFn(napi_env env, napi_callback cb, void* data) nothrow @trusted
+{
+    try
+    {
+        if (gNextNapiSlot >= cast(int) gNapiSlots.length)
+            gNapiSlots.length = gNapiSlots.length + 64;
+        gNapiSlots[gNextNapiSlot] = NapiFnSlot(cb, data, env);
+        return gNextNapiSlot++;
+    }
+    catch (Exception) { return -1; }
+}
+
+private extern (D) JSHandle napiDispatch(void* engineCtx, JSHandle thisVal, scope JSHandle[] args) @trusted
+{
+    // Args layout from JS shim: [slotId, jsThis, argumentsArray]
+    static import dun.runtime.globals;
+    auto state = cast(dun.runtime.globals.DunState*) engineCtx;
+    if (state is null || state.engine is null) return JSHandle.init;
+    auto engine = state.engine;
+    try
+    {
+        if (args.length < 3) return engine.newUndefined();
+        auto slotId = engine.extractInt(args[0]);
+        if (slotId < 0 || slotId >= cast(int) gNapiSlots.length)
+            return engine.newUndefined();
+        auto slot = gNapiSlots[slotId];
+        if (slot.cb is null) return engine.newUndefined();
+
+        // Unpack the JS arguments array into a JSHandle[] for the napi info.
+        auto jsThis = args[1];
+        auto argsArr = args[2];
+        auto argLen = engine.getArrayLength(argsArr);
+        JSHandle[16] stackArgs;
+        JSHandle[] napiArgs;
+        if (argLen <= 16)
+            napiArgs = stackArgs[0 .. argLen];
+        else
+            napiArgs = new JSHandle[argLen];
+        foreach (i; 0 .. argLen)
+            napiArgs[i] = engine.getPropertyIndex(argsArr, cast(uint) i);
+
+        napi_callback_info_s info;
+        info.env = slot.env;
+        info.thisVal = jsThis;
+        info.args = napiArgs;
+        info.data = slot.data;
+
+        auto rv = slot.cb(slot.env, &info);
+        // Free the looked-up arg refs (getPropertyIndex bumps refcount).
+        foreach (i; 0 .. argLen)
+            engine.freeValue(napiArgs[i]);
+        if (rv is null) return engine.newUndefined();
+        return rv.handle;
+    }
+    catch (Throwable) { return engine.newUndefined(); }
 }
