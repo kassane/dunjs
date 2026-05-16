@@ -1495,16 +1495,66 @@ bool isESM(string path, string source) @safe pure nothrow
     if (path.length >= 4 && (path[$ - 4 .. $] == ".cjs" || path[$ - 4 .. $] == ".cts"))
         return false;
 
-    // Content-based: scan for top-level import/export statements
-    for (size_t i = 0; i < source.length; i++)
+    // Content-based: top-level `import`, `export`, or `await` all
+    // imply ESM. (Top-level await only parses in module context, so
+    // the presence of it is also a tell -- scripts can use Promise
+    // chains instead.) Be string- and comment-aware so we don't trip
+    // on text like `"await ..."` inside a string literal.
+    bool atLineStart = true;
+    size_t i = 0;
+    while (i < source.length)
     {
-        if (i == 0 || source[i - 1] == '\n')
+        char c = source[i];
+        // Line / block comments and string / template literals -- skip.
+        if (c == '/' && i + 1 < source.length)
         {
-            if (source.length - i >= 7 && source[i .. i + 7] == "import ")
-                return true;
-            if (source.length - i >= 7 && source[i .. i + 7] == "export ")
-                return true;
+            if (source[i + 1] == '/')
+            {
+                while (i < source.length && source[i] != '\n') i++;
+                continue;
+            }
+            if (source[i + 1] == '*')
+            {
+                i += 2;
+                while (i + 1 < source.length && !(source[i] == '*' && source[i + 1] == '/')) i++;
+                if (i + 1 < source.length) i += 2;
+                continue;
+            }
         }
+        if (c == '\'' || c == '"')
+        {
+            char q = c; i++;
+            while (i < source.length && source[i] != q)
+            {
+                if (source[i] == '\\' && i + 1 < source.length) i += 2;
+                else i++;
+            }
+            if (i < source.length) i++;
+            continue;
+        }
+        if (c == '`')
+        {
+            i++;
+            while (i < source.length && source[i] != '`')
+            {
+                if (source[i] == '\\' && i + 1 < source.length) i += 2;
+                else i++;
+            }
+            if (i < source.length) i++;
+            continue;
+        }
+        if (atLineStart)
+        {
+            if (source.length - i >= 7 && source[i .. i + 7] == "import ") return true;
+            if (source.length - i >= 7 && source[i .. i + 7] == "export ") return true;
+            // top-level `await` (line-start `await ` followed by non-keyword token)
+            if (source.length - i >= 6 && source[i .. i + 6] == "await "
+                && i + 6 < source.length) return true;
+            // skip leading whitespace -- still at line start
+            if (c == ' ' || c == '\t') { i++; continue; }
+        }
+        atLineStart = (c == '\n');
+        i++;
     }
     return false;
 }

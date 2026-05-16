@@ -268,11 +268,24 @@ string stripTypes(const(char)[] source) @trusted
                 // Don't continue -- let other handlers see "class" too.
             }
 
-            // `function NAME<T, U>(...)` — strip the type-parameter list.
-            // The <...> looks like a comparison to JS parsers, so we blank
-            // the entire range. Same heuristic works for methods inside a
-            // class body that we already track.
-            if (word == "function")
+            // TS-only access modifiers on class members. JS has `static`
+            // and `#`-private, so we only strip the keywords that have no
+            // runtime semantics. `override` is also TS-only.
+            if (classBraceStack.length > 0 && braceDepth == classBraceStack[$ - 1]
+                && parenDepth == 0
+                && (word == "public" || word == "private" || word == "protected"
+                    || word == "readonly" || word == "abstract" || word == "override"))
+            {
+                blankRange(buf, wordStart, pos);
+                continue;
+            }
+
+            // `function NAME<T, U>(...)` and `class NAME<T, U> ...` —
+            // strip the type-parameter list. The <...> looks like a
+            // comparison to JS parsers, so we blank the entire range.
+            // Same heuristic works for methods inside a class body
+            // (we already track those via the colon-type handler).
+            if (word == "function" || word == "class")
             {
                 auto fnNameStart = skipWS(buf, pos);
                 if (fnNameStart < buf.length && isIdentStart(buf[fnNameStart]))
@@ -1581,12 +1594,28 @@ size_t findSemiOrEOL(const(char)[] buf, size_t start) @safe pure nothrow @nogc
             if (c == ';') return i + 1;
             if (c == '\n')
             {
-                // Multi-line union/intersection continuation: `| Foo` / `& Bar`.
+                // The declaration can wrap to the next line in three
+                // common ways:
+                //   * union / intersection continuation: `| Foo`, `& Bar`
+                //   * conditional-type continuation: prev line ends in
+                //     `?`, `:`, or `=` (the latter for `type X =\n  ...`)
+                //   * the next line starts with an obvious continuation
+                //     keyword like `extends`
                 size_t next = i + 1;
                 while (next < buf.length && (buf[next] == ' ' || buf[next] == '\t'
                         || buf[next] == '\r')) next++;
                 if (next < buf.length && (buf[next] == '|' || buf[next] == '&')
                         && (next + 1 >= buf.length || buf[next + 1] != buf[next]))
+                {
+                    i = next;
+                    continue;
+                }
+                // Look back for `?` / `:` / `=` at the end of the prev line.
+                size_t back = i;
+                while (back > 0 && (buf[back - 1] == ' ' || buf[back - 1] == '\t'))
+                    back--;
+                if (back > 0 && (buf[back - 1] == '?' || buf[back - 1] == ':'
+                        || buf[back - 1] == '=' || buf[back - 1] == ','))
                 {
                     i = next;
                     continue;
