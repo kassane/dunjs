@@ -35,10 +35,21 @@ benchmark.
 - **TS strip — real-world coverage**:
   - Class fields, derived-class constructor parameter properties
     (injection after `super()`), multi-line parameter properties.
-  - Type aliases with embedded `;` and multi-line `|` / `&`.
+  - Type annotations after destructure / tuple patterns
+    (`function f({a}: T)`, `function f([a]: T)`).
+  - Return types whose body is `{...}` (object type) or `(...) => T`
+    (arrow function type).
+  - Type aliases with embedded `;` and multi-line `|` / `&` /
+    conditional / `extends` continuations.
   - Intra-enum member references (IIFE builder pattern).
-  - `function NAME<T>` declaration generics.
-  - Generic call sites `tryParse<number>(...)`.
+  - `function NAME<T>` / `class NAME<T>` declaration generics.
+  - Generic call sites and arrow expressions
+    (`tryParse<number>(...)`, `<T>(value: T): T => ...`).
+  - TS-only class-member modifiers (`public` / `private` /
+    `protected` / `readonly` / `abstract` / `override`); `static`
+    and `#`-private kept.
+  - TS `this:` parameter (`function f(this: X, a)`) — erases the
+    whole `this: TYPE,` span.
   - `satisfies` operator.
   - Inline `type` modifier in `import { a, type B, c }` /
     `export { a, type B }`.
@@ -46,6 +57,24 @@ benchmark.
   - `import X = Y.Z` TS namespace aliases are erased.
   - `const enum` falls through to the rewriter.
   - Nested `export namespace Inner` attaches to parent `__ns`.
+
+- **Top-level `await`** — Works on all three backends. `isESM()`
+  detects top-level `await` anywhere at depth-0 statement scope so
+  `.ts` files using top-level await without explicit `import`/`export`
+  still get module-mode dispatch. JSC and V8 evaluate the transpiled
+  ESM body as a script, so the shim wraps in an async IIFE with a
+  catch handler that surfaces rejections as non-zero exit codes.
+
+- **Node fs callbacks** — `fs.readFile(path, cb)` /
+  `fs.readFile(path, opts, cb)` invoke the callback (previously
+  always returned a promise, breaking `util.promisify(fs.readFile)`).
+  `fsP.readdir(path, { withFileTypes: true })` returns Dirent
+  objects with `.isFile()` / `.isDirectory()` / `.isSymlink()`.
+
+- **`Worker` constructor** — `require('worker_threads').Worker`
+  is now real-class-constructible (was a `JS_NewCFunction` callable
+  without [[Construct]]). The `Worker` global from `dun.runtime.worker_api`
+  still backs the actual spawn.
 
 - **Vendor isolation** — brotli and lsquic now vendored. No more
   system `libbrotli-dev` dep. lsquic ImportC bridge cross-checks the
@@ -88,9 +117,22 @@ hit the same wall.
   semantics; mismatched runtime expectations make this safer to leave
   alone for now.
 
+- **`new Worker(source, { eval: true, workerData })` with event-emitter
+  `.on('message', ...)`** — The current Worker takes a script *path*
+  (not inline source) and exposes a `.postMessage` method but not the
+  `Readable`/`EventEmitter` listener surface. Bun has this; Node and
+  Deno's `worker_threads` module does too. Implementing the inline-
+  source variant + the event listener surface is a discrete feature
+  block, not a parser/strip gap.
+
 ## Won't-fix
 
 - **Native `.node` addons that bypass N-API** — Things that
   `dlopen('node')` and call into V8 / libuv internals can't be
   supported by any non-Node runtime. Addons that stay within the
   N-API surface work.
+
+- **Host-specific API tests on the wrong host** — e.g.
+  `tests/benchmarks/ts_compat/bunapis.ts` calls `Bun.hash.xxh32`,
+  which doesn't exist on Bun 1.3 either. These tests are useful as
+  cross-runtime delta indicators, not as conformance gates.
