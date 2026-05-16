@@ -93,7 +93,7 @@ FROM debian:bookworm-slim@sha256:67b30a61dc87758f0caf819646104f29ecbda97d920aaf5
 
 ARG BUILD_DATE="unknown"
 ARG VCS_REF="unknown"
-ARG VERSION="0.2.0"
+ARG VERSION="0.3.0"
 LABEL org.opencontainers.image.title="DunJS Multi-Backend" \
       org.opencontainers.image.description="Secure JS/TS runtime with QuickJS, JSC, and V8 backends" \
       org.opencontainers.image.url="https://github.com/kassane/dunjs" \

@@ -103,7 +103,7 @@ ARG BACKEND=quickjs
 # at build time by CI to make the resulting image reproducible.
 ARG BUILD_DATE="unknown"
 ARG VCS_REF="unknown"
-ARG VERSION="0.2.0"
+ARG VERSION="0.3.0"
 LABEL org.opencontainers.image.title="DunJS" \
       org.opencontainers.image.description="Secure JavaScript/TypeScript runtime (${BACKEND} backend)" \
       org.opencontainers.image.url="https://github.com/kassane/dunjs" \

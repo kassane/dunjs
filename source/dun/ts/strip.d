@@ -100,6 +100,50 @@ string stripTypes(const(char)[] source) @trusted
         // is followed by `.`, `[`, `(`, `;`, `,`, `)`, `}`, `=`, or
         // whitespace (i.e. it's a TS-specific postfix, not a `!=`,
         // `!==`, or unary boolean `!`).
+        // --- decorator @Identifier(args)? — erase entire expression. ---
+        // Both TS legacy `experimentalDecorators: true` and the stage-3
+        // proposal share the textual shape `@Ident(...)?`. We blank the
+        // whole thing so the underlying JS engine doesn't choke on `@`.
+        if (c == '@' && (pos == 0 || (!isIdentChar(buf[pos - 1]) && buf[pos - 1] != '.')))
+        {
+            // Make sure the next non-ws char is an ident start (otherwise
+            // this is an at-sign in a string we missed, or similar; we
+            // already skip strings up top, so this should be safe).
+            auto wsd = skipWS(buf, pos + 1);
+            if (wsd < buf.length && isIdentStart(buf[wsd]))
+            {
+                size_t decoEnd = pos + 1;
+                // Skip ident
+                while (decoEnd < buf.length && isIdentChar(buf[decoEnd])) decoEnd++;
+                // Skip member chain `.foo.bar`
+                while (decoEnd < buf.length && buf[decoEnd] == '.')
+                {
+                    decoEnd++;
+                    while (decoEnd < buf.length && isIdentChar(buf[decoEnd])) decoEnd++;
+                }
+                // Skip optional call `(...)`
+                auto callStart = skipWS(buf, decoEnd);
+                if (callStart < buf.length && buf[callStart] == '(')
+                {
+                    int parD = 1;
+                    decoEnd = callStart + 1;
+                    while (decoEnd < buf.length && parD > 0)
+                    {
+                        if (buf[decoEnd] == '\'' || buf[decoEnd] == '"')
+                            decoEnd = skipStringLit(buf, decoEnd);
+                        else if (buf[decoEnd] == '`')
+                            decoEnd = skipTemplateLit(buf, decoEnd);
+                        else if (buf[decoEnd] == '(') { parD++; decoEnd++; }
+                        else if (buf[decoEnd] == ')') { parD--; decoEnd++; }
+                        else decoEnd++;
+                    }
+                }
+                blankRange(buf, pos, decoEnd);
+                pos = decoEnd;
+                continue;
+            }
+        }
+
         if (c == '!' && pos > 0)
         {
             // Skip `!=` and `!==`
@@ -236,6 +280,52 @@ string stripTypes(const(char)[] source) @trusted
                 afterVarKw = false;
                 continue;
             }
+
+            // --- namespace / module Name { ... } ---
+            // Rewrite as `var Name = (function(){ var __ns = {}; ...; return __ns; })();`
+            // and inside the body, `export const X = ...;` becomes
+            // `var X = ...; __ns.X = X;`. Same trick for export class /
+            // function / let / var.
+            if ((word == "namespace" || word == "module")
+                && isStmtStart(buf, wordStart))
+            {
+                string decl;
+                auto end = rewriteNamespace(buf, wordStart, wordStart, decl);
+                if (end > pos)
+                {
+                    if (decl.length > 0) enumDecls ~= decl;
+                    pos = end;
+                    afterVarKw = false;
+                    continue;
+                }
+            }
+            if (word == "export" && isStmtStart(buf, wordStart))
+            {
+                auto wsx = skipWS(buf, pos);
+                if (wsx < buf.length
+                    && (matchWord(buf, wsx, "namespace") || matchWord(buf, wsx, "module")))
+                {
+                    string decl;
+                    auto end = rewriteNamespace(buf, wordStart, wsx, decl);
+                    if (end > pos)
+                    {
+                        if (decl.length > 0) enumDecls ~= decl;
+                        pos = end;
+                        afterVarKw = false;
+                        continue;
+                    }
+                }
+            }
+
+            // --- decorators (@expr) ---
+            // Both legacy TS decorators and stage-3 spec decorators
+            // share the same prefix shape: `@Identifier(args...)?`
+            // before a class / method / property. The runtime semantics
+            // differ (and aren't trivially compilable without TS proper),
+            // so we erase to keep the parser happy. User code that
+            // relies on decorator side-effects won't behave, but the
+            // file will at least load.
+            // (Already handled by the `@` check below.)
 
             // --- enum / const enum / export enum / export const enum ---
             // Original block is blanked; equivalent JS object literal is
@@ -637,6 +727,146 @@ private bool isAllDigits(string s) @safe pure nothrow @nogc
     foreach (c; s)
         if (c != '-' && (c < '0' || c > '9')) return false;
     return true;
+}
+
+/// Rewrite `[export] namespace|module Name { body }` in-place. The
+/// original block is blanked (newlines preserved); the body is
+/// transformed into the equivalent JS IIFE and appended to the file
+/// prologue via the `decl` out-parameter (caller passes through to the
+/// enumDecls list, which is emitted ahead of the source body).
+///
+/// Inside the body, `export const X = ...`, `export function f() {}`,
+/// `export class C {}`, `export let X`, `export var X` are rewritten
+/// so the binding also lands on the namespace object as a property.
+private size_t rewriteNamespace(char[] buf, size_t blockStart,
+    size_t nsKwStart, out string decl) @trusted
+{
+    auto nsKwEnd = matchWord(buf, nsKwStart, "namespace")
+        ? nsKwStart + 9
+        : (matchWord(buf, nsKwStart, "module") ? nsKwStart + 6 : 0);
+    if (nsKwEnd == 0) return 0;
+
+    auto nameStart = skipWS(buf, nsKwEnd);
+    auto rawName = readIdent(buf, nameStart);
+    if (rawName.length == 0) return 0;
+    auto name = rawName.idup;
+    auto nameEnd = nameStart + name.length;
+
+    auto braceStart = skipWS(buf, nameEnd);
+    if (braceStart >= buf.length || buf[braceStart] != '{') return 0;
+
+    // Match the closing brace.
+    size_t depth = 1;
+    size_t p = braceStart + 1;
+    while (p < buf.length && depth > 0)
+    {
+        char c = buf[p];
+        if (c == '{') depth++;
+        else if (c == '}') depth--;
+        else if (c == '\'' || c == '"') p = skipStringLit(buf, p) - 1;
+        else if (c == '`') p = skipTemplateLit(buf, p) - 1;
+        p++;
+    }
+    if (depth != 0) return 0;
+    size_t braceEnd = p;  // one past closing brace
+
+    // Recursively strip TS from the body (parameter type annotations,
+    // nested interfaces, etc.) — the outer stripper has already moved
+    // past these chars, so we need to process them here before they
+    // become the prologue.
+    string body_ = stripTypes((cast(string) buf[braceStart + 1 .. braceEnd - 1]).idup);
+
+    // Rewrite `export <kw> X` → `<kw> X` + tail attachment to ns.
+    // We do this by scanning for top-level `export <kw> NAME` and
+    // emitting the body twice (kept declarations + attachment lines).
+    import std.array : Appender;
+    Appender!(char[]) result;
+    Appender!(char[]) attach;
+    size_t i = 0;
+    while (i < body_.length)
+    {
+        char c = body_[i];
+        if (c == '\'' || c == '"')
+        {
+            size_t end = skipStringLit(cast(const(char)[]) body_, i);
+            result.put(body_[i .. end]);
+            i = end;
+            continue;
+        }
+        if (c == '`')
+        {
+            size_t end = skipTemplateLit(cast(const(char)[]) body_, i);
+            result.put(body_[i .. end]);
+            i = end;
+            continue;
+        }
+        if (c == '/' && i + 1 < body_.length)
+        {
+            if (body_[i + 1] == '/')
+            {
+                while (i < body_.length && body_[i] != '\n') { result.put(body_[i]); i++; }
+                continue;
+            }
+            if (body_[i + 1] == '*')
+            {
+                size_t e = i + 2;
+                while (e + 1 < body_.length && !(body_[e] == '*' && body_[e + 1] == '/')) e++;
+                if (e + 1 < body_.length) e += 2;
+                result.put(body_[i .. e]);
+                i = e;
+                continue;
+            }
+        }
+        // `export X` at start of line.
+        if (c == 'e' && (i == 0 || body_[i - 1] == '\n' || body_[i - 1] == ' ' || body_[i - 1] == '\t')
+            && matchWord(cast(const(char)[]) body_, i, "export"))
+        {
+            auto after = skipWS(cast(const(char)[]) body_, i + 6);
+            string kw;
+            if (matchWord(cast(const(char)[]) body_, after, "const")) kw = "const";
+            else if (matchWord(cast(const(char)[]) body_, after, "let")) kw = "let";
+            else if (matchWord(cast(const(char)[]) body_, after, "var")) kw = "var";
+            else if (matchWord(cast(const(char)[]) body_, after, "function")) kw = "function";
+            else if (matchWord(cast(const(char)[]) body_, after, "class")) kw = "class";
+            if (kw.length > 0)
+            {
+                // Erase `export ` (6 chars + ws between).
+                size_t nameStart2 = skipWS(cast(const(char)[]) body_, after + kw.length);
+                auto kname = readIdent(cast(const(char)[]) body_, nameStart2);
+                if (kname.length > 0)
+                {
+                    foreach (_; 0 .. after - i) result.put(' ');
+                    result.put(kw);
+                    // Record attachment.
+                    attach.put("__ns.");
+                    attach.put(kname);
+                    attach.put('=');
+                    attach.put(kname);
+                    attach.put(';');
+                    i = after + kw.length;
+                    continue;
+                }
+            }
+        }
+        result.put(c);
+        i++;
+    }
+
+    // Build the prologue snippet that defines and populates the namespace.
+    Appender!(char[]) sb;
+    sb.put("var ");
+    sb.put(name);
+    sb.put("=(function(){var __ns={};");
+    sb.put(result.data);
+    sb.put(';');
+    sb.put(attach.data);
+    sb.put("return __ns;})();");
+    decl = cast(string) sb.data;
+
+    // Blank the original block keeping newlines.
+    foreach (k; blockStart .. braceEnd)
+        if (buf[k] != '\n' && buf[k] != '\r') buf[k] = ' ';
+    return braceEnd;
 }
 
 /// Scan a TS constructor with parameter properties. Erases the access

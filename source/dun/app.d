@@ -58,7 +58,7 @@ int main(string[] args)
 
 private:
 
-enum VERSION = "0.2.0";
+enum VERSION = "0.3.0";
 
 int runScript(T)(T config)
 {
@@ -123,7 +123,8 @@ int runScript(T)(T config)
         import dun.runtime.unicode_props : expandUnicodePropertyEscapes;
         source = expandUnicodePropertyEscapes(source);
     }
-    else if (isWasmFile(config.scriptPath))
+
+    if (isWasmFile(config.scriptPath))
     {
         // .wasm entry: synthesize a tiny WASI bootstrap that reads the
         // raw bytes back from disk, instantiates them and calls _start.
@@ -836,7 +837,7 @@ int runInit(T)(T config)
     write(buildPath(dir, "dun.json"),
         "{\n"
         ~ "  \"name\": \"" ~ name ~ "\",\n"
-        ~ "  \"version\": \"0.2.0\",\n"
+        ~ "  \"version\": \"0.3.0\",\n"
         ~ "  \"main\": \"main.ts\",\n"
         ~ "  \"tasks\": {\n"
         ~ "    \"start\": \"dun run main.ts\",\n"
