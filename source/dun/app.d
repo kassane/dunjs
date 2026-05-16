@@ -115,6 +115,14 @@ int runScript(T)(T config)
         import dun.ts.strip : stripTypes;
         source = stripTypes(source);
     }
+
+    // V8 prebuilt lacks ICU; rewrite `\p{X}` regex escapes inline so
+    // literal regexes parse. JSC/QuickJS handle these natively.
+    version (EngineV8)
+    {
+        import dun.runtime.unicode_props : expandUnicodePropertyEscapes;
+        source = expandUnicodePropertyEscapes(source);
+    }
     else if (isWasmFile(config.scriptPath))
     {
         // .wasm entry: synthesize a tiny WASI bootstrap that reads the
@@ -314,6 +322,11 @@ int evalInline(T)(T config)
     // behavior where `dun eval` accepts TS source directly.
     import dun.ts.strip : stripTypes;
     auto evalSource = stripTypes(config.evalSource);
+    version (EngineV8)
+    {
+        import dun.runtime.unicode_props : expandUnicodePropertyEscapes;
+        evalSource = expandUnicodePropertyEscapes(evalSource);
+    }
     auto result = engine.eval(evalSource, "<eval>");
     if (result.isError)
     {
@@ -550,6 +563,11 @@ int runSingleTest(T)(T config, string filePath) @trusted
         import dun.ts.strip : stripTypes;
         source = stripTypes(source);
     }
+    version (EngineV8)
+    {
+        import dun.runtime.unicode_props : expandUnicodePropertyEscapes;
+        source = expandUnicodePropertyEscapes(source);
+    }
 
     // Inject test harness preamble
     string harness =
@@ -703,6 +721,11 @@ int runSingleBench(T)(T config, string filePath) @trusted
     {
         import dun.ts.strip : stripTypes;
         source = stripTypes(source);
+    }
+    version (EngineV8)
+    {
+        import dun.runtime.unicode_props : expandUnicodePropertyEscapes;
+        source = expandUnicodePropertyEscapes(source);
     }
 
     // Bench harness: Deno.bench(name, fn) runs fn multiple times and measures
