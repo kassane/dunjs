@@ -149,6 +149,171 @@ void installDenoCompat(IJSEngine engine) @trusted
     auto global = engine.getGlobal();
     engine.setProperty(global, "Deno", denoObj);
     engine.freeValue(global);
+
+    // Deno.serve + Deno.openKv ship as a JS-level shim because both are
+    // built from existing http / EventTarget primitives. Keeping them
+    // here means we can iterate on the wrapper without recompiling.
+    auto shimRes = engine.eval(denoServeAndKvSource(), "<deno-serve-kv>");
+    if (!shimRes.isError) engine.freeValue(shimRes.value);
+}
+
+private string denoServeAndKvSource() pure nothrow @safe
+{
+    // NB: all `~` joins => no newlines between chunks at runtime, so the
+    // emitted JS must use block comments only — never JS `//` comments.
+    return
+    "(function() {" ~
+    "if (!globalThis.Deno) return;" ~
+    /* Deno.serve(opts, handler) — same shape as Bun.serve but matches
+       the official Deno API: returns { addr, finished, ref, unref,
+       shutdown }. Accepts either Deno.serve(handler) or
+       Deno.serve({ port, hostname }, handler) or
+       Deno.serve({ port, hostname, handler }). */
+    "Deno.serve = function(opts, handler) {" ~
+    "  if (typeof opts === 'function') { handler = opts; opts = {}; }" ~
+    "  opts = opts || {};" ~
+    "  if (!handler && typeof opts.handler === 'function') handler = opts.handler;" ~
+    "  if (typeof handler !== 'function')" ~
+    "    throw new TypeError('Deno.serve requires a handler function');" ~
+    "  var http = require('http');" ~
+    "  var port = opts.port == null ? 8000 : +opts.port;" ~
+    "  var host = opts.hostname || '0.0.0.0';" ~
+    "  var srv = http.createServer(function(req, res) {" ~
+    "    var chunks = [];" ~
+    "    req.on('data', function(c) { chunks.push(c); });" ~
+    "    req.on('end', function() {" ~
+    "      var body = chunks.length ? globalThis.Buffer.concat(chunks) : undefined;" ~
+    "      var url = (req.headers.host ? 'http://' + req.headers.host : 'http://localhost') + req.url;" ~
+    "      var request;" ~
+    "      try {" ~
+    "        request = new Request(url, {" ~
+    "          method: req.method," ~
+    "          headers: req.headers," ~
+    "          body: (req.method === 'GET' || req.method === 'HEAD') ? null : body" ~
+    "        });" ~
+    "      } catch (e) {" ~
+    "        request = { method: req.method, url: url, headers: req.headers, body: body };" ~
+    "      }" ~
+    "      var info = { remoteAddr: { hostname: req.socket && req.socket.remoteAddress || '', port: req.socket && req.socket.remotePort || 0, transport: 'tcp' } };" ~
+    "      Promise.resolve().then(function() { return handler(request, info); }).then(function(resp) {" ~
+    "        if (!resp) { res.statusCode = 200; res.end(); return; }" ~
+    "        var status = resp.status || 200;" ~
+    "        var headers = {};" ~
+    "        if (resp.headers && typeof resp.headers.forEach === 'function')" ~
+    "          resp.headers.forEach(function(v, k) { headers[k] = v; });" ~
+    "        res.writeHead(status, headers);" ~
+    "        if (typeof resp.text === 'function') {" ~
+    "          resp.text().then(function(t) { res.end(t); }, function(e) { res.end(String(e)); });" ~
+    "        } else if (typeof resp === 'string') {" ~
+    "          res.end(resp);" ~
+    "        } else {" ~
+    "          res.end(JSON.stringify(resp));" ~
+    "        }" ~
+    "      }).catch(function(err) {" ~
+    "        res.statusCode = 500;" ~
+    "        var msg = (opts.onError ? opts.onError(err) : String(err && err.stack || err));" ~
+    "        if (msg && typeof msg.text === 'function') msg.text().then(function(t) { res.end(t); });" ~
+    "        else res.end(String(msg));" ~
+    "      });" ~
+    "    });" ~
+    "  });" ~
+    "  srv.listen(port, host);" ~
+    "  if (typeof opts.onListen === 'function') {" ~
+    "    setTimeout(function() { opts.onListen({ hostname: host, port: port }); }, 0);" ~
+    "  }" ~
+    "  var finishedResolve;" ~
+    "  var finished = new Promise(function(r) { finishedResolve = r; });" ~
+    "  srv.on('close', function() { finishedResolve(); });" ~
+    "  return {" ~
+    "    addr: { hostname: host, port: port, transport: 'tcp' }," ~
+    "    finished: finished," ~
+    "    ref: function() {}," ~
+    "    unref: function() {}," ~
+    "    shutdown: function() {" ~
+    "      return new Promise(function(r) { srv.close(function() { r(); }); });" ~
+    "    }" ~
+    "  };" ~
+    "};" ~
+
+    /* Deno.openKv — minimal in-memory key/value store. Real Deno KV is
+       persistent + transactional; this shim keeps the data shape so
+       scripts can run end-to-end without an external DB. */
+    "Deno.openKv = function(path) {" ~
+    "  var store = new Map();" ~
+    "  function keyToStr(k) { return Array.isArray(k) ? k.map(String).join('\\x00') : String(k); }" ~
+    "  return Promise.resolve({" ~
+    "    get: function(key) {" ~
+    "      var s = keyToStr(key);" ~
+    "      return Promise.resolve({" ~
+    "        key: key," ~
+    "        value: store.has(s) ? store.get(s).value : null," ~
+    "        versionstamp: store.has(s) ? store.get(s).versionstamp : null" ~
+    "      });" ~
+    "    }," ~
+    "    set: function(key, value, opts) {" ~
+    "      var s = keyToStr(key);" ~
+    "      var vs = String(Date.now()) + '_' + Math.random().toString(36).slice(2);" ~
+    "      store.set(s, { value: value, versionstamp: vs });" ~
+    "      return Promise.resolve({ ok: true, versionstamp: vs });" ~
+    "    }," ~
+    "    delete: function(key) {" ~
+    "      store.delete(keyToStr(key));" ~
+    "      return Promise.resolve();" ~
+    "    }," ~
+    "    list: function(selector) {" ~
+    "      var entries = [];" ~
+    "      var prefix = selector && selector.prefix ? keyToStr(selector.prefix) : '';" ~
+    "      store.forEach(function(v, k) {" ~
+    "        if (!prefix || k.indexOf(prefix) === 0) entries.push({ key: k.split('\\x00'), value: v.value, versionstamp: v.versionstamp });" ~
+    "      });" ~
+    "      var i = 0;" ~
+    "      return { [Symbol.asyncIterator]: function() { return {" ~
+    "        next: function() {" ~
+    "          if (i >= entries.length) return Promise.resolve({ value: undefined, done: true });" ~
+    "          return Promise.resolve({ value: entries[i++], done: false });" ~
+    "        }" ~
+    "      }; } };" ~
+    "    }," ~
+    "    atomic: function() {" ~
+    "      var ops = [];" ~
+    "      var api = {" ~
+    "        check: function() { return api; }," ~
+    "        set: function(k, v) { ops.push(['set', k, v]); return api; }," ~
+    "        delete: function(k) { ops.push(['delete', k]); return api; }," ~
+    "        commit: function() {" ~
+    "          var vs = String(Date.now()) + '_' + Math.random().toString(36).slice(2);" ~
+    "          ops.forEach(function(o) {" ~
+    "            if (o[0] === 'set') store.set(keyToStr(o[1]), { value: o[2], versionstamp: vs });" ~
+    "            else if (o[0] === 'delete') store.delete(keyToStr(o[1]));" ~
+    "          });" ~
+    "          return Promise.resolve({ ok: true, versionstamp: vs });" ~
+    "        }" ~
+    "      };" ~
+    "      return api;" ~
+    "    }," ~
+    "    close: function() {}" ~
+    "  });" ~
+    "};" ~
+
+    /* Deno.cron — schedule a function on a cron expression. Minimal
+       parser supporting `* * * * *` (every minute) and `*\/N * * * *`
+       (every N minutes). Real Deno cron supports full expressions;
+       we cover the common case for scheduled jobs. */
+    "Deno.cron = function(name, schedule, handler) {" ~
+    "  if (typeof handler !== 'function') throw new TypeError('Deno.cron requires a handler');" ~
+    "  var parts = String(schedule).trim().split(/\\s+/);" ~
+    "  var minSpec = parts[0] || '*';" ~
+    "  var everyMs = 60_000;" ~
+    "  var m = /^\\*\\/(\\d+)$/.exec(minSpec);" ~
+    "  if (m) everyMs = +m[1] * 60_000;" ~
+    "  var id = setInterval(function() {" ~
+    "    try { Promise.resolve(handler()).catch(function(){}); }" ~
+    "    catch (e) {}" ~
+    "  }, everyMs);" ~
+    "  return { unref: function() { id.unref && id.unref(); } };" ~
+    "};" ~
+
+    "})();";
 }
 
 private:
