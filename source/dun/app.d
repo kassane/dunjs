@@ -11,6 +11,15 @@ int main(string[] args)
     version (Posix)
         loadDotEnv();
 
+    // Fire any pending N-API finalizers on the way out, regardless of
+    // which return path we take below. Mirrors Node.js's behavior of
+    // running cleanup hooks on process exit (sharp/bcrypt rely on it).
+    scope(exit)
+    {
+        import dun.napi.napi : napiFireFinalizers;
+        napiFireFinalizers();
+    }
+
     import dun.cli.args : parseArgs, Command;
 
     auto config = parseArgs(args);
