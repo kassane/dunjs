@@ -1619,20 +1619,27 @@ unittest
     assert(r[8 .. $] == " class Foo {}", r);
 }
 
-@("strip: export interface fully blanked")
+@("strip: export interface blanks the declaration + re-exports binding")
 unittest
 {
-    auto r = stripTypes("export interface Bar { x: number; }");
-    assert(r.length == "export interface Bar { x: number; }".length);
-    foreach (c; r) assert(c == ' ');
+    // Source bytes 0..N are blanked so source maps still line up; the
+    // re-export footer is appended so `import { Bar } from './x.ts'`
+    // doesn't fail at runtime even though `interface Bar` has no JS form.
+    import std.algorithm : canFind;
+    auto input = "export interface Bar { x: number; }";
+    auto r = stripTypes(input);
+    foreach (c; r[0 .. input.length]) assert(c == ' ');
+    assert(r.canFind("export var Bar;"));
 }
 
-@("strip: export type alias fully blanked")
+@("strip: export type alias blanks the declaration + re-exports binding")
 unittest
 {
-    auto r = stripTypes("export type Baz = string;");
-    assert(r.length == "export type Baz = string;".length);
-    foreach (c; r) assert(c == ' ');
+    import std.algorithm : canFind;
+    auto input = "export type Baz = string;";
+    auto r = stripTypes(input);
+    foreach (c; r[0 .. input.length]) assert(c == ' ');
+    assert(r.canFind("export var Baz;"));
 }
 
 @("strip: multiline preserves newlines")

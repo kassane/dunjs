@@ -688,11 +688,6 @@ private string extractStringLiteral(string s) @safe pure nothrow
     return "";
 }
 
-private string extractBraceNames(string s) @safe pure nothrow
-{
-    return s;
-}
-
 // Rewrite ESM-style `{ A as X, B, C as Y }` into JS destructuring `{ A: X, B, C: Y }`.
 // Also handles mixed default/named: `{ default as X, B }` -> `{ default: X, B }`.
 private string rewriteBraceAs(string brace) @safe pure

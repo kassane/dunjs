@@ -460,12 +460,7 @@ JSHandle makeDate(IJSEngine engine, double ms) @trusted
     return result;
 }
 
-bool checkPerm(DunState* state, Permission perm, string resource = "") nothrow @trusted
-{
-    if (state is null || state.permissions is null) return false;
-    try { return state.permissions.check(perm, resource); }
-    catch (Exception) { return false; }
-}
+public import dun.security.permissions : checkPerm;
 
 string detectErrCode(string msg) @trusted nothrow
 {
@@ -555,7 +550,9 @@ private string escapeJs(string s) @safe pure nothrow
     return r;
 }
 
-private string intToStr(int n) @trusted pure nothrow
+/// Zero-alloc-on-stack base-10 int formatter. Used by FS error
+/// messages so we can stay pure/nothrow without dragging in std.conv.
+package string intToStr(int n) @trusted pure nothrow
 {
     if (n == 0) return "0";
     bool neg = n < 0;
@@ -567,10 +564,22 @@ private string intToStr(int n) @trusted pure nothrow
     return cast(string) buf[pos + 1 .. 12].dup;
 }
 
-JSHandle throwPermError(IJSEngine engine, string perm, string path = "") @trusted
+package JSHandle throwPermError(IJSEngine engine, string perm, string path = "") @trusted
 {
     return throwNodeError(engine, "ERR_PERMISSION_DENIED",
         "Requires --allow-" ~ perm ~ " permission", "", path);
+}
+
+/// Read errno and return the system's localized error message as a
+/// GC-allocated string. Safe to call after any libc call that may
+/// have set errno. Returns "I/O error" on the rare strerror failure.
+package string errnoMsg() @trusted nothrow
+{
+    import core.stdc.errno : errno;
+    import core.stdc.string : strerror;
+    import std.string : fromStringz;
+    try { return cast(string) fromStringz(strerror(errno)).idup; }
+    catch (Exception) { return "I/O error"; }
 }
 
 string extractEncoding(IJSEngine engine, scope JSHandle[] args) @trusted
@@ -854,14 +863,7 @@ JSHandle jsUnlinkSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trust
     import core.stdc.stdio : remove;
     auto cpath = (path ~ '\0');
     if (remove(cpath.ptr) != 0)
-    {
-        import core.stdc.errno : errno;
-        import core.stdc.string : strerror;
-        import std.string : fromStringz;
-        string msg;
-        try { msg = cast(string) fromStringz(strerror(errno)); } catch (Exception) { msg = "unlink error"; }
-        return engine.throwTypeError("EIO: " ~ msg ~ ", unlink '" ~ path ~ "'");
-    }
+        return engine.throwTypeError("EIO: " ~ errnoMsg() ~ ", unlink '" ~ path ~ "'");
     return engine.newUndefined();
 }
 
@@ -1181,13 +1183,7 @@ JSHandle jsLinkSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
             import core.sys.posix.unistd : link;
             import std.string : toStringz;
             if (link(existingPath.toStringz, newPath.toStringz) != 0)
-            {
-                import core.stdc.errno : errno;
-                import core.stdc.string : strerror;
-                import std.string : fromStringz;
-                auto msg = fromStringz(strerror(errno)).idup;
-                return engine.throwTypeError("ELINK: " ~ msg ~ ", link '" ~ existingPath ~ "' -> '" ~ newPath ~ "'");
-            }
+                return engine.throwTypeError("ELINK: " ~ errnoMsg() ~ ", link '" ~ existingPath ~ "' -> '" ~ newPath ~ "'");
             return engine.newUndefined();
         }
         else
@@ -1218,13 +1214,7 @@ JSHandle jsSymlinkSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trus
             import core.sys.posix.unistd : symlink;
             import std.string : toStringz;
             if (symlink(target.toStringz, path.toStringz) != 0)
-            {
-                import core.stdc.errno : errno;
-                import core.stdc.string : strerror;
-                import std.string : fromStringz;
-                auto msg = fromStringz(strerror(errno)).idup;
-                return engine.throwTypeError("ESYMLINK: " ~ msg ~ ", symlink '" ~ target ~ "' -> '" ~ path ~ "'");
-            }
+                return engine.throwTypeError("ESYMLINK: " ~ errnoMsg() ~ ", symlink '" ~ target ~ "' -> '" ~ path ~ "'");
             return engine.newUndefined();
         }
         else
@@ -1287,13 +1277,7 @@ JSHandle jsTruncateSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @tru
         {
             import std.string : toStringz;
             if (truncate(path.toStringz, len) != 0)
-            {
-                import core.stdc.errno : errno;
-                import core.stdc.string : strerror;
-                import std.string : fromStringz;
-                auto msg = fromStringz(strerror(errno)).idup;
-                return engine.throwTypeError("EIO: " ~ msg ~ ", truncate '" ~ path ~ "'");
-            }
+                return engine.throwTypeError("EIO: " ~ errnoMsg() ~ ", truncate '" ~ path ~ "'");
         }
         else version(Windows)
         {
@@ -1335,13 +1319,7 @@ JSHandle jsChownSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @truste
             import core.sys.posix.unistd : chown;
             import std.string : toStringz;
             if (chown(path.toStringz, uid, gid) != 0)
-            {
-                import core.stdc.errno : errno;
-                import core.stdc.string : strerror;
-                import std.string : fromStringz;
-                auto msg = fromStringz(strerror(errno)).idup;
-                return engine.throwTypeError("EPERM: " ~ msg ~ ", chown '" ~ path ~ "'");
-            }
+                return engine.throwTypeError("EPERM: " ~ errnoMsg() ~ ", chown '" ~ path ~ "'");
             return engine.newUndefined();
         }
         else
@@ -1409,13 +1387,7 @@ JSHandle jsOpenSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
             fd = _open(path.toStringz, parseFsFlags(flags) | _O_BINARY, mode);
         }
         if (fd < 0)
-        {
-            import core.stdc.errno : errno;
-            import core.stdc.string : strerror;
-            import std.string : fromStringz;
-            auto msg = fromStringz(strerror(errno)).idup;
-            return engine.throwTypeError("ENOENT: " ~ msg ~ ", open '" ~ path ~ "'");
-        }
+            return engine.throwTypeError("ENOENT: " ~ errnoMsg() ~ ", open '" ~ path ~ "'");
         return engine.newInt(fd);
     }
     catch (Exception e) { return throwSystemError(engine, "open", path, e); }
@@ -1489,12 +1461,8 @@ JSHandle jsReadSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
             {
                 bytesRead = _read(fd, buf.ptr, cast(uint) length);
             }
-            if (bytesRead < 0) {
-                import core.stdc.errno : errno;
-                import core.stdc.string : strerror;
-                import std.string : fromStringz;
-                return engine.throwTypeError("EIO: " ~ fromStringz(strerror(errno)).idup ~ ", read");
-            }
+            if (bytesRead < 0)
+                return engine.throwTypeError("EIO: " ~ errnoMsg() ~ ", read");
             return engine.newFloat(cast(double) bytesRead);
         } catch (Exception e) {
             return engine.throwTypeError("EIO: read error");
@@ -1518,13 +1486,7 @@ JSHandle jsReadSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
             bytesRead = _read(fd, buf.ptr, cast(uint) length);
         }
         if (bytesRead < 0)
-        {
-            import core.stdc.errno : errno;
-            import core.stdc.string : strerror;
-            import std.string : fromStringz;
-            auto msg = fromStringz(strerror(errno)).idup;
-            return engine.throwTypeError("EIO: " ~ msg ~ ", read");
-        }
+            return engine.throwTypeError("EIO: " ~ errnoMsg() ~ ", read");
         return engine.newString(cast(string) buf[0 .. bytesRead]);
     }
     catch (Exception e)
@@ -1555,13 +1517,7 @@ JSHandle jsWriteSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @truste
             written = _write(fd, data.ptr, cast(uint) data.length);
         }
         if (written < 0)
-        {
-            import core.stdc.errno : errno;
-            import core.stdc.string : strerror;
-            import std.string : fromStringz;
-            auto msg = fromStringz(strerror(errno)).idup;
-            return engine.throwTypeError("EIO: " ~ msg ~ ", write");
-        }
+            return engine.throwTypeError("EIO: " ~ errnoMsg() ~ ", write");
         return engine.newInt(cast(int) written);
     }
     catch (Exception e)
@@ -1584,13 +1540,7 @@ JSHandle jsFstatSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @truste
     {
         SafeStatResult sr;
         if (safeFstat(fd, sr) != 0)
-        {
-            import core.stdc.errno : errno;
-            import core.stdc.string : strerror;
-            import std.string : fromStringz;
-            auto msg = fromStringz(strerror(errno)).idup;
-            return engine.throwTypeError("EBADF: " ~ msg ~ ", fstat");
-        }
+            return engine.throwTypeError("EBADF: " ~ errnoMsg() ~ ", fstat");
         return buildStatObject(engine, sr);
     }
     catch (Exception e)
@@ -1618,13 +1568,7 @@ JSHandle jsFsyncSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @truste
         ret = _commit(fd);
     }
     if (ret != 0)
-    {
-        import core.stdc.errno : errno;
-        import core.stdc.string : strerror;
-        import std.string : fromStringz;
-        auto msg = fromStringz(strerror(errno)).idup;
-        return engine.throwTypeError("EIO: " ~ msg ~ ", fsync");
-    }
+        return engine.throwTypeError("EIO: " ~ errnoMsg() ~ ", fsync");
     return engine.newUndefined();
 }
 
@@ -1646,13 +1590,7 @@ JSHandle jsFdatasyncSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @tr
         ret = _commit(fd);
     }
     if (ret != 0)
-    {
-        import core.stdc.errno : errno;
-        import core.stdc.string : strerror;
-        import std.string : fromStringz;
-        auto msg = fromStringz(strerror(errno)).idup;
-        return engine.throwTypeError("EIO: " ~ msg ~ ", fdatasync");
-    }
+        return engine.throwTypeError("EIO: " ~ errnoMsg() ~ ", fdatasync");
     return engine.newUndefined();
 }
 

@@ -3,6 +3,7 @@ module dun.builtins.fs_promises;
 import dun.engine.iface : IJSEngine, JSHandle, JSResult, NativeCallback;
 import dun.runtime.globals : DunState;
 import dun.security.permissions : Permission;
+import dun.builtins.fs : errnoMsg;
 
 void registerFsPromisesModule(IJSEngine engine) @trusted
 {
@@ -106,19 +107,9 @@ private:
 import dun.engine.iface : PromiseHandles;
 import dun.loop.async : asyncSubmitSafe, AsyncResult, ResultTransform;
 
-bool checkPerm(DunState* state, Permission perm, string resource = "") nothrow @trusted
-{
-    if (state is null || state.permissions is null) return false;
-    try { return state.permissions.check(perm, resource); }
-    catch (Exception) { return false; }
-}
+public import dun.security.permissions : checkPerm;
 
-JSHandle throwPermError(IJSEngine engine, string perm, string path = "") @trusted
-{
-    import dun.builtins.fs : throwNodeError;
-    return throwNodeError(engine, "ERR_PERMISSION_DENIED",
-        "Requires --allow-" ~ perm ~ " permission", "", path);
-}
+public import dun.builtins.fs : throwPermError;
 
 // Wraps std.file operations safely — never throws in async thread
 string safeFileOp(string delegate() op) nothrow @trusted
@@ -745,15 +736,7 @@ JSHandle jsFspChown(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
             import std.string : toStringz;
             auto cpath = (path ~ '\0');
             if (chown(cpath.ptr, uid, gid) != 0)
-            {
-                import core.stdc.errno : errno;
-                import core.stdc.string : strerror;
-                import std.string : fromStringz;
-                string msg;
-                try { msg = fromStringz(strerror(errno)).idup; }
-                catch (Exception) { msg = "chown error"; }
-                return AsyncResult.fail("EPERM: " ~ msg ~ ", chown '" ~ path ~ "'");
-            }
+                return AsyncResult.fail("EPERM: " ~ errnoMsg() ~ ", chown '" ~ path ~ "'");
         }
         return AsyncResult.ok("");
     }, (IJSEngine e, string _) @trusted => e.newUndefined());
@@ -784,15 +767,7 @@ JSHandle jsFspTruncate(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trus
             import core.sys.posix.unistd : truncate_ = truncate;
             auto cpath = (path ~ '\0');
             if (truncate_(cpath.ptr, len) != 0)
-            {
-                import core.stdc.errno : errno;
-                import core.stdc.string : strerror;
-                import std.string : fromStringz;
-                string msg;
-                try { msg = fromStringz(strerror(errno)).idup; }
-                catch (Exception) { msg = "truncate error"; }
-                return AsyncResult.fail("EIO: " ~ msg ~ ", truncate '" ~ path ~ "'");
-            }
+                return AsyncResult.fail("EIO: " ~ errnoMsg() ~ ", truncate '" ~ path ~ "'");
         }
         else version(Windows)
         {
@@ -839,15 +814,7 @@ JSHandle jsFspSymlink(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trust
             auto ctarget = (target ~ '\0');
             auto cpath = (path ~ '\0');
             if (symlink(ctarget.ptr, cpath.ptr) != 0)
-            {
-                import core.stdc.errno : errno;
-                import core.stdc.string : strerror;
-                import std.string : fromStringz;
-                string msg;
-                try { msg = fromStringz(strerror(errno)).idup; }
-                catch (Exception) { msg = "symlink error"; }
-                return AsyncResult.fail("ESYMLINK: " ~ msg ~ ", symlink '" ~ target ~ "' -> '" ~ path ~ "'");
-            }
+                return AsyncResult.fail("ESYMLINK: " ~ errnoMsg() ~ ", symlink '" ~ target ~ "' -> '" ~ path ~ "'");
             return AsyncResult.ok("");
         }
         else
@@ -893,15 +860,7 @@ JSHandle jsFspOpen(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
             import core.sys.posix.fcntl : open;
             int fd = open((path ~ '\0').ptr, parseFsOpenFlags(flags), mode);
             if (fd < 0)
-            {
-                import core.stdc.errno : errno;
-                import core.stdc.string : strerror;
-                import std.string : fromStringz;
-                string msg;
-                try { msg = fromStringz(strerror(errno)).idup; }
-                catch (Exception) { msg = "open error"; }
-                return AsyncResult.fail("ENOENT: " ~ msg ~ ", open '" ~ path ~ "'");
-            }
+                return AsyncResult.fail("ENOENT: " ~ errnoMsg() ~ ", open '" ~ path ~ "'");
             try
             {
                 import std.conv : to;

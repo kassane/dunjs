@@ -1336,7 +1336,14 @@ extern(D) int napiDrainAsyncWork() nothrow @trusted
     catch (Exception) {}
     foreach (w; ready)
     {
-        try { if (w.complete) w.complete(w.env, napi_ok, w.data); } catch (Throwable) {}
+        // Tiger-style: w made it into the ready list because state == 3,
+        // so its env / complete must have survived. If the addon set
+        // complete to null deliberately (rare, but allowed for fire-and-
+        // forget work), skip without crashing.
+        assert(w !is null, "null napi_async_work in ready list");
+        if (w.complete is null) { drained++; continue; }
+        assert(w.env !is null, "napi_async_work missing env at completion");
+        try { w.complete(w.env, napi_ok, w.data); } catch (Throwable) {}
         drained++;
     }
     return drained;

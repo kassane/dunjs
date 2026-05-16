@@ -89,12 +89,7 @@ bool hasGlobalRun(DunState* state) nothrow @trusted
     catch (Exception) { return false; }
 }
 
-bool checkPerm(DunState* state, Permission perm, string resource = "") nothrow @trusted
-{
-    if (state is null || state.permissions is null) return false;
-    try { return state.permissions.check(perm, resource); }
-    catch (Exception) { return false; }
-}
+public import dun.security.permissions : checkPerm;
 
 JSHandle throwPermError(IJSEngine engine, string cmd) @trusted
 {
@@ -890,13 +885,4 @@ JSHandle jsFork(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
     return state.engine.throwTypeError("fork() is not supported; use worker_threads instead");
 }
 
-private string intToStr(int val) @trusted nothrow
-{
-    try
-    {
-        import std.conv : to;
-        return val.to!string;
-    }
-    catch (Exception)
-        return "?";
-}
+public import dun.builtins.fs : intToStr;

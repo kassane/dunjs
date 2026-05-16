@@ -92,6 +92,25 @@ enum V8_SYSTEM_INCLUDE = "/usr/include/v8";
 enum SQLITE_VERSION     = "3530100";   // 3.53.1
 enum SQLITE_YEAR        = "2026";
 
+// Brotli configuration
+// Vendored from google/brotli so we don't depend on system libbrotli-dev.
+// CMake build produces libbrotlicommon.a + libbrotlidec.a + libbrotlienc.a.
+enum BROTLI_VERSION = "v1.1.0";
+enum BROTLI_URL     = "https://github.com/google/brotli/archive/refs/tags/"
+                    ~ BROTLI_VERSION ~ ".tar.gz";
+enum BROTLI_SRC_MARKER = "c/include/brotli/encode.h";
+
+// lsquic configuration
+// Downloads just the public headers from litespeedtech/lsquic so that the
+// existing extern(C) bindings can be cross-checked via ImportC (see
+// vendor/lsquic/lsquic_api.c). Linking against liblsquic.a still requires a
+// separate build with BoringSSL — this download is bindings-only.
+enum LSQUIC_VERSION  = "v4.4.1";
+enum LSQUIC_REPO     = "litespeedtech/lsquic";
+enum LSQUIC_URL      = "https://github.com/" ~ LSQUIC_REPO ~ "/archive/refs/tags/"
+                     ~ LSQUIC_VERSION ~ ".tar.gz";
+enum LSQUIC_HEADER_MARKER = "include/lsquic.h";
+
 // Download retry configuration
 enum DOWNLOAD_MAX_RETRIES = 3;
 enum DOWNLOAD_RETRY_DELAY_SECS = 2;
@@ -111,6 +130,12 @@ string v8IncludeDir(){ return buildPath(v8Dir(), "include"); }
 string v8Archive()          { return buildPath(vendorDir(), "node-headers.tar.gz"); }
 string v8PrebuiltArchive()  { return buildPath(vendorDir(), "v8-prebuilt" ~ v8PrebuiltExt()); }
 string sqliteDir()          { return buildPath(vendorDir(), "sqlite"); }
+string lsquicDir()          { return buildPath(vendorDir(), "lsquic"); }
+string lsquicArchive()      { return buildPath(vendorDir(), "lsquic.tar.gz"); }
+string brotliDir()          { return buildPath(vendorDir(), "brotli"); }
+string brotliSrcDir()       { return buildPath(brotliDir(), "src"); }
+string brotliBuildDir()     { return buildPath(brotliDir(), "build"); }
+string brotliArchive()      { return buildPath(vendorDir(), "brotli.tar.gz"); }
 
 string v8PrebuiltExt()
 {
@@ -1062,6 +1087,146 @@ bool buildSqlite(ref const Toolchain tc, ref const BuildOptions opts)
 
     logInfo(tag, libName ~ " built via CMake FetchContent");
     return true;
+}
+
+// ════════════════════════════════════════════════════════════════════
+// Brotli (static-linked, replaces system libbrotli-dev)
+// ════════════════════════════════════════════════════════════════════
+
+/**
+ * Build google/brotli from source via CMake, producing three static
+ * libraries in `vendor/brotli/build/`:
+ *   - libbrotlicommon.a
+ *   - libbrotlidec.a
+ *   - libbrotlienc.a
+ *
+ * Headers are placed under `vendor/brotli/src/c/include/brotli/` (this
+ * path is already in cImportPaths via the `c/include` parent listed in
+ * dub.json). The pre-existing `vendor/brotli/brotli_api.c` bridge stays
+ * in place; only the linker stops pointing at the system library.
+ */
+bool buildBrotli(ref const Toolchain tc, ref const BuildOptions opts)
+{
+    enum tag = "brotli";
+
+    version (Windows)
+    {
+        immutable libCommon = "brotlicommon.lib";
+        immutable libDec    = "brotlidec.lib";
+        immutable libEnc    = "brotlienc.lib";
+    }
+    else
+    {
+        immutable libCommon = "libbrotlicommon.a";
+        immutable libDec    = "libbrotlidec.a";
+        immutable libEnc    = "libbrotlienc.a";
+    }
+    immutable commonPath = buildPath(brotliBuildDir(), libCommon);
+    immutable decPath    = buildPath(brotliBuildDir(), libDec);
+    immutable encPath    = buildPath(brotliBuildDir(), libEnc);
+
+    if (!opts.force && exists(commonPath) && exists(decPath) && exists(encPath))
+    {
+        logInfo(tag, "static libs already built -- skipping (use --force to rebuild)");
+        return true;
+    }
+
+    if (!tc.cmake.found || !tc.cc.found || !tc.hasDownloader())
+    {
+        logError(tag, "CMake / C compiler / downloader required");
+        return false;
+    }
+
+    logInfo(tag, "Building google/brotli " ~ BROTLI_VERSION ~ "...");
+
+    // Step 1: Download source into vendor/brotli/src/
+    if (!downloadAndExtract(tc, BROTLI_URL, brotliArchive(),
+                             brotliSrcDir(), BROTLI_SRC_MARKER, tag))
+        return false;
+
+    // Step 2: Configure with CMake (static libs only, no tools/tests)
+    mkdirRecurse(brotliBuildDir());
+
+    string[] cmakeArgs = [
+        tc.cmake.path,
+        brotliSrcDir(),
+        "-DCMAKE_BUILD_TYPE=Release",
+        "-DCMAKE_POSITION_INDEPENDENT_CODE=ON",
+        "-DBROTLI_DISABLE_TESTS=ON",
+        "-DBROTLI_BUNDLED_MODE=ON",
+        "-DBUILD_SHARED_LIBS=OFF",
+    ];
+
+    if (runCmd(cmakeArgs, brotliBuildDir(), tag) != 0)
+    {
+        logError(tag, "CMake configure failed");
+        return false;
+    }
+
+    if (runCmd([tc.cmake.path, "--build", ".", "--config", "Release",
+                 "-j" ~ detectCpuCount().to!string],
+                brotliBuildDir(), tag) != 0)
+    {
+        logError(tag, "CMake build failed");
+        return false;
+    }
+
+    if (!exists(commonPath) || !exists(decPath) || !exists(encPath))
+    {
+        logError(tag, "build succeeded but expected libs missing");
+        return false;
+    }
+
+    // Mirror the public headers to vendor/brotli/include/brotli/ so dub's
+    // importPath/cImportPath always points at a directory that exists --
+    // the actual source tree is gitignored and may be absent before the
+    // first build, which triggers an "Invalid import path" warning.
+    import std.file : copy;
+    immutable headerSrc = buildPath(brotliSrcDir(), "c", "include", "brotli");
+    immutable headerDest = buildPath(brotliDir(), "include", "brotli");
+    mkdirRecurse(headerDest);
+    foreach (h; dirEntries(headerSrc, "*.h", SpanMode.shallow))
+        copy(h.name, buildPath(headerDest, h.name.baseName));
+
+    logInfo(tag, "Built brotlicommon + brotlidec + brotlienc static libs");
+    return true;
+}
+
+// ════════════════════════════════════════════════════════════════════
+// lsquic (header-only vendor for ImportC bindings)
+// ════════════════════════════════════════════════════════════════════
+
+/**
+ * Vendor lsquic's public headers so D's ImportC processor can validate
+ * the manual extern(C) declarations in `dun.platform.lsquic`.
+ *
+ * Header-only: liblsquic.a itself is *not* built here because the full
+ * lsquic build pulls in BoringSSL, libevent, and zlib. Projects that
+ * want runtime QUIC must supply their own libslquic.a; this download
+ * exists so the C and D sides of the binding stay in sync.
+ *
+ * Returns true on success or when headers are already vendored.
+ */
+bool fetchLsquicHeaders(ref const Toolchain tc, ref const BuildOptions opts)
+{
+    enum tag = "lsquic";
+    immutable markerPath = buildPath(lsquicDir(), LSQUIC_HEADER_MARKER);
+    if (!opts.force && exists(markerPath))
+    {
+        logVerbose(tag, "Headers already vendored -- skipping");
+        return true;
+    }
+
+    if (!tc.hasDownloader())
+    {
+        logVerbose(tag, "No downloader; skipping header fetch.");
+        return true;  // not fatal: manual bindings already cover usage
+    }
+
+    // downloadAndExtract strips the leading directory and verifies the
+    // marker, which for us is the public `include/lsquic.h`.
+    return downloadAndExtract(tc, LSQUIC_URL, lsquicArchive(),
+                              lsquicDir(), LSQUIC_HEADER_MARKER, tag);
 }
 
 // ════════════════════════════════════════════════════════════════════
@@ -2259,6 +2424,12 @@ int main(string[] args)
 
     // Build SQLite (cross-cutting dependency, all backends need it)
     buildSqlite(tc, opts);
+
+    // Build Brotli (cross-cutting dependency for compression)
+    buildBrotli(tc, opts);
+
+    // Vendor lsquic public headers (header-only, never fatal)
+    fetchLsquicHeaders(tc, opts);
 
     // Build requested backend(s)
     bool success = true;

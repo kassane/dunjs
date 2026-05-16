@@ -38,7 +38,7 @@ ARG LDC_SHA256_ARM64=687707c3e20ff910528eb2d92f27a98cb0960284de3b026e6bf20284ac1
 # kassane/libv8 provides prebuilt binaries for both linux-x64 and linux-arm64
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates curl xz-utils tar gcc g++ cmake make pkg-config git bash \
-    libxml2-dev libssl-dev libbrotli-dev \
+    libxml2-dev libssl-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Install LDC: download, verify sha256, extract.
@@ -107,7 +107,7 @@ LABEL org.opencontainers.image.title="DunJS Multi-Backend" \
       org.opencontainers.image.base.name="debian:bookworm-slim"
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    libstdc++6 libgcc-s1 libssl3 libbrotli1 tini \
+    libstdc++6 libgcc-s1 libssl3 tini \
     && rm -rf /var/lib/apt/lists/* \
     && groupadd -r -g 1001 dun \
     && useradd -r -u 1001 -g 1001 -d /app -s /usr/sbin/nologin -c "DunJS runtime user" dun \

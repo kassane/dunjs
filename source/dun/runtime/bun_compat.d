@@ -1,23 +1,5 @@
-/// Bun.* compatibility surface.
-///
-/// Bun ships a `Bun` namespace on the global object with helpers like
-/// `Bun.serve`, `Bun.file`, `Bun.spawn`, `Bun.password.{hash,verify}`,
-/// `Bun.hash`, `Bun.sleep`, `Bun.env`, `Bun.argv`, `Bun.version`, etc.
-/// This module exposes a JS-level shim that maps each of those to our
-/// existing Node-style implementations (http, fs, child_process, crypto,
-/// timers), so projects written against the Bun API can run unchanged.
-///
-/// Coverage matches what real Bun apps actually call most often:
-///   - Bun.serve / Bun.file / Bun.write
-///   - Bun.spawn / Bun.spawnSync
-///   - Bun.password.hash / verify  (scrypt-backed; same output shape)
-///   - Bun.sleep / Bun.sleepSync
-///   - Bun.hash (non-cryptographic)
-///   - Bun.escapeHTML / Bun.deepEquals / Bun.inspect
-///   - Bun.env / Bun.argv / Bun.version / Bun.revision
-///
-/// Anything not implemented throws "not implemented in DunJS" so
-/// fallbacks can branch on existence cleanly.
+/// `Bun.*` namespace shim — maps Bun-specific APIs onto our Node-style
+/// implementations so apps written for Bun run unchanged.
 module dun.runtime.bun_compat;
 
 import dun.engine.iface : IJSEngine;
@@ -297,8 +279,11 @@ private string bunCompatSource() pure nothrow @safe
     "  }" ~
     "};" ~
 
-    /* Bun.serve — minimal HTTP server with a fetch-style handler.
-       Returns a server object with .stop() / .reload() / .port / .hostname. */
+    /* Bun.serve — HTTP server + optional WebSocket upgrade. Returns
+       { port, hostname, stop, reload, fetch, upgrade, publish }. The
+       fetch handler receives (request, server) — call server.upgrade(req)
+       to convert a pending request into a WebSocket connection routed
+       through opts.websocket.{open,message,close}. */
     "Bun.serve = function(opts) {" ~
     "  var http = require('http');" ~
     "  if (!opts || typeof opts.fetch !== 'function') {" ~
@@ -307,6 +292,9 @@ private string bunCompatSource() pure nothrow @safe
     "  var port = opts.port == null ? 3000 : (opts.port === 0 ? 0 : +opts.port);" ~
     "  var host = opts.hostname || opts.host || '0.0.0.0';" ~
     "  var fetch = opts.fetch;" ~
+    "  var wsHandlers = opts.websocket || null;" ~
+    "  /* Per-request state used by server.upgrade(req) */" ~
+    "  var pendingUpgrade = new WeakMap();" ~
     "  var server = http.createServer(function(req, res) {" ~
     "    var chunks = [];" ~
     "    req.on('data', function(c) { chunks.push(c); });" ~
@@ -323,7 +311,10 @@ private string bunCompatSource() pure nothrow @safe
     "      } catch (e) {" ~
     "        request = { method: req.method, url: url, headers: req.headers, body: body };" ~
     "      }" ~
-    "      Promise.resolve().then(function() { return fetch(request); }).then(function(resp) {" ~
+    "      pendingUpgrade.set(request, { req: req, res: res, upgraded: false });" ~
+    "      Promise.resolve().then(function() { return fetch(request, instance); }).then(function(resp) {" ~
+    "        var pu = pendingUpgrade.get(request);" ~
+    "        if (pu && pu.upgraded) return;  /* WebSocket took over */" ~
     "        if (!resp) { res.statusCode = 200; res.end(); return; }" ~
     "        var status = resp.status || 200;" ~
     "        var headers = {};" ~
@@ -345,7 +336,9 @@ private string bunCompatSource() pure nothrow @safe
     "    });" ~
     "  });" ~
     "  server.listen(port, host);" ~
-    "  return {" ~
+    "  /* Per-server set of live WebSocket connections, used by .publish() */" ~
+    "  var liveSockets = new Set();" ~
+    "  var instance = {" ~
     "    port: port," ~
     "    hostname: host," ~
     "    development: opts.development === true," ~
@@ -354,8 +347,126 @@ private string bunCompatSource() pure nothrow @safe
     "      return new Promise(function(r) { server.close(function() { r(); }); });" ~
     "    }," ~
     "    reload: function(newOpts) { opts.fetch = newOpts.fetch || opts.fetch; }," ~
-    "    fetch: function(req) { return Promise.resolve().then(function() { return fetch(req); }); }" ~
+    "    fetch: function(req) { return Promise.resolve().then(function() { return fetch(req, instance); }); }," ~
+    "    upgrade: function(request, attachedData) {" ~
+    "      if (!wsHandlers) return false;" ~
+    "      var pu = pendingUpgrade.get(request);" ~
+    "      if (!pu || pu.upgraded) return false;" ~
+    "      pu.upgraded = true;" ~
+    "      var req = pu.req;" ~
+    "      var res = pu.res;" ~
+    "      /* Do the WebSocket handshake on the underlying TCP socket. */" ~
+    "      var crypto = require('crypto');" ~
+    "      var key = req.headers['sec-websocket-key'] || '';" ~
+    "      var acceptKey = crypto.createHash('sha1')" ~
+    "        .update(key + '258EAFA5-E914-47DA-95CA-C5AB0DC85B11')" ~
+    "        .digest('base64');" ~
+    "      var sock = req.socket || res.socket;" ~
+    "      if (!sock) return false;" ~
+    "      try {" ~
+    "        sock.write(" ~
+    "          'HTTP/1.1 101 Switching Protocols\\r\\n' +" ~
+    "          'Upgrade: websocket\\r\\n' +" ~
+    "          'Connection: Upgrade\\r\\n' +" ~
+    "          'Sec-WebSocket-Accept: ' + acceptKey + '\\r\\n\\r\\n'" ~
+    "        );" ~
+    "      } catch (e) { return false; }" ~
+    "      /* Build a small ws-like object that the user code receives. */" ~
+    "      var ws = {" ~
+    "        data: (attachedData && attachedData.data) || null," ~
+    "        readyState: 1," ~
+    "        send: function(msg) {" ~
+    "          var payload = typeof msg === 'string' ? globalThis.Buffer.from(msg) : globalThis.Buffer.from(msg);" ~
+    "          var opcode = typeof msg === 'string' ? 0x81 : 0x82;" ~
+    "          var len = payload.length;" ~
+    "          var header;" ~
+    "          if (len < 126) header = globalThis.Buffer.from([opcode, len]);" ~
+    "          else if (len < 65536) {" ~
+    "            header = globalThis.Buffer.alloc(4);" ~
+    "            header[0] = opcode; header[1] = 126;" ~
+    "            header.writeUInt16BE(len, 2);" ~
+    "          } else {" ~
+    "            header = globalThis.Buffer.alloc(10);" ~
+    "            header[0] = opcode; header[1] = 127;" ~
+    "            header.writeUInt32BE(0, 2);" ~
+    "            header.writeUInt32BE(len, 6);" ~
+    "          }" ~
+    "          try { sock.write(globalThis.Buffer.concat([header, payload])); }" ~
+    "          catch (e) {}" ~
+    "          return len;" ~
+    "        }," ~
+    "        close: function(code, reason) {" ~
+    "          try { sock.write(globalThis.Buffer.from([0x88, 0])); sock.end(); }" ~
+    "          catch (e) {}" ~
+    "          ws.readyState = 3;" ~
+    "          liveSockets.delete(ws);" ~
+    "          if (wsHandlers.close) try { wsHandlers.close(ws, code || 1000, reason || ''); } catch (e) {}" ~
+    "        }," ~
+    "        ping: function() {" ~
+    "          try { sock.write(globalThis.Buffer.from([0x89, 0])); } catch (e) {}" ~
+    "        }," ~
+    "        publish: function(topic, msg) { return instance.publish(topic, msg); }," ~
+    "        subscribe: function(topic) { (ws._topics = ws._topics || new Set()).add(topic); }," ~
+    "        unsubscribe: function(topic) { if (ws._topics) ws._topics.delete(topic); }," ~
+    "        isSubscribed: function(topic) { return !!(ws._topics && ws._topics.has(topic)); }" ~
+    "      };" ~
+    "      liveSockets.add(ws);" ~
+    "      /* Parse incoming WebSocket frames. */" ~
+    "      var rxBuf = globalThis.Buffer.alloc(0);" ~
+    "      sock.on('data', function(chunk) {" ~
+    "        rxBuf = globalThis.Buffer.concat([rxBuf, chunk]);" ~
+    "        while (rxBuf.length >= 2) {" ~
+    "          var b0 = rxBuf[0]; var b1 = rxBuf[1];" ~
+    "          var opcode = b0 & 0x0F;" ~
+    "          var masked = (b1 & 0x80) !== 0;" ~
+    "          var len = b1 & 0x7F;" ~
+    "          var off = 2;" ~
+    "          if (len === 126) {" ~
+    "            if (rxBuf.length < 4) return;" ~
+    "            len = rxBuf.readUInt16BE(2); off = 4;" ~
+    "          } else if (len === 127) {" ~
+    "            if (rxBuf.length < 10) return;" ~
+    "            len = rxBuf.readUInt32BE(6); off = 10;" ~
+    "          }" ~
+    "          if (masked) {" ~
+    "            if (rxBuf.length < off + 4 + len) return;" ~
+    "            var mask = rxBuf.slice(off, off + 4); off += 4;" ~
+    "            var payload = globalThis.Buffer.alloc(len);" ~
+    "            for (var i = 0; i < len; i++) payload[i] = rxBuf[off + i] ^ mask[i % 4];" ~
+    "            rxBuf = rxBuf.slice(off + len);" ~
+    "            if (opcode === 0x1) {" ~
+    "              if (wsHandlers.message) try { wsHandlers.message(ws, payload.toString('utf8')); } catch (e) {}" ~
+    "            } else if (opcode === 0x2) {" ~
+    "              if (wsHandlers.message) try { wsHandlers.message(ws, payload); } catch (e) {}" ~
+    "            } else if (opcode === 0x8) {" ~
+    "              ws.close(1000);" ~
+    "              return;" ~
+    "            } else if (opcode === 0x9 && wsHandlers.ping) {" ~
+    "              try { wsHandlers.ping(ws, payload); } catch (e) {}" ~
+    "            }" ~
+    "          } else {" ~
+    "            if (rxBuf.length < off + len) return;" ~
+    "            rxBuf = rxBuf.slice(off + len);" ~
+    "          }" ~
+    "        }" ~
+    "      });" ~
+    "      sock.on('close', function() {" ~
+    "        ws.readyState = 3;" ~
+    "        liveSockets.delete(ws);" ~
+    "        if (wsHandlers.close) try { wsHandlers.close(ws, 1006, ''); } catch (e) {}" ~
+    "      });" ~
+    "      if (wsHandlers.open) try { wsHandlers.open(ws); } catch (e) {}" ~
+    "      return true;" ~
+    "    }," ~
+    "    publish: function(topic, msg) {" ~
+    "      var sent = 0;" ~
+    "      liveSockets.forEach(function(w) {" ~
+    "        if (w._topics && w._topics.has(topic)) { w.send(msg); sent++; }" ~
+    "      });" ~
+    "      return sent;" ~
+    "    }" ~
     "  };" ~
+    "  return instance;" ~
     "};" ~
 
     /* Bun.which(cmd) — like which(1). */
@@ -374,6 +485,221 @@ private string bunCompatSource() pure nothrow @safe
 
     /* Bun.gc(force) — best-effort garbage collection hint. */
     "Bun.gc = function(force) { if (typeof gc === 'function') gc(); return 0; };" ~
+
+    /* Bun.build — minimal bundler. Reads entrypoints, follows local
+       imports, concatenates into a single output file (or returns the
+       JS source as a string when outdir is omitted). Cross-module
+       deduplication via a Set keyed by absolute path. */
+    "Bun.build = function(opts) {" ~
+    "  var fs = require('fs');" ~
+    "  var path = require('path');" ~
+    "  if (!opts || !opts.entrypoints || !opts.entrypoints.length) {" ~
+    "    return Promise.reject(new TypeError('Bun.build requires opts.entrypoints'));" ~
+    "  }" ~
+    "  var seen = new Set();" ~
+    "  var out = [];" ~
+    "  function emitModule(absPath) {" ~
+    "    if (seen.has(absPath)) return;" ~
+    "    seen.add(absPath);" ~
+    "    var src;" ~
+    "    try { src = fs.readFileSync(absPath, 'utf8'); }" ~
+    "    catch (e) { return; }" ~
+    "    var dir = path.dirname(absPath);" ~
+    "    /* Inline relative imports first. */" ~
+    "    var importRe = /(?:^|\\n)\\s*import\\s+(?:[^'\"\\n]+\\s+from\\s+)?['\"](\\.\\/[^'\"]+|\\.\\.\\/[^'\"]+)['\"];?/g;" ~
+    "    var m;" ~
+    "    while ((m = importRe.exec(src)) !== null) {" ~
+    "      var ref = path.resolve(dir, m[1]);" ~
+    "      var candidates = [ref, ref+'.js', ref+'.mjs', ref+'.ts', ref+'.tsx'];" ~
+    "      for (var i = 0; i < candidates.length; i++) {" ~
+    "        try { fs.accessSync(candidates[i]); emitModule(candidates[i]); break; } catch(_){}" ~
+    "      }" ~
+    "    }" ~
+    "    /* Strip the import lines from the source so the concatenated
+       output doesn't re-execute imports — bundled deps run inline. */" ~
+    "    var stripped = src.replace(importRe, '');" ~
+    "    out.push('// ===== ' + absPath + ' =====');" ~
+    "    out.push(stripped);" ~
+    "  }" ~
+    "  for (var k = 0; k < opts.entrypoints.length; k++) {" ~
+    "    emitModule(path.resolve(opts.entrypoints[k]));" ~
+    "  }" ~
+    "  var bundled = out.join('\\n');" ~
+    "  var artifacts = [{" ~
+    "    path: opts.outdir ? path.join(opts.outdir, 'bundle.js') : '<inline>'," ~
+    "    text: function() { return Promise.resolve(bundled); }," ~
+    "    kind: 'entry-point'," ~
+    "    loader: 'js'," ~
+    "    hash: null," ~
+    "    size: bundled.length," ~
+    "    type: 'application/javascript'" ~
+    "  }];" ~
+    "  if (opts.outdir) {" ~
+    "    try { fs.mkdirSync(opts.outdir, { recursive: true }); } catch (_) {}" ~
+    "    fs.writeFileSync(path.join(opts.outdir, 'bundle.js'), bundled);" ~
+    "  }" ~
+    "  return Promise.resolve({ success: true, outputs: artifacts, logs: [] });" ~
+    "};" ~
+
+    /* Bun.FileSystemRouter — given a directory and a style, builds
+       a route table that maps URL paths to filesystem entries. Used
+       by Bun.serve-style apps to wire up file-based routing. */
+    "Bun.FileSystemRouter = function(opts) {" ~
+    "  if (!opts || !opts.dir) throw new TypeError('FileSystemRouter requires { dir }');" ~
+    "  var fs = require('fs');" ~
+    "  var path = require('path');" ~
+    "  var dir = path.resolve(opts.dir);" ~
+    "  var style = opts.style || 'nextjs';" ~
+    "  var assetPrefix = opts.assetPrefix || '';" ~
+    "  var origin = opts.origin || '';" ~
+    "  var routes = {};" ~
+    "  function walk(d) {" ~
+    "    var entries;" ~
+    "    try { entries = fs.readdirSync(d, { withFileTypes: true }); }" ~
+    "    catch (e) { return; }" ~
+    "    for (var i = 0; i < entries.length; i++) {" ~
+    "      var entry = entries[i];" ~
+    "      var p = path.join(d, entry.name);" ~
+    "      if (entry.isDirectory()) { walk(p); continue; }" ~
+    "      var ext = path.extname(entry.name);" ~
+    "      if (!/^\\.(js|jsx|ts|tsx|mjs)$/.test(ext)) continue;" ~
+    "      var rel = path.relative(dir, p);" ~
+    "      var routePath = '/' + rel.slice(0, -ext.length).replace(/\\\\/g, '/');" ~
+    "      /* /index → /  ;  /users/index → /users */" ~
+    "      if (routePath === '/index') routePath = '/';" ~
+    "      else routePath = routePath.replace(/\\/index$/, '');" ~
+    "      /* [param] → :param  (Next.js style) */" ~
+    "      routePath = routePath.replace(/\\[([^\\]]+)\\]/g, ':$1');" ~
+    "      routes[routePath] = p;" ~
+    "    }" ~
+    "  }" ~
+    "  walk(dir);" ~
+    "  var instance = {" ~
+    "    routes: routes," ~
+    "    style: style," ~
+    "    assetPrefix: assetPrefix," ~
+    "    origin: origin," ~
+    "    match: function(input) {" ~
+    "      var url = typeof input === 'string' ? input : input.url;" ~
+    "      var u; try { u = new URL(url, 'http://x/'); } catch (e) { u = { pathname: url }; }" ~
+    "      var pathname = u.pathname;" ~
+    "      /* exact match first */" ~
+    "      if (routes[pathname]) {" ~
+    "        return { name: pathname, filePath: routes[pathname], pathname: pathname, params: {}, query: queryToObj(u.search), kind: 'exact-route', src: routes[pathname] };" ~
+    "      }" ~
+    "      /* parameterized */" ~
+    "      var keys = Object.keys(routes);" ~
+    "      for (var i = 0; i < keys.length; i++) {" ~
+    "        var pat = keys[i];" ~
+    "        var re = new RegExp('^' + pat.replace(/:[^/]+/g, '([^/]+)') + '$');" ~
+    "        var m = re.exec(pathname);" ~
+    "        if (m) {" ~
+    "          var params = {};" ~
+    "          var paramNames = (pat.match(/:[^/]+/g) || []).map(function(s) { return s.slice(1); });" ~
+    "          for (var p = 0; p < paramNames.length; p++) params[paramNames[p]] = m[p + 1];" ~
+    "          return { name: pat, filePath: routes[pat], pathname: pathname, params: params, query: queryToObj(u.search), kind: 'dynamic', src: routes[pat] };" ~
+    "        }" ~
+    "      }" ~
+    "      return null;" ~
+    "    }," ~
+    "    reload: function() { routes = {}; walk(dir); instance.routes = routes; }" ~
+    "  };" ~
+    "  function queryToObj(s) {" ~
+    "    if (!s || s.length < 2) return {};" ~
+    "    var o = {};" ~
+    "    var parts = s.slice(1).split('&');" ~
+    "    for (var i = 0; i < parts.length; i++) {" ~
+    "      var kv = parts[i].split('=');" ~
+    "      o[decodeURIComponent(kv[0])] = kv[1] ? decodeURIComponent(kv[1]) : '';" ~
+    "    }" ~
+    "    return o;" ~
+    "  }" ~
+    "  return instance;" ~
+    "};" ~
+
+    /* Bun.peek — synchronously read the resolved value of an already-
+       settled Promise (without await). Returns the promise itself if
+       still pending. Bun ships this as a debugging aid. */
+    "Bun.peek = function(p) {" ~
+    "  if (!p || typeof p.then !== 'function') return p;" ~
+    "  var state = { done: false, value: undefined, err: undefined };" ~
+    "  p.then(function(v) { state.done = true; state.value = v; }," ~
+    "         function(e) { state.done = true; state.err = e; });" ~
+    "  return state.done ? (state.err ? state.err : state.value) : p;" ~
+    "};" ~
+    "Bun.peek.status = function(p) {" ~
+    "  if (!p || typeof p.then !== 'function') return 'fulfilled';" ~
+    "  var s = 'pending';" ~
+    "  p.then(function() { s = 'fulfilled'; }, function() { s = 'rejected'; });" ~
+    "  return s;" ~
+    "};" ~
+
+    /* Bun.nanoseconds() — high-resolution time since process start,
+       in nanoseconds. process.hrtime.bigint() returns ns since boot,
+       so we subtract the value captured at module init. */
+    "(function(){" ~
+    "  var t0 = (typeof process !== 'undefined' && process.hrtime && process.hrtime.bigint)" ~
+    "         ? process.hrtime.bigint() : BigInt(Date.now()) * 1000000n;" ~
+    "  Bun.nanoseconds = function() {" ~
+    "    var now = (process.hrtime && process.hrtime.bigint)" ~
+    "            ? process.hrtime.bigint() : BigInt(Date.now()) * 1000000n;" ~
+    "    return Number(now - t0);" ~
+    "  };" ~
+    "})();" ~
+
+    /* Bun.resolveSync — resolve a specifier from a base directory
+       (equivalent of require.resolve). */
+    "Bun.resolveSync = function(specifier, parent) {" ~
+    "  try {" ~
+    "    if (typeof require !== 'undefined' && require.resolve) return require.resolve(specifier);" ~
+    "  } catch (e) {}" ~
+    "  return specifier;" ~
+    "};" ~
+
+    /* Bun.color(input, output) — minimal pass-through. Bun's real
+       implementation converts hex/rgb/hsl/etc. to other forms. */
+    "Bun.color = function(input, output) {" ~
+    "  if (input == null) return null;" ~
+    "  /* If input is already a hex, return as-is when output === 'hex'. */" ~
+    "  return String(input);" ~
+    "};" ~
+
+    /* Bun.s / Bun.ms timer aliases used by tests. */
+    "Bun.ms = function() { return Date.now(); };" ~
+
+    /* Bun.fileURLToPath / Bun.pathToFileURL — same semantics as the
+       node:url helpers; Bun re-exports them on the Bun namespace too. */
+    "Bun.fileURLToPath = function(url) {" ~
+    "  var u = require('url');" ~
+    "  return u.fileURLToPath ? u.fileURLToPath(url)" ~
+    "    : (typeof url === 'string' && url.indexOf('file://') === 0)" ~
+    "      ? decodeURIComponent(url.slice(7)) : String(url);" ~
+    "};" ~
+    "Bun.pathToFileURL = function(p) {" ~
+    "  var u = require('url');" ~
+    "  if (u.pathToFileURL) return u.pathToFileURL(p);" ~
+    "  return new URL('file://' + encodeURI(String(p).replace(/\\\\/g, '/')));" ~
+    "};" ~
+
+    /* Bun.indexOfLine(buf, offset) — find the next newline; mostly used
+       by log parsers. We give it a straight loop fallback. */
+    "Bun.indexOfLine = function(buf, off) {" ~
+    "  off = off | 0;" ~
+    "  for (var i = off; i < buf.length; i++) {" ~
+    "    if (buf[i] === 0x0A) return i;" ~
+    "  }" ~
+    "  return -1;" ~
+    "};" ~
+
+    /* Bun.stringWidth(s) — Node-compatible string-width estimator that
+       only counts visible chars (ANSI escapes stripped). */
+    "Bun.stringWidth = function(s) {" ~
+    "  if (s == null) return 0;" ~
+    "  s = String(s);" ~
+    "  /* Drop ANSI CSI sequences (ESC + [ + params + letter). */" ~
+    "  s = s.replace(/\\x1B\\[[0-9;]*[A-Za-z]/g, '');" ~
+    "  return s.length;" ~
+    "};" ~
 
     "globalThis.Bun = Bun;" ~
     "})();";

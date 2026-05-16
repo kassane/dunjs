@@ -190,3 +190,14 @@ struct PermissionRegistry
         return isSubpathOf(resource, pattern);
     }
 }
+
+/// Nothrow wrapper around PermissionRegistry.check, suitable for use
+/// inside extern(C) callbacks where we can't propagate exceptions.
+/// Null-state defaults to deny so a misconfigured DunState* can't
+/// silently permit I/O.
+bool checkPerm(StateT)(StateT* state, Permission perm, string resource = "") @trusted nothrow
+{
+    if (state is null || state.permissions is null) return false;
+    try { return state.permissions.check(perm, resource); }
+    catch (Exception) { return false; }
+}
