@@ -65,3 +65,5 @@ tests/benchmarks/results/
 
 # Claude Code local settings
 .claude/settings.local.json
+Heap.*.heapsnapshot
+Heap-*.heapsnapshot
