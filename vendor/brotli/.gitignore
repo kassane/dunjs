@@ -1,0 +1,5 @@
+# Source tree + build artifacts downloaded by build.d::buildBrotli.
+# Only the ImportC bridge stays in version control.
+src/
+build/
+*.tar.gz

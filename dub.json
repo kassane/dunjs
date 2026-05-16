@@ -292,6 +292,7 @@
 	],
 	"lflags-linux": [
 		"-L$PACKAGE_DIR/vendor/sqlite",
+		"-L$PACKAGE_DIR/vendor/brotli/build",
 		"-lbrotlienc",
 		"-lbrotlidec",
 		"-lbrotlicommon",
@@ -299,6 +300,7 @@
 	],
 	"lflags-osx": [
 		"-L$PACKAGE_DIR/vendor/sqlite",
+		"-L$PACKAGE_DIR/vendor/brotli/build",
 		"-L/opt/homebrew/opt/openssl/lib",
 		"-L/usr/local/opt/openssl/lib",
 		"-lbrotlienc",
@@ -391,11 +393,13 @@
 		"source",
 		"vendor/sqlite",
 		"vendor/brotli",
+		"vendor/brotli/src/c/include",
 		"vendor/lsquic"
 	],
 	"cImportPaths": [
 		"vendor/sqlite",
 		"vendor/brotli",
+		"vendor/brotli/src/c/include",
 		"vendor/lsquic"
 	]
 }

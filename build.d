@@ -92,6 +92,14 @@ enum V8_SYSTEM_INCLUDE = "/usr/include/v8";
 enum SQLITE_VERSION     = "3530100";   // 3.53.1
 enum SQLITE_YEAR        = "2026";
 
+// Brotli configuration
+// Vendored from google/brotli so we don't depend on system libbrotli-dev.
+// CMake build produces libbrotlicommon.a + libbrotlidec.a + libbrotlienc.a.
+enum BROTLI_VERSION = "v1.1.0";
+enum BROTLI_URL     = "https://github.com/google/brotli/archive/refs/tags/"
+                    ~ BROTLI_VERSION ~ ".tar.gz";
+enum BROTLI_SRC_MARKER = "c/include/brotli/encode.h";
+
 // lsquic configuration
 // Downloads just the public headers from litespeedtech/lsquic so that the
 // existing extern(C) bindings can be cross-checked via ImportC (see
@@ -124,6 +132,10 @@ string v8PrebuiltArchive()  { return buildPath(vendorDir(), "v8-prebuilt" ~ v8Pr
 string sqliteDir()          { return buildPath(vendorDir(), "sqlite"); }
 string lsquicDir()          { return buildPath(vendorDir(), "lsquic"); }
 string lsquicArchive()      { return buildPath(vendorDir(), "lsquic.tar.gz"); }
+string brotliDir()          { return buildPath(vendorDir(), "brotli"); }
+string brotliSrcDir()       { return buildPath(brotliDir(), "src"); }
+string brotliBuildDir()     { return buildPath(brotliDir(), "build"); }
+string brotliArchive()      { return buildPath(vendorDir(), "brotli.tar.gz"); }
 
 string v8PrebuiltExt()
 {
@@ -1074,6 +1086,98 @@ bool buildSqlite(ref const Toolchain tc, ref const BuildOptions opts)
     if (needsWrite) write(bridgePath, sqliteBridgeContent);
 
     logInfo(tag, libName ~ " built via CMake FetchContent");
+    return true;
+}
+
+// ════════════════════════════════════════════════════════════════════
+// Brotli (static-linked, replaces system libbrotli-dev)
+// ════════════════════════════════════════════════════════════════════
+
+/**
+ * Build google/brotli from source via CMake, producing three static
+ * libraries in `vendor/brotli/build/`:
+ *   - libbrotlicommon.a
+ *   - libbrotlidec.a
+ *   - libbrotlienc.a
+ *
+ * Headers are placed under `vendor/brotli/src/c/include/brotli/` (this
+ * path is already in cImportPaths via the `c/include` parent listed in
+ * dub.json). The pre-existing `vendor/brotli/brotli_api.c` bridge stays
+ * in place; only the linker stops pointing at the system library.
+ */
+bool buildBrotli(ref const Toolchain tc, ref const BuildOptions opts)
+{
+    enum tag = "brotli";
+
+    version (Windows)
+    {
+        immutable libCommon = "brotlicommon.lib";
+        immutable libDec    = "brotlidec.lib";
+        immutable libEnc    = "brotlienc.lib";
+    }
+    else
+    {
+        immutable libCommon = "libbrotlicommon.a";
+        immutable libDec    = "libbrotlidec.a";
+        immutable libEnc    = "libbrotlienc.a";
+    }
+    immutable commonPath = buildPath(brotliBuildDir(), libCommon);
+    immutable decPath    = buildPath(brotliBuildDir(), libDec);
+    immutable encPath    = buildPath(brotliBuildDir(), libEnc);
+
+    if (!opts.force && exists(commonPath) && exists(decPath) && exists(encPath))
+    {
+        logInfo(tag, "static libs already built -- skipping (use --force to rebuild)");
+        return true;
+    }
+
+    if (!tc.cmake.found || !tc.cc.found || !tc.hasDownloader())
+    {
+        logError(tag, "CMake / C compiler / downloader required");
+        return false;
+    }
+
+    logInfo(tag, "Building google/brotli " ~ BROTLI_VERSION ~ "...");
+
+    // Step 1: Download source into vendor/brotli/src/
+    if (!downloadAndExtract(tc, BROTLI_URL, brotliArchive(),
+                             brotliSrcDir(), BROTLI_SRC_MARKER, tag))
+        return false;
+
+    // Step 2: Configure with CMake (static libs only, no tools/tests)
+    mkdirRecurse(brotliBuildDir());
+
+    string[] cmakeArgs = [
+        tc.cmake.path,
+        brotliSrcDir(),
+        "-DCMAKE_BUILD_TYPE=Release",
+        "-DCMAKE_POSITION_INDEPENDENT_CODE=ON",
+        "-DBROTLI_DISABLE_TESTS=ON",
+        "-DBROTLI_BUNDLED_MODE=ON",
+        "-DBUILD_SHARED_LIBS=OFF",
+    ];
+
+    if (runCmd(cmakeArgs, brotliBuildDir(), tag) != 0)
+    {
+        logError(tag, "CMake configure failed");
+        return false;
+    }
+
+    if (runCmd([tc.cmake.path, "--build", ".", "--config", "Release",
+                 "-j" ~ detectCpuCount().to!string],
+                brotliBuildDir(), tag) != 0)
+    {
+        logError(tag, "CMake build failed");
+        return false;
+    }
+
+    if (!exists(commonPath) || !exists(decPath) || !exists(encPath))
+    {
+        logError(tag, "build succeeded but expected libs missing");
+        return false;
+    }
+
+    logInfo(tag, "Built brotlicommon + brotlidec + brotlienc static libs");
     return true;
 }
 
@@ -2309,6 +2413,9 @@ int main(string[] args)
 
     // Build SQLite (cross-cutting dependency, all backends need it)
     buildSqlite(tc, opts);
+
+    // Build Brotli (cross-cutting dependency for compression)
+    buildBrotli(tc, opts);
 
     // Vendor lsquic public headers (header-only, never fatal)
     fetchLsquicHeaders(tc, opts);
