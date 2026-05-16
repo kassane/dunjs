@@ -27,6 +27,31 @@ string stripTypes(const(char)[] source) @trusted
     int parenDepth = 0;
     int braceDepth = 0;
     bool afterVarKw = false;
+    // Track type-only exported names so we can emit `export var X;`
+    // shims at the end of the file. This lets downstream ESM modules
+    // do `import { TypeName } from './x.ts'` without the linker
+    // complaining about missing exports — TS-the-language treats those
+    // as type-only imports, but our scanner can't tell from the import
+    // side, so we make the export side define a runtime binding.
+    string[] typeOnlyExports;
+    // Rewritten enums get appended to the source as a footer because
+    // their JS form is typically longer than the original `enum {}`
+    // declaration and can't be done in-place without breaking line
+    // numbers. The blank where the original was just leaves an empty
+    // statement region.
+    string[] enumDecls;
+    // Deferred byte-offset edits used for things we can't fit in the
+    // original space (e.g. injecting `this.x=x;` into a constructor
+    // body). Sorted and applied after the main scan finishes.
+    struct DeferredInsert { size_t at; string text; }
+    DeferredInsert[] deferredInserts;
+    // Track braceDepth at the moment each `(` was opened. A colon
+    // inside parens is a parameter annotation only if the brace depth
+    // hasn't increased since the paren opened (i.e. we're not inside
+    // an inline object literal like `f({ key: value })`). Stack lives
+    // on the heap because parenDepth can grow arbitrarily.
+    int[] braceAtParenOpen;
+    braceAtParenOpen.reserve(16);
 
     while (pos < buf.length)
     {
@@ -60,10 +85,86 @@ string stripTypes(const(char)[] source) @trusted
         }
 
         // --- track nesting ---
-        if (c == '(') { parenDepth++; pos++; continue; }
-        if (c == ')') { if (parenDepth > 0) parenDepth--; pos++; continue; }
+        if (c == '(') { parenDepth++; braceAtParenOpen ~= braceDepth; pos++; continue; }
+        if (c == ')') {
+            if (parenDepth > 0) parenDepth--;
+            if (braceAtParenOpen.length > 0)
+                braceAtParenOpen.length = braceAtParenOpen.length - 1;
+            pos++; continue;
+        }
         if (c == '{') { braceDepth++; afterVarKw = false; pos++; continue; }
         if (c == '}') { if (braceDepth > 0) braceDepth--; pos++; continue; }
+
+        // --- non-null assertion postfix `!` ---
+        // Erasable when it follows an identifier, `)`, `]`, or `?` and
+        // is followed by `.`, `[`, `(`, `;`, `,`, `)`, `}`, `=`, or
+        // whitespace (i.e. it's a TS-specific postfix, not a `!=`,
+        // `!==`, or unary boolean `!`).
+        // --- decorator @Identifier(args)? — erase entire expression. ---
+        // Both TS legacy `experimentalDecorators: true` and the stage-3
+        // proposal share the textual shape `@Ident(...)?`. We blank the
+        // whole thing so the underlying JS engine doesn't choke on `@`.
+        if (c == '@' && (pos == 0 || (!isIdentChar(buf[pos - 1]) && buf[pos - 1] != '.')))
+        {
+            // Make sure the next non-ws char is an ident start (otherwise
+            // this is an at-sign in a string we missed, or similar; we
+            // already skip strings up top, so this should be safe).
+            auto wsd = skipWS(buf, pos + 1);
+            if (wsd < buf.length && isIdentStart(buf[wsd]))
+            {
+                size_t decoEnd = pos + 1;
+                // Skip ident
+                while (decoEnd < buf.length && isIdentChar(buf[decoEnd])) decoEnd++;
+                // Skip member chain `.foo.bar`
+                while (decoEnd < buf.length && buf[decoEnd] == '.')
+                {
+                    decoEnd++;
+                    while (decoEnd < buf.length && isIdentChar(buf[decoEnd])) decoEnd++;
+                }
+                // Skip optional call `(...)`
+                auto callStart = skipWS(buf, decoEnd);
+                if (callStart < buf.length && buf[callStart] == '(')
+                {
+                    int parD = 1;
+                    decoEnd = callStart + 1;
+                    while (decoEnd < buf.length && parD > 0)
+                    {
+                        if (buf[decoEnd] == '\'' || buf[decoEnd] == '"')
+                            decoEnd = skipStringLit(buf, decoEnd);
+                        else if (buf[decoEnd] == '`')
+                            decoEnd = skipTemplateLit(buf, decoEnd);
+                        else if (buf[decoEnd] == '(') { parD++; decoEnd++; }
+                        else if (buf[decoEnd] == ')') { parD--; decoEnd++; }
+                        else decoEnd++;
+                    }
+                }
+                blankRange(buf, pos, decoEnd);
+                pos = decoEnd;
+                continue;
+            }
+        }
+
+        if (c == '!' && pos > 0)
+        {
+            // Skip `!=` and `!==`
+            if (pos + 1 < buf.length && buf[pos + 1] == '=') { pos++; continue; }
+            auto prev = prevNonWS(buf, pos);
+            auto next = pos + 1;
+            while (next < buf.length && (buf[next] == ' ' || buf[next] == '\t'))
+                next++;
+            bool prevIsPostfixCandidate = prev < buf.length
+                && (isIdentChar(buf[prev]) || buf[prev] == ')' || buf[prev] == ']');
+            bool nextIsAccessor = next < buf.length
+                && (buf[next] == '.' || buf[next] == '[' || buf[next] == '('
+                  || buf[next] == ';' || buf[next] == ',' || buf[next] == ')'
+                  || buf[next] == '}' || buf[next] == ']');
+            if (prevIsPostfixCandidate && nextIsAccessor)
+            {
+                buf[pos] = ' ';
+                pos++;
+                continue;
+            }
+        }
 
         // --- reset var-keyword tracking on = or ; ---
         if (c == '=' || c == ';')
@@ -142,6 +243,10 @@ string stripTypes(const(char)[] source) @trusted
                         }
                         else
                         {
+                            // Capture the alias name before blanking.
+                            auto name = readIdent(buf, ws2);
+                            if (name.length > 0)
+                                typeOnlyExports ~= name.idup;
                             auto saved2 = afterType;
                             if (tryBlankTypeAlias(buf, wordStart, saved2))
                                 pos = saved2;
@@ -151,7 +256,13 @@ string stripTypes(const(char)[] source) @trusted
                     }
                     if (matchWord(buf, ws, "interface"))
                     {
-                        auto end = findDeclEnd(buf, ws + 9);
+                        // Capture the interface name before blanking.
+                        auto afterIface = ws + 9;
+                        auto nameStart = skipWS(buf, afterIface);
+                        auto name = readIdent(buf, nameStart);
+                        if (name.length > 0)
+                            typeOnlyExports ~= name.idup;
+                        auto end = findDeclEnd(buf, afterIface);
                         blankRange(buf, wordStart, end);
                         pos = end;
                         afterVarKw = false;
@@ -170,6 +281,93 @@ string stripTypes(const(char)[] source) @trusted
                 continue;
             }
 
+            // --- namespace / module Name { ... } ---
+            // Rewrite as `var Name = (function(){ var __ns = {}; ...; return __ns; })();`
+            // and inside the body, `export const X = ...;` becomes
+            // `var X = ...; __ns.X = X;`. Same trick for export class /
+            // function / let / var.
+            if ((word == "namespace" || word == "module")
+                && isStmtStart(buf, wordStart))
+            {
+                string decl;
+                auto end = rewriteNamespace(buf, wordStart, wordStart, decl);
+                if (end > pos)
+                {
+                    if (decl.length > 0) enumDecls ~= decl;
+                    pos = end;
+                    afterVarKw = false;
+                    continue;
+                }
+            }
+            if (word == "export" && isStmtStart(buf, wordStart))
+            {
+                auto wsx = skipWS(buf, pos);
+                if (wsx < buf.length
+                    && (matchWord(buf, wsx, "namespace") || matchWord(buf, wsx, "module")))
+                {
+                    string decl;
+                    auto end = rewriteNamespace(buf, wordStart, wsx, decl);
+                    if (end > pos)
+                    {
+                        if (decl.length > 0) enumDecls ~= decl;
+                        pos = end;
+                        afterVarKw = false;
+                        continue;
+                    }
+                }
+            }
+
+            // --- decorators (@expr) ---
+            // Both legacy TS decorators and stage-3 spec decorators
+            // share the same prefix shape: `@Identifier(args...)?`
+            // before a class / method / property. The runtime semantics
+            // differ (and aren't trivially compilable without TS proper),
+            // so we erase to keep the parser happy. User code that
+            // relies on decorator side-effects won't behave, but the
+            // file will at least load.
+            // (Already handled by the `@` check below.)
+
+            // --- enum / const enum / export enum / export const enum ---
+            // Original block is blanked; equivalent JS object literal is
+            // appended to the source footer so line numbers don't shift.
+            if (word == "enum" && isStmtStart(buf, wordStart))
+            {
+                string decl;
+                size_t end = rewriteEnum(buf, wordStart, wordStart, pos, decl);
+                if (end > pos)
+                {
+                    if (decl.length > 0) enumDecls ~= decl;
+                    pos = end;
+                    afterVarKw = false;
+                    continue;
+                }
+            }
+            if ((word == "export" || word == "const") && isStmtStart(buf, wordStart))
+            {
+                auto ws = skipWS(buf, pos);
+                size_t enumKwStart = 0;
+                if (ws < buf.length && matchWord(buf, ws, "const"))
+                {
+                    auto afterConst = skipWS(buf, ws + 5);
+                    if (afterConst < buf.length && matchWord(buf, afterConst, "enum"))
+                        enumKwStart = afterConst;
+                }
+                else if (ws < buf.length && matchWord(buf, ws, "enum"))
+                    enumKwStart = ws;
+                if (enumKwStart > 0)
+                {
+                    string decl;
+                    auto end = rewriteEnum(buf, wordStart, enumKwStart, enumKwStart + 4, decl);
+                    if (end > pos)
+                    {
+                        if (decl.length > 0) enumDecls ~= decl;
+                        pos = end;
+                        afterVarKw = false;
+                        continue;
+                    }
+                }
+            }
+
             // --- abstract (before class) ---
             if (word == "abstract")
             {
@@ -182,13 +380,36 @@ string stripTypes(const(char)[] source) @trusted
                 }
             }
 
+            // --- constructor parameter properties ---
+            // `constructor(public x: T, private y: U)` becomes
+            // `constructor(x, y) { this.x = x; this.y = y; }` so the
+            // generated class actually carries the fields at runtime.
+            if (word == "constructor")
+            {
+                size_t injectAt;
+                string injectText;
+                auto end = scanConstructorParamProps(buf, wordStart, pos, injectAt, injectText);
+                // The scanner returns parenStart on success (may equal `pos`
+                // when there's no whitespace between `constructor` and `(`).
+                // We rely on injectText being non-empty to mean "we did
+                // erase modifiers and recorded an injection".
+                if (injectText.length > 0)
+                {
+                    deferredInserts ~= DeferredInsert(injectAt, injectText);
+                    pos = end > pos ? end : pos;
+                    afterVarKw = false;
+                    continue;
+                }
+            }
+
             // --- as Type assertion ---
             if (word == "as" && parenDepth >= 0)
             {
                 auto prev = prevNonWS(buf, wordStart);
                 if (prev < buf.length && (isIdentChar(buf[prev]) || buf[prev] == ')'
                         || buf[prev] == ']' || buf[prev] == '"'
-                        || buf[prev] == '\'' || buf[prev] == '`'))
+                        || buf[prev] == '\'' || buf[prev] == '`'
+                        || buf[prev] == '}'))
                 {
                     auto typeEnd = scanTypeExpr(buf, pos, ",;)]}");
                     blankRange(buf, wordStart, typeEnd);
@@ -225,8 +446,14 @@ string stripTypes(const(char)[] source) @trusted
                 }
             }
 
-            // Parameter type: inside ()
-            if (parenDepth > 0 && braceDepth == 0)
+            // Parameter type: inside () AND brace depth hasn't risen
+            // since the enclosing ( opened (otherwise we're inside an
+            // object literal like `f({ key: value })` where the colon
+            // is a property separator, not a type annotation).
+            bool atParamLevel = parenDepth > 0
+                && braceAtParenOpen.length > 0
+                && braceDepth == braceAtParenOpen[$ - 1];
+            if (atParamLevel)
             {
                 if (qPos < buf.length && (isIdentChar(buf[qPos]) || buf[qPos] == '?'))
                 {
@@ -261,7 +488,511 @@ string stripTypes(const(char)[] source) @trusted
         pos++;
     }
 
-    return cast(string) buf;
+    // Enum declarations need to be in scope before any code that uses
+    // them runs, so they prepend to the source. Each enum becomes a
+    // single semicolon-terminated statement; the lot is jammed onto one
+    // physical line so we only shift downstream line numbers by 1 (or
+    // not at all if there are no enums).
+    //
+    // Type-only export shims are appended after the source — those
+    // bindings just need to exist for ESM linker resolution and don't
+    // care about run-order.
+    import std.array : Appender;
+    Appender!(char[]) prologue;
+    if (enumDecls.length > 0)
+    {
+        size_t sz = 0;
+        foreach (d; enumDecls) sz += d.length + 1;
+        prologue.reserve(sz);
+        foreach (decl; enumDecls)
+            prologue.put(decl);
+        prologue.put('\n');
+    }
+
+    Appender!(char[]) footer;
+    if (typeOnlyExports.length > 0)
+    {
+        footer.reserve(typeOnlyExports.length * 32 + 16);
+        footer.put("\n");
+        foreach (name; typeOnlyExports)
+        {
+            footer.put("export var ");
+            footer.put(name);
+            footer.put(";\n");
+        }
+    }
+
+    // Apply deferred inserts (constructor param-property `this.x=x;`
+    // assignments and similar). Done after the main scan finishes so
+    // we don't disturb offsets while scanning.
+    char[] body_ = cast(char[]) buf;
+    if (deferredInserts.length > 0)
+    {
+        import std.algorithm : sort;
+        sort!"a.at < b.at"(deferredInserts);
+        size_t total = body_.length;
+        foreach (di; deferredInserts) total += di.text.length;
+        auto rebuilt = new char[total];
+        size_t srcPos = 0;
+        size_t dstPos = 0;
+        foreach (di; deferredInserts)
+        {
+            if (di.at < srcPos) continue;  // overlapping, skip
+            // Copy [srcPos, di.at) verbatim.
+            auto chunk = di.at - srcPos;
+            rebuilt[dstPos .. dstPos + chunk] = body_[srcPos .. di.at];
+            dstPos += chunk;
+            rebuilt[dstPos .. dstPos + di.text.length] = di.text[];
+            dstPos += di.text.length;
+            srcPos = di.at;
+        }
+        // Tail.
+        rebuilt[dstPos .. dstPos + (body_.length - srcPos)] = body_[srcPos .. $];
+        dstPos += body_.length - srcPos;
+        body_ = rebuilt[0 .. dstPos];
+    }
+
+    if (prologue.data.length == 0 && footer.data.length == 0)
+        return cast(string) body_;
+    return cast(string) (prologue.data ~ body_ ~ footer.data);
+}
+
+/// Read an identifier starting at `start`. Returns empty slice if
+/// no ident there.
+private const(char)[] readIdent(const(char)[] buf, size_t start) @safe pure nothrow @nogc
+{
+    if (start >= buf.length || !isIdentStart(buf[start]))
+        return null;
+    size_t end = start;
+    while (end < buf.length && isIdentChar(buf[end]))
+        end++;
+    return buf[start .. end];
+}
+
+/// Rewrite a TS `enum` declaration in-place to JS that produces an
+/// equivalent runtime object.
+///
+/// Input:  `[export] [const] enum Name { Member1, Member2 = 5, Member3 }`
+/// Output: a similarly-sized block that ends in `};` so the closing
+///         brace lines up with the original `}`. Numeric reverse
+///         lookups (`Color[0] === 'Red'`) are populated for numeric
+///         entries; string enums get only forward lookups.
+///
+/// Returns the position just past the closing brace, or 0 if the
+/// declaration couldn't be parsed (caller should fall through).
+private size_t rewriteEnum(char[] buf, size_t blockStart, size_t enumKwStart,
+                            size_t afterEnumKw, out string decl) @trusted pure nothrow
+{
+    // Find the enum name.
+    auto nameStart = skipWS(buf, afterEnumKw);
+    auto rawName = readIdent(buf, nameStart);
+    if (rawName.length == 0) return 0;
+    auto name = rawName.idup;
+    auto nameEnd = nameStart + name.length;
+
+    // Find opening brace.
+    auto braceStart = skipWS(buf, nameEnd);
+    if (braceStart >= buf.length || buf[braceStart] != '{') return 0;
+
+    // Find matching closing brace.
+    size_t depth = 1;
+    size_t p = braceStart + 1;
+    while (p < buf.length && depth > 0)
+    {
+        char c = buf[p];
+        if (c == '{') depth++;
+        else if (c == '}') depth--;
+        else if (c == '\'' || c == '"')
+            p = skipStringLit(buf, p) - 1;
+        else if (c == '`')
+            p = skipTemplateLit(buf, p) - 1;
+        p++;
+    }
+    if (depth != 0) return 0;
+    size_t braceEnd = p;  // one past closing }
+
+    // Walk the body and collect members.
+    struct Member { string nameStr; string valueStr; bool isNumeric; long inferred; }
+    Member[] members;
+    long autoVal = 0;
+    size_t bodyPos = braceStart + 1;
+    while (bodyPos < braceEnd - 1)
+    {
+        bodyPos = skipWS(buf, bodyPos);
+        if (bodyPos >= braceEnd - 1) break;
+        // Skip stray commas / semicolons.
+        if (buf[bodyPos] == ',' || buf[bodyPos] == ';') { bodyPos++; continue; }
+        // Read member name (ident or string literal).
+        size_t memberStart = bodyPos;
+        auto mname = readIdent(buf, bodyPos);
+        string memberName;
+        if (mname.length > 0)
+        {
+            memberName = mname.idup;
+            bodyPos += mname.length;
+        }
+        else if (buf[bodyPos] == '\'' || buf[bodyPos] == '"')
+        {
+            size_t strEnd = skipStringLit(buf, bodyPos);
+            memberName = (cast(string) buf[bodyPos + 1 .. strEnd - 1]).idup;
+            bodyPos = strEnd;
+        }
+        else { bodyPos++; continue; }
+
+        bodyPos = skipWS(buf, bodyPos);
+        string valueStr;
+        bool isNumeric = true;
+        long numericVal = autoVal;
+
+        if (bodyPos < braceEnd - 1 && buf[bodyPos] == '=')
+        {
+            bodyPos++;
+            bodyPos = skipWS(buf, bodyPos);
+            size_t valStart = bodyPos;
+            // Read until comma, closing brace, or EOL respecting nesting.
+            int parDepth = 0;
+            while (bodyPos < braceEnd - 1)
+            {
+                char vc = buf[bodyPos];
+                if (parDepth == 0 && (vc == ',' || vc == ';')) break;
+                if (vc == '(') parDepth++;
+                else if (vc == ')') parDepth--;
+                else if (vc == '\'' || vc == '"') bodyPos = skipStringLit(buf, bodyPos) - 1;
+                else if (vc == '`') bodyPos = skipTemplateLit(buf, bodyPos) - 1;
+                bodyPos++;
+            }
+            import std.string : strip;
+            valueStr = (cast(string) buf[valStart .. bodyPos]).strip().idup;
+            // Try to detect numeric initializers cheaply.
+            isNumeric = isAllDigits(valueStr);
+            if (isNumeric) try { import std.conv : to; numericVal = valueStr.to!long; }
+                           catch (Exception) { isNumeric = false; }
+        }
+
+        members ~= Member(memberName, valueStr, isNumeric, numericVal);
+        if (isNumeric) autoVal = numericVal + 1;
+        else autoVal++;  // best-effort post-string auto-increment
+
+        // Skip trailing comma / semicolon.
+        bodyPos = skipWS(buf, bodyPos);
+        if (bodyPos < braceEnd - 1 && (buf[bodyPos] == ',' || buf[bodyPos] == ';')) bodyPos++;
+    }
+
+    // Build the JS replacement that the caller will append to the
+    // file footer.
+    import std.array : Appender;
+    Appender!(char[]) out_;
+    out_.reserve(64 + members.length * 32);
+    auto prefix = cast(string) buf[blockStart .. enumKwStart];
+    import std.algorithm : canFind;
+    bool wasExport = prefix.canFind("export");
+    if (wasExport) out_.put("export ");
+    out_.put("const ");
+    out_.put(name);
+    out_.put("=Object.freeze({");
+    bool firstMember = true;
+    foreach (m; members)
+    {
+        if (!firstMember) out_.put(',');
+        firstMember = false;
+        out_.put('"');
+        out_.put(m.nameStr);
+        out_.put('"');
+        out_.put(':');
+        if (m.valueStr.length > 0) out_.put(m.valueStr);
+        else { import std.conv : to; out_.put(to!string(m.inferred)); }
+        if (m.isNumeric)
+        {
+            out_.put(',');
+            import std.conv : to;
+            out_.put(to!string(m.inferred));
+            out_.put(":\"");
+            out_.put(m.nameStr);
+            out_.put('"');
+        }
+    }
+    out_.put("});");
+    decl = cast(string) out_.data;
+
+    // Blank the original block in-place, keeping newlines so error
+    // line numbers stay accurate.
+    foreach (i; blockStart .. braceEnd)
+        if (buf[i] != '\n' && buf[i] != '\r') buf[i] = ' ';
+    return braceEnd;
+}
+
+private bool isAllDigits(string s) @safe pure nothrow @nogc
+{
+    if (s.length == 0) return false;
+    foreach (c; s)
+        if (c != '-' && (c < '0' || c > '9')) return false;
+    return true;
+}
+
+/// Rewrite `[export] namespace|module Name { body }` in-place. The
+/// original block is blanked (newlines preserved); the body is
+/// transformed into the equivalent JS IIFE and appended to the file
+/// prologue via the `decl` out-parameter (caller passes through to the
+/// enumDecls list, which is emitted ahead of the source body).
+///
+/// Inside the body, `export const X = ...`, `export function f() {}`,
+/// `export class C {}`, `export let X`, `export var X` are rewritten
+/// so the binding also lands on the namespace object as a property.
+private size_t rewriteNamespace(char[] buf, size_t blockStart,
+    size_t nsKwStart, out string decl) @trusted
+{
+    auto nsKwEnd = matchWord(buf, nsKwStart, "namespace")
+        ? nsKwStart + 9
+        : (matchWord(buf, nsKwStart, "module") ? nsKwStart + 6 : 0);
+    if (nsKwEnd == 0) return 0;
+
+    auto nameStart = skipWS(buf, nsKwEnd);
+    auto rawName = readIdent(buf, nameStart);
+    if (rawName.length == 0) return 0;
+    auto name = rawName.idup;
+    auto nameEnd = nameStart + name.length;
+
+    auto braceStart = skipWS(buf, nameEnd);
+    if (braceStart >= buf.length || buf[braceStart] != '{') return 0;
+
+    // Match the closing brace.
+    size_t depth = 1;
+    size_t p = braceStart + 1;
+    while (p < buf.length && depth > 0)
+    {
+        char c = buf[p];
+        if (c == '{') depth++;
+        else if (c == '}') depth--;
+        else if (c == '\'' || c == '"') p = skipStringLit(buf, p) - 1;
+        else if (c == '`') p = skipTemplateLit(buf, p) - 1;
+        p++;
+    }
+    if (depth != 0) return 0;
+    size_t braceEnd = p;  // one past closing brace
+
+    // Recursively strip TS from the body (parameter type annotations,
+    // nested interfaces, etc.) — the outer stripper has already moved
+    // past these chars, so we need to process them here before they
+    // become the prologue.
+    string body_ = stripTypes((cast(string) buf[braceStart + 1 .. braceEnd - 1]).idup);
+
+    // Rewrite `export <kw> X` → `<kw> X` + tail attachment to ns.
+    // We do this by scanning for top-level `export <kw> NAME` and
+    // emitting the body twice (kept declarations + attachment lines).
+    import std.array : Appender;
+    Appender!(char[]) result;
+    Appender!(char[]) attach;
+    size_t i = 0;
+    while (i < body_.length)
+    {
+        char c = body_[i];
+        if (c == '\'' || c == '"')
+        {
+            size_t end = skipStringLit(cast(const(char)[]) body_, i);
+            result.put(body_[i .. end]);
+            i = end;
+            continue;
+        }
+        if (c == '`')
+        {
+            size_t end = skipTemplateLit(cast(const(char)[]) body_, i);
+            result.put(body_[i .. end]);
+            i = end;
+            continue;
+        }
+        if (c == '/' && i + 1 < body_.length)
+        {
+            if (body_[i + 1] == '/')
+            {
+                while (i < body_.length && body_[i] != '\n') { result.put(body_[i]); i++; }
+                continue;
+            }
+            if (body_[i + 1] == '*')
+            {
+                size_t e = i + 2;
+                while (e + 1 < body_.length && !(body_[e] == '*' && body_[e + 1] == '/')) e++;
+                if (e + 1 < body_.length) e += 2;
+                result.put(body_[i .. e]);
+                i = e;
+                continue;
+            }
+        }
+        // `export X` at start of line.
+        if (c == 'e' && (i == 0 || body_[i - 1] == '\n' || body_[i - 1] == ' ' || body_[i - 1] == '\t')
+            && matchWord(cast(const(char)[]) body_, i, "export"))
+        {
+            auto after = skipWS(cast(const(char)[]) body_, i + 6);
+            string kw;
+            if (matchWord(cast(const(char)[]) body_, after, "const")) kw = "const";
+            else if (matchWord(cast(const(char)[]) body_, after, "let")) kw = "let";
+            else if (matchWord(cast(const(char)[]) body_, after, "var")) kw = "var";
+            else if (matchWord(cast(const(char)[]) body_, after, "function")) kw = "function";
+            else if (matchWord(cast(const(char)[]) body_, after, "class")) kw = "class";
+            if (kw.length > 0)
+            {
+                // Erase `export ` (6 chars + ws between).
+                size_t nameStart2 = skipWS(cast(const(char)[]) body_, after + kw.length);
+                auto kname = readIdent(cast(const(char)[]) body_, nameStart2);
+                if (kname.length > 0)
+                {
+                    foreach (_; 0 .. after - i) result.put(' ');
+                    result.put(kw);
+                    // Record attachment.
+                    attach.put("__ns.");
+                    attach.put(kname);
+                    attach.put('=');
+                    attach.put(kname);
+                    attach.put(';');
+                    i = after + kw.length;
+                    continue;
+                }
+            }
+        }
+        result.put(c);
+        i++;
+    }
+
+    // Build the prologue snippet that defines and populates the namespace.
+    Appender!(char[]) sb;
+    sb.put("var ");
+    sb.put(name);
+    sb.put("=(function(){var __ns={};");
+    sb.put(result.data);
+    sb.put(';');
+    sb.put(attach.data);
+    sb.put("return __ns;})();");
+    decl = cast(string) sb.data;
+
+    // Blank the original block keeping newlines.
+    foreach (k; blockStart .. braceEnd)
+        if (buf[k] != '\n' && buf[k] != '\r') buf[k] = ' ';
+    return braceEnd;
+}
+
+/// Scan a TS constructor with parameter properties. Erases the access
+/// modifier keywords in-place (so the JS parser sees a valid parameter
+/// list) and returns:
+///   - the position just past the constructor body's opening `{`
+///   - `injectAt` set to the byte offset just inside `{` where the
+///     `this.x=x;...` injection should land
+///   - `injectText` set to the injection
+///
+/// Returns 0 if the constructor doesn't look like the parameter-property
+/// pattern (no modifiers found, or we couldn't find the parens / body).
+private size_t scanConstructorParamProps(char[] buf, size_t kwStart, size_t kwEnd,
+    out size_t injectAt, out string injectText) @trusted pure nothrow
+{
+    // Find `(` after constructor keyword.
+    auto pos = skipWS(buf, kwEnd);
+    if (pos >= buf.length || buf[pos] != '(') return 0;
+    size_t parenStart = pos;
+
+    // Walk to the matching `)`, collecting parameter spans.
+    struct ParamProp { string name; }
+    ParamProp[] props;
+    size_t p = parenStart + 1;
+    size_t depth = 1;
+    while (p < buf.length && depth > 0)
+    {
+        // Skip strings/templates.
+        if (buf[p] == '\'' || buf[p] == '"') { p = skipStringLit(buf, p); continue; }
+        if (buf[p] == '`') { p = skipTemplateLit(buf, p); continue; }
+        if (buf[p] == '(') { depth++; p++; continue; }
+        if (buf[p] == ')') { depth--; p++; continue; }
+        if (depth != 1) { p++; continue; }
+
+        // Look for a modifier at parameter position. A parameter is at the
+        // start of the list, or right after a `,`. Skip whitespace first.
+        size_t paramStart = skipWS(buf, p);
+        if (paramStart >= buf.length) break;
+
+        // Detect public/private/protected/readonly. Multiple may stack
+        // (`public readonly x`).
+        bool sawModifier = false;
+        size_t scanPos = paramStart;
+        while (scanPos < buf.length)
+        {
+            if (matchWord(buf, scanPos, "public") && !isIdentChar(buf[scanPos + 6]))
+            {
+                foreach (i; scanPos .. scanPos + 6) buf[i] = ' ';
+                scanPos = skipWS(buf, scanPos + 6);
+                sawModifier = true;
+                continue;
+            }
+            if (matchWord(buf, scanPos, "private") && !isIdentChar(buf[scanPos + 7]))
+            {
+                foreach (i; scanPos .. scanPos + 7) buf[i] = ' ';
+                scanPos = skipWS(buf, scanPos + 7);
+                sawModifier = true;
+                continue;
+            }
+            if (matchWord(buf, scanPos, "readonly") && !isIdentChar(buf[scanPos + 8]))
+            {
+                foreach (i; scanPos .. scanPos + 8) buf[i] = ' ';
+                scanPos = skipWS(buf, scanPos + 8);
+                sawModifier = true;
+                continue;
+            }
+            if (matchWord(buf, scanPos, "protected") && !isIdentChar(buf[scanPos + 9]))
+            {
+                foreach (i; scanPos .. scanPos + 9) buf[i] = ' ';
+                scanPos = skipWS(buf, scanPos + 9);
+                sawModifier = true;
+                continue;
+            }
+            break;
+        }
+        if (sawModifier)
+        {
+            // After modifiers, scanPos points at the parameter name.
+            auto name = readIdent(buf, scanPos);
+            if (name.length > 0)
+                props ~= ParamProp(name.idup);
+        }
+
+        // Advance to next `,` at depth 1.
+        while (p < buf.length && depth > 0)
+        {
+            if (buf[p] == '\'' || buf[p] == '"') { p = skipStringLit(buf, p); continue; }
+            if (buf[p] == '`') { p = skipTemplateLit(buf, p); continue; }
+            if (buf[p] == '(') { depth++; p++; continue; }
+            if (buf[p] == ')') { depth--; if (depth == 0) break; p++; continue; }
+            if (buf[p] == ',' && depth == 1) { p++; break; }
+            p++;
+        }
+    }
+
+    if (props.length == 0) return 0;
+
+    // Find `{` of the body, possibly past a return type annotation
+    // (constructors don't have return types, but be defensive).
+    auto bodyOpen = p;  // p is at the closing `)` or just past
+    if (bodyOpen < buf.length && buf[bodyOpen] == ')') bodyOpen++;
+    bodyOpen = skipWS(buf, bodyOpen);
+    while (bodyOpen < buf.length && buf[bodyOpen] != '{')
+    {
+        if (buf[bodyOpen] == '\n') break;
+        bodyOpen++;
+    }
+    if (bodyOpen >= buf.length || buf[bodyOpen] != '{') return 0;
+    // Build the injection text and tell the caller where to insert it.
+    // Caller batches a buffer rebuild after the main scan finishes —
+    // we can't do it in place because the source buffer is fixed size.
+    import std.array : Appender;
+    Appender!(char[]) sb;
+    foreach (pp; props)
+    {
+        sb.put("this.");
+        sb.put(pp.name);
+        sb.put('=');
+        sb.put(pp.name);
+        sb.put(';');
+    }
+    injectAt = bodyOpen + 1;
+    injectText = cast(string) sb.data;
+    // Resume scanning at the `(`. The regular loop will increment
+    // parenDepth and erase `: T` annotations on each parameter.
+    return parenStart;
 }
 
 // ---------------------------------------------------------------------------

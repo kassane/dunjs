@@ -49,7 +49,7 @@ version (EngineQuickJS)
             auto fn = JS_GetPropertyStr(ctx, h2Obj, name.ptr);
             JS_SetModuleExport(ctx, m, name.ptr, fn);
         }
-        JS_FreeValue(ctx, h2Obj);
+        JS_SetModuleExport(ctx, m, "default", h2Obj);
         JS_FreeValue(ctx, global);
         return 0;
     }

@@ -1,0 +1,2 @@
+napi_async: 3/3 checks passed
+ALL CHECKS PASSED

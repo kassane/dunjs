@@ -9,6 +9,21 @@ void installIntl(IJSEngine engine) @trusted
     auto existing = engine.getProperty(global, "Intl");
     scope(exit) engine.freeValue(global);
 
+    // The D-side check of `globalThis.Intl` can race with V8's lazy
+    // installation, returning `undefined` even though the engine
+    // exposes Intl by the time user code runs. So we ALWAYS try the
+    // compare-bind fixup: if Intl really doesn't exist when the JS
+    // eval runs, the early `typeof Intl === 'undefined'` guard makes
+    // it a no-op.
+    {
+        // Force V8 to initialize Intl now (it lazy-loads on first
+        // reference), then patch the Collator/Format prototypes.
+        // The `new Intl.Collator()` in the source triggers init.
+        auto fixupRes = engine.eval(intlCollatorBindCompareSource(),
+            "<intl-collator-bind-compare>");
+        if (!fixupRes.isError) engine.freeValue(fixupRes.value);
+    }
+
     if (!engine.isUndefined(existing) && engine.isObject(existing))
     {
         engine.freeValue(existing);
@@ -27,6 +42,59 @@ void installIntl(IJSEngine engine) @trusted
         catch (Exception) {}
     }
     engine.freeValue(result.value);
+}
+
+string intlCollatorBindCompareSource() pure nothrow @safe
+{
+    // Convert `Intl.Collator.prototype.compare` from a regular method
+    // (V8 without ICU) to a getter that returns a bound function (spec
+    // behavior). This makes `const { compare } = new Intl.Collator()`
+    // work the same as on Node/Bun/Deno.
+    //
+    // We also wrap `localeCompare` on String.prototype so destructuring
+    // patterns that go through the prototype path don't crash either.
+    // CAUTION: every line of this string is concatenated with `~` so
+    // there are NO newlines between them at runtime. JS `//` comments
+    // would swallow the rest of the source. Use `/* */` only.
+    return
+    "(function() {" ~
+    "try {" ~
+    "  if (typeof Intl === 'undefined' || !Intl.Collator) return;" ~
+    "  /* Force V8 to materialize Intl.Collator.prototype now. */" ~
+    "  new Intl.Collator();" ~
+    "  var proto = Intl.Collator.prototype;" ~
+    "  if (!proto) return;" ~
+    "  var origCompare = proto.compare;" ~
+    "  if (typeof origCompare !== 'function') return;" ~
+    "  Object.defineProperty(proto, 'compare', {" ~
+    "    configurable: true," ~
+    "    get: function() {" ~
+    "      var self = this;" ~
+    "      return function(x, y) { return origCompare.call(self, x, y); };" ~
+    "    }" ~
+    "  });" ~
+    "  if (Intl.NumberFormat && Intl.NumberFormat.prototype.format) {" ~
+    "    var origFmt = Intl.NumberFormat.prototype.format;" ~
+    "    Object.defineProperty(Intl.NumberFormat.prototype, 'format', {" ~
+    "      configurable: true," ~
+    "      get: function() {" ~
+    "        var self = this;" ~
+    "        return function(v) { return origFmt.call(self, v); };" ~
+    "      }" ~
+    "    });" ~
+    "  }" ~
+    "  if (Intl.DateTimeFormat && Intl.DateTimeFormat.prototype.format) {" ~
+    "    var origDtf = Intl.DateTimeFormat.prototype.format;" ~
+    "    Object.defineProperty(Intl.DateTimeFormat.prototype, 'format', {" ~
+    "      configurable: true," ~
+    "      get: function() {" ~
+    "        var self = this;" ~
+    "        return function(v) { return origDtf.call(self, v); };" ~
+    "      }" ~
+    "    });" ~
+    "  }" ~
+    "} catch (e) {}" ~
+    "})();";
 }
 
 private string intlPolyfillSource() pure nothrow @safe
@@ -185,12 +253,21 @@ private string intlPolyfillSource() pure nothrow @safe
     "  this._locale = resolveLocale(locales);" ~
     "  this._options = Object.assign({}, options);" ~
     "};" ~
-    "Intl.Collator.prototype.compare = function(a, b) {" ~
-    "  a = String(a); b = String(b);" ~
-    "  var sens = this._options.sensitivity || 'variant';" ~
-    "  if (sens === 'base' || sens === 'accent') { a = a.toLowerCase(); b = b.toLowerCase(); }" ~
-    "  if (a < b) return -1; if (a > b) return 1; return 0;" ~
-    "};" ~
+    /* Spec: `compare` is an accessor that returns a function bound to
+     * the Collator instance, so `const { compare } = new Intl.Collator()`
+     * keeps `this` alive when invoked stand-alone. */
+    "Object.defineProperty(Intl.Collator.prototype, 'compare', {" ~
+    "  configurable: true," ~
+    "  get: function() {" ~
+    "    var self = this;" ~
+    "    return function(a, b) {" ~
+    "      a = String(a); b = String(b);" ~
+    "      var sens = (self._options && self._options.sensitivity) || 'variant';" ~
+    "      if (sens === 'base' || sens === 'accent') { a = a.toLowerCase(); b = b.toLowerCase(); }" ~
+    "      if (a < b) return -1; if (a > b) return 1; return 0;" ~
+    "    };" ~
+    "  }" ~
+    "});" ~
     "Intl.Collator.prototype.resolvedOptions = function() {" ~
     "  return {locale:this._locale,usage:this._options.usage||'sort',sensitivity:this._options.sensitivity||'variant',collation:'default'};" ~
     "};" ~

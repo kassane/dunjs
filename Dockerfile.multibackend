@@ -1,5 +1,16 @@
-# DunJS Multi-Backend Container
+# DunJS Multi-Backend Container — CIS-hardened
+#
 # All three backends in one image, switchable via DUN_BACKEND env.
+# Same CIS Docker Benchmark coverage as the single-backend Dockerfile:
+#   4.1 non-root, 4.2 digest-pinned, 4.3 --no-install-recommends,
+#   4.6 HEALTHCHECK, 4.7 update+install same RUN, 4.8 no SUID/SGID,
+#   4.9 COPY over ADD, 4.10 no secrets, 4.11 sha256-verified toolchain.
+#
+# Recommended runtime flags:
+#   docker run --read-only --tmpfs /tmp \
+#     --cap-drop=ALL --security-opt no-new-privileges:true \
+#     --pids-limit 256 --memory=512m dunjs:multi run script.js
+#
 # Usage:
 #   docker build -f Dockerfile.multibackend -t dunjs:multi .
 #   docker run --rm dunjs:multi run script.js                      # quickjs (default)
@@ -7,14 +18,19 @@
 #   docker run --rm -e DUN_BACKEND=v8 dunjs:multi run script.js    # v8
 #
 # Multi-platform:
-#   docker buildx build --platform linux/amd64,linux/arm64 -f Dockerfile.multibackend -t dunjs:multi .
+#   docker buildx build --platform linux/amd64,linux/arm64 \
+#     -f Dockerfile.multibackend -t dunjs:multi .
 
 # ─── Stage 1: Build all backends ──────────────────────────────
-FROM debian:bookworm-slim AS build
+FROM debian:bookworm-slim@sha256:67b30a61dc87758f0caf819646104f29ecbda97d920aaf5edc834128ac8493d3 AS build
 
 ARG LDC_VERSION=1.42.0
 # TARGETARCH is set automatically by buildx: "amd64" or "arm64"
 ARG TARGETARCH
+
+# CIS 4.11 — sha256s for the LDC toolchain tarballs.
+ARG LDC_SHA256_AMD64=a7bc9c956138f558cadf9c962352f59d41c80df6eb3ae3f8039f25be14a69303
+ARG LDC_SHA256_ARM64=687707c3e20ff910528eb2d92f27a98cb0960284de3b026e6bf20284ac1c8511
 
 # g++ is required to compile vendor/v8shim/v8shim.cpp (V8 C++ shim)
 # V8 14.9+ uses CREL relocations; linking handled by LDC --link-internally (LLVM 21)
@@ -22,16 +38,19 @@ ARG TARGETARCH
 # kassane/libv8 provides prebuilt binaries for both linux-x64 and linux-arm64
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates curl xz-utils tar gcc g++ cmake make pkg-config git bash \
-    libxml2-dev libssl-dev \
+    libxml2-dev libssl-dev libbrotli-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Install LDC (arch-aware: amd64→x86_64, arm64→aarch64)
+# Install LDC: download, verify sha256, extract.
 RUN case "${TARGETARCH}" in \
-      arm64) LDC_ARCH=aarch64 ;; \
-      *)     LDC_ARCH=x86_64  ;; \
+      arm64) LDC_ARCH=aarch64; LDC_SHA="${LDC_SHA256_ARM64}" ;; \
+      *)     LDC_ARCH=x86_64;  LDC_SHA="${LDC_SHA256_AMD64}" ;; \
     esac \
-    && curl -sLO --fail https://github.com/ldc-developers/ldc/releases/download/v${LDC_VERSION}/ldc2-${LDC_VERSION}-linux-${LDC_ARCH}.tar.xz \
-    && tar -xJf ldc2-${LDC_VERSION}-linux-${LDC_ARCH}.tar.xz --directory /opt \
+    && TARBALL="ldc2-${LDC_VERSION}-linux-${LDC_ARCH}.tar.xz" \
+    && curl -sLO --fail "https://github.com/ldc-developers/ldc/releases/download/v${LDC_VERSION}/${TARBALL}" \
+    && echo "${LDC_SHA}  ${TARBALL}" | sha256sum -c - \
+    && tar -xJf "${TARBALL}" --directory /opt \
+    && rm "${TARBALL}" \
     && ln -s /opt/ldc2-${LDC_VERSION}-linux-${LDC_ARCH}/bin/ldc2             /usr/bin/ldc2 \
     && ln -s /opt/ldc2-${LDC_VERSION}-linux-${LDC_ARCH}/bin/ldmd2            /usr/bin/ldmd2 \
     && ln -s /opt/ldc2-${LDC_VERSION}-linux-${LDC_ARCH}/bin/dub              /usr/bin/dub \
@@ -52,6 +71,11 @@ RUN dub build -c v8  -b release     && strip build/dun && cp build/dun /tmp/dun-
 # Build backend switcher (statically linked, runs anywhere)
 RUN gcc -static -O2 -o /tmp/dun-switch docker/dun-switch.c && strip /tmp/dun-switch
 
+# CIS 4.8 — strip SUID/SGID bits from every binary we plan to ship.
+RUN for b in /tmp/dun-quickjs /tmp/dun-jsc /tmp/dun-v8 /tmp/dun-switch; do \
+      find "$b" -perm /6000 -exec chmod a-s {} \; 2>/dev/null || true; \
+    done
+
 # Collect shared libs
 RUN mkdir -p /deps/lib \
     && for bin in /tmp/dun-quickjs /tmp/dun-jsc /tmp/dun-v8; do \
@@ -61,31 +85,54 @@ RUN mkdir -p /deps/lib \
     done \
     && for lib in vendor/jsc/lib/*.so*; do \
       [ -f "$lib" ] && cp -a "$lib" /deps/lib/ 2>/dev/null || true; \
-    done
+    done \
+    && find /deps/lib -perm /6000 -exec chmod a-s {} \; 2>/dev/null || true
 
 # ─── Stage 2: Runtime ────────────────────────────────────────
-FROM debian:bookworm-slim
+FROM debian:bookworm-slim@sha256:67b30a61dc87758f0caf819646104f29ecbda97d920aaf5edc834128ac8493d3
 
+ARG BUILD_DATE="unknown"
+ARG VCS_REF="unknown"
+ARG VERSION="0.3.0"
 LABEL org.opencontainers.image.title="DunJS Multi-Backend" \
-      org.opencontainers.image.description="Secure JS/TS runtime with QuickJS, JSC, and V8 backends"
+      org.opencontainers.image.description="Secure JS/TS runtime with QuickJS, JSC, and V8 backends" \
+      org.opencontainers.image.url="https://github.com/kassane/dunjs" \
+      org.opencontainers.image.source="https://github.com/kassane/dunjs" \
+      org.opencontainers.image.documentation="https://github.com/kassane/dunjs#readme" \
+      org.opencontainers.image.licenses="MIT" \
+      org.opencontainers.image.vendor="kassane" \
+      org.opencontainers.image.created="${BUILD_DATE}" \
+      org.opencontainers.image.revision="${VCS_REF}" \
+      org.opencontainers.image.version="${VERSION}-multi" \
+      org.opencontainers.image.base.name="debian:bookworm-slim"
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    libstdc++6 libgcc-s1 libssl3 \
+    libstdc++6 libgcc-s1 libssl3 libbrotli1 tini \
     && rm -rf /var/lib/apt/lists/* \
-    && groupadd -r dun && useradd -r -g dun -u 1001 -m -d /app dun
+    && groupadd -r -g 1001 dun \
+    && useradd -r -u 1001 -g 1001 -d /app -s /usr/sbin/nologin -c "DunJS runtime user" dun \
+    && mkdir -p /app \
+    && chown -R 1001:1001 /app
 
-COPY --from=build /tmp/dun-quickjs /usr/local/bin/dun-quickjs
-COPY --from=build /tmp/dun-jsc     /usr/local/bin/dun-jsc
-COPY --from=build /tmp/dun-v8      /usr/local/bin/dun-v8
-COPY --from=build /deps/lib/       /usr/local/lib/
-COPY --from=build /tmp/dun-switch  /usr/local/bin/dun
+COPY --from=build --chown=1001:1001 /tmp/dun-quickjs /usr/local/bin/dun-quickjs
+COPY --from=build --chown=1001:1001 /tmp/dun-jsc     /usr/local/bin/dun-jsc
+COPY --from=build --chown=1001:1001 /tmp/dun-v8      /usr/local/bin/dun-v8
+COPY --from=build --chown=1001:1001 /deps/lib/       /usr/local/lib/
+COPY --from=build --chown=1001:1001 /tmp/dun-switch  /usr/local/bin/dun
 
-RUN ldconfig
+# CIS 4.8 — final SUID/SGID scrub on the binaries that landed in /usr/local.
+RUN find /usr/local/bin /usr/local/lib -xdev -perm /6000 -exec chmod a-s {} \; 2>/dev/null || true \
+    && chmod 0555 /usr/local/bin/dun-quickjs /usr/local/bin/dun-jsc /usr/local/bin/dun-v8 /usr/local/bin/dun \
+    && ldconfig
 
 ENV DUN_BACKEND="quickjs"
 
 WORKDIR /app
-RUN chown dun:dun /app
-USER dun
+USER 1001:1001
 
-ENTRYPOINT ["/usr/local/bin/dun"]
+HEALTHCHECK --interval=30s --timeout=5s --start-period=2s --retries=2 \
+    CMD ["/usr/local/bin/dun", "eval", "2+2===4 || process.exit(1)"]
+
+STOPSIGNAL SIGTERM
+
+ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/dun"]

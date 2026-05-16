@@ -1,0 +1,2 @@
+gaia_smoke: 12/12 checks passed
+ALL CHECKS PASSED

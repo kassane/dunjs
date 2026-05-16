@@ -89,6 +89,8 @@ version (EngineQuickJS)
         foreach (name; ["createServer", "createConnection", "connect", "isIP", "isIPv4", "isIPv6", "Socket",
                         "BlockList", "SocketAddress"])
             JS_AddModuleExport(ctx, m, name.ptr);
+
+        JS_AddModuleExport(ctx, m, "default");
     }
 
     private extern (C) int netModuleInit(JSContext* ctx, JSModuleDef* m) nothrow @trusted
@@ -103,7 +105,7 @@ version (EngineQuickJS)
             auto fn = JS_GetPropertyStr(ctx, netObj, name.ptr);
             JS_SetModuleExport(ctx, m, name.ptr, fn);
         }
-        JS_FreeValue(ctx, netObj);
+        JS_SetModuleExport(ctx, m, "default", netObj);
         JS_FreeValue(ctx, global);
         return 0;
     }

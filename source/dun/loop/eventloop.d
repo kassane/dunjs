@@ -56,6 +56,8 @@ struct EventLoop
             import dun.builtins.http2 : pollHttp2IO, hasActiveHttp2IO;
             import dun.builtins.ws : pollWsIO, hasActiveWsIO;
             import dun.loop.async : asyncDrain, asyncHasWork;
+            import dun.napi.napi : napiDrainAsyncWork, napiHasAsyncWork,
+                                    napiDrainThreadsafeCalls, napiHasThreadsafeCalls;
 
             // Only poll subsystems that have active I/O — skip idle ones
             bool anyIO = false;
@@ -72,6 +74,10 @@ struct EventLoop
             }
 
             if (asyncDrain() > 0)
+                drainNextTicksAndMicrotasks();
+            if (napiDrainAsyncWork() > 0)
+                drainNextTicksAndMicrotasks();
+            if (napiDrainThreadsafeCalls() > 0)
                 drainNextTicksAndMicrotasks();
 
             {
@@ -94,6 +100,8 @@ struct EventLoop
                 && microtasks.empty()
                 && nextTicks.empty()
                 && !asyncHasWork()
+                && !napiHasAsyncWork()
+                && !napiHasThreadsafeCalls()
                 && !timers.empty())
             {
                 auto wait = timers.nextDeadline();
@@ -128,6 +136,7 @@ struct EventLoop
         import dun.builtins.cluster : hasActiveClusterWorkers;
         import dun.loop.agnostic_pending : hasAgnosticPending;
         import dun.loop.async : asyncHasWork;
+        import dun.napi.napi : napiHasAsyncWork, napiHasThreadsafeCalls;
 
         bool base = engine.hasPendingJobs()
             || !timers.empty()
@@ -140,7 +149,9 @@ struct EventLoop
             || hasActiveWsIO()
             || hasActiveClusterWorkers()
             || hasAgnosticPending()
-            || asyncHasWork();
+            || asyncHasWork()
+            || napiHasAsyncWork()
+            || napiHasThreadsafeCalls();
 
         version (Posix)
         {

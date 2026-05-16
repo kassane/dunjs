@@ -36,6 +36,8 @@ version (EngineQuickJS)
         if (m is null) return;
         foreach (name; ["createSocket", "Socket"])
             JS_AddModuleExport(ctx, m, name.ptr);
+
+        JS_AddModuleExport(ctx, m, "default");
     }
 
     private extern (C) int dgramModuleInit(JSContext* ctx, JSModuleDef* m) nothrow @trusted
@@ -49,7 +51,7 @@ version (EngineQuickJS)
             auto fn = JS_GetPropertyStr(ctx, dgramObj, name.ptr);
             JS_SetModuleExport(ctx, m, name.ptr, fn);
         }
-        JS_FreeValue(ctx, dgramObj);
+        JS_SetModuleExport(ctx, m, "default", dgramObj);
         JS_FreeValue(ctx, global);
         return 0;
     }

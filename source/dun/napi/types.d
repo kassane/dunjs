@@ -82,3 +82,62 @@ struct napi_module
 }
 
 alias napi_finalize = extern(C) void function(napi_env env, void* data, void* hint) nothrow;
+
+// --- Async work (`napi_create_async_work` family) ---
+alias napi_async_execute_callback =
+    extern(C) void function(napi_env env, void* data) nothrow;
+alias napi_async_complete_callback =
+    extern(C) void function(napi_env env, napi_status status, void* data) nothrow;
+
+// Opaque handle returned by `napi_create_async_work`.
+struct napi_async_work_s
+{
+    napi_env env;
+    string name;
+    void* data;
+    napi_async_execute_callback execute;
+    napi_async_complete_callback complete;
+    int state;  // 0 = idle, 1 = queued, 2 = running, 3 = completed
+}
+alias napi_async_work = napi_async_work_s*;
+
+// --- Threadsafe function (`napi_create_threadsafe_function` family) ---
+alias napi_threadsafe_function_call_js = extern(C) void function(
+    napi_env env, napi_value js_callback, void* context, void* data) nothrow;
+
+enum : int
+{
+    napi_tsfn_release = 0,
+    napi_tsfn_abort = 1,
+}
+alias napi_threadsafe_function_release_mode = int;
+
+enum : int
+{
+    napi_tsfn_nonblocking = 0,
+    napi_tsfn_blocking = 1,
+}
+alias napi_threadsafe_function_call_mode = int;
+
+struct napi_threadsafe_function_s
+{
+    napi_env env;
+    JSHandle jsFunc;        // pinned JS callable
+    void* context;
+    napi_threadsafe_function_call_js call_js_cb;
+    string name;
+    size_t maxQueueSize;
+    int refCount;
+    int aborted;
+    // Queue lives in env's dispatch loop; protected by a mutex on the D side.
+}
+alias napi_threadsafe_function = napi_threadsafe_function_s*;
+
+// --- Reference (`napi_create_reference` returns a handle ID) ---
+struct napi_ref_s
+{
+    napi_env env;
+    JSHandle value;
+    uint refcount;
+}
+alias napi_ref = napi_ref_s*;

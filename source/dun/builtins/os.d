@@ -61,6 +61,8 @@ version (EngineQuickJS)
         if (m is null) return;
         foreach (name; osExportNames)
             JS_AddModuleExport(ctx, m, name.ptr);
+
+        JS_AddModuleExport(ctx, m, "default");
     }
 
     private static immutable osExportNames = [
@@ -81,7 +83,7 @@ version (EngineQuickJS)
             auto fn = JS_GetPropertyStr(ctx, osObj, name.ptr);
             JS_SetModuleExport(ctx, m, name.ptr, fn);
         }
-        JS_FreeValue(ctx, osObj);
+        JS_SetModuleExport(ctx, m, "default", osObj);
         JS_FreeValue(ctx, global);
         return 0;
     }

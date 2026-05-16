@@ -56,13 +56,15 @@ version (EngineQuickJS)
         auto m = JS_NewCModule(ctx, "dun:buffer", &bufferModuleInit);
         if (m is null) return;
         JS_AddModuleExport(ctx, m, "Buffer");
+        JS_AddModuleExport(ctx, m, "default");
     }
 
     private extern (C) int bufferModuleInit(JSContext* ctx, JSModuleDef* m) nothrow @trusted
     {
         auto global = JS_GetGlobalObject(ctx);
         auto bufObj = JS_GetPropertyStr(ctx, global, "__dun_cjs_buffer__");
-        JS_SetModuleExport(ctx, m, "Buffer", bufObj);
+        JS_SetModuleExport(ctx, m, "Buffer", JS_DupValue(ctx, bufObj));
+        JS_SetModuleExport(ctx, m, "default", bufObj);
         JS_FreeValue(ctx, global);
         return 0;
     }
@@ -270,7 +272,7 @@ void ensureBufferFnsCached(IJSEngine engine) @trusted
 __gshared JSHandle _bufFactory;
 __gshared JSHandle _bufFactoryThis;
 
-package JSHandle makeBufferObj(IJSEngine engine, const(ubyte)[] data) @trusted
+public JSHandle makeBufferObj(IJSEngine engine, const(ubyte)[] data) @trusted
 {
     ensureBufferFnsCached(engine);
     // Single backend call: alloc + memcpy + setPrototype. On V8 this
@@ -280,7 +282,7 @@ package JSHandle makeBufferObj(IJSEngine engine, const(ubyte)[] data) @trusted
     return engine.newBufferWithProto(data, _bufProto, false);
 }
 
-JSHandle makeBufferObjZeroed(IJSEngine engine, int size) @trusted
+public JSHandle makeBufferObjZeroed(IJSEngine engine, int size) @trusted
 {
     ensureBufferFnsCached(engine);
     auto u8 = engine.newUint8ArrayZeroed(size);
@@ -340,11 +342,16 @@ package ubyte[] extractBytes(IJSEngine engine, JSHandle obj) @trusted
     // Buffer is now a Uint8Array subclass — no `.__u8` indirection needed.
     // Falls back to the legacy `.__u8` property in case some non-Buffer
     // object still uses the wrapper shape (e.g. user-constructed pseudo
-    // buffers via `{ __isBuffer: true, __u8: ... }`).
+    // buffers via `{ __isBuffer: true, __u8: ... }`). JSC's
+    // JSObjectGetTypedArrayByteLength is unsafe on non-objects, so gate
+    // on isObject before calling it.
+    if (!engine.isObject(obj)) return null;
     auto bytes = engine.getTypedArrayBytes(obj);
     if (bytes !is null) return bytes;
     auto u8 = engine.getProperty(obj, "__u8");
-    auto fallback = engine.getTypedArrayBytes(u8);
+    ubyte[] fallback = null;
+    if (engine.isObject(u8))
+        fallback = engine.getTypedArrayBytes(u8);
     engine.freeValue(u8);
     return fallback;
 }

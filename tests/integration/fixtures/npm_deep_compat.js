@@ -66,8 +66,10 @@ try {
   app.put("/users/:id", (req, res) => { routeHits.putUser = true; });
   app.delete("/users/:id", (req, res) => { routeHits.deleteUser = true; });
 
-  // Verify routes were registered
-  assert(app._router !== undefined, "express: router initialized after adding routes");
+  // Verify routes were registered. Express 4 exposes `_router` (private),
+  // Express 5 renamed it to `router` (public). Accept either.
+  const __routerObj = app._router || app.router;
+  assert(__routerObj !== undefined, "express: router initialized after adding routes");
 
   // Router with sub-routes
   const router = express.Router();
@@ -82,8 +84,8 @@ try {
   // Mount router
   app.use("/api", router);
 
-  // Test route stack has entries
-  const routeStack = app._router.stack;
+  // Test route stack has entries. Same Express-4-vs-5 split.
+  const routeStack = (app._router || app.router).stack;
   assert(Array.isArray(routeStack), "express: route stack is an array");
   assert(routeStack.length > 0, "express: route stack is not empty");
 

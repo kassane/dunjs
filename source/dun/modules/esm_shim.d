@@ -10,6 +10,10 @@ struct ExportEntry
 
 string transpileESM(string source, string filename) @safe pure
 {
+    // Shebang line — `#!/usr/bin/env -S deno run --allow-all` style.
+    // Comment it out so JSC/V8 don't choke on `#`.
+    if (source.length >= 2 && source[0] == '#' && source[1] == '!')
+        source = "//" ~ source[2 .. $];
 
     Appender!(char[]) result;
     result.reserve(source.length);
@@ -614,6 +618,7 @@ private string builtinGlobalProp(string specifier) @safe pure nothrow
     if (specifier == "dun:cluster" || specifier == "node:cluster" || specifier == "cluster") return "__dun_cjs_cluster__";
     if (specifier == "dun:vm" || specifier == "node:vm" || specifier == "vm") return "__dun_cjs_vm__";
     if (specifier == "dun:async_hooks" || specifier == "node:async_hooks" || specifier == "async_hooks") return "__dun_cjs_async_hooks__";
+    if (specifier == "dun:wasi" || specifier == "node:wasi" || specifier == "wasi") return "__dun_cjs_wasi__";
     return "";
 }
 

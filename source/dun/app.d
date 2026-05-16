@@ -58,7 +58,7 @@ int main(string[] args)
 
 private:
 
-enum VERSION = "0.2.0";
+enum VERSION = "0.3.0";
 
 int runScript(T)(T config)
 {
@@ -102,6 +102,11 @@ int runScript(T)(T config)
         return 1;
     }
 
+    // Shebang: `#!/usr/bin/env node`, `#!/usr/bin/env -S deno run`, etc.
+    // Comment the line out instead of stripping it so line numbers in
+    // error messages still match the source file.
+    source = stripShebang(source);
+
     // Strip TS for .ts/.mts/.cts files AND for stdin (where we have no
     // extension to dispatch on). Stripper is a whitespace-preserving
     // no-op for plain JS, so the false-positive cost is zero.
@@ -109,6 +114,42 @@ int runScript(T)(T config)
     {
         import dun.ts.strip : stripTypes;
         source = stripTypes(source);
+    }
+
+    // V8 prebuilt lacks ICU; rewrite `\p{X}` regex escapes inline so
+    // literal regexes parse. JSC/QuickJS handle these natively.
+    version (EngineV8)
+    {
+        import dun.runtime.unicode_props : expandUnicodePropertyEscapes;
+        source = expandUnicodePropertyEscapes(source);
+    }
+
+    if (isWasmFile(config.scriptPath))
+    {
+        // .wasm entry: synthesize a tiny WASI bootstrap that reads the
+        // raw bytes back from disk, instantiates them and calls _start.
+        // Keeping the bootstrap in JS (vs. inlining the bytes as a base64
+        // literal) avoids ballooning the entry source for large modules.
+        import std.path : absolutePath;
+        import std.string : replace;
+        auto abs = absolutePath(config.scriptPath).replace(`\`, `\\`).replace(`"`, `\"`);
+        source =
+            `if (typeof WebAssembly === 'undefined') {` ~
+            `  console.error('Error: WebAssembly is not available on this engine. ' +` ~
+            `    'Run with --backend=jsc or --backend=v8 to execute .wasm files.');` ~
+            `  if (typeof process !== 'undefined') process.exit(1);` ~
+            `} else {` ~
+            `  const { readFileSync } = require('fs');` ~
+            `  const { WASI } = require('wasi');` ~
+            `  const __wasi_bytes = readFileSync("` ~ abs ~ `");` ~
+            `  const __wasi_args = (typeof process !== 'undefined' && process.argv) ? process.argv.slice(1) : ["` ~ abs ~ `"];` ~
+            `  const __wasi_env = (typeof process !== 'undefined' && process.env) ? Object.assign({}, process.env) : {};` ~
+            `  const __wasi = new WASI({ args: __wasi_args, env: __wasi_env, preopens: { "/": "/" }, returnOnExit: true });` ~
+            `  WebAssembly.instantiate(__wasi_bytes, __wasi.getImportObject()).then(({ instance }) => {` ~
+            `    const rc = __wasi.start(instance);` ~
+            `    if (typeof process !== 'undefined' && rc) process.exitCode = rc;` ~
+            `  }).catch(e => { console.error(e); if (typeof process !== 'undefined') process.exit(1); });` ~
+            `}`;
     }
 
     auto engine = createEngine();
@@ -143,7 +184,9 @@ int runScript(T)(T config)
 
     // Inject __filename / __dirname and seed the CJS require stack so that
     // relative require() calls in the entry script resolve against the
-    // script's own directory (not cwd).
+    // script's own directory (not cwd). Also patch Intl.Collator on V8
+    // here because V8 lazy-loads Intl — running this from installIntl
+    // is too early (Intl isn't materialized yet).
     {
         import std.path : absolutePath, dirName;
         import std.string : replace;
@@ -153,6 +196,11 @@ int runScript(T)(T config)
         auto edir = dir.replace(`\`, `\\`).replace(`"`, `\"`);
         string initCode = `var __filename="` ~ eabs ~ `";var __dirname="` ~ edir ~ `";`;
         initCode ~= `__dunCjsStack__.push("` ~ eabs ~ `");`;
+        version (EngineV8)
+        {
+            import dun.runtime.intl : intlCollatorBindCompareSource;
+            initCode ~= intlCollatorBindCompareSource();
+        }
         auto initRes = engine.eval(initCode, "<init>");
         if (!initRes.isError)
             engine.freeValue(initRes.value);
@@ -282,6 +330,11 @@ int evalInline(T)(T config)
     // behavior where `dun eval` accepts TS source directly.
     import dun.ts.strip : stripTypes;
     auto evalSource = stripTypes(config.evalSource);
+    version (EngineV8)
+    {
+        import dun.runtime.unicode_props : expandUnicodePropertyEscapes;
+        evalSource = expandUnicodePropertyEscapes(evalSource);
+    }
     auto result = engine.eval(evalSource, "<eval>");
     if (result.isError)
     {
@@ -511,10 +564,17 @@ int runSingleTest(T)(T config, string filePath) @trusted
         return 1;
     }
 
+    source = stripShebang(source);
+
     if (isTypeScript(filePath) || isStdinPath(filePath))
     {
         import dun.ts.strip : stripTypes;
         source = stripTypes(source);
+    }
+    version (EngineV8)
+    {
+        import dun.runtime.unicode_props : expandUnicodePropertyEscapes;
+        source = expandUnicodePropertyEscapes(source);
     }
 
     // Inject test harness preamble
@@ -663,10 +723,17 @@ int runSingleBench(T)(T config, string filePath) @trusted
         return 1;
     }
 
+    source = stripShebang(source);
+
     if (isTypeScript(filePath) || isStdinPath(filePath))
     {
         import dun.ts.strip : stripTypes;
         source = stripTypes(source);
+    }
+    version (EngineV8)
+    {
+        import dun.runtime.unicode_props : expandUnicodePropertyEscapes;
+        source = expandUnicodePropertyEscapes(source);
     }
 
     // Bench harness: Deno.bench(name, fn) runs fn multiple times and measures
@@ -770,7 +837,7 @@ int runInit(T)(T config)
     write(buildPath(dir, "dun.json"),
         "{\n"
         ~ "  \"name\": \"" ~ name ~ "\",\n"
-        ~ "  \"version\": \"0.2.0\",\n"
+        ~ "  \"version\": \"0.3.0\",\n"
         ~ "  \"main\": \"main.ts\",\n"
         ~ "  \"tasks\": {\n"
         ~ "    \"start\": \"dun run main.ts\",\n"
@@ -1206,6 +1273,21 @@ bool isStdinPath(string path) @safe pure nothrow @nogc
     // `dun run -` or `dun run /dev/stdin` should run the TS stripper too
     // since there's no file extension to dispatch on.
     return path == "-" || path == "/dev/stdin" || path == "/dev/fd/0";
+}
+
+bool isWasmFile(string path) @safe pure nothrow @nogc
+{
+    return path.length >= 5 && path[$ - 5 .. $] == ".wasm";
+}
+
+string stripShebang(string source) @safe pure nothrow
+{
+    if (source.length < 2 || source[0] != '#' || source[1] != '!')
+        return source;
+    // Replace `#!` with `//` so the rest of the first line becomes a
+    // comment. Keeps line numbers and column positions intact for
+    // stack traces and source maps.
+    return "//" ~ source[2 .. $];
 }
 
 bool isESM(string path, string source) @safe pure nothrow

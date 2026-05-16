@@ -57,6 +57,7 @@
 				"source/dun/engine/quickjs/value.d",
 				"source/dun/engine/quickjs/exceptions.d",
 				"source/dun/engine/quickjs/function_bind.d",
+				"source/dun/engine/quickjs/bindings.d",
 				"source/dun/engine/v8/backend.d",
 				"source/dun/engine/v8/cppbindings.d"
 			],
@@ -113,6 +114,7 @@
 				"source/dun/engine/quickjs/value.d",
 				"source/dun/engine/quickjs/exceptions.d",
 				"source/dun/engine/quickjs/function_bind.d",
+				"source/dun/engine/quickjs/bindings.d",
 				"source/dun/engine/jsc/backend.d",
 				"source/dun/engine/jsc/cppbindings.d"
 			],
@@ -169,6 +171,7 @@
 				"source/dun/engine/quickjs/value.d",
 				"source/dun/engine/quickjs/exceptions.d",
 				"source/dun/engine/quickjs/function_bind.d",
+				"source/dun/engine/quickjs/bindings.d",
 				"source/dun/engine/v8/backend.d",
 				"source/dun/engine/v8/cppbindings.d"
 			],
@@ -209,6 +212,7 @@
 				"source/dun/engine/quickjs/value.d",
 				"source/dun/engine/quickjs/exceptions.d",
 				"source/dun/engine/quickjs/function_bind.d",
+				"source/dun/engine/quickjs/bindings.d",
 				"source/dun/engine/jsc/backend.d",
 				"source/dun/engine/jsc/cppbindings.d"
 			],
@@ -290,7 +294,8 @@
 		"-L$PACKAGE_DIR/vendor/sqlite",
 		"-lbrotlienc",
 		"-lbrotlidec",
-		"-lbrotlicommon"
+		"-lbrotlicommon",
+		"--export-dynamic"
 	],
 	"lflags-osx": [
 		"-L$PACKAGE_DIR/vendor/sqlite",
@@ -303,7 +308,7 @@
 	"toolchainRequirements": {
 		"frontend": ">=2.112.0"
 	},
-	"version": "0.2.0",
+	"version": "0.3.0",
 	"description": "A secure JavaScript runtime written in D",
 	"dependencies": {},
 	"targetType": "executable",

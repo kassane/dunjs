@@ -159,6 +159,7 @@ JSHandle jsRequire(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
     else if (specifier == "tls") specifier = "dun:tls";
     else if (specifier == "dgram") specifier = "dun:dgram";
     else if (specifier == "perf_hooks") specifier = "dun:perf_hooks";
+    else if (specifier == "wasi") specifier = "dun:wasi";
     else if (specifier == "readline") specifier = "dun:readline";
     else if (specifier == "punycode") specifier = "dun:punycode";
     else if (specifier == "diagnostics_channel") specifier = "dun:diagnostics_channel";
@@ -219,6 +220,7 @@ JSHandle jsRequire(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
         else if (specifier == "dun:tls") propName = "__dun_cjs_tls__";
         else if (specifier == "dun:dgram") propName = "__dun_cjs_dgram__";
         else if (specifier == "dun:perf_hooks") propName = "__dun_cjs_perf_hooks__";
+        else if (specifier == "dun:wasi") propName = "__dun_cjs_wasi__";
         else if (specifier == "dun:readline") propName = "__dun_cjs_readline__";
         else if (specifier == "dun:punycode") propName = "__dun_cjs_punycode__";
         else if (specifier == "dun:diagnostics_channel") propName = "__dun_cjs_diagnostics_channel__";
@@ -389,6 +391,23 @@ JSHandle jsRequire(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
     }
     catch (Exception) { return throwModuleNotFound(engine, specifier); }
 
+    // Comment out a leading shebang so the JS parser doesn't choke on
+    // `#!/usr/bin/env node` style entry-point scripts loaded via require().
+    if (source.length >= 2 && source[0] == '#' && source[1] == '!')
+        source = "//" ~ source[2 .. $];
+
+    // V8 prebuilt ships without ICU, so any `/\p{X}/u` regex LITERAL
+    // throws at parse time before the runtime polyfill can wrap it.
+    // Substitute Unicode property escapes with bare character classes
+    // at source level. Heuristic: only run when source contains \p{ or
+    // \P{; the substitution is identity inside string/comment contexts
+    // because we only replace the exact escape sequence.
+    version (EngineV8)
+    {
+        import dun.runtime.unicode_props : expandUnicodePropertyEscapes;
+        source = expandUnicodePropertyEscapes(source);
+    }
+
     bool esmTranspiled = false;
     try
     {
@@ -405,6 +424,21 @@ JSHandle jsRequire(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
                 auto encoded = Base64.encode(cast(const(ubyte)[]) sourceMap);
                 source ~= "\n//# sourceMappingURL=data:application/json;base64,"
                     ~ cast(string) encoded;
+            }
+
+            // .ts files can still be ESM (top-level import/export). The
+            // CJS require() path needs them transpiled to CJS shims or
+            // JSC/V8's parser will fail on the `import` keyword. The
+            // stripper has just finished, so the source is now pure JS
+            // (modulo the import/export statements transpileESM rewrites).
+            import dun.modules.esm_shim : transpileESM;
+            import std.algorithm : canFind;
+            if (source.canFind("\nimport ") || source.canFind("\nexport ")
+                || (source.length >= 7 && source[0 .. 7] == "import ")
+                || (source.length >= 7 && source[0 .. 7] == "export "))
+            {
+                source = transpileESM(source, resolved);
+                esmTranspiled = true;
             }
         }
         else if (resolved.endsWith(".mjs") || resolved.endsWith(".mts"))
@@ -457,37 +491,57 @@ JSHandle jsRequire(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
         string wrapped;
         if (esmTranspiled)
         {
-            // ESM-transpiled: don't pass require as parameter (avoids conflict
-            // with `const require = createRequire(...)` in transpiled source).
-            // But globalThis.require used by preamble needs module context too.
+            // ESM-transpiled: pass module/exports as parameters so the
+            // transpiled body can do `module.exports = ...`. Skip
+            // __filename/__dirname injection if the source redeclares
+            // them — common in Deno-ported scripts that compute them
+            // from `import.meta.url`. JSC strict mode would error on
+            // `const X` shadowing a parameter `X`.
+            import std.algorithm : canFind;
+            bool srcDeclaresDirname = source.canFind("__dirname") &&
+                (source.canFind("const __dirname") || source.canFind("let __dirname")
+                 || source.canFind("var __dirname"));
+            bool srcDeclaresFilename = source.canFind("__filename") &&
+                (source.canFind("const __filename") || source.canFind("let __filename")
+                 || source.canFind("var __filename"));
+            string dirnameInject = srcDeclaresDirname ? "" :
+                "var __dirname = \"" ~ escDir ~ "\";\n";
+            string filenameInject = srcDeclaresFilename ? "" :
+                "var __filename = \"" ~ escPath ~ "\";\n";
             wrapped =
                 "(function() {\n"
                 ~ "var __m = __dunCjsCache__[\"" ~ escPath ~ "\"];\n"
                 ~ "__dunCjsStack__.push(\"" ~ escPath ~ "\");\n"
                 ~ "try {\n"
-                ~ "(function(module, exports, __filename, __dirname) {\n"
+                ~ "(function(module, exports) {\n"
+                ~ filenameInject
+                ~ dirnameInject
                 ~ source ~ "\n"
-                ~ "})(__m, __m.exports, \""
-                ~ escPath ~ "\", \""
-                ~ escDir ~ "\");\n"
+                ~ "})(__m, __m.exports);\n"
                 ~ "} finally { __dunCjsStack__.pop(); }\n"
                 ~ "return __m.exports;\n"
                 ~ "})()";
         }
         else
         {
-            // Create module-local require that resolves relative paths from this module's directory
+            // Create module-local require that resolves relative paths from this module's directory.
+            // Reference globalThis.require (not bare `require`) so this code is
+            // safe to evaluate inside an ESM module that does
+            // `const require = createRequire(import.meta.url)` — bare `require`
+            // hits TDZ there, since `const` declarations hoist but stay
+            // uninitialized until their textual position.
             wrapped =
                 "(function() {\n"
                 ~ "var __m = __dunCjsCache__[\"" ~ escPath ~ "\"];\n"
+                ~ "var __gReq = globalThis.require;\n"
                 ~ "var __modRequire = function(id) {\n"
                 ~   "__dunCjsStack__.push(\"" ~ escPath ~ "\");\n"
-                ~   "try { var r = globalThis.require(id); __dunCjsStack__.pop(); return r; }\n"
+                ~   "try { var r = __gReq(id); __dunCjsStack__.pop(); return r; }\n"
                 ~   "catch(e) { __dunCjsStack__.pop(); throw e; }\n"
                 ~ "};\n"
-                ~ "__modRequire.resolve = require.resolve;\n"
-                ~ "__modRequire.cache = require.cache;\n"
-                ~ "__modRequire.main = require.main;\n"
+                ~ "__modRequire.resolve = __gReq.resolve;\n"
+                ~ "__modRequire.cache = __gReq.cache;\n"
+                ~ "__modRequire.main = __gReq.main;\n"
                 ~ "(function(module, exports, require, __filename, __dirname) {\n"
                 ~ source ~ "\n"
                 ~ "})(__m, __m.exports, __modRequire, \""

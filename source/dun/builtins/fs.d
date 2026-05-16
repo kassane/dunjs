@@ -274,6 +274,7 @@ version (EngineQuickJS)
         if (m is null) return;
         foreach (name; fsExports)
             JS_AddModuleExport(ctx, m, name.ptr);
+        JS_AddModuleExport(ctx, m, "default");
     }
 
     private extern (C) int fsModuleInit(JSContext* ctx, JSModuleDef* m) nothrow @trusted
@@ -287,7 +288,7 @@ version (EngineQuickJS)
             auto fn = JS_GetPropertyStr(ctx, fsObj, name.ptr);
             JS_SetModuleExport(ctx, m, name.ptr, fn);
         }
-        JS_FreeValue(ctx, fsObj);
+        JS_SetModuleExport(ctx, m, "default", fsObj);
         JS_FreeValue(ctx, global);
         return 0;
     }
