@@ -107,13 +107,22 @@ int runScript(T)(T config)
     // error messages still match the source file.
     source = stripShebang(source);
 
-    // Strip TS for .ts/.mts/.cts files AND for stdin (where we have no
-    // extension to dispatch on). Stripper is a whitespace-preserving
-    // no-op for plain JS, so the false-positive cost is zero.
+    // Strip TS for .ts/.mts/.cts/.tsx files AND for stdin (where we
+    // have no extension to dispatch on). Stripper is a whitespace-
+    // preserving no-op for plain JS, so the false-positive cost is zero.
     if (isTypeScript(config.scriptPath) || isStdinPath(config.scriptPath))
     {
         import dun.ts.strip : stripTypes;
         source = stripTypes(source);
+    }
+
+    // JSX/TSX → React.createElement transform. Runs after TS strip
+    // since the stripper already cleared parameter annotations etc.
+    // that would otherwise confuse the JSX scanner.
+    if (isJsxOrTsx(config.scriptPath))
+    {
+        import dun.ts.jsx : transformJsx;
+        source = transformJsx(source);
     }
 
     // V8 prebuilt lacks ICU; rewrite `\p{X}` regex escapes inline so
@@ -1265,7 +1274,15 @@ bool isTypeScript(string path) @safe pure nothrow @nogc
         return true;
     if (path.length >= 4 && path[$ - 4 .. $] == ".cts")
         return true;
+    if (path.length >= 4 && path[$ - 4 .. $] == ".tsx")
+        return true;
     return false;
+}
+
+bool isJsxOrTsx(string path) @safe pure nothrow @nogc
+{
+    return (path.length >= 4 && path[$ - 4 .. $] == ".tsx")
+        || (path.length >= 4 && path[$ - 4 .. $] == ".jsx");
 }
 
 bool isStdinPath(string path) @safe pure nothrow @nogc

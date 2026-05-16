@@ -14,7 +14,7 @@ FIXTURES=tests/integration/fixtures
 EXPECTED=tests/integration/expected
 fails=0
 
-for fixture in "$FIXTURES"/*.js "$FIXTURES"/*.ts "$FIXTURES"/*.mjs; do
+for fixture in "$FIXTURES"/*.js "$FIXTURES"/*.ts "$FIXTURES"/*.mjs "$FIXTURES"/*.tsx "$FIXTURES"/*.jsx; do
   [ -f "$fixture" ] || continue
   name=$(basename "${fixture%.*}")
   stdout_exp="$EXPECTED/${name}.txt"

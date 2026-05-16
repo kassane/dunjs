@@ -178,7 +178,8 @@ version (EngineQuickJS)
         }
 
         // Strip TypeScript types
-        if (specifier.endsWith(".ts") || specifier.endsWith(".mts"))
+        if (specifier.endsWith(".ts") || specifier.endsWith(".mts")
+            || specifier.endsWith(".tsx"))
         {
             try
             {
@@ -195,6 +196,15 @@ version (EngineQuickJS)
                     source ~= "\n//# sourceMappingURL=data:application/json;base64,"
                         ~ cast(string) encoded;
                 }
+            }
+            catch (Exception) {}
+        }
+        if (specifier.endsWith(".tsx") || specifier.endsWith(".jsx"))
+        {
+            try
+            {
+                import dun.ts.jsx : transformJsx;
+                source = transformJsx(source);
             }
             catch (Exception) {}
         }

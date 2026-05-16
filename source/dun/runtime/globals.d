@@ -115,6 +115,29 @@ void installGlobals(IJSEngine engine, DunState* state) @trusted
     import dun.runtime.web_apis : installWebAPIs;
     installWebAPIs(engine);
 
+    // Tiny React shim so JSX-emitted React.createElement calls work
+    // without an explicit `import React from 'react'`. Match Bun's
+    // implicit-React behavior; if the user does `import React`, the
+    // import overrides this. Returns a plain { type, props, children }
+    // tree — sufficient for serialization-only consumers (e.g. server-
+    // side render to HTML / JSON). Real DOM rendering still needs a
+    // real React build.
+    auto reactRes = engine.eval(
+        "(function() {" ~
+        "if (typeof globalThis.React !== 'undefined') return;" ~
+        "globalThis.React = {" ~
+        "  Fragment: Symbol('React.Fragment')," ~
+        "  createElement: function(type, props /*, ...children */) {" ~
+        "    var children = [];" ~
+        "    for (var i = 2; i < arguments.length; i++) children.push(arguments[i]);" ~
+        "    var node = { type: type, props: props || {}, children: children };" ~
+        "    Object.defineProperty(node, '$$typeof', { value: Symbol.for('react.element') });" ~
+        "    return node;" ~
+        "  }" ~
+        "};" ~
+        "})();", "<react-shim>");
+    if (!reactRes.isError) engine.freeValue(reactRes.value);
+
     // WebAssembly: JSC and V8 ship the constructors but their async
     // `instantiate` / `compile` / streaming variants schedule onto the
     // engine's internal task queue, which our event loop doesn't drain.
