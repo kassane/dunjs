@@ -1496,14 +1496,13 @@ bool isESM(string path, string source) @safe pure nothrow
         return false;
 
     // Content-based: top-level `import`, `export`, or `await` all
-    // imply ESM. (Top-level await only parses in module context, so
-    // the presence of it is also a tell -- scripts can use Promise
-    // chains instead.) `import`/`export` are line-start only;
-    // `await` can appear anywhere at top-level statement scope, so
-    // we track brace/paren/bracket depth to disqualify nested
-    // appearances.
+    // imply ESM. We track an "is this brace a function/class body?"
+    // stack so `{ await … }` (a bare block) or `try { await … }` is
+    // still recognized as top-level -- only function/class scopes
+    // disqualify a depth-0 match.
     bool atLineStart = true;
-    int braceD = 0, parenD = 0, bracketD = 0;
+    bool[] fnStack;
+    int parenD = 0, bracketD = 0;
     size_t i = 0;
     while (i < source.length)
     {
@@ -1546,8 +1545,39 @@ bool isESM(string path, string source) @safe pure nothrow
             if (i < source.length) i++;
             continue;
         }
-        if (c == '{') braceD++;
-        else if (c == '}') { if (braceD > 0) braceD--; }
+        if (c == '{')
+        {
+            // Decide whether this brace opens a function / class body
+            // (in which case await inside is *not* top-level).
+            bool isFn = false;
+            size_t back = i;
+            while (back > 0 && (source[back - 1] == ' ' || source[back - 1] == '\t'
+                    || source[back - 1] == '\n' || source[back - 1] == '\r')) back--;
+            if (back > 0)
+            {
+                if (source[back - 1] == ')') isFn = true;
+                else if (back >= 2 && source[back - 2] == '=' && source[back - 1] == '>') isFn = true;
+            }
+            // `class … {`
+            if (!isFn)
+            {
+                size_t j = i;
+                while (j > 0 && (source[j - 1] == ' ' || source[j - 1] == '\t'
+                        || source[j - 1] == '\n' || source[j - 1] == '\r'
+                        || (source[j - 1] >= 'a' && source[j - 1] <= 'z')
+                        || (source[j - 1] >= 'A' && source[j - 1] <= 'Z')
+                        || (source[j - 1] >= '0' && source[j - 1] <= '9')
+                        || source[j - 1] == '_' || source[j - 1] == '$')) j--;
+                while (j < i && (source[j] == ' ' || source[j] == '\t'
+                        || source[j] == '\n' || source[j] == '\r')) j++;
+                if (j + 5 <= i && source[j .. j + 5] == "class") isFn = true;
+            }
+            fnStack ~= isFn;
+        }
+        else if (c == '}')
+        {
+            if (fnStack.length > 0) fnStack.length = fnStack.length - 1;
+        }
         else if (c == '(') parenD++;
         else if (c == ')') { if (parenD > 0) parenD--; }
         else if (c == '[') bracketD++;
@@ -1559,8 +1589,10 @@ bool isESM(string path, string source) @safe pure nothrow
             // skip leading whitespace -- still at line start
             if (c == ' ' || c == '\t') { i++; continue; }
         }
-        // top-level await -- anywhere at depth-0 statement scope.
-        if (braceD == 0 && parenD == 0 && bracketD == 0
+        // top-level await -- no enclosing function/class scope.
+        bool insideFn = false;
+        foreach (b; fnStack) if (b) { insideFn = true; break; }
+        if (!insideFn && parenD == 0 && bracketD == 0
             && source.length - i >= 6 && source[i .. i + 5] == "await"
             && (source[i + 5] == ' ' || source[i + 5] == '\t'
                 || source[i + 5] == '\n' || source[i + 5] == '(')
@@ -1569,8 +1601,6 @@ bool isESM(string path, string source) @safe pure nothrow
                             || (source[i - 1] >= '0' && source[i - 1] <= '9')
                             || source[i - 1] == '_' || source[i - 1] == '$'))))
         {
-            // `function x() { await ... }` would have braceD > 0,
-            // so a depth-0 match is necessarily top-level.
             return true;
         }
         atLineStart = (c == '\n');

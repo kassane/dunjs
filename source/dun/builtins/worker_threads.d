@@ -20,11 +20,19 @@ void registerWorkerThreadsModule(IJSEngine engine) @trusted
     // callable, not a constructor, so wrap in a JS class that
     // delegates to the global `Worker(path)` factory installed by
     // worker_api.d. Both `new Worker(p)` and `Worker(p)` then work.
+    //
+    // workerData / parentPort are populated by the worker bootstrap:
+    //   - Main thread sees workerData === undefined.
+    //   - Worker thread sees workerData = globalThis.__workerData__
+    //     (set by the inline-source temp file when eval:true is used)
+    //     and parentPort = a tiny EventEmitter wrapping postMessage.
     auto wrapRes = engine.eval(
         `globalThis.__dun_cjs_worker_threads__.Worker = `
         ~ `class Worker { `
         ~ `  constructor(p, opts) { return new globalThis.Worker(p, opts); } `
-        ~ `};`,
+        ~ `};`
+        ~ `Object.defineProperty(globalThis.__dun_cjs_worker_threads__, 'workerData', {`
+        ~ `  get: function() { return globalThis.__workerData__; }, configurable: true });`,
         "<worker-threads-init>");
     if (!wrapRes.isError) engine.freeValue(wrapRes.value);
 
