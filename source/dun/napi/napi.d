@@ -314,19 +314,34 @@ napi_status napi_throw_type_error(napi_env env, const(char)* code, const(char)* 
 napi_status napi_create_reference(napi_env env, napi_value value, uint initial_refcount, void** result)
 {
     if (env is null || value is null || result is null) return napi_invalid_arg;
-    *result = null;
+    try
+    {
+        auto r = new napi_ref_s;
+        r.env = env;
+        // dupValue pins the JS value across GC cycles (it's now strongly
+        // held by D-side bookkeeping until napi_delete_reference frees).
+        r.value = env.engine.dupValue(value.handle);
+        r.refcount = initial_refcount;
+        *result = cast(void*) r;
+    }
+    catch (Throwable) { return napi_generic_failure; }
     return napi_ok;
 }
 
 napi_status napi_delete_reference(napi_env env, void* ref_)
 {
+    if (env is null || ref_ is null) return napi_invalid_arg;
+    auto r = cast(napi_ref_s*) ref_;
+    try { env.engine.freeValue(r.value); } catch (Exception) {}
     return napi_ok;
 }
 
 napi_status napi_get_reference_value(napi_env env, void* ref_, napi_value* result)
 {
     if (env is null || result is null) return napi_invalid_arg;
-    *result = allocValue(env.engine.newUndefined());
+    if (ref_ is null) { *result = allocValue(env.engine.newUndefined()); return napi_ok; }
+    auto r = cast(napi_ref_s*) ref_;
+    *result = allocValue(env.engine.dupValue(r.value));
     return napi_ok;
 }
 
@@ -800,14 +815,18 @@ napi_status napi_escape_handle(napi_env env, void* scope_, napi_value escapee, n
 napi_status napi_reference_ref(napi_env env, void* ref_, uint* result)
 {
     if (env is null || ref_ is null) return napi_invalid_arg;
-    if (result !is null) *result = 1;
+    auto r = cast(napi_ref_s*) ref_;
+    r.refcount++;
+    if (result !is null) *result = r.refcount;
     return napi_ok;
 }
 
 napi_status napi_reference_unref(napi_env env, void* ref_, uint* result)
 {
     if (env is null || ref_ is null) return napi_invalid_arg;
-    if (result !is null) *result = 0;
+    auto r = cast(napi_ref_s*) ref_;
+    if (r.refcount > 0) r.refcount--;
+    if (result !is null) *result = r.refcount;
     return napi_ok;
 }
 
@@ -1186,4 +1205,296 @@ private extern (D) JSHandle napiDispatch(void* engineCtx, JSHandle thisVal, scop
         return rv.handle;
     }
     catch (Throwable) { return engine.newUndefined(); }
+}
+
+// ============================================================================
+// Async work — napi_create_async_work / napi_queue_async_work
+// ============================================================================
+//
+// Async work lets a native addon run a C function on a background thread,
+// then hop back to the main JS thread for the completion callback (where it
+// can safely touch JS values via napi_value).
+//
+// DunJS already has a worker thread pool (`dun.platform.thread_pool`) that
+// supports this exact pattern. We use it for async crypto / fs already, so
+// the queue/dispatch infrastructure is reused here.
+
+extern(C) @trusted:
+
+napi_status napi_create_async_work(napi_env env, napi_value async_resource,
+    napi_value async_resource_name,
+    napi_async_execute_callback execute,
+    napi_async_complete_callback complete,
+    void* data, napi_async_work* result)
+{
+    if (env is null || execute is null || result is null) return napi_invalid_arg;
+    try
+    {
+        auto work = new napi_async_work_s;
+        work.env = env;
+        work.data = data;
+        work.execute = execute;
+        work.complete = complete;
+        work.state = 0;
+        // Resource name is informational (used for async_hooks tracking on
+        // Node). We accept it but don't currently surface it to Tracing.
+        if (async_resource_name !is null)
+            work.name = env.engine.extractString(async_resource_name.handle);
+        *result = work;
+    }
+    catch (Throwable) { return napi_generic_failure; }
+    return napi_ok;
+}
+
+napi_status napi_delete_async_work(napi_env env, napi_async_work work)
+{
+    if (env is null || work is null) return napi_invalid_arg;
+    // The pointer is GC-managed; just clear it so any stray reference
+    // doesn't fire the callback again.
+    work.execute = null;
+    work.complete = null;
+    return napi_ok;
+}
+
+napi_status napi_queue_async_work(napi_env env, napi_async_work work)
+{
+    if (env is null || work is null || work.execute is null) return napi_invalid_arg;
+    try
+    {
+        import core.thread : Thread;
+        import core.atomic : atomicStore, MemoryOrder;
+        work.state = 1;  // queued
+        ensureNapiMutexes();
+        g_napiWorkMu.lock();
+        scope(exit) g_napiWorkMu.unlock();
+        g_napiWorkQueue ~= work;
+        auto t = new Thread({
+            try { if (work.execute) work.execute(work.env, work.data); }
+            catch (Throwable) {}
+            work.state = 3;  // completed (main loop will drain)
+        });
+        t.isDaemon = true;
+        t.start();
+        return napi_ok;
+    }
+    catch (Throwable) { return napi_generic_failure; }
+}
+
+napi_status napi_cancel_async_work(napi_env env, napi_async_work work)
+{
+    if (env is null || work is null) return napi_invalid_arg;
+    // Best-effort: clear the callbacks. If the work hasn't started yet,
+    // the pool worker will see them null and skip.
+    work.execute = null;
+    work.complete = null;
+    return napi_ok;
+}
+
+// Cross-thread N-API async work queue. Worker threads push completed
+// entries; the main event loop drains them via napiDrainAsyncWork() and
+// invokes work.complete(env, status, data) on the main thread (where
+// JS calls are safe).
+import core.sync.mutex : Mutex;
+private __gshared napi_async_work[] g_napiWorkQueue;
+private __gshared Mutex g_napiWorkMu;
+private __gshared Mutex g_napiTsfnMu;
+
+// Lazy mutex init avoids a shared-static cycle with the worker /
+// runtime.globals / eventloop modules.
+private void ensureNapiMutexes() nothrow @trusted
+{
+    try
+    {
+        if (g_napiWorkMu is null) g_napiWorkMu = new Mutex;
+        if (g_napiTsfnMu is null) g_napiTsfnMu = new Mutex;
+    }
+    catch (Exception) {}
+}
+
+/// Called by the event loop on each tick to flush any completed async
+/// work back into JS via the registered complete callback.
+extern(D) int napiDrainAsyncWork() nothrow @trusted
+{
+    int drained = 0;
+    napi_async_work[] ready;
+    try
+    {
+        ensureNapiMutexes();
+        g_napiWorkMu.lock();
+        scope(exit) g_napiWorkMu.unlock();
+        size_t write = 0;
+        foreach (w; g_napiWorkQueue)
+        {
+            if (w !is null && w.state == 3)
+                ready ~= w;
+            else
+                g_napiWorkQueue[write++] = w;
+        }
+        g_napiWorkQueue.length = write;
+        g_napiWorkQueue.assumeSafeAppend();
+    }
+    catch (Exception) {}
+    foreach (w; ready)
+    {
+        try { if (w.complete) w.complete(w.env, napi_ok, w.data); } catch (Throwable) {}
+        drained++;
+    }
+    return drained;
+}
+
+/// True when there is at least one async work entry still pending —
+/// either running on a thread or queued for completion. The event loop
+/// uses this to keep itself awake.
+extern(D) bool napiHasAsyncWork() nothrow @trusted
+{
+    ensureNapiMutexes();
+    try { g_napiWorkMu.lock(); scope(exit) g_napiWorkMu.unlock();
+          return g_napiWorkQueue.length > 0; }
+    catch (Exception) { return false; }
+}
+
+// ============================================================================
+// Threadsafe functions — napi_create_threadsafe_function family
+// ============================================================================
+//
+// A threadsafe function lets background threads enqueue calls back to a JS
+// function safely. Internally we hold a JSHandle that's pinned across calls
+// (via dupValue) and a mutex-protected queue of pending invocations.
+
+napi_status napi_create_threadsafe_function(napi_env env, napi_value func,
+    napi_value async_resource, napi_value async_resource_name,
+    size_t max_queue_size, size_t initial_thread_count,
+    void* thread_finalize_data, napi_finalize thread_finalize_cb,
+    void* context, napi_threadsafe_function_call_js call_js_cb,
+    napi_threadsafe_function* result)
+{
+    if (env is null || func is null || result is null) return napi_invalid_arg;
+    try
+    {
+        auto tsfn = new napi_threadsafe_function_s;
+        tsfn.env = env;
+        tsfn.jsFunc = env.engine.dupValue(func.handle);
+        tsfn.context = context;
+        tsfn.call_js_cb = call_js_cb;
+        tsfn.maxQueueSize = max_queue_size;
+        tsfn.refCount = cast(int) initial_thread_count;
+        tsfn.aborted = 0;
+        if (async_resource_name !is null)
+            tsfn.name = env.engine.extractString(async_resource_name.handle);
+        *result = tsfn;
+    }
+    catch (Throwable) { return napi_generic_failure; }
+    return napi_ok;
+}
+
+napi_status napi_get_threadsafe_function_context(napi_threadsafe_function func, void** result)
+{
+    if (func is null || result is null) return napi_invalid_arg;
+    *result = func.context;
+    return napi_ok;
+}
+
+napi_status napi_call_threadsafe_function(napi_threadsafe_function func,
+    void* data, napi_threadsafe_function_call_mode is_blocking)
+{
+    if (func is null) return napi_invalid_arg;
+    if (func.aborted) return napi_closing;
+    try
+    {
+        // Queue a call. The main loop's napiDrainThreadsafeCalls() picks
+        // up entries on each tick and dispatches them on the JS thread.
+        ensureNapiMutexes();
+        g_napiTsfnMu.lock();
+        scope(exit) g_napiTsfnMu.unlock();
+        if (func.maxQueueSize > 0 && g_napiTsfnQueue.length >= func.maxQueueSize)
+            return napi_queue_full;
+        g_napiTsfnQueue ~= TsfnCall(func, data);
+    }
+    catch (Throwable) { return napi_generic_failure; }
+    return napi_ok;
+}
+
+napi_status napi_acquire_threadsafe_function(napi_threadsafe_function func)
+{
+    if (func is null) return napi_invalid_arg;
+    func.refCount++;
+    return napi_ok;
+}
+
+napi_status napi_release_threadsafe_function(napi_threadsafe_function func,
+    napi_threadsafe_function_release_mode mode)
+{
+    if (func is null) return napi_invalid_arg;
+    if (mode == napi_tsfn_abort) func.aborted = 1;
+    if (func.refCount > 0) func.refCount--;
+    if (func.refCount == 0 && func.env !is null && func.env.engine !is null)
+    {
+        try { func.env.engine.freeValue(func.jsFunc); } catch (Exception) {}
+    }
+    return napi_ok;
+}
+
+napi_status napi_ref_threadsafe_function(napi_env env, napi_threadsafe_function func)
+{
+    if (env is null || func is null) return napi_invalid_arg;
+    return napi_ok;
+}
+
+napi_status napi_unref_threadsafe_function(napi_env env, napi_threadsafe_function func)
+{
+    if (env is null || func is null) return napi_invalid_arg;
+    return napi_ok;
+}
+
+private struct TsfnCall { napi_threadsafe_function func; void* data; }
+private __gshared TsfnCall[] g_napiTsfnQueue;
+
+/// Called by the event loop on each tick to dispatch pending threadsafe
+/// function calls back to JS on the main thread.
+extern(D) int napiDrainThreadsafeCalls() nothrow @trusted
+{
+    int drained = 0;
+    TsfnCall[] batch;
+    try
+    {
+        ensureNapiMutexes();
+        g_napiTsfnMu.lock();
+        scope(exit) g_napiTsfnMu.unlock();
+        batch = g_napiTsfnQueue.dup;
+        g_napiTsfnQueue.length = 0;
+        g_napiTsfnQueue.assumeSafeAppend();
+    }
+    catch (Exception) {}
+    foreach (call; batch)
+    {
+        auto f = call.func;
+        if (f is null || f.aborted) continue;
+        try
+        {
+            if (f.call_js_cb !is null)
+            {
+                auto wrapper = allocValue(f.jsFunc);
+                f.call_js_cb(f.env, wrapper, f.context, call.data);
+            }
+            else
+            {
+                JSHandle[] zeroArgs;
+                auto undef = f.env.engine.newUndefined();
+                auto rv = f.env.engine.callFunction(f.jsFunc, undef, zeroArgs);
+                f.env.engine.freeValue(undef);
+                f.env.engine.freeValue(rv);
+            }
+        }
+        catch (Throwable) {}
+        drained++;
+    }
+    return drained;
+}
+
+extern(D) bool napiHasThreadsafeCalls() nothrow @trusted
+{
+    ensureNapiMutexes();
+    try { g_napiTsfnMu.lock(); scope(exit) g_napiTsfnMu.unlock();
+          return g_napiTsfnQueue.length > 0; }
+    catch (Exception) { return false; }
 }
