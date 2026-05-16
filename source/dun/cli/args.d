@@ -202,9 +202,14 @@ CliConfig parseArgs(string[] args) @safe
             {
                 config.testFiles ~= args[i];
             }
-            else
+            else if (isKnownFlag(args[i]))
             {
                 config.permissions.parseFlag(args[i]);
+            }
+            else
+            {
+                config.errorMessage = "unknown flag '" ~ args[i] ~ "' for 'test'";
+                return config;
             }
             i++;
         }
@@ -214,9 +219,21 @@ CliConfig parseArgs(string[] args) @safe
     {
         config.command = Command.bench;
         i++;
-        while (i < args.length && !args[i].startsWith("-"))
+        while (i < args.length)
         {
-            config.testFiles ~= args[i];
+            if (!args[i].startsWith("-"))
+            {
+                config.testFiles ~= args[i];
+            }
+            else if (isKnownFlag(args[i]))
+            {
+                config.permissions.parseFlag(args[i]);
+            }
+            else
+            {
+                config.errorMessage = "unknown flag '" ~ args[i] ~ "' for 'bench'";
+                return config;
+            }
             i++;
         }
         return config;
