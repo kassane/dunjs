@@ -356,6 +356,10 @@ string stripTypes(const(char)[] source) @trusted
                     afterVarKw = false;
                     continue;
                 }
+                // Inline `type` modifiers: `import { a, type B, c } from 'm'`
+                // Blank just the `type B` specifier(s), leave the rest.
+                if (ws < buf.length && buf[ws] == '{')
+                    blankTypeSpecifiersInBraces(buf, ws);
             }
 
             // --- export type ... / export interface ... ---
@@ -401,6 +405,10 @@ string stripTypes(const(char)[] source) @trusted
                         afterVarKw = false;
                         continue;
                     }
+                    // Inline `type` modifiers: `export { a, type B } from 'm'`
+                    // or `export { a, type B }` (re-export).
+                    if (buf[ws] == '{')
+                        blankTypeSpecifiersInBraces(buf, ws);
                 }
             }
 
@@ -535,8 +543,11 @@ string stripTypes(const(char)[] source) @trusted
                 }
             }
 
-            // --- as Type assertion ---
-            if (word == "as" && parenDepth >= 0)
+            // --- as Type assertion / satisfies Type ---
+            // Both are postfix type checks that erase to nothing at
+            // runtime. `satisfies` was added in TS 4.9 and is part of
+            // `--erasableSyntaxOnly`.
+            if ((word == "as" || word == "satisfies") && parenDepth >= 0)
             {
                 auto prev = prevNonWS(buf, wordStart);
                 if (prev < buf.length && (isIdentChar(buf[prev]) || buf[prev] == ')'
@@ -1306,6 +1317,42 @@ size_t prevNonWS(const(char)[] buf, size_t i) @safe pure nothrow @nogc
     if (isWS(buf[j]))
         return buf.length;
     return j;
+}
+
+/// Erase `type X` / `type X as Y` entries inside an import/export
+/// specifier list at `braceStart`. Leaves a trailing comma if the
+/// erased specifier wasn't the last one; otherwise also eats the
+/// preceding comma to keep `import { a, } from` from breaking.
+void blankTypeSpecifiersInBraces(char[] buf, size_t braceStart) @trusted pure nothrow
+{
+    if (braceStart >= buf.length || buf[braceStart] != '{') return;
+    size_t p = braceStart + 1;
+    while (p < buf.length && buf[p] != '}')
+    {
+        // Skip whitespace
+        while (p < buf.length && (buf[p] == ' ' || buf[p] == '\t'
+                || buf[p] == '\n' || buf[p] == '\r' || buf[p] == ',')) p++;
+        if (p >= buf.length || buf[p] == '}') break;
+
+        size_t specStart = p;
+        if (matchWord(buf, p, "type") && p + 4 < buf.length
+            && !isIdentChar(buf[p + 4]))
+        {
+            // Walk past `type IDENT [as ALIAS]` until we hit `,` or `}`.
+            size_t end = p + 4;
+            while (end < buf.length && buf[end] != ',' && buf[end] != '}') end++;
+            // Also eat the trailing comma so we don't leave `, ,`.
+            size_t after = end;
+            if (after < buf.length && buf[after] == ',') after++;
+            // Blank from start, keeping newlines for line numbers.
+            foreach (i; specStart .. after)
+                if (buf[i] != '\n' && buf[i] != '\r') buf[i] = ' ';
+            p = after;
+            continue;
+        }
+        // Skip past this specifier.
+        while (p < buf.length && buf[p] != ',' && buf[p] != '}') p++;
+    }
 }
 
 bool matchWord(const(char)[] buf, size_t i, string word) @safe pure nothrow @nogc
