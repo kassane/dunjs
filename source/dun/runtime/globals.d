@@ -170,6 +170,9 @@ void installGlobals(IJSEngine engine, DunState* state) @trusted
     import dun.runtime.deno_compat : installDenoCompat;
     installDenoCompat(engine);
 
+    import dun.runtime.bun_compat : installBunCompat;
+    installBunCompat(engine);
+
     installRequire(engine);
 
     import dun.runtime.rejection_tracker : installRejectionTracker;
