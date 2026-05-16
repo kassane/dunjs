@@ -96,6 +96,20 @@ function check(name, cond) {
   /* ---- ms ---- */
   check('Bun.ms returns number', typeof Bun.ms() === 'number');
 
+  /* ---- fileURLToPath / pathToFileURL ---- */
+  check('fileURLToPath defined', typeof Bun.fileURLToPath === 'function');
+  check('fileURLToPath strips file://', Bun.fileURLToPath('file:///tmp/x.js') === '/tmp/x.js');
+  check('pathToFileURL defined', typeof Bun.pathToFileURL === 'function');
+  check('pathToFileURL produces file URL',
+    String(Bun.pathToFileURL('/tmp/x.js')).indexOf('file:') === 0);
+
+  /* ---- indexOfLine + stringWidth ---- */
+  const lineBuf = Buffer.from('hello\nworld');
+  check('indexOfLine finds newline', Bun.indexOfLine(lineBuf, 0) === 5);
+  check('indexOfLine returns -1 when absent', Bun.indexOfLine(lineBuf, 6) === -1);
+  check('stringWidth plain', Bun.stringWidth('hello') === 5);
+  check('stringWidth strips ANSI', Bun.stringWidth('\x1B[31mhi\x1B[0m') === 2);
+
   // Cleanup
   fs.rmSync(projDir, { recursive: true, force: true });
 

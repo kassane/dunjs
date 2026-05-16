@@ -667,6 +667,40 @@ private string bunCompatSource() pure nothrow @safe
     /* Bun.s / Bun.ms timer aliases used by tests. */
     "Bun.ms = function() { return Date.now(); };" ~
 
+    /* Bun.fileURLToPath / Bun.pathToFileURL — same semantics as the
+       node:url helpers; Bun re-exports them on the Bun namespace too. */
+    "Bun.fileURLToPath = function(url) {" ~
+    "  var u = require('url');" ~
+    "  return u.fileURLToPath ? u.fileURLToPath(url)" ~
+    "    : (typeof url === 'string' && url.indexOf('file://') === 0)" ~
+    "      ? decodeURIComponent(url.slice(7)) : String(url);" ~
+    "};" ~
+    "Bun.pathToFileURL = function(p) {" ~
+    "  var u = require('url');" ~
+    "  if (u.pathToFileURL) return u.pathToFileURL(p);" ~
+    "  return new URL('file://' + encodeURI(String(p).replace(/\\\\/g, '/')));" ~
+    "};" ~
+
+    /* Bun.indexOfLine(buf, offset) — find the next newline; mostly used
+       by log parsers. We give it a straight loop fallback. */
+    "Bun.indexOfLine = function(buf, off) {" ~
+    "  off = off | 0;" ~
+    "  for (var i = off; i < buf.length; i++) {" ~
+    "    if (buf[i] === 0x0A) return i;" ~
+    "  }" ~
+    "  return -1;" ~
+    "};" ~
+
+    /* Bun.stringWidth(s) — Node-compatible string-width estimator that
+       only counts visible chars (ANSI escapes stripped). */
+    "Bun.stringWidth = function(s) {" ~
+    "  if (s == null) return 0;" ~
+    "  s = String(s);" ~
+    "  /* Drop ANSI CSI sequences (ESC + [ + params + letter). */" ~
+    "  s = s.replace(/\\x1B\\[[0-9;]*[A-Za-z]/g, '');" ~
+    "  return s.length;" ~
+    "};" ~
+
     "globalThis.Bun = Bun;" ~
     "})();";
 }
