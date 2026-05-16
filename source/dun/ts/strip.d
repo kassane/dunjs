@@ -118,6 +118,59 @@ string stripTypes(const(char)[] source) @trusted
             pos++; continue;
         }
 
+        // --- generic call site `fn<TypeArgs>(...)` ---
+        // The `<...>` looks like comparison to the JS parser. Detect the
+        // generic-args pattern by requiring that what follows the matching
+        // `>` is `(` (call), `` ` `` (tagged template) or `.<` (chained
+        // generic). Bail out as soon as we see a non-type character inside
+        // the angle brackets, so `a < b > c` etc. stays untouched.
+        if (c == '<' && pos > 0)
+        {
+            auto prev = prevNonWS(buf, pos);
+            if (prev < buf.length && (isIdentChar(buf[prev])
+                    || buf[prev] == ')' || buf[prev] == ']'))
+            {
+                size_t scan = pos + 1;
+                int ad = 1;  // angle depth
+                int bd = 0;  // brace depth inside the args
+                int pd = 0;  // paren depth inside the args
+                bool ok = true;
+                while (scan < buf.length && ad > 0)
+                {
+                    char sc = buf[scan];
+                    if (sc == '\'' || sc == '"') { scan = skipStringLit(buf, scan); continue; }
+                    if (sc == '`') { scan = skipTemplateLit(buf, scan); continue; }
+                    if (sc == '{') { bd++; scan++; continue; }
+                    if (sc == '}') { if (bd > 0) bd--; else { ok = false; break; } scan++; continue; }
+                    if (sc == '(') { pd++; scan++; continue; }
+                    if (sc == ')') { if (pd > 0) pd--; else { ok = false; break; } scan++; continue; }
+                    if (sc == '<') { ad++; scan++; continue; }
+                    if (sc == '>') { ad--; scan++; continue; }
+                    if (sc == ';' || sc == '\n') { ok = false; break; }
+                    // Disallow JS-only operators that wouldn't appear in a
+                    // type arg list. `|` and `&` are kept since they're
+                    // union / intersection separators.
+                    if ((sc == '+' || sc == '*' || sc == '/' || sc == '!')
+                        && bd == 0 && pd == 0) { ok = false; break; }
+                    if (sc == '=' && scan + 1 < buf.length && buf[scan + 1] != '>'
+                        && bd == 0 && pd == 0) { ok = false; break; }
+                    scan++;
+                }
+                if (ok && ad == 0)
+                {
+                    auto after = skipWS(buf, scan);
+                    if (after < buf.length
+                        && (buf[after] == '(' || buf[after] == '`'
+                            || (buf[after] == '.' && after + 1 < buf.length && buf[after + 1] == '<')))
+                    {
+                        blankRange(buf, pos, scan);
+                        pos = scan;
+                        continue;
+                    }
+                }
+            }
+        }
+
         // --- non-null assertion postfix `!` ---
         // Erasable when it follows an identifier, `)`, `]`, or `?` and
         // is followed by `.`, `[`, `(`, `;`, `,`, `)`, `}`, `=`, or
