@@ -109,12 +109,7 @@ import dun.loop.async : asyncSubmitSafe, AsyncResult, ResultTransform;
 
 public import dun.security.permissions : checkPerm;
 
-JSHandle throwPermError(IJSEngine engine, string perm, string path = "") @trusted
-{
-    import dun.builtins.fs : throwNodeError;
-    return throwNodeError(engine, "ERR_PERMISSION_DENIED",
-        "Requires --allow-" ~ perm ~ " permission", "", path);
-}
+public import dun.builtins.fs : throwPermError;
 
 // Wraps std.file operations safely — never throws in async thread
 string safeFileOp(string delegate() op) nothrow @trusted

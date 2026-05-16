@@ -562,7 +562,7 @@ private string intToStr(int n) @trusted pure nothrow
     return cast(string) buf[pos + 1 .. 12].dup;
 }
 
-JSHandle throwPermError(IJSEngine engine, string perm, string path = "") @trusted
+package JSHandle throwPermError(IJSEngine engine, string perm, string path = "") @trusted
 {
     return throwNodeError(engine, "ERR_PERMISSION_DENIED",
         "Requires --allow-" ~ perm ~ " permission", "", path);
