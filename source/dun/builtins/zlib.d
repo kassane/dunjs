@@ -20,6 +20,8 @@ void registerZlibModule(IJSEngine engine) @trusted
     engine.setProperty(obj, "gunzipSync", engine.newFunction(&jsGunzipSync, "gunzipSync", 1));
     engine.setProperty(obj, "deflateRawSync", engine.newFunction(&jsDeflateRawSync, "deflateRawSync", 1));
     engine.setProperty(obj, "inflateRawSync", engine.newFunction(&jsInflateRawSync, "inflateRawSync", 1));
+    engine.setProperty(obj, "__brotliCompressSync", engine.newFunction(&jsBrotliCompressSync, "brotliCompressSync", 2));
+    engine.setProperty(obj, "__brotliDecompressSync", engine.newFunction(&jsBrotliDecompressSync, "brotliDecompressSync", 1));
 
     auto global = engine.getGlobal();
     engine.setProperty(global, "__dun_cjs_zlib__", obj);
@@ -246,6 +248,104 @@ JSHandle jsInflateRawSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @t
     return doDecompress(ctx, args, ZLIB_RAW_WINDOW);
 }
 
+JSHandle jsBrotliCompressSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
+{
+    import dun.platform.brotli;
+    assert(ctx !is null, "Null ctx in jsBrotliCompressSync");
+    auto state = cast(DunState*) ctx;
+    assert(state.engine !is null, "Null engine in jsBrotliCompressSync");
+    auto engine = state.engine;
+    if (args.length < 1) return engine.throwTypeError("Expected data argument");
+
+    auto input = extractInputBytes(engine, args[0]);
+    if (input is null) return engine.throwTypeError("Expected string or array input");
+
+    int quality = BROTLI_DEFAULT_QUALITY;
+    int lgwin = BROTLI_DEFAULT_WINDOW;
+    BrotliEncoderMode mode = BROTLI_MODE_GENERIC;
+
+    if (args.length >= 2 && engine.isObject(args[1]))
+    {
+        auto qVal = engine.getProperty(args[1], "quality");
+        if (engine.isNumber(qVal))
+        {
+            auto q = engine.extractInt(qVal);
+            if (q >= BROTLI_MIN_QUALITY && q <= BROTLI_MAX_QUALITY) quality = q;
+        }
+        engine.freeValue(qVal);
+        auto lgVal = engine.getProperty(args[1], "lgwin");
+        if (engine.isNumber(lgVal))
+        {
+            auto lg = engine.extractInt(lgVal);
+            if (lg >= BROTLI_MIN_WINDOW_BITS && lg <= BROTLI_MAX_WINDOW_BITS) lgwin = lg;
+        }
+        engine.freeValue(lgVal);
+        auto mVal = engine.getProperty(args[1], "mode");
+        if (engine.isNumber(mVal))
+        {
+            auto m = engine.extractInt(mVal);
+            if (m >= 0 && m <= 2) mode = cast(BrotliEncoderMode) m;
+        }
+        engine.freeValue(mVal);
+    }
+
+    size_t maxLen = BrotliEncoderMaxCompressedSize(input.length);
+    if (maxLen == 0) maxLen = input.length + 64;
+    auto outBuf = new ubyte[maxLen];
+    size_t outLen = maxLen;
+    const(ubyte)* inPtr = input.length ? input.ptr : null;
+    auto ok = BrotliEncoderCompress(quality, lgwin, mode, input.length, inPtr, &outLen, outBuf.ptr);
+    if (!ok) return engine.throwTypeError("Brotli compression failed");
+    return returnBytes(engine, outBuf[0 .. outLen]);
+}
+
+JSHandle jsBrotliDecompressSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
+{
+    import dun.platform.brotli;
+    assert(ctx !is null, "Null ctx in jsBrotliDecompressSync");
+    auto state = cast(DunState*) ctx;
+    assert(state.engine !is null, "Null engine in jsBrotliDecompressSync");
+    auto engine = state.engine;
+    if (args.length < 1) return engine.throwTypeError("Expected data argument");
+
+    auto input = extractInputBytes(engine, args[0]);
+    if (input is null) return engine.throwTypeError("Expected string or array input");
+    if (input.length == 0) return returnBytes(engine, cast(const(ubyte)[]) null);
+
+    // Streaming decoder for unknown output size
+    auto brState = BrotliDecoderCreateInstance(null, null, null);
+    if (brState is null) return engine.throwTypeError("Brotli decoder allocation failed");
+    scope (exit) BrotliDecoderDestroyInstance(brState);
+
+    enum CHUNK = 64 * 1024;
+    import std.array : appender;
+    auto out_ = appender!(ubyte[])();
+    out_.reserve(input.length * 4);
+
+    size_t availIn = input.length;
+    const(ubyte)* nextIn = input.ptr;
+    ubyte[CHUNK] outBuf;
+
+    while (true)
+    {
+        ubyte* nextOut = outBuf.ptr;
+        size_t availOut = outBuf.length;
+        size_t totalOut;
+        auto result = BrotliDecoderDecompressStream(brState, &availIn, &nextIn, &availOut, &nextOut, &totalOut);
+        // bytes written = chunk - availOut
+        size_t written = outBuf.length - availOut;
+        if (written > 0)
+            out_.put(outBuf[0 .. written]);
+        if (result == BROTLI_DECODER_RESULT_SUCCESS)
+            return returnBytes(engine, out_.data);
+        if (result == BROTLI_DECODER_RESULT_NEEDS_MORE_OUTPUT)
+            continue;
+        if (result == BROTLI_DECODER_RESULT_NEEDS_MORE_INPUT)
+            return engine.throwTypeError("Brotli decompression failed: truncated input");
+        return engine.throwTypeError("Brotli decompression failed: corrupt input");
+    }
+}
+
 string zlibExtensionSource() pure @safe nothrow
 {
     return `(function() {
@@ -275,61 +375,38 @@ string zlibExtensionSource() pure @safe nothrow
     zlib.deflateRaw = asyncWrap(zlib.deflateRawSync);
     zlib.inflateRaw = asyncWrap(zlib.inflateRawSync);
 
-    // Brotli stubs (passthrough, brotli not available)
+    // Brotli (real impl via libbrotli)
+    zlib.brotliCompressSync = function(input, opts) {
+        return zlib.__brotliCompressSync(input, opts || {});
+    };
+    zlib.brotliDecompressSync = function(input) {
+        return zlib.__brotliDecompressSync(input);
+    };
     zlib.brotliCompress = function(input, opts, callback) {
         if (typeof opts === 'function') { callback = opts; opts = {}; }
         Promise.resolve().then(function() {
             try {
-                var buf;
-                if (typeof input === 'string') {
-                    buf = new Uint8Array(input.length);
-                    for (var i = 0; i < input.length; i++) buf[i] = input.charCodeAt(i);
-                } else {
-                    buf = input;
-                }
-                if (callback) callback(null, buf);
-            } catch(e) {
-                if (callback) callback(e);
-            }
+                var out = zlib.__brotliCompressSync(input, opts || {});
+                if (callback) callback(null, out);
+            } catch(e) { if (callback) callback(e); }
         });
     };
     zlib.brotliDecompress = function(input, opts, callback) {
         if (typeof opts === 'function') { callback = opts; opts = {}; }
         Promise.resolve().then(function() {
             try {
-                var buf;
-                if (typeof input === 'string') {
-                    buf = new Uint8Array(input.length);
-                    for (var i = 0; i < input.length; i++) buf[i] = input.charCodeAt(i);
-                } else {
-                    buf = input;
-                }
-                if (callback) callback(null, buf);
-            } catch(e) {
-                if (callback) callback(e);
-            }
+                var out = zlib.__brotliDecompressSync(input);
+                if (callback) callback(null, out);
+            } catch(e) { if (callback) callback(e); }
         });
     };
 
-    zlib.brotliCompressSync = function(input) {
-        if (typeof input === 'string') {
-            var buf = new Uint8Array(input.length);
-            for (var i = 0; i < input.length; i++) buf[i] = input.charCodeAt(i);
-            return buf;
-        }
-        return input;
+    zlib.unzipSync = function(input) {
+        // Node behavior: unzip auto-detects gzip vs deflate by magic bytes
+        if (input && input.length >= 2 && input[0] === 0x1f && input[1] === 0x8b)
+            return zlib.gunzipSync(input);
+        return zlib.inflateSync(input);
     };
-    zlib.brotliDecompressSync = function(input) {
-        if (typeof input === 'string') {
-            var buf = new Uint8Array(input.length);
-            for (var i = 0; i < input.length; i++) buf[i] = input.charCodeAt(i);
-            return buf;
-        }
-        return input;
-    };
-    zlib.unzipSync = function(input) { return zlib.inflateSync(input); };
-    zlib.createBrotliCompress = function(opts) { return zlib.createDeflate ? zlib.createDeflate(opts) : null; };
-    zlib.createBrotliDecompress = function(opts) { return zlib.createInflate ? zlib.createInflate(opts) : null; };
 
     // --- Stream classes ---
     var Transform;
@@ -394,14 +471,49 @@ string zlibExtensionSource() pure @safe nothrow
             return t;
         };
         zlib.createBrotliCompress = function(opts) {
+            // Accumulate chunks then encode at flush; brotli has no stream/one-shot interop.
+            var chunks = [];
             var t = new Transform({
-                transform: function(chunk, enc, cb) { cb(null, chunk); }
+                transform: function(chunk, enc, cb) {
+                    chunks.push(chunk);
+                    cb();
+                },
+                flush: function(cb) {
+                    try {
+                        var total = 0;
+                        for (var i = 0; i < chunks.length; i++) total += chunks[i].length;
+                        var merged = new Uint8Array(total);
+                        var off = 0;
+                        for (var j = 0; j < chunks.length; j++) {
+                            merged.set(chunks[j], off);
+                            off += chunks[j].length;
+                        }
+                        cb(null, zlib.__brotliCompressSync(merged, opts || {}));
+                    } catch(e) { cb(e); }
+                }
             });
             return t;
         };
         zlib.createBrotliDecompress = function(opts) {
+            var chunks = [];
             var t = new Transform({
-                transform: function(chunk, enc, cb) { cb(null, chunk); }
+                transform: function(chunk, enc, cb) {
+                    chunks.push(chunk);
+                    cb();
+                },
+                flush: function(cb) {
+                    try {
+                        var total = 0;
+                        for (var i = 0; i < chunks.length; i++) total += chunks[i].length;
+                        var merged = new Uint8Array(total);
+                        var off = 0;
+                        for (var j = 0; j < chunks.length; j++) {
+                            merged.set(chunks[j], off);
+                            off += chunks[j].length;
+                        }
+                        cb(null, zlib.__brotliDecompressSync(merged));
+                    } catch(e) { cb(e); }
+                }
             });
             return t;
         };

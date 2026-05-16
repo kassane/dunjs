@@ -360,6 +360,7 @@ int JS_SetPropertyStr(JSContext* ctx, JSValueConst this_obj,
     const(char)* prop, JSValue val);
 JSValue JS_GetPropertyStr(JSContext* ctx, JSValueConst this_obj,
     const(char)* prop);
+int JS_SetPrototype(JSContext* ctx, JSValueConst obj, JSValueConst proto_val);
 int JS_SetPropertyUint32(JSContext* ctx, JSValueConst this_obj,
     uint idx, JSValue val);
 JSValue JS_GetPropertyUint32(JSContext* ctx, JSValueConst this_obj,

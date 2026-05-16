@@ -23,7 +23,7 @@ private size_t MiB(size_t n) @safe pure nothrow @nogc
     return n * 1024 * 1024;
 }
 
-enum DEFAULT_MEMORY_LIMIT = MiB(512);
+enum DEFAULT_MEMORY_LIMIT = MiB(2048);
 enum DEFAULT_MAX_STACK = MiB(8);
 enum TEST_MEMORY_LIMIT = MiB(64);
 enum TEST_MAX_STACK = MiB(4);
@@ -81,6 +81,48 @@ interface IJSEngine
     JSHandle getProperty(JSHandle obj, scope const(char)[] name);
     void setProperty(JSHandle obj, scope const(char)[] name, JSHandle val);
     JSHandle getGlobal();
+
+    /// Bind a long-lived function value as a property of `obj` without
+    /// transferring ownership of `fn`. Use this for "method binding" of
+    /// cached function handles (e.g. `_cachedUpdateFn`) that are stored
+    /// in `__gshared` slots and must outlive every call site that copies
+    /// them onto per-call objects.
+    ///
+    /// Backends:
+    /// - QuickJS: `JS_SetPropertyStr` consumes the value, so we
+    ///   internally `JS_DupValue` first — caller's `fn` handle stays
+    ///   valid afterwards.
+    /// - JSC: `JSObjectSetProperty` does not consume — the property
+    ///   table inside the JS object roots `fn` for us — no extra
+    ///   `JSValueProtect` needed. (Avoiding the per-call protect is
+    ///   what keeps hot loops like `crypto.createHash().update().digest()`
+    ///   from leaking one entry on JSC's protect table per call.)
+    void bindMethod(JSHandle obj, scope const(char)[] name, JSHandle fn);
+
+    /// Equivalent of `Object.setPrototypeOf(obj, proto)`. Used by Buffer to
+    /// hot-path return a `new Uint8Array` with the Buffer prototype glued
+    /// on, eliminating a JS-level factory call per Buffer.from / .alloc /
+    /// .concat (the previous design returned `new Proxy(plainObj)` via a
+    /// ~5-line cached eval'd JS function).
+    void setPrototype(JSHandle obj, JSHandle proto);
+
+    /// One-shot fast path for the Buffer.from / .alloc / .concat hot path:
+    /// `new Uint8Array(data)` + `setPrototypeOf(u8, proto)` collapsed into
+    /// a single backend call. On V8 this saves three withContext entries
+    /// (Isolate::Scope + HandleScope + Context::Scope) per Buffer creation,
+    /// closing a large chunk of the gap vs Node's pure-C++ Buffer impl.
+    ///
+    /// `data` may be null when `zeroed` is true and length > 0 — the
+    /// backend will allocate a zeroed-out ArrayBuffer (semantically
+    /// equivalent to `Buffer.alloc(len)`).
+    JSHandle newBufferWithProto(scope const(ubyte)[] data, JSHandle proto, bool zeroed);
+
+    /// Fused `Buffer.from(jsString, "utf8")` hot path — saves the
+    /// JS-string→D-string copy that `extractString + newBufferWithProto`
+    /// otherwise pays on every call. V8 implements this directly via
+    /// `v8::String::WriteUtf8V2` into a fresh ArrayBuffer. QuickJS / JSC
+    /// fall back to the two-step path.
+    JSHandle newBufferFromUtf8String(JSHandle jsStr, JSHandle proto);
 
     // --- Reference management ---
     JSHandle dupValue(JSHandle val);

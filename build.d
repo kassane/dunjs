@@ -74,7 +74,7 @@ enum JSC_LIB_MARKER     = "lib/libJavaScriptCore.a";
 // Pre-built monolith from github.com/kassane/libv8 (preferred: self-contained, no system dep).
 // Archive layout: libv8-<ver>-<platform>-<arch>-<profile>/lib/libv8_monolith.a + include/ + args.gn
 // Fallback: system libv8-dev headers via /usr/include/v8 or Node.js headers tarball.
-enum V8_PREBUILT_VERSION  = "v14.9.207.4";
+enum V8_PREBUILT_VERSION  = "v15.0.91";
 enum V8_PREBUILT_BASE_URL = "https://github.com/kassane/libv8/releases/download/"
                             ~ V8_PREBUILT_VERSION ~ "/";
 enum V8_NODE_VERSION   = "v22.15.0";   // kept for fallback header download
@@ -1038,15 +1038,27 @@ bool buildSqlite(ref const Toolchain tc, ref const BuildOptions opts)
         copy(builtLib, libPath);
     }
 
-    // Create ImportC bridge if not present
+    // Create ImportC bridge if not present.
+    //
+    // `#pragma attribute(push, nothrow, nogc)` tells LDC's ImportC to mark
+    // every imported sqlite3 function as `nothrow @nogc`, so D callers don't
+    // get landing-pad / GC-root setup wrapped around them. Without this the
+    // ImportC default (throw / may-allocate) drags Druntime into hot paths
+    // that the underlying C library never touches.
     auto bridgePath = buildPath(sqliteDir(), "sqlite3_api.c");
-    if (!exists(bridgePath))
+    enum string sqliteBridgeContent =
+        "// ImportC bridge: processes sqlite3.h declarations for D import\n"
+        ~ "#pragma attribute(push, nothrow, nogc)\n"
+        ~ "#include \"sqlite3.h\"\n"
+        ~ "#pragma attribute(pop)\n";
+    import std.file : write, readText;
+    bool needsWrite = !exists(bridgePath);
+    if (!needsWrite)
     {
-        import std.file : write;
-        write(bridgePath,
-            "// ImportC bridge: processes sqlite3.h declarations for D import\n"
-            ~ "#include \"sqlite3.h\"\n");
+        try { needsWrite = readText(bridgePath) != sqliteBridgeContent; }
+        catch (Exception) { needsWrite = true; }
     }
+    if (needsWrite) write(bridgePath, sqliteBridgeContent);
 
     logInfo(tag, libName ~ " built via CMake FetchContent");
     return true;

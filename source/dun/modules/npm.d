@@ -353,6 +353,22 @@ string resolveVersion(PackageMeta meta, string range) @trusted
                 return findBestMatch(versions, cleaned, false);
             }
 
+            // Bare major / major.minor: install latest in that range.
+            // e.g. "4" -> latest 4.x.x, "4.18" -> latest 4.18.x
+            import std.algorithm : count;
+            import std.string : indexOf;
+            auto dotCount = cleaned.count('.');
+            if (dotCount == 0)
+            {
+                // "4" — synthesize "4.0.0" for findBestMatch in caret mode
+                return findBestMatch(versions, cleaned ~ ".0.0", true);
+            }
+            if (dotCount == 1)
+            {
+                // "4.18" — synthesize "4.18.0" for findBestMatch in tilde mode
+                return findBestMatch(versions, cleaned ~ ".0", false);
+            }
+
             // Fallback: try latest
             return meta.latestVersion;
         }

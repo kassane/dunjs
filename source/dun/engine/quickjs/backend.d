@@ -212,6 +212,44 @@ class QuickJSEngine : IJSEngine
             stackTerminate(name, buf), fromHandle(val));
     }
 
+    void bindMethod(JSHandle obj, scope const(char)[] name, JSHandle fn) @trusted
+    {
+        // QuickJS JS_SetPropertyStr consumes the value, so we must dup `fn`
+        // first; otherwise the cached function's refcount drops to zero and
+        // the next call uses freed memory. The dup'd ref becomes the
+        // property's owned reference; caller's `fn` handle is unchanged.
+        assert(ctx !is null, "Engine not initialized");
+        char[QJS_STACK_STRING_SIZE] buf = void;
+        JS_SetPropertyStr(ctx, fromHandle(obj),
+            stackTerminate(name, buf), JS_DupValue(ctx, fromHandle(fn)));
+    }
+
+    void setPrototype(JSHandle obj, JSHandle proto) @trusted
+    {
+        assert(ctx !is null, "Engine not initialized");
+        JS_SetPrototype(ctx, fromHandle(obj), fromHandle(proto));
+    }
+
+    JSHandle newBufferWithProto(scope const(ubyte)[] data, JSHandle proto, bool zeroed) @trusted
+    {
+        // QuickJS already creates fresh zeroed ArrayBuffers — no benefit to
+        // a fused primitive here. Defer to the existing two-step path.
+        auto u8 = zeroed && data.length == 0
+            ? newUint8ArrayZeroed(0)
+            : (data.length > 0 ? newUint8Array(data) : newUint8ArrayZeroed(0));
+        if (zeroed && data.length > 0)
+            u8 = newUint8ArrayZeroed(data.length);
+        setPrototype(u8, proto);
+        return u8;
+    }
+
+    JSHandle newBufferFromUtf8String(JSHandle jsStr, JSHandle proto) @trusted
+    {
+        // No native one-shot — fall back to extract + alloc + setProto.
+        auto s = extractString(jsStr);
+        return newBufferWithProto(cast(const(ubyte)[]) s, proto, false);
+    }
+
     void setPropertyIndex(JSHandle obj, uint idx, JSHandle val) @trusted
     {
         assert(ctx !is null, "Engine not initialized");

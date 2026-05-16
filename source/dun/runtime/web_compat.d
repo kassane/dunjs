@@ -47,6 +47,19 @@ void installWebCompat(IJSEngine engine) @trusted
     if (!errRes.isError)
         engine.freeValue(errRes.value);
 
+    // Symbol.dispose / Symbol.asyncDispose (ES2024 explicit resource management).
+    // QuickJS-NG / JSC / V8 14.x may not expose these well-knowns yet; provide them.
+    auto symRes = engine.eval(
+        "(function(){"
+        ~ "if(typeof Symbol.dispose==='undefined')"
+        ~ "Object.defineProperty(Symbol,'dispose',{value:Symbol('Symbol.dispose'),writable:false,enumerable:false,configurable:false});"
+        ~ "if(typeof Symbol.asyncDispose==='undefined')"
+        ~ "Object.defineProperty(Symbol,'asyncDispose',{value:Symbol('Symbol.asyncDispose'),writable:false,enumerable:false,configurable:false});"
+        ~ "})();",
+        "<symbol-dispose>");
+    if (!symRes.isError)
+        engine.freeValue(symRes.value);
+
     engine.freeValue(global);
 }
 

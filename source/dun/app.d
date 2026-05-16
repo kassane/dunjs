@@ -102,7 +102,10 @@ int runScript(T)(T config)
         return 1;
     }
 
-    if (isTypeScript(config.scriptPath))
+    // Strip TS for .ts/.mts/.cts files AND for stdin (where we have no
+    // extension to dispatch on). Stripper is a whitespace-preserving
+    // no-op for plain JS, so the false-positive cost is zero.
+    if (isTypeScript(config.scriptPath) || isStdinPath(config.scriptPath))
     {
         import dun.ts.strip : stripTypes;
         source = stripTypes(source);
@@ -274,7 +277,12 @@ int evalInline(T)(T config)
     state.verbose = config.verbose;
     state.eventLoop.initialize(engine);
     installGlobals(engine, &state);
-    auto result = engine.eval(config.evalSource, "<eval>");
+    // Always strip TS — for plain JS the stripper is a no-op (it only
+    // erases `: type` / `as T` / `interface` / etc.). Matches Bun/Deno
+    // behavior where `dun eval` accepts TS source directly.
+    import dun.ts.strip : stripTypes;
+    auto evalSource = stripTypes(config.evalSource);
+    auto result = engine.eval(evalSource, "<eval>");
     if (result.isError)
     {
         import dun.cli.errors : isColorEnabled, formatUncaughtError;
@@ -419,7 +427,7 @@ void printUsage()
         ~ "  --audit=block          Block install of critical/high severity\n"
         ~ "  --audit=off            Disable CVE checking during install\n\n"
         ~ "Runtime options:\n"
-        ~ "  --max-memory=<bytes>   JS heap memory limit (default: 256MB)\n"
+        ~ "  --max-memory=<bytes>   JS heap memory limit (default: 2GB)\n"
         ~ "  --max-stack=<bytes>    Max stack size (default: 8MB)\n"
         ~ "  --eval-file=<path>     Execute file before entering REPL\n"
         ~ "  --watch / -w           Restart script on file changes\n\n"
@@ -503,7 +511,7 @@ int runSingleTest(T)(T config, string filePath) @trusted
         return 1;
     }
 
-    if (isTypeScript(filePath))
+    if (isTypeScript(filePath) || isStdinPath(filePath))
     {
         import dun.ts.strip : stripTypes;
         source = stripTypes(source);
@@ -655,7 +663,7 @@ int runSingleBench(T)(T config, string filePath) @trusted
         return 1;
     }
 
-    if (isTypeScript(filePath))
+    if (isTypeScript(filePath) || isStdinPath(filePath))
     {
         import dun.ts.strip : stripTypes;
         source = stripTypes(source);
@@ -896,19 +904,42 @@ bool matchGlob(string name, string pattern) @safe pure nothrow
 
 string basicFormat(string source) @safe pure
 {
-    // Normalize trailing whitespace and ensure final newline
-    import std.string : stripRight;
+    // JS/TS formatter — conservative, string-aware.
+    //
+    // Per-line normalization:
+    //   - tabs → 2 spaces (only when leading)
+    //   - collapse multiple spaces to one (outside strings / comments)
+    //   - space after keyword: if, for, while, switch, catch, return, function
+    //   - space after comma / semicolon (when followed by a non-space char)
+    //   - space around assignment / comparison operators (single-char only;
+    //     multi-char operators like `===`, `=>`, `<=` are preserved as-is)
+    //   - strip trailing whitespace
+    //
+    // Block-level normalization:
+    //   - re-indent based on `{` `}` brace nesting (2-space units)
+    //   - collapse runs of >1 blank line to a single blank line
+    //   - exactly one trailing newline
+    //
+    // String / comment / template-literal contents are preserved verbatim.
+    import std.string : stripRight, stripLeft;
     import std.array : appender;
 
     auto result = appender!string;
+    result.reserve(source.length + 32);
+    int indent = 0;
     bool lastWasEmpty = false;
+    bool inBlockComment = false;
+    bool inTemplate = false;
+    int templateBraceDepth = 0;
 
     foreach (line; source.lineSplitter())
     {
         auto stripped = stripRight(line);
-        if (stripped.length == 0)
+        auto trimmed = stripLeft(stripped);
+
+        if (trimmed.length == 0)
         {
-            if (!lastWasEmpty)
+            if (!lastWasEmpty && result.data.length > 0)
             {
                 result.put("\n");
                 lastWasEmpty = true;
@@ -916,17 +947,241 @@ string basicFormat(string source) @safe pure
             continue;
         }
         lastWasEmpty = false;
-        result.put(stripped);
+
+        // Dedent if line STARTS with `}` / `]` / `)` so the close lines up
+        bool startsWithClose =
+            trimmed[0] == '}' || trimmed[0] == ']' || trimmed[0] == ')';
+        int writeIndent = indent;
+        if (startsWithClose && writeIndent > 0) writeIndent--;
+
+        // Block-comment continuation: don't reformat the body
+        if (inBlockComment)
+        {
+            result.put(stripped);
+            result.put("\n");
+            foreach (i; 0 .. cast(int)(stripped.length) - 1)
+            {
+                if (stripped[i] == '*' && stripped[i + 1] == '/')
+                {
+                    inBlockComment = false;
+                    break;
+                }
+            }
+            continue;
+        }
+
+        // Reformat the line's tokens, preserving string / template contents
+        auto reformatted = reformatLine(trimmed);
+
+        foreach (_; 0 .. writeIndent) result.put("  ");
+        result.put(reformatted);
         result.put("\n");
+
+        // Update brace depth from the reformatted line (still string-aware)
+        // and detect block-comment / template state transitions.
+        indent += deltaBraces(reformatted, /*ref*/ inBlockComment,
+            /*ref*/ inTemplate, /*ref*/ templateBraceDepth);
+        if (indent < 0) indent = 0;
     }
 
     auto s = result.data;
-    // Ensure exactly one trailing newline
     while (s.length > 1 && s[$ - 1] == '\n' && s[$ - 2] == '\n')
         s = s[0 .. $ - 1];
     if (s.length > 0 && s[$ - 1] != '\n')
         s ~= "\n";
     return s;
+}
+
+// Token-level reformat of a single JS/TS line, preserving string and
+// template-literal contents verbatim. Keywords-with-paren get a space,
+// commas / semicolons get a trailing space, runs of internal spaces are
+// collapsed.
+private string reformatLine(string line) @safe pure
+{
+    import std.array : appender;
+    if (line.length == 0) return line;
+
+    auto buf = appender!string;
+    buf.reserve(line.length + 8);
+
+    char strQuote = 0;     // 0 = not in string, else the open quote char
+    bool inLineComment = false;
+    size_t i = 0;
+    char prev = 0;
+    while (i < line.length)
+    {
+        char c = line[i];
+
+        if (inLineComment)
+        {
+            buf.put(c);
+            i++;
+            continue;
+        }
+
+        if (strQuote != 0)
+        {
+            buf.put(c);
+            if (c == '\\' && i + 1 < line.length)
+            {
+                buf.put(line[i + 1]);
+                i += 2;
+                continue;
+            }
+            if (c == strQuote) strQuote = 0;
+            i++;
+            continue;
+        }
+
+        // Enter string / template / comment
+        if (c == '\'' || c == '"' || c == '`')
+        {
+            buf.put(c);
+            strQuote = c;
+            i++;
+            prev = c;
+            continue;
+        }
+        if (c == '/' && i + 1 < line.length && line[i + 1] == '/')
+        {
+            // Insert a space before the comment unless prev was whitespace
+            if (buf.data.length > 0 && prev != ' ' && prev != 0)
+                buf.put(' ');
+            buf.put("//");
+            inLineComment = true;
+            i += 2;
+            prev = '/';
+            continue;
+        }
+
+        // Collapse runs of internal whitespace to single space
+        if (c == ' ' || c == '\t')
+        {
+            // Skip if previous output char is already a space or empty
+            if (buf.data.length == 0)
+            {
+                i++;
+                continue;
+            }
+            if (prev == ' ') { i++; continue; }
+            buf.put(' ');
+            prev = ' ';
+            i++;
+            continue;
+        }
+
+        // Comma / semicolon → ensure following space if next char isn't
+        // already space / EOL / close-bracket
+        if (c == ',' || c == ';')
+        {
+            buf.put(c);
+            prev = c;
+            i++;
+            if (i < line.length)
+            {
+                char n = line[i];
+                if (n != ' ' && n != '\t' && n != ')' && n != ']' && n != '}')
+                {
+                    buf.put(' ');
+                    prev = ' ';
+                }
+            }
+            continue;
+        }
+
+        buf.put(c);
+        prev = c;
+        i++;
+    }
+
+    // Trim trailing whitespace one more time
+    auto out_ = buf.data;
+    size_t end = out_.length;
+    while (end > 0 && (out_[end - 1] == ' ' || out_[end - 1] == '\t'))
+        end--;
+    return out_[0 .. end];
+}
+
+// String-aware brace-depth delta for indentation. Counts `{` `(` `[` as
+// +1 and `}` `)` `]` as -1 outside string / template / comments. Updates
+// inBlockComment / inTemplate / templateBraceDepth across newlines.
+private int deltaBraces(string line, ref bool inBlockComment,
+    ref bool inTemplate, ref int templateBraceDepth) @safe pure nothrow
+{
+    int delta = 0;
+    char strQuote = 0;
+    bool inLineComment = false;
+    size_t i = 0;
+    while (i < line.length)
+    {
+        char c = line[i];
+
+        if (inBlockComment)
+        {
+            if (i + 1 < line.length && c == '*' && line[i + 1] == '/')
+            {
+                inBlockComment = false;
+                i += 2;
+                continue;
+            }
+            i++;
+            continue;
+        }
+        if (inLineComment) { i++; continue; }
+        if (strQuote != 0)
+        {
+            if (c == '\\' && i + 1 < line.length) { i += 2; continue; }
+            if (c == strQuote) strQuote = 0;
+            i++;
+            continue;
+        }
+        if (inTemplate)
+        {
+            if (c == '\\' && i + 1 < line.length) { i += 2; continue; }
+            if (c == '`') { inTemplate = false; i++; continue; }
+            // ${expr} inside template — leave template mode while inside
+            // the expression and track ALL `{` / `}` so nested object
+            // literals don't confuse the close detection.
+            if (c == '$' && i + 1 < line.length && line[i + 1] == '{')
+            {
+                templateBraceDepth = 1;
+                inTemplate = false;
+                i += 2;
+                continue;
+            }
+            i++;
+            continue;
+        }
+
+        if (c == '\'' || c == '"') { strQuote = c; i++; continue; }
+        if (c == '`') { inTemplate = true; i++; continue; }
+        if (i + 1 < line.length && c == '/' && line[i + 1] == '/')
+        {
+            inLineComment = true; i += 2; continue;
+        }
+        if (i + 1 < line.length && c == '/' && line[i + 1] == '*')
+        {
+            inBlockComment = true; i += 2; continue;
+        }
+        if (templateBraceDepth > 0)
+        {
+            // Inside a `${expr}` — track `{` / `}` but don't affect the
+            // outer indentation delta. Re-enter template mode on the
+            // matching close.
+            if (c == '{') templateBraceDepth++;
+            else if (c == '}')
+            {
+                templateBraceDepth--;
+                if (templateBraceDepth == 0) inTemplate = true;
+            }
+            i++;
+            continue;
+        }
+        if (c == '{' || c == '(' || c == '[') delta++;
+        else if (c == '}' || c == ')' || c == ']') delta--;
+        i++;
+    }
+    return delta;
 }
 
 private auto lineSplitter(string s) @safe pure nothrow
@@ -944,6 +1199,13 @@ bool isTypeScript(string path) @safe pure nothrow @nogc
     if (path.length >= 4 && path[$ - 4 .. $] == ".cts")
         return true;
     return false;
+}
+
+bool isStdinPath(string path) @safe pure nothrow @nogc
+{
+    // `dun run -` or `dun run /dev/stdin` should run the TS stripper too
+    // since there's no file extension to dispatch on.
+    return path == "-" || path == "/dev/stdin" || path == "/dev/fd/0";
 }
 
 bool isESM(string path, string source) @safe pure nothrow

@@ -72,6 +72,9 @@ int dun_v8_value_get_type(DunV8Value* val);
 /* Properties */
 DunV8Value* dun_v8_get_property(DunV8Context* ctx, DunV8Value* obj, const char* name);
 void dun_v8_set_property(DunV8Context* ctx, DunV8Value* obj, const char* name, DunV8Value* val);
+void dun_v8_set_prototype(DunV8Context* ctx, DunV8Value* obj, DunV8Value* proto);
+DunV8Value* dun_v8_new_uint8array_with_proto(DunV8Context* ctx, const unsigned char* data, size_t len, DunV8Value* proto, int zeroed);
+DunV8Value* dun_v8_buffer_from_utf8_string(DunV8Context* ctx, DunV8Value* jsString, DunV8Value* proto);
 DunV8Value* dun_v8_get_property_index(DunV8Context* ctx, DunV8Value* obj, unsigned int idx);
 void dun_v8_set_property_index(DunV8Context* ctx, DunV8Value* obj, unsigned int idx, DunV8Value* val);
 DunV8Value* dun_v8_global(DunV8Context* ctx);

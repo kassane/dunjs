@@ -190,46 +190,46 @@ void ensureBufferFnsCached(IJSEngine engine) @trusted
         "return i<b.length?{value:i++,done:false}:{value:undefined,done:true};" ~
         "},__proto__:{[Symbol.iterator]:function(){return this;}}};};" ~
         "p.values=function(){var b=this,i=0;return{next:function(){" ~
-        "return i<b.length?{value:b.__u8[i++],done:false}:{value:undefined,done:true};" ~
+        "return i<b.length?{value:b[i++],done:false}:{value:undefined,done:true};" ~
         "},__proto__:{[Symbol.iterator]:function(){return this;}}};};" ~
         "p.entries=function(){var b=this,i=0;return{next:function(){" ~
-        "return i<b.length?{value:[i,b.__u8[i++]],done:false}:{value:undefined,done:true};" ~
+        "return i<b.length?{value:[i,b[i++]],done:false}:{value:undefined,done:true};" ~
         "},__proto__:{[Symbol.iterator]:function(){return this;}}};};" ~
         "p[Symbol.iterator]=p.values;" ~
 
         // swap16/swap32/swap64 — byte swap in-place
-        "p.swap16=function(){var u=this.__u8,l=u.length;" ~
+        "p.swap16=function(){var u=this,l=u.length;" ~
         "if(l%2!==0)throw new RangeError('Buffer size must be a multiple of 16-bits');" ~
         "for(var i=0;i<l;i+=2){var t=u[i];u[i]=u[i+1];u[i+1]=t;}return this;};" ~
-        "p.swap32=function(){var u=this.__u8,l=u.length;" ~
+        "p.swap32=function(){var u=this,l=u.length;" ~
         "if(l%4!==0)throw new RangeError('Buffer size must be a multiple of 32-bits');" ~
         "for(var i=0;i<l;i+=4){var t=u[i];u[i]=u[i+3];u[i+3]=t;t=u[i+1];u[i+1]=u[i+2];u[i+2]=t;}return this;};" ~
-        "p.swap64=function(){var u=this.__u8,l=u.length;" ~
+        "p.swap64=function(){var u=this,l=u.length;" ~
         "if(l%8!==0)throw new RangeError('Buffer size must be a multiple of 64-bits');" ~
         "for(var i=0;i<l;i+=8){for(var j=0;j<4;j++){var t=u[i+j];u[i+j]=u[i+7-j];u[i+7-j]=t;}}return this;};" ~
 
         // lastIndexOf
-        "p.lastIndexOf=function(v,o){var u=this.__u8,s=typeof v==='string'?new TextEncoder().encode(v):v instanceof Uint8Array?v:[v];" ~
+        "p.lastIndexOf=function(v,o){var u=this,s=typeof v==='string'?new TextEncoder().encode(v):v instanceof Uint8Array?v:[v];" ~
         "var start=o!==undefined?Math.min(o,u.length-s.length):u.length-s.length;" ~
         "for(var i=start;i>=0;i--){var m=true;for(var j=0;j<s.length;j++){if(u[i+j]!==s[j]){m=false;break;}}if(m)return i;}return -1;};" ~
 
         // readIntBE/LE, readUIntBE/LE (1-6 byte variable-width)
-        "p.readUIntBE=function(o,bl){var u=this.__u8,v=0;for(var i=0;i<bl;i++)v=v*256+u[o+i];return v;};" ~
-        "p.readUIntLE=function(o,bl){var u=this.__u8,v=0;for(var i=bl-1;i>=0;i--)v=v*256+u[o+i];return v;};" ~
+        "p.readUIntBE=function(o,bl){var u=this,v=0;for(var i=0;i<bl;i++)v=v*256+u[o+i];return v;};" ~
+        "p.readUIntLE=function(o,bl){var u=this,v=0;for(var i=bl-1;i>=0;i--)v=v*256+u[o+i];return v;};" ~
         "p.readIntBE=function(o,bl){var v=this.readUIntBE(o,bl);if(v>=(1<<(bl*8-1)))v-=(1<<(bl*8));return v;};" ~
         "p.readIntLE=function(o,bl){var v=this.readUIntLE(o,bl);if(v>=(1<<(bl*8-1)))v-=(1<<(bl*8));return v;};" ~
-        "p.writeUIntBE=function(v,o,bl){var u=this.__u8;for(var i=bl-1;i>=0;i--){u[o+i]=v&0xFF;v=Math.floor(v/256);}return o+bl;};" ~
-        "p.writeUIntLE=function(v,o,bl){var u=this.__u8;for(var i=0;i<bl;i++){u[o+i]=v&0xFF;v=Math.floor(v/256);}return o+bl;};" ~
+        "p.writeUIntBE=function(v,o,bl){var u=this;for(var i=bl-1;i>=0;i--){u[o+i]=v&0xFF;v=Math.floor(v/256);}return o+bl;};" ~
+        "p.writeUIntLE=function(v,o,bl){var u=this;for(var i=0;i<bl;i++){u[o+i]=v&0xFF;v=Math.floor(v/256);}return o+bl;};" ~
         "p.writeIntBE=function(v,o,bl){if(v<0)v+=(1<<(bl*8));return this.writeUIntBE(v,o,bl);};" ~
         "p.writeIntLE=function(v,o,bl){if(v<0)v+=(1<<(bl*8));return this.writeUIntLE(v,o,bl);};" ~
 
         // BigInt read/write methods
-        "p.readBigInt64BE=function(o){if(typeof BigInt==='undefined')throw new Error('BigInt not available');var u=this.__u8;o=o||0;var hi=((u[o]<<24)|(u[o+1]<<16)|(u[o+2]<<8)|u[o+3]);var lo=((u[o+4]<<24)|(u[o+5]<<16)|(u[o+6]<<8)|u[o+7])>>>0;return(BigInt(hi)<<BigInt(32))|BigInt(lo);};" ~
-        "p.readBigUInt64BE=function(o){if(typeof BigInt==='undefined')throw new Error('BigInt not available');var u=this.__u8;o=o||0;var hi=((u[o]<<24)|(u[o+1]<<16)|(u[o+2]<<8)|u[o+3])>>>0;var lo=((u[o+4]<<24)|(u[o+5]<<16)|(u[o+6]<<8)|u[o+7])>>>0;return(BigInt(hi)<<BigInt(32))|BigInt(lo);};" ~
-        "p.readBigInt64LE=function(o){if(typeof BigInt==='undefined')throw new Error('BigInt not available');var u=this.__u8;o=o||0;var lo=((u[o+3]<<24)|(u[o+2]<<16)|(u[o+1]<<8)|u[o])>>>0;var hi=((u[o+7]<<24)|(u[o+6]<<16)|(u[o+5]<<8)|u[o+4]);return(BigInt(hi)<<BigInt(32))|BigInt(lo);};" ~
-        "p.readBigUInt64LE=function(o){if(typeof BigInt==='undefined')throw new Error('BigInt not available');var u=this.__u8;o=o||0;var lo=((u[o+3]<<24)|(u[o+2]<<16)|(u[o+1]<<8)|u[o])>>>0;var hi=((u[o+7]<<24)|(u[o+6]<<16)|(u[o+5]<<8)|u[o+4])>>>0;return(BigInt(hi)<<BigInt(32))|BigInt(lo);};" ~
-        "p.writeBigInt64BE=function(v,o){var u=this.__u8;o=o||0;v=BigInt(v);for(var i=7;i>=0;i--){u[o+i]=Number(v&BigInt(0xFF));v>>=BigInt(8);}return o+8;};" ~
-        "p.writeBigInt64LE=function(v,o){var u=this.__u8;o=o||0;v=BigInt(v);for(var i=0;i<8;i++){u[o+i]=Number(v&BigInt(0xFF));v>>=BigInt(8);}return o+8;};" ~
+        "p.readBigInt64BE=function(o){if(typeof BigInt==='undefined')throw new Error('BigInt not available');var u=this;o=o||0;var hi=((u[o]<<24)|(u[o+1]<<16)|(u[o+2]<<8)|u[o+3]);var lo=((u[o+4]<<24)|(u[o+5]<<16)|(u[o+6]<<8)|u[o+7])>>>0;return(BigInt(hi)<<BigInt(32))|BigInt(lo);};" ~
+        "p.readBigUInt64BE=function(o){if(typeof BigInt==='undefined')throw new Error('BigInt not available');var u=this;o=o||0;var hi=((u[o]<<24)|(u[o+1]<<16)|(u[o+2]<<8)|u[o+3])>>>0;var lo=((u[o+4]<<24)|(u[o+5]<<16)|(u[o+6]<<8)|u[o+7])>>>0;return(BigInt(hi)<<BigInt(32))|BigInt(lo);};" ~
+        "p.readBigInt64LE=function(o){if(typeof BigInt==='undefined')throw new Error('BigInt not available');var u=this;o=o||0;var lo=((u[o+3]<<24)|(u[o+2]<<16)|(u[o+1]<<8)|u[o])>>>0;var hi=((u[o+7]<<24)|(u[o+6]<<16)|(u[o+5]<<8)|u[o+4]);return(BigInt(hi)<<BigInt(32))|BigInt(lo);};" ~
+        "p.readBigUInt64LE=function(o){if(typeof BigInt==='undefined')throw new Error('BigInt not available');var u=this;o=o||0;var lo=((u[o+3]<<24)|(u[o+2]<<16)|(u[o+1]<<8)|u[o])>>>0;var hi=((u[o+7]<<24)|(u[o+6]<<16)|(u[o+5]<<8)|u[o+4])>>>0;return(BigInt(hi)<<BigInt(32))|BigInt(lo);};" ~
+        "p.writeBigInt64BE=function(v,o){var u=this;o=o||0;v=BigInt(v);for(var i=7;i>=0;i--){u[o+i]=Number(v&BigInt(0xFF));v>>=BigInt(8);}return o+8;};" ~
+        "p.writeBigInt64LE=function(v,o){var u=this;o=o||0;v=BigInt(v);for(var i=0;i<8;i++){u[o+i]=Number(v&BigInt(0xFF));v>>=BigInt(8);}return o+8;};" ~
         "p.writeBigUInt64BE=p.writeBigInt64BE;" ~
         "p.writeBigUInt64LE=p.writeBigInt64LE;" ~
 
@@ -246,18 +246,22 @@ void ensureBufferFnsCached(IJSEngine engine) @trusted
     if (!iterRes.isError)
         engine.freeValue(iterRes.value);
 
-    auto factoryRes = engine.eval(
-        "(function(){" ~
-        "var p=__dunBufProto__,c=Object.create;" ~
-        "return function __dunMkBuf(u8,len){" ~
-        "var o=c(p);o.__isBuffer=true;o.length=len;o.__u8=u8;" ~
-        "return new Proxy(o,{" ~
-        "get:function(t,k,r){if(typeof k==='string'){var n=+k;if(n===(n|0)&&n>=0&&n<t.length)return t.__u8[n];}return Reflect.get(t,k,r);}," ~
-        "set:function(t,k,v,r){if(typeof k==='string'){var n=+k;if(n===(n|0)&&n>=0&&n<t.length){t.__u8[n]=v;return true;}}return Reflect.set(t,k,v,r);}" ~
-        "});};})()",
-        "<buffer-factory>");
-    assert(!factoryRes.isError, "Failed to create buffer factory");
-    _bufFactory = factoryRes.value;
+    // Re-parent __dunBufProto__ onto Uint8Array.prototype so Buffer
+    // instances (which are now real Uint8Array subclass instances)
+    // inherit the standard TypedArray methods (.set, .subarray, etc.)
+    // alongside the Buffer extras. `__isBuffer = true` also lives on the
+    // prototype so every instance reports it via inheritance.
+    auto reparentRes = engine.eval(
+        "(function(){"
+        ~ "Object.setPrototypeOf(__dunBufProto__, Uint8Array.prototype);"
+        ~ "__dunBufProto__.__isBuffer = true;"
+        ~ "if (typeof Buffer !== 'undefined') Buffer.prototype = __dunBufProto__;"
+        ~ "})()",
+        "<buffer-reparent>");
+    if (!reparentRes.isError)
+        engine.freeValue(reparentRes.value);
+
+    _bufFactory = engine.newUndefined();           // unused — kept for back-compat
     _bufFactoryThis = engine.newUndefined();
 
     _bufFnsCached = true;
@@ -269,25 +273,19 @@ __gshared JSHandle _bufFactoryThis;
 package JSHandle makeBufferObj(IJSEngine engine, const(ubyte)[] data) @trusted
 {
     ensureBufferFnsCached(engine);
-    auto u8 = engine.newUint8Array(data);
-    auto lenVal = engine.newInt(cast(int) data.length);
-    JSHandle[2] factoryArgs = [u8, lenVal];
-    auto result = engine.callFunction(_bufFactory, _bufFactoryThis, factoryArgs[]);
-    engine.freeValue(lenVal);
-    engine.freeValue(u8);
-    return result;
+    // Single backend call: alloc + memcpy + setPrototype. On V8 this
+    // collapses 3 withContext entries into 1 — meaningful win on the
+    // Buffer.from hot path. On QuickJS / JSC the impl falls back to the
+    // two-step path internally.
+    return engine.newBufferWithProto(data, _bufProto, false);
 }
 
 JSHandle makeBufferObjZeroed(IJSEngine engine, int size) @trusted
 {
     ensureBufferFnsCached(engine);
     auto u8 = engine.newUint8ArrayZeroed(size);
-    auto lenVal = engine.newInt(size);
-    JSHandle[2] factoryArgs = [u8, lenVal];
-    auto result = engine.callFunction(_bufFactory, _bufFactoryThis, factoryArgs[]);
-    engine.freeValue(lenVal);
-    engine.freeValue(u8);
-    return result;
+    engine.setPrototype(u8, _bufProto);
+    return u8;
 }
 
 private immutable char[512] hexLUT = () {
@@ -339,11 +337,16 @@ ubyte hexDigit(char c) pure @safe
 
 package ubyte[] extractBytes(IJSEngine engine, JSHandle obj) @trusted
 {
-    auto u8 = engine.getProperty(obj, "__u8");
-    auto bytes = engine.getTypedArrayBytes(u8);
-    engine.freeValue(u8);
+    // Buffer is now a Uint8Array subclass — no `.__u8` indirection needed.
+    // Falls back to the legacy `.__u8` property in case some non-Buffer
+    // object still uses the wrapper shape (e.g. user-constructed pseudo
+    // buffers via `{ __isBuffer: true, __u8: ... }`).
+    auto bytes = engine.getTypedArrayBytes(obj);
     if (bytes !is null) return bytes;
-    return null;
+    auto u8 = engine.getProperty(obj, "__u8");
+    auto fallback = engine.getTypedArrayBytes(u8);
+    engine.freeValue(u8);
+    return fallback;
 }
 
 // Buffer.from(input, [encoding])
@@ -357,6 +360,14 @@ JSHandle jsBufferFrom(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trust
 
     if (engine.isString(args[0]))
     {
+        // Common path: Buffer.from(str) with no encoding → fused
+        // utf8-direct shim on V8, two-step fallback elsewhere.
+        if (args.length < 2 || engine.isUndefined(args[1]))
+        {
+            ensureBufferFnsCached(engine);
+            return engine.newBufferFromUtf8String(args[0], _bufProto);
+        }
+
         auto str = engine.extractString(args[0]);
         string encoding = "utf8";
         if (args.length >= 2 && engine.isString(args[1]))
@@ -677,9 +688,13 @@ JSHandle jsBufferConcat(void* ctx, JSHandle thisVal, scope JSHandle[] args) @tru
             totalLen = cast(size_t) requestedLen;
     }
 
-    // Create result typed array directly and memcpy segments into it
+    // Create result typed array directly and memcpy segments into it.
+    // Allocate AFTER the size pass so we know the total length, then keep
+    // u8 protected (via dupValue) across the memcpy loop because freeValue
+    // on the element handles can trigger GC and we hold a raw u8 ref.
     ensureBufferFnsCached(engine);
     auto u8 = engine.newUint8ArrayZeroed(totalLen);
+    auto u8Pinned = engine.dupValue(u8);
     auto destBytes = engine.getTypedArrayBytes(u8);
     size_t pos = 0;
     for (int i = 0; i < count; i++)
@@ -695,9 +710,10 @@ JSHandle jsBufferConcat(void* ctx, JSHandle thisVal, scope JSHandle[] args) @tru
         engine.freeValue(elemHandles[i]);
     }
 
-    auto totalLenVal = engine.newInt(cast(int) totalLen);
-    JSHandle[2] factoryArgs = [u8, totalLenVal];
-    return engine.callFunction(_bufFactory, _bufFactoryThis, factoryArgs[]);
+    // Buffer = Uint8Array subclass — set prototype directly, no JS factory call.
+    engine.setPrototype(u8, _bufProto);
+    engine.freeValue(u8Pinned);
+    return u8;
 }
 
 // Buffer.byteLength(string, [encoding])

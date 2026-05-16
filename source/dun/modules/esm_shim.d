@@ -531,7 +531,7 @@ private string parseImportLine(string line) @safe pure
 
     string name;
     if (bindingPart.length > 0 && bindingPart[0] == '{')
-        name = bindingPart;
+        name = rewriteBraceAs(bindingPart);
     else if (bindingPart.length > 0 && bindingPart[0] == '*')
     {
         auto asIdx = findAs(bindingPart);
@@ -686,6 +686,58 @@ private string extractStringLiteral(string s) @safe pure nothrow
 private string extractBraceNames(string s) @safe pure nothrow
 {
     return s;
+}
+
+// Rewrite ESM-style `{ A as X, B, C as Y }` into JS destructuring `{ A: X, B, C: Y }`.
+// Also handles mixed default/named: `{ default as X, B }` -> `{ default: X, B }`.
+private string rewriteBraceAs(string brace) @safe pure
+{
+    // brace is `{...}` with possibly nested whitespace
+    if (brace.length < 2 || brace[0] != '{') return brace;
+    auto closeIdx = -1;
+    foreach_reverse (i; 0 .. brace.length)
+    {
+        if (brace[i] == '}') { closeIdx = cast(int) i; break; }
+    }
+    if (closeIdx < 0) return brace;
+
+    auto inner = brace[1 .. closeIdx];
+    auto tail = closeIdx + 1 < brace.length ? brace[closeIdx + 1 .. $] : "";
+
+    Appender!(char[]) buf;
+    buf.reserve(brace.length + 8);
+    buf ~= "{";
+
+    auto parts = splitByComma(inner);
+    bool first = true;
+    foreach (raw; parts)
+    {
+        auto p = stripLeft(stripRight(raw));
+        if (p.length == 0) continue;
+        if (!first) buf ~= ", ";
+        first = false;
+
+        // look for `as` keyword separating original/alias
+        auto asIdx = findAs(p);
+        if (asIdx > 0)
+        {
+            auto orig = stripRight(p[0 .. asIdx]);
+            auto alias_ = stripLeft(p[asIdx + 2 .. $]);
+            // strip string-quote aliases (export { X as 'module.exports' })
+            if (alias_.length >= 2 && (alias_[0] == '\'' || alias_[0] == '"'))
+                alias_ = alias_[1 .. $ - 1];
+            buf ~= orig;
+            buf ~= ": ";
+            buf ~= alias_;
+        }
+        else
+        {
+            buf ~= p;
+        }
+    }
+    buf ~= "}";
+    buf ~= tail;
+    return (() @trusted => cast(string) buf[])();
 }
 
 // Parse "export { X, Y, default as Z } from './mod.js'" into require + assignment

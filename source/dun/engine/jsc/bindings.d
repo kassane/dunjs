@@ -206,6 +206,8 @@ JSValueRef JSObjectGetProperty(JSContextRef ctx, JSObjectRef object,
 void JSObjectSetProperty(JSContextRef ctx, JSObjectRef object,
     JSStringRef propertyName, JSValueRef value,
     JSPropertyAttributes attributes, JSValueRef* exception);
+void JSObjectSetPrototype(JSContextRef ctx, JSObjectRef object, JSValueRef value);
+JSValueRef JSObjectGetPrototype(JSContextRef ctx, JSObjectRef object);
 bool JSObjectDeleteProperty(JSContextRef ctx, JSObjectRef object,
     JSStringRef propertyName, JSValueRef* exception);
 
