@@ -1,34 +1,7 @@
-/// JSX → factory-call transformer.
-///
-/// Converts JSX syntax in `.jsx` / `.tsx` source files into ordinary
-/// JS function calls — the same transform the `@babel/plugin-transform-jsx`
-/// or TypeScript's classic `--jsx react` mode would emit.
-///
-/// Transform rules (classic / React.createElement mode):
-///   <Foo bar="x">{baz}</Foo>     → React.createElement(Foo, {bar:"x"}, baz)
-///   <foo bar="x" />              → React.createElement("foo", {bar:"x"})
-///   <foo.bar />                  → React.createElement(foo.bar, null)
-///   <foo.bar />                  → React.createElement(foo.bar, null)
-///   <>{x}{y}</>                  → React.createElement(React.Fragment, null, x, y)
-///   <Foo {...props} />           → React.createElement(Foo, Object.assign({}, props))
-///   children include text → string literal; `{...}` → embedded expression
-///
-/// The factory name is fixed at `React.createElement` (and Fragment at
-/// `React.Fragment`). Users that prefer a different pragma can set a
-/// global `React` shim — same approach as Babel's classic transform.
-///
-/// Limits (intentionally narrow scope):
-///   - No /\*\* @jsx custom \*\*/ pragma comment parsing.
-///   - No automatic-runtime (jsx-runtime / jsxs / _jsx); we emit
-///     React.createElement directly. Most React 17+ code still ships
-///     React.createElement at the call site after compilation.
-///   - No JSX-in-template-string, no JSX inside object methods that
-///     start with a < before the method's body.
-///   - Spread attributes inside an object literal expression that
-///     also has named props: we emit `Object.assign({}, ...spread, {named})`.
-///
-/// Tracks string / comment / template literal context so embedded `<`
-/// in code like `if (a < b)` isn't misinterpreted as a tag opening.
+/// JSX → React.createElement transformer for .jsx / .tsx files.
+/// Classic mode emit only (no jsx-runtime / custom pragma). Skips
+/// string / template / comment / regex contexts so `<` in non-JSX
+/// positions (e.g. `a < b`, `a / b`) parses unchanged.
 module dun.ts.jsx;
 
 import std.array : Appender;
@@ -37,7 +10,7 @@ import std.algorithm : canFind;
 /// Transform JSX expressions in `source` to React.createElement calls.
 /// `source` is the file content; the function is a no-op for files
 /// that don't contain JSX (cheap heuristic check up front).
-string transformJsx(string source) @trusted
+string transformJsx(string source) @safe
 {
     if (source.length < 2) return source;
     // Cheap heuristic: only run the full scanner when the source has
@@ -130,7 +103,7 @@ string transformJsx(string source) @trusted
         out_.put(c);
         i++;
     }
-    return cast(string) out_.data;
+    return (() @trusted => cast(string) out_.data)();
 }
 
 // -- internals --
@@ -280,7 +253,7 @@ private bool isJsxContext(string s, size_t pos) @safe pure nothrow @nogc
 /// Parse one JSX element starting at `s[start]` (where `s[start] == '<'`).
 /// On success, returns the emitted JS source and sets `end` to one past
 /// the consumed input. On failure, returns "" (caller falls through).
-private string parseJsxElement(string s, size_t start, out size_t end) @trusted
+private string parseJsxElement(string s, size_t start, out size_t end) @safe
 {
     size_t p = start + 1;
     if (p >= s.length) return "";
@@ -297,7 +270,7 @@ private string parseJsxElement(string s, size_t start, out size_t end) @trusted
         {
             frag.put(")");
             end = p + 3;
-            return cast(string) frag.data;
+            return (() @trusted => cast(string) frag.data)();
         }
         return "";
     }
@@ -448,7 +421,7 @@ private string parseJsxElement(string s, size_t start, out size_t end) @trusted
     {
         el.put(")");
         end = p + 2;
-        return cast(string) el.data;
+        return (() @trusted => cast(string) el.data)();
     }
     if (p >= s.length || s[p] != '>') return "";
     p++;
@@ -465,13 +438,13 @@ private string parseJsxElement(string s, size_t start, out size_t end) @trusted
 
     el.put(")");
     end = p;
-    return cast(string) el.data;
+    return (() @trusted => cast(string) el.data)();
 }
 
 /// Parse JSX children (text, `{expr}`, nested elements) until the next
 /// `</`. Appends each child as a trailing argument to `out_`. `p` is
 /// updated to point at the `<` of the closing tag.
-private void parseChildren(string s, ref size_t p, ref Appender!(char[]) out_) @trusted
+private void parseChildren(string s, ref size_t p, ref Appender!(char[]) out_) @safe
 {
     while (p < s.length)
     {
@@ -546,7 +519,7 @@ private void parseChildren(string s, ref size_t p, ref Appender!(char[]) out_) @
 
 /// JSX whitespace: lines that are all whitespace are dropped; leading
 /// and trailing whitespace on the boundary are collapsed.
-private string trimJsxText(string t) @trusted pure nothrow
+private string trimJsxText(string t) @safe pure nothrow
 {
     // Strip if entire string is whitespace.
     bool allWs = true;
@@ -563,10 +536,10 @@ private string trimJsxText(string t) @trusted pure nothrow
         }
         else { sb.put(c); seenSpace = false; }
     }
-    return cast(string) sb.data;
+    return (() @trusted => cast(string) sb.data)();
 }
 
-private string jsonStringLit(string s) @trusted pure nothrow
+private string jsonStringLit(string s) @safe pure nothrow
 {
     Appender!(char[]) sb;
     sb.put('"');
@@ -580,7 +553,7 @@ private string jsonStringLit(string s) @trusted pure nothrow
         else sb.put(c);
     }
     sb.put('"');
-    return cast(string) sb.data;
+    return (() @trusted => cast(string) sb.data)();
 }
 
 private bool isIdentStart(char c) @safe pure nothrow @nogc

@@ -1,23 +1,5 @@
-/// Bun.* compatibility surface.
-///
-/// Bun ships a `Bun` namespace on the global object with helpers like
-/// `Bun.serve`, `Bun.file`, `Bun.spawn`, `Bun.password.{hash,verify}`,
-/// `Bun.hash`, `Bun.sleep`, `Bun.env`, `Bun.argv`, `Bun.version`, etc.
-/// This module exposes a JS-level shim that maps each of those to our
-/// existing Node-style implementations (http, fs, child_process, crypto,
-/// timers), so projects written against the Bun API can run unchanged.
-///
-/// Coverage matches what real Bun apps actually call most often:
-///   - Bun.serve / Bun.file / Bun.write
-///   - Bun.spawn / Bun.spawnSync
-///   - Bun.password.hash / verify  (scrypt-backed; same output shape)
-///   - Bun.sleep / Bun.sleepSync
-///   - Bun.hash (non-cryptographic)
-///   - Bun.escapeHTML / Bun.deepEquals / Bun.inspect
-///   - Bun.env / Bun.argv / Bun.version / Bun.revision
-///
-/// Anything not implemented throws "not implemented in DunJS" so
-/// fallbacks can branch on existence cleanly.
+/// `Bun.*` namespace shim — maps Bun-specific APIs onto our Node-style
+/// implementations so apps written for Bun run unchanged.
 module dun.runtime.bun_compat;
 
 import dun.engine.iface : IJSEngine;

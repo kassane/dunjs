@@ -1,30 +1,15 @@
-/// Source-text rewriter for Unicode property regex escapes.
-///
-/// V8's prebuilt monolith ships without ICU (`v8_enable_i18n_support=false`),
-/// so any regex *literal* like `/\p{ID_Start}/u` throws at parse time
-/// before any runtime polyfill can intercept it. This module replaces
-/// `\p{Name}` / `\P{Name}` text occurrences with pre-baked character
-/// classes so the parser sees ordinary ranges.
-///
-/// Loader.d / require.d call this on any module source loaded under the
-/// V8 backend before handing it to the engine. The Buffer-allocated
-/// table is built once at program start.
-///
-/// JSC and QuickJS don't need this — both ship with native Unicode
-/// property support — so the function is a no-op there (compiled out
-/// behind `version (EngineV8)`).
+/// Source rewriter for `\p{...}` / `\P{...}` regex escapes on V8.
+/// V8's prebuilt ships without ICU, so regex literals using these
+/// escapes throw at parse time before any runtime polyfill can run.
+/// We substitute pre-baked character classes at module load. JSC and
+/// QuickJS handle the escapes natively and skip this module.
 module dun.runtime.unicode_props;
 
 import std.algorithm : canFind;
 
-/// Replace every `\p{Name}` / `\P{Name}` occurrence in `source` with
-/// the equivalent character class from the pre-baked table. Returns
-/// `source` unchanged if it contains no escape patterns.
-///
-/// Heuristic — does not parse the JS to distinguish regex literals
-/// from string contents. In practice, `\p{` is an exotic substring
-/// in JS source outside of regex literals, so the false-positive rate
-/// is negligible.
+/// Replace `\p{Name}` / `\P{Name}` text with pre-baked character
+/// classes. Tracks string / template / comment context so escapes
+/// inside non-regex source aren't mis-rewritten.
 string expandUnicodePropertyEscapes(string source) @safe pure
 {
     if (source.length < 4) return source;
