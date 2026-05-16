@@ -1,0 +1,11 @@
+# Most of the lsquic source tree is downloaded at build time
+# (see build.d::fetchLsquicHeaders). Only the ImportC bridge and the
+# public headers needed for it are tracked.
+*
+!.gitignore
+!lsquic_api.c
+!include/
+include/*
+!include/lsquic.h
+!include/lsquic_types.h
+!include/lsxpack_header.h

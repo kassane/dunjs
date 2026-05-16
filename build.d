@@ -92,6 +92,17 @@ enum V8_SYSTEM_INCLUDE = "/usr/include/v8";
 enum SQLITE_VERSION     = "3530100";   // 3.53.1
 enum SQLITE_YEAR        = "2026";
 
+// lsquic configuration
+// Downloads just the public headers from litespeedtech/lsquic so that the
+// existing extern(C) bindings can be cross-checked via ImportC (see
+// vendor/lsquic/lsquic_api.c). Linking against liblsquic.a still requires a
+// separate build with BoringSSL — this download is bindings-only.
+enum LSQUIC_VERSION  = "v4.4.1";
+enum LSQUIC_REPO     = "litespeedtech/lsquic";
+enum LSQUIC_URL      = "https://github.com/" ~ LSQUIC_REPO ~ "/archive/refs/tags/"
+                     ~ LSQUIC_VERSION ~ ".tar.gz";
+enum LSQUIC_HEADER_MARKER = "include/lsquic.h";
+
 // Download retry configuration
 enum DOWNLOAD_MAX_RETRIES = 3;
 enum DOWNLOAD_RETRY_DELAY_SECS = 2;
@@ -111,6 +122,8 @@ string v8IncludeDir(){ return buildPath(v8Dir(), "include"); }
 string v8Archive()          { return buildPath(vendorDir(), "node-headers.tar.gz"); }
 string v8PrebuiltArchive()  { return buildPath(vendorDir(), "v8-prebuilt" ~ v8PrebuiltExt()); }
 string sqliteDir()          { return buildPath(vendorDir(), "sqlite"); }
+string lsquicDir()          { return buildPath(vendorDir(), "lsquic"); }
+string lsquicArchive()      { return buildPath(vendorDir(), "lsquic.tar.gz"); }
 
 string v8PrebuiltExt()
 {
@@ -1062,6 +1075,43 @@ bool buildSqlite(ref const Toolchain tc, ref const BuildOptions opts)
 
     logInfo(tag, libName ~ " built via CMake FetchContent");
     return true;
+}
+
+// ════════════════════════════════════════════════════════════════════
+// lsquic (header-only vendor for ImportC bindings)
+// ════════════════════════════════════════════════════════════════════
+
+/**
+ * Vendor lsquic's public headers so D's ImportC processor can validate
+ * the manual extern(C) declarations in `dun.platform.lsquic`.
+ *
+ * Header-only: liblsquic.a itself is *not* built here because the full
+ * lsquic build pulls in BoringSSL, libevent, and zlib. Projects that
+ * want runtime QUIC must supply their own libslquic.a; this download
+ * exists so the C and D sides of the binding stay in sync.
+ *
+ * Returns true on success or when headers are already vendored.
+ */
+bool fetchLsquicHeaders(ref const Toolchain tc, ref const BuildOptions opts)
+{
+    enum tag = "lsquic";
+    immutable markerPath = buildPath(lsquicDir(), LSQUIC_HEADER_MARKER);
+    if (!opts.force && exists(markerPath))
+    {
+        logVerbose(tag, "Headers already vendored -- skipping");
+        return true;
+    }
+
+    if (!tc.hasDownloader())
+    {
+        logVerbose(tag, "No downloader; skipping header fetch.");
+        return true;  // not fatal: manual bindings already cover usage
+    }
+
+    // downloadAndExtract strips the leading directory and verifies the
+    // marker, which for us is the public `include/lsquic.h`.
+    return downloadAndExtract(tc, LSQUIC_URL, lsquicArchive(),
+                              lsquicDir(), LSQUIC_HEADER_MARKER, tag);
 }
 
 // ════════════════════════════════════════════════════════════════════
@@ -2259,6 +2309,9 @@ int main(string[] args)
 
     // Build SQLite (cross-cutting dependency, all backends need it)
     buildSqlite(tc, opts);
+
+    // Vendor lsquic public headers (header-only, never fatal)
+    fetchLsquicHeaders(tc, opts);
 
     // Build requested backend(s)
     bool success = true;
