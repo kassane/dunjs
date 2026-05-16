@@ -33,6 +33,7 @@ JSHandle consoleLog(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
     auto state = cast(DunState*) ctx;
     assert(state.engine !is null, "Null engine in console.log");
     writeArgs(state.engine, args, false);
+    forwardToInspector(state.engine, "log", args);
     return state.engine.newUndefined();
 }
 
@@ -41,6 +42,7 @@ JSHandle consoleWarn(void* ctx, JSHandle thisVal, scope JSHandle[] args) @truste
     assert(ctx !is null, "Null ctx in console.warn");
     auto state = cast(DunState*) ctx;
     writeArgs(state.engine, args, true);
+    forwardToInspector(state.engine, "warning", args);
     return state.engine.newUndefined();
 }
 
@@ -49,7 +51,34 @@ JSHandle consoleError(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trust
     assert(ctx !is null, "Null ctx in console.error");
     auto state = cast(DunState*) ctx;
     writeArgs(state.engine, args, true);
+    forwardToInspector(state.engine, "error", args);
     return state.engine.newUndefined();
+}
+
+/// Forward a console.* call to an attached Chrome DevTools session as
+/// a Runtime.consoleAPICalled event. No-op if `--inspect` wasn't set
+/// or no client has connected.
+version (Posix) import dun.cli.inspector : emitConsoleAPICalled;
+
+private void forwardToInspector(IJSEngine engine, string level, scope JSHandle[] args) @trusted nothrow
+{
+    version (Posix)
+    {
+        try
+        {
+            // Format args the same way writeArgs would render them, so
+            // DevTools sees the same string the terminal did.
+            string formatted;
+            foreach (i, arg; args)
+            {
+                if (i > 0) formatted ~= " ";
+                try { formatted ~= engine.extractString(arg); }
+                catch (Exception) {}
+            }
+            emitConsoleAPICalled(level, formatted);
+        }
+        catch (Throwable) {}
+    }
 }
 
 JSHandle consoleAssert(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted

@@ -115,6 +115,29 @@ void installGlobals(IJSEngine engine, DunState* state) @trusted
     import dun.runtime.web_apis : installWebAPIs;
     installWebAPIs(engine);
 
+    // Tiny React shim so JSX-emitted React.createElement calls work
+    // without an explicit `import React from 'react'`. Match Bun's
+    // implicit-React behavior; if the user does `import React`, the
+    // import overrides this. Returns a plain { type, props, children }
+    // tree — sufficient for serialization-only consumers (e.g. server-
+    // side render to HTML / JSON). Real DOM rendering still needs a
+    // real React build.
+    auto reactRes = engine.eval(
+        "(function() {" ~
+        "if (typeof globalThis.React !== 'undefined') return;" ~
+        "globalThis.React = {" ~
+        "  Fragment: Symbol('React.Fragment')," ~
+        "  createElement: function(type, props /*, ...children */) {" ~
+        "    var children = [];" ~
+        "    for (var i = 2; i < arguments.length; i++) children.push(arguments[i]);" ~
+        "    var node = { type: type, props: props || {}, children: children };" ~
+        "    Object.defineProperty(node, '$$typeof', { value: Symbol.for('react.element') });" ~
+        "    return node;" ~
+        "  }" ~
+        "};" ~
+        "})();", "<react-shim>");
+    if (!reactRes.isError) engine.freeValue(reactRes.value);
+
     // WebAssembly: JSC and V8 ship the constructors but their async
     // `instantiate` / `compile` / streaming variants schedule onto the
     // engine's internal task queue, which our event loop doesn't drain.
@@ -490,6 +513,22 @@ private string unicodePropPolyfillSource() pure @safe nothrow
   T['Lm']          = T['L'];
   T['Nd']          = '0-9\\u0660-\\u0669\\u06F0-\\u06F9';
   T['Nl']          = T['N'];
+  /* Common script names: long form and four-letter codes.
+     Long form: Script=Latin / Script=Han / etc.
+     Short:     sc=Latn / sc=Hani / ...
+     Both map to the same range — the key half is already extracted
+     by the caller, so we just need the script name. */
+  T['Latin']      = T['Latn']  = 'A-Za-z\\u00AA\\u00B5\\u00BA\\u00C0-\\u00D6\\u00D8-\\u00F6\\u00F8-\\u02AF\\u1E00-\\u1EFF';
+  T['Greek']      = T['Grek']  = '\\u0370-\\u03FF\\u1F00-\\u1FFE';
+  T['Cyrillic']   = T['Cyrl']  = '\\u0400-\\u052F\\u1C80-\\u1C8F\\uA640-\\uA69F';
+  T['Han']        = T['Hani']  = '\\u3400-\\u4DBF\\u4E00-\\u9FFF\\uF900-\\uFAFF';
+  T['Hiragana']   = T['Hira']  = '\\u3041-\\u3096\\u309D-\\u309F';
+  T['Katakana']   = T['Kana']  = '\\u30A1-\\u30FA\\u30FC-\\u30FF\\uFF66-\\uFF9F';
+  T['Hangul']     = T['Hang']  = '\\u1100-\\u11FF\\u3131-\\u318E\\uAC00-\\uD7A3';
+  T['Arabic']     = T['Arab']  = '\\u0600-\\u06FF\\u0750-\\u077F\\uFB50-\\uFDFF';
+  T['Hebrew']     = T['Hebr']  = '\\u0590-\\u05FF\\uFB1D-\\uFB4F';
+  T['Devanagari'] = T['Deva']  = '\\u0900-\\u097F';
+  T['Thai']                    = '\\u0E01-\\u0E5B';
   T['No']          = T['N'];
 
   // Hand-walk the pattern so we know whether each \p{} sits inside

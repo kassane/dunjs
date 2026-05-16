@@ -181,6 +181,59 @@ private string unicodeRangeFor(string key) @safe pure nothrow
             return "\\u0000-\\u007F";
         case "White_Space":
             return " \\t\\n\\r\\u00A0\\u2028\\u2029";
+        // Common script names. ECMA-402 spells these as `\\p{Script=Latin}`
+        // or `\\p{sc=Latin}` (long-form keys/values + short forms). The
+        // caller has already split off the value half for `Property=Value`
+        // syntax, so we only receive the value.
+        case "Latin":
+        case "Latn":
+            return "A-Za-z\\u00AA\\u00B5\\u00BA\\u00C0-\\u00D6\\u00D8-\\u00F6"
+                ~ "\\u00F8-\\u02AF\\u0370-\\u0373\\u1D00-\\u1D7F\\u1E00-\\u1EFF"
+                ~ "\\u2C60-\\u2C7F\\uA720-\\uA7FF\\uAB30-\\uAB6F\\uFB00-\\uFB06";
+        case "Greek":
+        case "Grek":
+            return "\\u0370-\\u0373\\u0376-\\u0377\\u037A-\\u037D\\u0384-\\u0385"
+                ~ "\\u0386\\u0388-\\u03FF\\u1F00-\\u1FFE";
+        case "Cyrillic":
+        case "Cyrl":
+            return "\\u0400-\\u052F\\u1C80-\\u1C8F\\u2DE0-\\u2DFF\\uA640-\\uA69F";
+        case "Han":
+        case "Hani":
+            return "\\u2E80-\\u2FFF\\u3005\\u3007\\u3021-\\u3029\\u3038-\\u303B"
+                ~ "\\u3400-\\u4DBF\\u4E00-\\u9FFF\\uF900-\\uFAFF";
+        case "Hiragana":
+        case "Hira":
+            return "\\u3041-\\u3096\\u309D-\\u309F\\u3099-\\u309C\\u1B100-\\u1B11F";
+        case "Katakana":
+        case "Kana":
+            return "\\u30A1-\\u30FA\\u30FC-\\u30FF\\u31F0-\\u31FF\\u32D0-\\u32FE"
+                ~ "\\u3300-\\u3357\\uFF66-\\uFF9F";
+        case "Hangul":
+        case "Hang":
+            return "\\u1100-\\u11FF\\u302E-\\u302F\\u3131-\\u318E\\u3200-\\u321E"
+                ~ "\\u3260-\\u327E\\uA960-\\uA97C\\uAC00-\\uD7A3\\uD7B0-\\uD7FB"
+                ~ "\\uFFA0-\\uFFDC";
+        case "Arabic":
+        case "Arab":
+            return "\\u0600-\\u06FF\\u0750-\\u077F\\u08A0-\\u08FF\\uFB50-\\uFDFF"
+                ~ "\\uFE70-\\uFEFF";
+        case "Hebrew":
+        case "Hebr":
+            return "\\u0590-\\u05FF\\uFB1D-\\uFB4F";
+        case "Devanagari":
+        case "Deva":
+            return "\\u0900-\\u097F\\uA8E0-\\uA8FF";
+        case "Thai":
+            return "\\u0E01-\\u0E5B";
+        case "Common":
+        case "Zyyy":
+            // Punctuation, digits, symbols shared across scripts.
+            return "\\u0020-\\u0040\\u005B-\\u0060\\u007B-\\u00A9\\u00AB-\\u00B4"
+                ~ "\\u00B6-\\u00B9\\u00BB-\\u00BF\\u00D7\\u00F7\\u02B9-\\u02DF"
+                ~ "\\u02E5-\\u02FF\\u0300-\\u034E";
+        case "Inherited":
+        case "Zinh":
+            return "\\u0300-\\u036F\\u0485-\\u0486\\u064B-\\u065F";
         default:
             return "";
     }

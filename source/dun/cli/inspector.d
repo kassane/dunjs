@@ -229,16 +229,53 @@ void handleCDPMessage(string msg) @trusted
         if ("id" in j && j["id"].type == JSONType.integer)
             id = cast(int) j["id"].integer;
 
+        // Bucket 1: enable-style + ack-only methods that DevTools
+        // sends at startup. We acknowledge with `{}` so the UI moves
+        // on instead of hanging on a pending request.
         if (method == "Runtime.enable" || method == "Debugger.enable"
-            || method == "Profiler.enable" || method == "HeapProfiler.enable")
+            || method == "Profiler.enable" || method == "HeapProfiler.enable"
+            || method == "Console.enable" || method == "Network.enable"
+            || method == "Page.enable" || method == "Inspector.enable"
+            || method == "DOM.enable" || method == "CSS.enable"
+            || method == "Log.enable" || method == "ServiceWorker.enable"
+            || method == "Profiler.disable" || method == "HeapProfiler.disable"
+            || method == "Debugger.disable" || method == "Runtime.disable"
+            || method == "Debugger.setPauseOnExceptions"
+            || method == "Debugger.setAsyncCallStackDepth"
+            || method == "Debugger.setBlackboxPatterns"
+            || method == "Debugger.setBlackboxExecutionContexts"
+            || method == "Debugger.setSkipAllPauses"
+            || method == "Runtime.setMaxCallStackSizeToCapture"
+            || method == "Runtime.setAsyncCallStackDepth"
+            || method == "Runtime.runIfWaitingForDebugger"
+            || method == "Runtime.discardConsoleEntries"
+            || method == "Runtime.releaseObject"
+            || method == "Runtime.releaseObjectGroup"
+            || method == "Target.setAutoAttach"
+            || method == "Target.setDiscoverTargets"
+            || method == "Profiler.setSamplingInterval"
+            || method == "Page.setBypassCSP"
+            || method == "Page.startScreencast"
+            || method == "Page.stopScreencast")
         {
             sendCDPResponse(id, "{}");
         }
-        else if (method == "Runtime.evaluate")
+        else if (method == "Runtime.evaluate"
+              || method == "Runtime.callFunctionOn")
         {
+            // For callFunctionOn we wrap the expression in (function(){})()
+            // so the function source executes with whatever 'arguments'
+            // the DevTools sends. Best-effort approximation that handles
+            // the common 'show me the value' use case from the console.
             string expr = "";
-            if ("params" in j && "expression" in j["params"])
-                expr = j["params"]["expression"].str;
+            if ("params" in j)
+            {
+                auto params = j["params"];
+                if ("expression" in params)
+                    expr = params["expression"].str;
+                else if ("functionDeclaration" in params)
+                    expr = "(" ~ params["functionDeclaration"].str ~ ")()";
+            }
 
             string resultJson = `{"type":"undefined"}`;
             if (gInspectorEngine !is null && expr.length > 0)
@@ -263,16 +300,108 @@ void handleCDPMessage(string msg) @trusted
             }
             sendCDPResponse(id, `{"result":` ~ resultJson ~ `}`);
         }
-        else if (method == "Runtime.getProperties" || method == "Runtime.compileScript")
+        else if (method == "Runtime.getProperties")
         {
+            // Properties listing: return empty arrays. A real impl would
+            // mirror engine.getProperty(handle, ...) for the object id
+            // the client passed in, but we don't yet track those.
+            sendCDPResponse(id, `{"result":[],"internalProperties":[]}`);
+        }
+        else if (method == "Runtime.compileScript")
+        {
+            sendCDPResponse(id, `{"scriptId":"1"}`);
+        }
+        else if (method == "Runtime.getHeapUsage")
+        {
+            // memoryUsage()-style numbers. Best-effort via D rt.
+            import core.memory : GC;
+            auto stats = GC.stats;
+            import std.conv : to;
+            sendCDPResponse(id,
+                `{"usedSize":` ~ stats.usedSize.to!string
+                ~ `,"totalSize":` ~ (stats.usedSize + stats.freeSize).to!string
+                ~ `,"embedderHeapUsedSize":0,"backingStorageSize":0}`);
+        }
+        else if (method == "Debugger.setBreakpointByUrl"
+              || method == "Debugger.setBreakpoint"
+              || method == "Debugger.removeBreakpoint")
+        {
+            // We don't have a real debugger, but acknowledging the breakpoint
+            // request lets DevTools' breakpoint UI render without errors.
+            // Use a fixed phony breakpointId so removes ack cleanly too.
+            sendCDPResponse(id, `{"breakpointId":"dun:bp:1","locations":[]}`);
+        }
+        else if (method == "Debugger.getScriptSource")
+        {
+            sendCDPResponse(id, `{"scriptSource":""}`);
+        }
+        else if (method == "HeapProfiler.takeHeapSnapshot"
+              || method == "HeapProfiler.collectGarbage")
+        {
+            import core.memory : GC;
+            try { GC.collect(); } catch (Exception) {}
             sendCDPResponse(id, "{}");
+        }
+        else if (method == "Profiler.start" || method == "Profiler.stop"
+              || method == "Profiler.startTypeProfile"
+              || method == "Profiler.stopTypeProfile")
+        {
+            sendCDPResponse(id, `{"profile":{"nodes":[],"startTime":0,"endTime":0,"samples":[],"timeDeltas":[]}}`);
+        }
+        else if (method == "Page.getResourceTree")
+        {
+            sendCDPResponse(id,
+                `{"frameTree":{"frame":{"id":"dun","loaderId":"dun-loader","url":"file:///","mimeType":"text/javascript","securityOrigin":"","domainAndRegistry":""},"resources":[]}}`);
+        }
+        else if (method == "Target.getTargetInfo" || method == "Target.attachToTarget")
+        {
+            sendCDPResponse(id,
+                `{"targetInfo":{"targetId":"dun","type":"node","title":"DunJS","url":"file:///","attached":true,"canAccessOpener":false}}`);
         }
         else
         {
+            // Unknown methods get an empty success response. We log
+            // them in verbose mode so adding handlers later is easy.
             sendCDPResponse(id, "{}");
         }
     }
     catch (Throwable) {}
+}
+
+/// Forward a `console.{log,info,warn,error,debug}` call from JS to a
+/// connected DevTools session via `Runtime.consoleAPICalled` event.
+/// Called from the runtime's console.* implementations; no-op if no
+/// client is attached.
+public void emitConsoleAPICalled(string level, string text) nothrow @trusted
+{
+    if (gClientFd < 0) return;
+    try
+    {
+        import std.json : JSONValue;
+        import std.conv : to;
+        auto textJson = JSONValue(text).toString();
+        auto event =
+            `{"method":"Runtime.consoleAPICalled","params":{`
+            ~ `"type":"` ~ level ~ `",`
+            ~ `"args":[{"type":"string","value":` ~ textJson ~ `}],`
+            ~ `"executionContextId":1,`
+            ~ `"timestamp":` ~ (cast(double) (gMonotonicMs())).to!string
+            ~ `,"stackTrace":{"callFrames":[]}}}`;
+        sendWebSocketFrame(cast(ubyte[]) event.dup);
+    }
+    catch (Throwable) {}
+}
+
+/// Monotonic milliseconds for CDP event timestamps. nothrow so the
+/// console hooks above stay nothrow.
+private long gMonotonicMs() nothrow @trusted
+{
+    try
+    {
+        import core.time : MonoTime, msecs, Duration;
+        return MonoTime.currTime.ticks;
+    }
+    catch (Exception) { return 0; }
 }
 
 void sendCDPResponse(int id, string resultJson) nothrow @trusted

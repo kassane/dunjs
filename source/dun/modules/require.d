@@ -411,7 +411,8 @@ JSHandle jsRequire(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
     bool esmTranspiled = false;
     try
     {
-        if (resolved.endsWith(".ts") || resolved.endsWith(".cts"))
+        if (resolved.endsWith(".ts") || resolved.endsWith(".cts")
+            || resolved.endsWith(".tsx"))
         {
             import dun.ts.strip : stripTypes, generateSourceMap;
             import std.base64 : Base64;
@@ -424,6 +425,13 @@ JSHandle jsRequire(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
                 auto encoded = Base64.encode(cast(const(ubyte)[]) sourceMap);
                 source ~= "\n//# sourceMappingURL=data:application/json;base64,"
                     ~ cast(string) encoded;
+            }
+
+            // JSX/TSX → React.createElement after TS strip.
+            if (resolved.endsWith(".tsx"))
+            {
+                import dun.ts.jsx : transformJsx;
+                source = transformJsx(source);
             }
 
             // .ts files can still be ESM (top-level import/export). The

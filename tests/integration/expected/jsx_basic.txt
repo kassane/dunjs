@@ -1,0 +1,2 @@
+jsx_basic: 18/18 checks passed
+ALL CHECKS PASSED
