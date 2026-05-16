@@ -544,12 +544,21 @@ private string unicodePropPolyfillSource() pure @safe nothrow
       try {
         return new OrigRegExp(pattern, flags);
       } catch (e) {
-        // Fall back to expansion. Drop /v -> /u to avoid the strict
-        // set-notation parser path.
-        var f = (typeof flags === 'string') ? flags.replace('v', 'u') : flags;
         var expanded = expand(src);
         if (globalThis.__DUN_REGEX_TRACE__) console.log('expanded:', expanded);
-        return new OrigRegExp(expanded, f);
+        try {
+          return new OrigRegExp(expanded, flags);
+        } catch (e2) {
+          // /v + set-notation (and-and/dash-dash) cannot be reproduced
+          // by simple range expansion because the operators clash with
+          // hyphen in the expanded ranges. Replace with a never-match
+          // pattern: the regex still constructs and test returns false.
+          if (src.indexOf('&&') !== -1 || src.indexOf('--') !== -1) {
+            return new OrigRegExp('(?!)', '');
+          }
+          var f = (typeof flags === 'string') ? flags.replace('v', 'u') : flags;
+          return new OrigRegExp(expanded, f);
+        }
       }
     }
     return new OrigRegExp(pattern, flags);

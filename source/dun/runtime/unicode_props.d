@@ -41,17 +41,67 @@ string expandUnicodePropertyEscapes(string source) @safe pure
         outLen += s.length;
     }
 
-    // Walk the source byte by byte. Track whether we're inside a `[]`
-    // character class (only matters inside a regex literal); inside
-    // those, the expansion uses bare ranges; outside, we wrap in `[]`.
-    // We don't attempt to track string/comment context — `\p{` is rare
-    // enough outside regex literals that the false-positive cost is
-    // worth the simplicity.
+    // Walk the source byte by byte. Track:
+    //   - whether we're inside a `[]` character class (regex literal
+    //     internal): expansion uses bare ranges inside, brackets outside.
+    //   - whether we're inside a string literal `"..."` / `'...'` /
+    //     `` `...` ``: skip without rewriting. Without this, the JS
+    //     source `"\\p{X}"` (literal `\p{X}` after escape) gets rewritten
+    //     as if it were a regex escape, corrupting string contents.
+    //   - whether we're inside a line / block comment: skip likewise.
     size_t i = 0;
     bool inClass = false;
     while (i < source.length)
     {
         char c = source[i];
+        // String literals — single, double, template.
+        if (c == '"' || c == '\'' || c == '`')
+        {
+            char quote = c;
+            put([c]);
+            i++;
+            while (i < source.length)
+            {
+                char sc = source[i];
+                if (sc == '\\' && i + 1 < source.length)
+                {
+                    put([sc, source[i + 1]]);
+                    i += 2;
+                    continue;
+                }
+                put([sc]);
+                i++;
+                if (sc == quote) break;
+                // Template literal interpolation — for simplicity treat
+                // ${...} contents as still inside the template (don't
+                // descend), since we just need to avoid mis-rewriting.
+            }
+            continue;
+        }
+        // Single-line comments.
+        if (c == '/' && i + 1 < source.length && source[i + 1] == '/')
+        {
+            while (i < source.length && source[i] != '\n')
+            {
+                put([source[i]]);
+                i++;
+            }
+            continue;
+        }
+        // Block comments.
+        if (c == '/' && i + 1 < source.length && source[i + 1] == '*')
+        {
+            put("/*");
+            i += 2;
+            while (i + 1 < source.length
+                && !(source[i] == '*' && source[i + 1] == '/'))
+            {
+                put([source[i]]);
+                i++;
+            }
+            if (i + 1 < source.length) { put("*/"); i += 2; }
+            continue;
+        }
         if (c == '\\' && i + 2 < source.length
             && (source[i + 1] == 'p' || source[i + 1] == 'P')
             && source[i + 2] == '{')

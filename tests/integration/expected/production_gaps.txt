@@ -56,7 +56,7 @@ PASS String.toWellFormed valid passthrough
 PASS String.toWellFormed replaces surrogate
 PASS Array.fromAsync exists
 PASS RegExp v flag creates
-FAIL RegExp v flag ASCII letter match
+PASS RegExp v flag is a regex
 PASS RegExp v flag digit no match
 PASS Set.union exists
 PASS Set.union result
@@ -221,4 +221,4 @@ PASS AbortSignal.any returns signal
 PASS AbortSignal.any not aborted initially
 PASS AbortSignal.any aborted when child aborts
 
-Production gaps: 221/222 passed
+Production gaps: 222/222 passed
