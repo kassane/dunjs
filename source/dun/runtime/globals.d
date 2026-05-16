@@ -59,6 +59,7 @@ void installGlobals(IJSEngine engine, DunState* state) @trusted
     import dun.builtins.dgram : registerDgramModule;
     import dun.builtins.perf_hooks : registerPerfHooksModule;
     import dun.builtins.wasi : registerWasiModule;
+    import dun.builtins.v8 : registerV8Module;
     import dun.modules.require : installRequire;
 
     version (Posix)
@@ -100,6 +101,7 @@ void installGlobals(IJSEngine engine, DunState* state) @trusted
     registerTtyModule(engine);
     registerDgramModule(engine);
     registerWasiModule(engine);
+    registerV8Module(engine);
 
     version (Posix)
         registerTlsModule(engine);

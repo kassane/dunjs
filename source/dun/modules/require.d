@@ -46,13 +46,13 @@ JSHandle jsRequireResolve(void* ctx, JSHandle thisVal, scope JSHandle[] args) @t
     if (specifier.startsWith("node:") || specifier.startsWith("dun:"))
         return engine.newString(specifier);
 
-    string[41] builtins = ["fs", "path", "crypto", "net", "http", "https",
+    string[43] builtins = ["fs", "path", "crypto", "net", "http", "https",
         "http2", "http3", "os", "buffer", "events", "url", "child_process",
         "stream", "zlib", "dns", "ws", "sqlite", "util", "assert",
         "querystring", "string_decoder", "timers/promises", "tls", "dgram",
         "vm", "cluster", "async_hooks", "worker_threads", "perf_hooks",
         "fs/promises", "readline", "punycode", "diagnostics_channel", "domain",
-        "tty", "constants", "module", "timers", "process", "console"];
+        "tty", "constants", "module", "timers", "process", "console", "v8", "wasi"];
     foreach (b; builtins)
         if (specifier == b) return engine.newString(specifier);
 
@@ -160,6 +160,7 @@ JSHandle jsRequire(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
     else if (specifier == "dgram") specifier = "dun:dgram";
     else if (specifier == "perf_hooks") specifier = "dun:perf_hooks";
     else if (specifier == "wasi") specifier = "dun:wasi";
+    else if (specifier == "v8") specifier = "dun:v8";
     else if (specifier == "readline") specifier = "dun:readline";
     else if (specifier == "punycode") specifier = "dun:punycode";
     else if (specifier == "diagnostics_channel") specifier = "dun:diagnostics_channel";
@@ -221,6 +222,7 @@ JSHandle jsRequire(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
         else if (specifier == "dun:dgram") propName = "__dun_cjs_dgram__";
         else if (specifier == "dun:perf_hooks") propName = "__dun_cjs_perf_hooks__";
         else if (specifier == "dun:wasi") propName = "__dun_cjs_wasi__";
+        else if (specifier == "dun:v8") propName = "__dun_cjs_v8__";
         else if (specifier == "dun:readline") propName = "__dun_cjs_readline__";
         else if (specifier == "dun:punycode") propName = "__dun_cjs_punycode__";
         else if (specifier == "dun:diagnostics_channel") propName = "__dun_cjs_diagnostics_channel__";
