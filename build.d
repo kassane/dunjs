@@ -1177,6 +1177,17 @@ bool buildBrotli(ref const Toolchain tc, ref const BuildOptions opts)
         return false;
     }
 
+    // Mirror the public headers to vendor/brotli/include/brotli/ so dub's
+    // importPath/cImportPath always points at a directory that exists --
+    // the actual source tree is gitignored and may be absent before the
+    // first build, which triggers an "Invalid import path" warning.
+    import std.file : copy;
+    immutable headerSrc = buildPath(brotliSrcDir(), "c", "include", "brotli");
+    immutable headerDest = buildPath(brotliDir(), "include", "brotli");
+    mkdirRecurse(headerDest);
+    foreach (h; dirEntries(headerSrc, "*.h", SpanMode.shallow))
+        copy(h.name, buildPath(headerDest, h.name.baseName));
+
     logInfo(tag, "Built brotlicommon + brotlidec + brotlienc static libs");
     return true;
 }

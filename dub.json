@@ -393,13 +393,12 @@
 		"source",
 		"vendor/sqlite",
 		"vendor/brotli",
-		"vendor/brotli/src/c/include",
 		"vendor/lsquic"
 	],
 	"cImportPaths": [
 		"vendor/sqlite",
 		"vendor/brotli",
-		"vendor/brotli/src/c/include",
+		"vendor/brotli/include",
 		"vendor/lsquic"
 	]
 }
