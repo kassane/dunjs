@@ -160,19 +160,19 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for the full design.
 ## Testing
 
 ```sh
-dub test -c unittest                    # ~175 unit tests
-./tests/integration/run.sh              # 66 integration tests (all 3 backends)
+dub test -c unittest                            # unit tests
+bash tests/integration/run.sh                   # QuickJS integration (121 tests)
+BACKEND=jsc DUN=./dun-jsc bash tests/integration/run.sh
+BACKEND=v8  DUN=./dun-v8  bash tests/integration/run.sh
 ```
 
-| Suite | Tests |
-|-------|-------|
-| Engine contract | ~50 BDD-style (eval, types, properties, exceptions, promises) |
-| Fuzz/stress | ~71 (rapid create/destroy, string stress, exception recovery, ES2023+, typed arrays, JSON, classes, regex, proxy, symbols) |
-| TypeScript strip | 20 (annotations, interfaces, as, declare, arrow types) |
-| Security | 38 (permissions 27 + CVE audit 8 + security tests 3) |
-| HTTP/2 | 15 (frame encoding, HPACK, static table, settings) |
-| HTTP/3 | 12 (QUIC varint encode/decode, H3 frame header, SETTINGS payload) |
-| Integration | 66 tests (core JS, async, ES2023+, modules, 28 builtins, Workers, Deno compat, TypeScript, fetch Response, import.meta, vm, async_hooks, signals, REPL, CLI, real-world) |
+121/121 integration on every backend, plus 474 npm-compat checks,
+98/98 ECMAScript spec audit (97 on QJS/V8 — one missing engine
+feature each), 35/35 TypeScript erasable subset, and cross-runtime
+grids for real-world apps (n8n, gaia, opencode) and TypeScript
+typechecking (matches `tsc` 1:1).
+
+See [TESTING.md](TESTING.md) for the full suite breakdown.
 
 ## Comparison
 
@@ -221,6 +221,19 @@ HTTP stress (wrk, 128 connections, req/sec — higher is better):
 
 DunJS JSC is 94-95% of Bun on JS compute. DunJS V8 beats Node.js on all HTTP endpoints.
 npm compat: **145/145** pass across all 6 runtimes.
+
+## Docs
+
+- [ARCHITECTURE.md](ARCHITECTURE.md) — 7-layer design, engine
+  abstraction, FFI strategies, RAII patterns
+- [CLAUDE.md](CLAUDE.md) — development guide (build commands,
+  code style, key patterns, GC tuning)
+- [TESTING.md](TESTING.md) — full test inventory + how to run
+- [BLOCKERS.md](BLOCKERS.md) — production-readiness status
+  (closed gaps, documented limits, won't-fix)
+- [CHANGELOG.md](CHANGELOG.md) — phased delivery history
+- [TS-PARSER-PORT.md](TS-PARSER-PORT.md) — research outcome
+  on porting Bun's Zig parser to D
 
 ## License
 

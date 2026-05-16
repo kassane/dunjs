@@ -703,9 +703,36 @@ string stripTypes(const(char)[] source) @trusted
                 // (`?`), or a plain identifier. (The destructure /
                 // tuple cases support `function f({a}: T) {}` and
                 // `function f([a]: T) {}`.)
+                //
+                // Disambiguate from the ternary operator: inside
+                // `console.log(a, b ? x : y)` the colon is at param
+                // level too. Walk back from qPos past the identifier
+                // and confirm what comes BEFORE that identifier is
+                // `,` or `(` (i.e., it's the head of a fresh param),
+                // not an operator that would mean we're in an
+                // expression.
+                bool looksLikeParam = false;
                 if (qPos < buf.length
                     && (isIdentChar(buf[qPos]) || buf[qPos] == '?'
                         || buf[qPos] == '}' || buf[qPos] == ']'))
+                {
+                    size_t scan = qPos;
+                    // Skip identifier (or optional ?, } / ])
+                    if (buf[scan] == '?' && scan > 0) scan--;
+                    while (scan > 0 && isIdentChar(buf[scan])) scan--;
+                    if (scan > 0 && (buf[scan] == ' ' || buf[scan] == '\t')) {
+                        while (scan > 0 && (buf[scan] == ' ' || buf[scan] == '\t')) scan--;
+                    }
+                    // Now check the char preceding the identifier.
+                    // Param head: just after `(`, `,`, or destructure
+                    // braces `{ ` / `[`. Anything else (operator,
+                    // digit, `.`, `)`) means we're mid-expression and
+                    // the colon belongs to a ternary.
+                    if (buf[scan] == '(' || buf[scan] == ',' || buf[scan] == '\n'
+                        || buf[scan] == '{' || buf[scan] == '[')
+                        looksLikeParam = true;
+                }
+                if (looksLikeParam)
                 {
                     // Blank optional ? too
                     auto blankStart = pos;

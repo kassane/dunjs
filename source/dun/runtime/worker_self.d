@@ -24,6 +24,41 @@ void installWorkerSelf(IJSEngine engine, DunState* state, WorkerState wst) @trus
     auto global = engine.getGlobal();
     engine.setProperty(global, "self", selfObj);
     engine.freeValue(global);
+
+    // Wire Node-style `require('worker_threads').parentPort` so worker
+    // code that does `parentPort.postMessage(...)` works. parentPort is
+    // an EventEmitter that delegates to `self.postMessage` underneath.
+    auto wireRes = engine.eval(
+        `(function(){`
+        ~ `  const wt = globalThis.__dun_cjs_worker_threads__;`
+        ~ `  if (!wt) return;`
+        ~ `  wt.isMainThread = false;`
+        ~ `  const listeners = { message: [], messageerror: [], close: [] };`
+        ~ `  const port = {`
+        ~ `    postMessage: function(msg) { self.postMessage(msg); },`
+        ~ `    on: function(ev, cb) {`
+        ~ `      if (listeners[ev]) listeners[ev].push(cb);`
+        ~ `      return port;`
+        ~ `    },`
+        ~ `    once: function(ev, cb) {`
+        ~ `      const wrap = function() { port.off(ev, wrap); cb.apply(null, arguments); };`
+        ~ `      return port.on(ev, wrap);`
+        ~ `    },`
+        ~ `    off: function(ev, cb) {`
+        ~ `      const a = listeners[ev]; if (!a) return port;`
+        ~ `      const i = a.indexOf(cb); if (i >= 0) a.splice(i, 1);`
+        ~ `      return port;`
+        ~ `    },`
+        ~ `    removeListener: function(ev, cb) { return port.off(ev, cb); },`
+        ~ `    close: function() { self.close(); }`
+        ~ `  };`
+        ~ `  wt.parentPort = port;`
+        ~ `  self.onmessage = function(ev) {`
+        ~ `    for (const fn of listeners.message) fn(ev && ev.data !== undefined ? ev.data : ev);`
+        ~ `  };`
+        ~ `})();`,
+        "<worker-parent-port>");
+    if (!wireRes.isError) engine.freeValue(wireRes.value);
 }
 
 private WorkerState _getWst(IJSEngine engine) nothrow @trusted

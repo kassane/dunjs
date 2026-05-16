@@ -58,7 +58,57 @@ void installWorkerAPI(IJSEngine engine, DunState* state) @trusted
         engine.newFunction(&_int32ArrayCtor, "__int32ArrayCreate", 1));
 
     engine.eval(
-        `globalThis.Worker = function Worker(p) { return __workerCreate(p); };`
+        // Worker(specifier, options?) -- Node-compatible:
+        //   options.eval === true     => specifier is inline source
+        //                                (written to a temp file)
+        //   options.workerData        => available as `workerData` in
+        //                                the worker via require('worker_threads')
+        //   options.name (ignored)
+        // The returned object is augmented with .on(event, cb) which
+        // dispatches via the existing onmessage/onerror/onexit hooks.
+        `globalThis.Worker = function Worker(p, opts) {`
+        ~ `  if (opts && opts.eval) {`
+        ~ `    const fs = globalThis.__dun_cjs_fs__;`
+        ~ `    const os = globalThis.__dun_cjs_os__;`
+        ~ `    const path = (os && os.tmpdir ? os.tmpdir() : '/tmp')`
+        ~ `      + '/dun-worker-' + Date.now() + '-' + Math.floor(Math.random()*1e9) + '.js';`
+        ~ `    const preamble = opts.workerData`
+        ~ `      ? 'globalThis.__workerData__=' + JSON.stringify(opts.workerData) + ';' : '';`
+        ~ `    fs.writeFileSync(path, preamble + p);`
+        ~ `    p = path;`
+        ~ `  } else if (opts && opts.workerData) {`
+        ~ `    globalThis.__workerDataPending__ = opts.workerData;`
+        ~ `  }`
+        ~ `  const w = __workerCreate(p);`
+        ~ `  const listeners = { message: [], error: [], exit: [] };`
+        ~ `  w.on = function(ev, cb) {`
+        ~ `    if (listeners[ev]) listeners[ev].push(cb);`
+        ~ `    if (ev === 'message') w.onmessage = function(m) {`
+        ~ `      for (const fn of listeners.message) fn(m);`
+        ~ `    };`
+        ~ `    if (ev === 'error') w.onerror = function(e) {`
+        ~ `      for (const fn of listeners.error) fn(e);`
+        ~ `    };`
+        ~ `    if (ev === 'exit') w.onexit = function(c) {`
+        ~ `      for (const fn of listeners.exit) fn(c);`
+        ~ `    };`
+        ~ `    return w;`
+        ~ `  };`
+        ~ `  w.once = function(ev, cb) {`
+        ~ `    const wrap = function() { w.off(ev, wrap); cb.apply(null, arguments); };`
+        ~ `    return w.on(ev, wrap);`
+        ~ `  };`
+        ~ `  w.off = function(ev, cb) {`
+        ~ `    if (listeners[ev]) {`
+        ~ `      const i = listeners[ev].indexOf(cb);`
+        ~ `      if (i >= 0) listeners[ev].splice(i, 1);`
+        ~ `    }`
+        ~ `    return w;`
+        ~ `  };`
+        ~ `  w.removeListener = w.off;`
+        ~ `  w.terminate = function() { w.onexit && w.onexit(0); return Promise.resolve(0); };`
+        ~ `  return w;`
+        ~ `};`
         ~ `var __NativeInt32Array = globalThis.Int32Array;`
         ~ `var __NativeSAB = globalThis.SharedArrayBuffer;`
         ~ `globalThis.SharedArrayBuffer = function SharedArrayBuffer(n) { return __sabCreate(n); };`
