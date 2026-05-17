@@ -336,3 +336,637 @@ unittest
     assert(out3.length > 20);
     assert(out3.canFind("A-Za-z"), "ID_Start should include ASCII letters");
 }
+
+// ───────────────────────────────── /v set-op rewriter ───────────────────────
+//
+// QuickJS-NG 0.14 supports the `/v` flag but rejects set-difference (`--`)
+// and intersection (`&&`) operators at parse time on `[A--B]` / `[A&&B]`
+// regex LITERALS. V8 14.9 has /v but its set-op + property-class
+// interaction returns wrong matches for `[\p{X}--\p{Y}]/v`. JSC handles
+// both natively.
+//
+// We do two passes on every loaded source:
+//   1) Rewrite `/[...]/v` regex literals containing `--` / `&&` into
+//      `/[ranges]/u` with the operation precomputed.
+//   2) Rewrite `eval("/[...]/v")` calls whose string-literal argument
+//      starts with `/` and ends with `/v` — the common defer-parse-error
+//      pattern used by feature-test code.
+//
+// Both rewrites are conservative: any parse failure leaves the original
+// source untouched so the engine produces its native error.
+
+/// Rewrite /v regex literals containing set operations. Idempotent;
+/// safe to apply on engines that natively support /v (no rewrite
+/// happens unless `--` / `&&` is actually present inside a `[]`).
+string expandVSetOps(string source) @safe pure
+{
+    import std.algorithm : canFind;
+    if (!source.canFind("/v") && !source.canFind("eval(")) return source;
+    if (!source.canFind("--") && !source.canFind("&&")) return source;
+
+    auto buf = new char[source.length + 1024];
+    size_t outLen = 0;
+    void put(scope const(char)[] s)
+    {
+        if (outLen + s.length > buf.length)
+            buf.length = (outLen + s.length) * 2;
+        buf[outLen .. outLen + s.length] = s[];
+        outLen += s.length;
+    }
+
+    size_t i = 0;
+    char prevTok = 0;  // last non-whitespace, non-comment char (0 = start)
+    while (i < source.length)
+    {
+        char c = source[i];
+
+        // Skip line comments.
+        if (c == '/' && i + 1 < source.length && source[i + 1] == '/')
+        {
+            while (i < source.length && source[i] != '\n')
+            {
+                put([source[i]]); i++;
+            }
+            continue;
+        }
+        // Skip block comments.
+        if (c == '/' && i + 1 < source.length && source[i + 1] == '*')
+        {
+            put("/*"); i += 2;
+            while (i + 1 < source.length
+                && !(source[i] == '*' && source[i + 1] == '/'))
+            {
+                put([source[i]]); i++;
+            }
+            if (i + 1 < source.length) { put("*/"); i += 2; }
+            continue;
+        }
+        // Strings: track and inspect literal argument to `eval(...)`.
+        if (c == '"' || c == '\'' || c == '`')
+        {
+            // Detect the eval(STRING_LITERAL) call shape. If matched and
+            // the STRING starts with `/` and ends with `/<flags>` and
+            // body contains `--` / `&&`, rewrite the body in place.
+            bool atEvalCall =
+                (outLen >= 5
+                 && buf[outLen - 5 .. outLen] == "eval(");
+            char quote = c;
+            size_t strStart = i + 1;
+            size_t j = i + 1;
+            while (j < source.length)
+            {
+                if (source[j] == '\\' && j + 1 < source.length) { j += 2; continue; }
+                if (source[j] == quote) break;
+                j++;
+            }
+            if (j >= source.length)
+            {
+                // Unterminated — bail (copy rest verbatim).
+                while (i < source.length) { put([source[i]]); i++; }
+                break;
+            }
+            string body_ = source[strStart .. j];
+            // The string content uses JS escapes: `\\p` in source -> `\p`
+            // semantically. For our purposes we look for `/v` flag and
+            // set ops `--` / `&&` in the textual body.
+            if (atEvalCall
+                && body_.length >= 4
+                && body_[0] == '/'
+                && (body_.canFind("--") || body_.canFind("&&"))
+                && body_.canFind("/v"))
+            {
+                auto rewritten = rewriteVRegexLiteralString(body_);
+                if (rewritten !is null)
+                {
+                    put([quote]);
+                    put(rewritten);
+                    put([quote]);
+                    i = j + 1;
+                    prevTok = quote;
+                    continue;
+                }
+            }
+            // Pass through unchanged.
+            put([quote]);
+            for (size_t k = strStart; k <= j; k++) put([source[k]]);
+            i = j + 1;
+            prevTok = quote;
+            continue;
+        }
+        // Detect a regex literal: `/.../FLAGS` at an expression position.
+        if (c == '/')
+        {
+            bool canBeRegex = prevTok == 0
+                || "(,=:;!&|{}[?+~^<>".canFind(prevTok);
+            if (canBeRegex)
+            {
+                size_t bodyStart = i + 1;
+                size_t j = bodyStart;
+                bool inClass = false;
+                bool valid = false;
+                while (j < source.length)
+                {
+                    char ch = source[j];
+                    if (ch == '\\' && j + 1 < source.length) { j += 2; continue; }
+                    if (ch == '[' && !inClass) inClass = true;
+                    else if (ch == ']' && inClass) inClass = false;
+                    else if (ch == '/' && !inClass) { valid = true; break; }
+                    else if (ch == '\n') break;
+                    j++;
+                }
+                if (valid)
+                {
+                    size_t flagsStart = j + 1;
+                    size_t flagsEnd = flagsStart;
+                    while (flagsEnd < source.length
+                        && "dgimsuvy".canFind(source[flagsEnd])) flagsEnd++;
+                    string body_ = source[bodyStart .. j];
+                    string flags = source[flagsStart .. flagsEnd];
+                    if (flags.canFind('v')
+                        && (body_.canFind("--") || body_.canFind("&&")))
+                    {
+                        auto rewritten = rewriteVBody(body_);
+                        if (rewritten !is null)
+                        {
+                            string newFlags;
+                            foreach (fc; flags) if (fc != 'v')
+                                newFlags ~= fc;
+                            if (!newFlags.canFind('u')) newFlags ~= 'u';
+                            put("/");
+                            put(rewritten);
+                            put("/");
+                            put(newFlags);
+                            i = flagsEnd;
+                            prevTok = '/';
+                            continue;
+                        }
+                    }
+                    // Pass regex literal through unchanged.
+                    for (size_t k = i; k < flagsEnd; k++) put([source[k]]);
+                    i = flagsEnd;
+                    prevTok = (flagsEnd > i + 1) ? source[flagsEnd - 1] : '/';
+                    continue;
+                }
+            }
+        }
+        put([c]);
+        if (c != ' ' && c != '\t' && c != '\n' && c != '\r') prevTok = c;
+        i++;
+    }
+    return cast(string) buf[0 .. outLen].idup;
+}
+
+// Helper: rewrite an eval'd source string like `"/[X--Y]/v"`.
+// `body_` is the STRING content as it appears in source (JS-escaped),
+// e.g. `/[\\p{L}--\\p{ASCII}]/v`. We rewrite to `/[ranges]/u`.
+// Returns null if we can't handle this body.
+private string rewriteVRegexLiteralString(string body_) @safe pure
+{
+    import std.algorithm : canFind;
+    if (body_.length < 4 || body_[0] != '/') return null;
+    // Find last `/` followed by flags. Walk backwards.
+    size_t i = body_.length;
+    while (i > 0 && "dgimsuvy".canFind(body_[i - 1])) i--;
+    if (i == 0 || body_[i - 1] != '/') return null;
+    string flagsRaw = body_[i .. $];
+    if (!flagsRaw.canFind('v')) return null;
+    string regexBody = body_[1 .. i - 1];
+    // Strip JS string escapes: `\\` -> `\` for the body. This produces
+    // the actual regex source the engine would see.
+    auto decoded = decodeJsStringEscapes(regexBody);
+    if (decoded is null) return null;
+    if (!decoded.canFind("--") && !decoded.canFind("&&")) return null;
+    string rewritten = rewriteVBody(decoded);
+    if (rewritten is null) return null;
+    // Build new string: `/REWRITTEN/u` with newFlags (drop v, add u).
+    string newFlags;
+    foreach (fc; flagsRaw) if (fc != 'v') newFlags ~= fc;
+    if (!newFlags.canFind('u')) newFlags ~= 'u';
+    // Re-encode rewritten body for JS string: `\` -> `\\`.
+    auto encoded = encodeJsString(rewritten);
+    return "/" ~ encoded ~ "/" ~ newFlags;
+}
+
+private string decodeJsStringEscapes(string s) @safe pure
+{
+    auto buf = new char[s.length];
+    size_t k = 0;
+    for (size_t i = 0; i < s.length; i++)
+    {
+        if (s[i] == '\\' && i + 1 < s.length)
+        {
+            char n = s[i + 1];
+            switch (n)
+            {
+                case '\\': buf[k++] = '\\'; i++; break;
+                case 'n':  buf[k++] = '\n'; i++; break;
+                case 't':  buf[k++] = '\t'; i++; break;
+                case 'r':  buf[k++] = '\r'; i++; break;
+                case '"':  buf[k++] = '"';  i++; break;
+                case '\'': buf[k++] = '\''; i++; break;
+                case '/':  buf[k++] = '/';  i++; break;
+                default:
+                    // Pass escape through to the regex engine literally
+                    // (e.g. `\\p{L}` in JS string -> `\p{L}` in regex).
+                    buf[k++] = s[i];
+                    buf[k++] = n;
+                    i++;
+                    break;
+            }
+        }
+        else
+        {
+            buf[k++] = s[i];
+        }
+        if (k >= buf.length) buf.length = buf.length * 2;
+    }
+    return cast(string) buf[0 .. k].idup;
+}
+
+private string encodeJsString(string s) @safe pure
+{
+    auto buf = new char[s.length * 2];
+    size_t k = 0;
+    foreach (c; s)
+    {
+        if (c == '\\') { buf[k++] = '\\'; buf[k++] = '\\'; }
+        else if (c == '"') { buf[k++] = '\\'; buf[k++] = '"'; }
+        else if (c == '\n') { buf[k++] = '\\'; buf[k++] = 'n'; }
+        else if (c == '\r') { buf[k++] = '\\'; buf[k++] = 'r'; }
+        else if (c == '\t') { buf[k++] = '\\'; buf[k++] = 't'; }
+        else buf[k++] = c;
+        if (k + 2 >= buf.length) buf.length = buf.length * 2;
+    }
+    return cast(string) buf[0 .. k].idup;
+}
+
+// Rewrite the body of a /v regex (the part between the slashes) by
+// resolving set-difference and intersection on its `[...]` classes.
+// Returns null if any class fails to parse with our limited /v grammar.
+private string rewriteVBody(string body_) @safe pure
+{
+    import std.algorithm : canFind;
+    auto buf = new char[body_.length + 256];
+    size_t outLen = 0;
+    void put(scope const(char)[] s)
+    {
+        if (outLen + s.length > buf.length)
+            buf.length = (outLen + s.length) * 2;
+        buf[outLen .. outLen + s.length] = s[];
+        outLen += s.length;
+    }
+    size_t i = 0;
+    while (i < body_.length)
+    {
+        char c = body_[i];
+        if (c == '\\' && i + 1 < body_.length)
+        {
+            put([c, body_[i + 1]]);
+            i += 2;
+            continue;
+        }
+        if (c == '[')
+        {
+            // Find matching ']' (account for escapes and nesting).
+            int depth = 1;
+            size_t j = i + 1;
+            while (j < body_.length && depth > 0)
+            {
+                if (body_[j] == '\\') { j += 2; continue; }
+                if (body_[j] == '[') depth++;
+                else if (body_[j] == ']') depth--;
+                if (depth > 0) j++;
+            }
+            if (j >= body_.length) return null;
+            string inner = body_[i + 1 .. j];
+            if (inner.canFind("--") || inner.canFind("&&"))
+            {
+                auto ranges = parseVSet(inner);
+                if (ranges is null) return null;
+                put(rangesToCharClass(ranges));
+            }
+            else
+            {
+                put(body_[i .. j + 1]);
+            }
+            i = j + 1;
+            continue;
+        }
+        put([c]);
+        i++;
+    }
+    return cast(string) buf[0 .. outLen].idup;
+}
+
+private struct Range { int lo; int hi; }
+
+private Range[] normRanges(Range[] rs) @safe pure
+{
+    import std.algorithm : sort;
+    if (rs.length == 0) return rs;
+    auto copy = rs.dup;
+    sort!"a.lo < b.lo"(copy);
+    Range[] out_;
+    out_ ~= copy[0];
+    for (size_t k = 1; k < copy.length; k++)
+    {
+        if (copy[k].lo <= out_[$ - 1].hi + 1)
+        {
+            if (copy[k].hi > out_[$ - 1].hi)
+                out_[$ - 1].hi = copy[k].hi;
+        }
+        else
+        {
+            out_ ~= copy[k];
+        }
+    }
+    return out_;
+}
+
+private Range[] diffRanges(Range[] A, Range[] B) @safe pure
+{
+    A = normRanges(A); B = normRanges(B);
+    Range[] out_;
+    size_t bi = 0;
+    foreach (a; A)
+    {
+        int lo = a.lo, hi = a.hi;
+        while (bi < B.length && B[bi].hi < lo) bi++;
+        size_t j = bi;
+        while (lo <= hi && j < B.length && B[j].lo <= hi)
+        {
+            if (B[j].lo > lo) out_ ~= Range(lo, B[j].lo - 1);
+            lo = (lo > B[j].hi + 1) ? lo : B[j].hi + 1;
+            j++;
+        }
+        if (lo <= hi) out_ ~= Range(lo, hi);
+    }
+    return out_;
+}
+
+private Range[] interRanges(Range[] A, Range[] B) @safe pure
+{
+    A = normRanges(A); B = normRanges(B);
+    Range[] out_;
+    size_t ai = 0, bi = 0;
+    while (ai < A.length && bi < B.length)
+    {
+        int lo = (A[ai].lo > B[bi].lo) ? A[ai].lo : B[bi].lo;
+        int hi = (A[ai].hi < B[bi].hi) ? A[ai].hi : B[bi].hi;
+        if (lo <= hi) out_ ~= Range(lo, hi);
+        if (A[ai].hi < B[bi].hi) ai++; else bi++;
+    }
+    return out_;
+}
+
+private Range[] rangesFromKey(string key) @safe pure
+{
+    import std.algorithm : canFind;
+    string s = unicodeRangeFor(key);
+    if (s.length == 0) return null;
+    Range[] rs;
+    size_t i = 0;
+    int dec()
+    {
+        char ch = s[i];
+        if (ch == '\\' && i + 1 < s.length && s[i + 1] == 'u')
+        {
+            int v = 0;
+            for (size_t k = 2; k < 6 && i + k < s.length; k++)
+            {
+                char hc = s[i + k];
+                int hv = (hc >= '0' && hc <= '9') ? hc - '0'
+                       : (hc >= 'A' && hc <= 'F') ? hc - 'A' + 10
+                       : (hc >= 'a' && hc <= 'f') ? hc - 'a' + 10
+                       : -1;
+                if (hv < 0) return -1;
+                v = (v << 4) | hv;
+            }
+            i += 6;
+            return v;
+        }
+        i++;
+        return cast(int) ch;
+    }
+    while (i < s.length)
+    {
+        int a = dec(); if (a < 0) return null;
+        if (i < s.length && s[i] == '-')
+        {
+            i++;
+            int b = dec(); if (b < 0) return null;
+            rs ~= Range(a, b);
+        }
+        else
+        {
+            rs ~= Range(a, a);
+        }
+    }
+    return rs;
+}
+
+private string rangesToCharClass(Range[] rs) @safe pure
+{
+    import std.format : format;
+    if (rs.length == 0) return "(?!)";  // empty: never match
+    string out_ = "[";
+    foreach (r; rs)
+    {
+        if (r.lo <= 0xFFFF)
+            out_ ~= format("\\u%04X", r.lo);
+        else
+            out_ ~= format("\\u{%X}", r.lo);
+        if (r.lo != r.hi)
+        {
+            out_ ~= "-";
+            if (r.hi <= 0xFFFF)
+                out_ ~= format("\\u%04X", r.hi);
+            else
+                out_ ~= format("\\u{%X}", r.hi);
+        }
+    }
+    return out_ ~ "]";
+}
+
+// Parse the inside of a /v `[]` class. Returns ranges or null if the
+// content uses unsupported features (\q{}, deep negation, etc.).
+private Range[] parseVSet(string content) @safe pure
+{
+    import std.algorithm : canFind;
+    size_t i = 0;
+
+    int parseChar()
+    {
+        if (i >= content.length) return -1;
+        if (content[i] == '\\')
+        {
+            if (i + 1 >= content.length) return -1;
+            char n = content[i + 1];
+            if (n == 'u' && i + 2 < content.length && content[i + 2] == '{')
+            {
+                size_t end = i + 3;
+                while (end < content.length && content[end] != '}') end++;
+                int v = 0;
+                foreach (hc; content[i + 3 .. end])
+                {
+                    int hv = (hc >= '0' && hc <= '9') ? hc - '0'
+                           : (hc >= 'A' && hc <= 'F') ? hc - 'A' + 10
+                           : (hc >= 'a' && hc <= 'f') ? hc - 'a' + 10
+                           : -1;
+                    if (hv < 0) return -1;
+                    v = (v << 4) | hv;
+                }
+                i = end + 1;
+                return v;
+            }
+            if (n == 'u')
+            {
+                int v = 0;
+                for (size_t k = 2; k < 6 && i + k < content.length; k++)
+                {
+                    char hc = content[i + k];
+                    int hv = (hc >= '0' && hc <= '9') ? hc - '0'
+                           : (hc >= 'A' && hc <= 'F') ? hc - 'A' + 10
+                           : (hc >= 'a' && hc <= 'f') ? hc - 'a' + 10
+                           : -1;
+                    if (hv < 0) return -1;
+                    v = (v << 4) | hv;
+                }
+                i += 6;
+                return v;
+            }
+            int code;
+            switch (n)
+            {
+                case 'n':  code = 10; break;
+                case 't':  code = 9;  break;
+                case 'r':  code = 13; break;
+                case '\\': code = 92; break;
+                default:   code = cast(int) n; break;
+            }
+            i += 2;
+            return code;
+        }
+        int c = cast(int) content[i];
+        i++;
+        return c;
+    }
+
+    Range[] parseOperand()
+    {
+        if (i >= content.length) return null;
+        char ch = content[i];
+        if (ch == '\\' && i + 2 < content.length
+            && (content[i + 1] == 'p' || content[i + 1] == 'P')
+            && content[i + 2] == '{')
+        {
+            bool negated = content[i + 1] == 'P';
+            size_t end = i + 3;
+            while (end < content.length && content[end] != '}') end++;
+            if (end >= content.length) return null;
+            string name = content[i + 3 .. end];
+            size_t eq = 0;
+            while (eq < name.length && name[eq] != '=') eq++;
+            string key = (eq < name.length) ? name[eq + 1 .. $] : name;
+            i = end + 1;
+            auto rs = rangesFromKey(key);
+            if (rs is null) return null;
+            return negated ? diffRanges([Range(0, 0x10FFFF)], rs) : rs;
+        }
+        if (ch == '[')
+        {
+            int depth = 1;
+            size_t j = i + 1;
+            while (j < content.length && depth > 0)
+            {
+                if (content[j] == '\\') { j += 2; continue; }
+                if (content[j] == '[') depth++;
+                else if (content[j] == ']') depth--;
+                if (depth > 0) j++;
+            }
+            if (j >= content.length) return null;
+            string inner = content[i + 1 .. j];
+            i = j + 1;
+            return parseVSet(inner);
+        }
+        int start = parseChar();
+        if (start < 0) return null;
+        if (i < content.length && content[i] == '-'
+            && i + 1 < content.length && content[i + 1] != '-')
+        {
+            i++;
+            int end = parseChar();
+            if (end < 0) return null;
+            return [Range(start, end)];
+        }
+        return [Range(start, start)];
+    }
+
+    auto result = parseOperand();
+    if (result is null) return null;
+    enum { union_, diff, inter }
+    int mode = union_;
+    while (i < content.length)
+    {
+        if (i + 1 < content.length
+            && content[i] == '-' && content[i + 1] == '-')
+        {
+            if (mode == inter) return null;
+            mode = diff;
+            i += 2;
+            auto r = parseOperand();
+            if (r is null) return null;
+            result = diffRanges(result, r);
+        }
+        else if (i + 1 < content.length
+            && content[i] == '&' && content[i + 1] == '&')
+        {
+            if (mode == diff) return null;
+            mode = inter;
+            i += 2;
+            auto r = parseOperand();
+            if (r is null) return null;
+            result = interRanges(result, r);
+        }
+        else
+        {
+            if (mode != union_) return null;
+            auto r = parseOperand();
+            if (r is null) return null;
+            result = normRanges(result ~ r);
+        }
+    }
+    return result;
+}
+
+unittest
+{
+    import std.string : indexOf;
+    // QJS-style: `/v` literal with set difference must rewrite cleanly.
+    auto src = `let r = /[\p{L}--\p{ASCII}]/v; r.test("é");`;
+    auto rewritten = expandVSetOps(src);
+    assert(rewritten != src, "expected rewrite of /v set-difference");
+    assert(indexOf(rewritten, "/v") == -1,
+        "/v flag should be replaced with /u after rewrite: " ~ rewritten);
+    assert(indexOf(rewritten, "/u") > 0, "rewritten regex should be /u");
+
+    // Nested bracketed operands: `[[a-z]--[aeiou]]/v`.
+    auto src2 = `let r = /[[a-z]--[aeiou]]/v;`;
+    auto rewritten2 = expandVSetOps(src2);
+    assert(indexOf(rewritten2, "/v") == -1);
+    assert(indexOf(rewritten2, "/u") > 0);
+
+    // eval(STRING) with /v literal — common defer-parse-error pattern.
+    auto src3 = `eval("/[\\p{L}--\\p{ASCII}]/v")`;
+    auto rewritten3 = expandVSetOps(src3);
+    assert(rewritten3 != src3, "eval(\"...\") with /v should be rewritten");
+    assert(indexOf(rewritten3, "/v") == -1, "no /v should remain");
+
+    // No-op when there are no set ops.
+    auto src4 = `let r = /abc/v;`;
+    assert(expandVSetOps(src4) == src4);
+
+    // No-op when /v is absent.
+    auto src5 = `let r = /[a-z]/u;`;
+    assert(expandVSetOps(src5) == src5);
+}

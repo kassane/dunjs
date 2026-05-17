@@ -29,6 +29,15 @@ real workload has a working fix.
   groups + identifier props. Express 5's `/[$_\p{ID_Start}]$/u` loads
   fine.
 
+- **RegExp `/v` set operations** — QuickJS-NG 0.14 rejects
+  `[A--B]/v` / `[A&&B]/v` literals at parse time; V8 14.9 has /v
+  but returns wrong matches for `[\p{X}--\p{Y}]/v`. JSC handles both
+  natively. `dun.runtime.unicode_props.expandVSetOps()` runs on every
+  loaded source (and on `eval("/.../v")` string args) and rewrites
+  set-difference / intersection / nested-class operands into a
+  pre-computed `/u` range class. ECMAScript spec audit now reads
+  98/98 across all 3 backends; was 97/98 on QJS + V8 before this.
+
 - **TS strip — real-world coverage**:
   - Class fields, derived-class constructor parameter properties
     (injection after `super()`), multi-line parameter properties.

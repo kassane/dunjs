@@ -179,6 +179,14 @@ int runScript(T)(T config)
         import dun.runtime.unicode_props : expandUnicodePropertyEscapes;
         source = expandUnicodePropertyEscapes(source);
     }
+    // /v set-op rewrite — QuickJS-NG rejects `[A--B]/v` literals at
+    // parse time; V8 14.9 returns wrong matches for `[\p{X}--\p{Y}]`.
+    // JSC handles /v natively; the rewriter no-ops when neither flag
+    // nor set operators are present, so this is cheap on all backends.
+    {
+        import dun.runtime.unicode_props : expandVSetOps;
+        source = expandVSetOps(source);
+    }
 
     if (isWasmFile(config.scriptPath))
     {
@@ -390,6 +398,10 @@ int evalInline(T)(T config)
     {
         import dun.runtime.unicode_props : expandUnicodePropertyEscapes;
         evalSource = expandUnicodePropertyEscapes(evalSource);
+    }
+    {
+        import dun.runtime.unicode_props : expandVSetOps;
+        evalSource = expandVSetOps(evalSource);
     }
     auto result = engine.eval(evalSource, "<eval>");
     if (result.isError)
@@ -653,6 +665,14 @@ int runSingleTest(T)(T config, string filePath) @trusted
         import dun.runtime.unicode_props : expandUnicodePropertyEscapes;
         source = expandUnicodePropertyEscapes(source);
     }
+    // /v set-op rewrite — QuickJS-NG rejects `[A--B]/v` literals at
+    // parse time; V8 14.9 returns wrong matches for `[\p{X}--\p{Y}]`.
+    // JSC handles /v natively; the rewriter no-ops when neither flag
+    // nor set operators are present, so this is cheap on all backends.
+    {
+        import dun.runtime.unicode_props : expandVSetOps;
+        source = expandVSetOps(source);
+    }
 
     // Inject test harness preamble
     string harness =
@@ -811,6 +831,14 @@ int runSingleBench(T)(T config, string filePath) @trusted
     {
         import dun.runtime.unicode_props : expandUnicodePropertyEscapes;
         source = expandUnicodePropertyEscapes(source);
+    }
+    // /v set-op rewrite — QuickJS-NG rejects `[A--B]/v` literals at
+    // parse time; V8 14.9 returns wrong matches for `[\p{X}--\p{Y}]`.
+    // JSC handles /v natively; the rewriter no-ops when neither flag
+    // nor set operators are present, so this is cheap on all backends.
+    {
+        import dun.runtime.unicode_props : expandVSetOps;
+        source = expandVSetOps(source);
     }
 
     // Bench harness: Deno.bench(name, fn) runs fn multiple times and measures

@@ -417,6 +417,10 @@ JSHandle jsRequire(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
         import dun.runtime.unicode_props : expandUnicodePropertyEscapes;
         source = expandUnicodePropertyEscapes(source);
     }
+    {
+        import dun.runtime.unicode_props : expandVSetOps;
+        source = expandVSetOps(source);
+    }
 
     bool esmTranspiled = false;
     try

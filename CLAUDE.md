@@ -34,7 +34,7 @@ DFLAGS="--fsanitize=address" dub build -c quickjs  # Alternative ASan via DFLAGS
 ./dun bench                          # Run benchmarks (*.bench.{js,ts})
 ./dun init my-project                # Initialize a new project
 ./dun fmt                            # Format JavaScript/TypeScript files
-./dun clean                          # Remove .dun/ cache and node_modules/
+./dun clean                          # Remove project-local .dun/ + node_modules/ (NOT $DUN_HOME)
 ```
 
 ### Minimum Compiler Versions
@@ -96,11 +96,15 @@ vendor/v8shim/           # V8 C++ shim (refactored with TMP)
 
 source/dun/ts/           # TypeScript type stripping
 +-- strip.d              # Scanner-based type eraser (~600 lines, 20 unit tests)
-+-- package.d            # Re-exports strip
++-- jsx.d                # JSX to React.createElement / Bun.jsx transform
++-- dynamic_import.d     # source-rewriter: `import(x)` -> `__dunImport__(x)` for JSC/V8
++-- transpile_cache.d    # SHA-256 keyed persistent cache (~30x speedup on cache hit)
++-- package.d            # Re-exports
 
 source/dun/platform/
 +-- arena.d              # Arena/bump allocator (std.experimental.allocator Region, BorrowedRegion, InSituRegion, Mallocator)
 +-- simd.d               # SIMD primitives + LDC intrinsics (loadUnaligned, shufflevector, bswap, cttz, prefetch)
++-- paths.d              # canonicalizePath + dunGlobalRoot() (cross-platform user-global store)
 +-- openssl.d            # extern(C) OpenSSL bindings (libssl, libcrypto, ALPN, SSL_accept, cert/key loading)
 +-- lsquic.d             # extern(C) lsquic bindings (QUIC/HTTP3, litespeedtech/lsquic)
 
@@ -412,8 +416,10 @@ Key shim patterns:
 
 ## Testing
 
-See [TESTING.md](TESTING.md) — unit tests, integration sweep (120+
-tests across 3 backends), 474 npm-compat checks, sanitizer testing,
+See [TESTING.md](TESTING.md) — unit tests (118 quickjs+v8 / 47 jsc),
+integration sweep (127/127 across 3 backends), 145 npm-compat checks,
+98/98 ECMAScript spec, 35/35 TypeScript spec, 81/81 react-compat,
+231/231 safe-features, 45/45 security audit, sanitizer testing,
 stress benchmarks, HTTP bench, Docker matrix, cross-runtime
 comparison grids. The quick recipe:
 
@@ -468,6 +474,27 @@ BACKEND=v8  DUN=./dun-v8  bash tests/integration/run.sh
 6. **CTFE lookup tables.** Use compile-time function evaluation for encoding tables (e.g., `bytesToHex` in `buffer.d`). Avoids `std.format` in hot paths.
 7. **std.array.Appender.** Use `Appender!(char[])` with `reserve()` for string building instead of `~=` (ESM shim, transpiler output).
 8. **Pre-allocated buffers.** Build WebSocket frames, HTTP responses, etc. with exact-size `new ubyte[totalLen]` instead of incremental `~=`.
+
+## Environment Variables
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `DUN_HOME` | `$HOME/.dun` (Posix) / `%LOCALAPPDATA%\dun` (Windows) | User-global package store + transpile cache root |
+| `DUN_DISABLE_TSC` | unset | Force scanner stripper instead of tsc transpile |
+| `DUN_AUTO_INSTALL_TSC` | unset | Default tsc path auto-installs typescript into `$DUN_HOME/node_modules` (off by default; --typecheck always auto-installs) |
+| `DUN_TSC_CACHE_MAX_ENTRIES` | 2000 | Max entries in the persistent transpile cache |
+| `DUN_TSC_CACHE_MAX_MB` | 64 | Max size of transpile cache in MiB |
+| `DUN_TSC_CACHE_TRIM_INTERVAL_SECS` | 300 | Min seconds between trim sweeps (rate-limit via `.last_trim` marker) |
+| `DUN_TSC_CACHE_DEBUG` | unset | Print cache write/trim errors to stderr |
+| `DUN_TSC_QUIET` | unset | Suppress "tsc transpile failed; using scanner" warning |
+| `DUN_TYPECHECK_DEBUG` | unset | Dump --typecheck driver to /tmp on engine error |
+| `DUN_REPL_HISTORY` | `~/.dun_repl_history` | REPL history file path |
+| `DUN_REPL_HISTORY_SIZE` | 1000 | Max REPL history entries |
+| `DUN_TEST_TIMEOUT` | 30 | Per-fixture timeout (seconds) for integration runner |
+
+The transpile cache lives at `$DUN_HOME/cache/tsc/<first-2-chars>/<full-hash>.js`.
+`dun clean` removes only the project-local `.dun/` and `node_modules/` — it does NOT
+touch the user-global `$DUN_HOME/` store. Wipe that manually if needed.
 
 ## D Runtime GC Tuning
 
