@@ -363,7 +363,10 @@ private string webAPIsSource() pure nothrow @safe
     ~ "}"
 
     // ═══════════════════════════════════
-    // MessageChannel / MessagePort
+    // MessageChannel / MessagePort. Per WHATWG, setting `onmessage`
+    // implicitly starts the port (so consumers don't need an
+    // explicit `.start()` call). Message delivery happens in a
+    // microtask so postMessage doesn't synchronously dispatch.
     // ═══════════════════════════════════
     ~ "globalThis.MessagePort=function MessagePort(){EventTarget.call(this);this._other=null;this._started=false;this._queue=[];};"
     ~ "MessagePort.prototype=Object.create(EventTarget.prototype);"
@@ -376,7 +379,16 @@ private string webAPIsSource() pure nothrow @safe
     ~ "};"
     ~ "MessagePort.prototype.start=function(){this._started=true;var q=this._queue;this._queue=[];for(var i=0;i<q.length;i++){if(typeof this.onmessage==='function')this.onmessage(q[i]);this.dispatchEvent(q[i]);}};"
     ~ "MessagePort.prototype.close=function(){this._other=null;};"
-    ~ "MessagePort.prototype.onmessage=null;"
+    /* Auto-start on onmessage setter -- WHATWG MessagePort spec
+       says assigning to onmessage implicitly calls start(). */
+    ~ "Object.defineProperty(MessagePort.prototype,'onmessage',{"
+    ~ "  configurable:true,"
+    ~ "  get:function(){return this._onmessage;},"
+    ~ "  set:function(fn){"
+    ~ "    this._onmessage=fn;"
+    ~ "    if(typeof fn==='function'&&!this._started)this.start();"
+    ~ "  }"
+    ~ "});"
 
     ~ "globalThis.MessageChannel=function MessageChannel(){"
     ~ "this.port1=new MessagePort();this.port2=new MessagePort();"
