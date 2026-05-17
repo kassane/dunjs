@@ -216,6 +216,22 @@ void installGlobals(IJSEngine engine, DunState* state) @trusted
 
     auto global = engine.getGlobal();
     engine.setProperty(global, "gc", engine.newFunction(&jsGlobalGC, "gc", 0));
+
+    // High-resolution performance.now() across all backends. JSC and
+    // V8 ship a native one that rounds to integer milliseconds; ours
+    // uses MonoTime for sub-millisecond precision so benchmarks that
+    // measure a few-hundred-iteration loop produce meaningful timings
+    // (instead of always-zero diffs).
+    {
+        import dun.runtime.process_api : jsPerformanceNow;
+        auto perfObj = engine.getProperty(global, "performance");
+        if (engine.isObject(perfObj))
+        {
+            engine.setProperty(perfObj, "now",
+                engine.newFunction(&jsPerformanceNow, "now", 0));
+        }
+        engine.freeValue(perfObj);
+    }
     engine.freeValue(global);
 
     import dun.runtime.worker_api : installWorkerAPI;

@@ -741,6 +741,28 @@ JSHandle jsHrtime(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
     catch (Exception) { return engine.newArray(); }
 }
 
+/// `performance.now()` -- high-resolution monotonic time in milliseconds
+/// as a JS number (double). Uses MonoTime for sub-millisecond
+/// precision; some engines (JSC, V8) ship a native performance.now
+/// that rounds to integer milliseconds, breaking sub-ms benchmark
+/// measurements.
+public JSHandle jsPerformanceNow(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
+{
+    assert(ctx !is null, "Null ctx in performance.now");
+    auto state = cast(DunState*) ctx;
+    assert(state.engine !is null, "Null engine in performance.now");
+    auto engine = state.engine;
+    try
+    {
+        import core.time : MonoTime, ticksToNSecs;
+        auto now = MonoTime.currTime;
+        long totalNs = ticksToNSecs(now.ticks);
+        long originNs = ticksToNSecs(_processStartTimeTicks);
+        return engine.newFloat((cast(double)(totalNs - originNs)) / 1_000_000.0);
+    }
+    catch (Throwable) { return engine.newFloat(0.0); }
+}
+
 JSHandle jsHrtimeBigint(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in process.hrtime.bigint");
