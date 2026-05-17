@@ -2,6 +2,8 @@ module dun.builtins.fetch;
 
 import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
 import dun.runtime.globals : DunState;
+import dun.platform.arena : Appender;
+import std.conv : to;
 
 private enum : size_t {
     SERIALIZE_RESERVE    = 256,
@@ -88,8 +90,6 @@ private JSHandle jsFetch(void* ctx, JSHandle thisVal, scope JSHandle[] args) @tr
 
 string serializeFetchResult(FetchResult r) @safe
 {
-    import dun.platform.arena : Appender;
-    import std.conv : to;
 
     Appender!(char[]) s;
     s.reserve(SERIALIZE_RESERVE + r.body_.length);
@@ -112,7 +112,6 @@ string serializeFetchResult(FetchResult r) @safe
 FetchResult deserializeFetchResult(string s) @safe
 {
     import std.string : indexOf;
-    import std.conv : to;
 
     FetchResult r;
     string remaining = s;
@@ -168,7 +167,6 @@ FetchResult doFetch(string url, string method, string reqBody,
     bool hasBody, string[string] reqHeaders, int redirectCount = 0) @trusted
 {
     import std.string : indexOf, toLower;
-    import std.conv : to;
 
     if (redirectCount > 5)
         throw new Exception("too many redirects");
@@ -300,7 +298,6 @@ struct ParsedUrl
 ParsedUrl parseUrl(string url) @safe
 {
     import std.string : indexOf;
-    import std.conv : to;
 
     ParsedUrl p;
     p.path = "/";
@@ -339,8 +336,6 @@ ParsedUrl parseUrl(string url) @safe
 string buildRequest(string method, ParsedUrl p, string body_,
     bool hasBody, string[string] extraHeaders) @safe
 {
-    import dun.platform.arena : Appender;
-    import std.conv : to;
 
     Appender!(char[]) r;
     r.reserve(REQUEST_RESERVE + body_.length);
@@ -371,13 +366,11 @@ string buildRequest(string method, ParsedUrl p, string body_,
 FetchResult readHttpResponse(scope int delegate(ubyte[]) @trusted reader) @trusted
 {
     import std.string : indexOf, toLower, strip;
-    import std.conv : to;
     import std.algorithm : min;
 
     FetchResult result;
     result.ok = false;
 
-    import dun.platform.arena : Appender;
 
     // Read all data into a buffer
     Appender!(ubyte[]) raw;
@@ -511,7 +504,6 @@ FetchResult readHttpResponse(scope int delegate(ubyte[]) @trusted reader) @trust
 string decodeChunked(string data) @safe
 {
     import std.string : indexOf;
-    import std.conv : to;
 
     string result;
     string remaining = data;
@@ -551,7 +543,6 @@ version (Posix)
         import core.sys.posix.netdb : getaddrinfo, addrinfo, freeaddrinfo;
         import core.sys.posix.unistd : close;
         import core.stdc.string : memset;
-        import std.conv : to;
 
         addrinfo hints;
         memset(&hints, 0, hints.sizeof);
@@ -587,8 +578,6 @@ else
 
 JSHandle makeResponse(IJSEngine engine, FetchResult r) @trusted
 {
-    import std.conv : to;
-    import dun.platform.arena : Appender;
 
     Appender!(char[]) js;
     js.reserve(JSON_RESERVE_EXTRA + r.body_.length);
@@ -674,7 +663,6 @@ JSHandle responseJson(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trust
 
 string jsonQuote(string s) @safe
 {
-    import dun.platform.arena : Appender;
     Appender!(char[]) r;
     r.reserve(s.length + s.length / 4 + 2);
     r ~= '"';

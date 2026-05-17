@@ -45,6 +45,8 @@ version (EngineQuickJS)
 
     private extern (C) int streamModuleInit(JSContext* ctx, JSModuleDef* m) nothrow @trusted
     {
+        assert(ctx !is null, "Null ctx in streamModuleInit");
+        assert(m !is null, "Null module def in streamModuleInit");
         auto global = JS_GetGlobalObject(ctx);
         auto mod = JS_GetPropertyStr(ctx, global, "__dun_cjs_stream__");
 

@@ -84,6 +84,8 @@ version (EngineQuickJS)
 
     private extern (C) int v8ModuleInit(JSContext* ctx, JSModuleDef* m) nothrow @trusted
     {
+        assert(ctx !is null, "Null ctx in v8ModuleInit");
+        assert(m !is null, "Null module def in v8ModuleInit");
         auto global = JS_GetGlobalObject(ctx);
         scope(exit) JS_FreeValue(ctx, global);
         auto v8Obj = JS_GetPropertyStr(ctx, global, "__dun_cjs_v8__");

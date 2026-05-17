@@ -61,6 +61,8 @@ version (EngineQuickJS)
 
     private extern (C) int bufferModuleInit(JSContext* ctx, JSModuleDef* m) nothrow @trusted
     {
+        assert(ctx !is null, "Null ctx in bufferModuleInit");
+        assert(m !is null, "Null module def in bufferModuleInit");
         auto global = JS_GetGlobalObject(ctx);
         auto bufObj = JS_GetPropertyStr(ctx, global, "__dun_cjs_buffer__");
         JS_SetModuleExport(ctx, m, "Buffer", JS_DupValue(ctx, bufObj));
