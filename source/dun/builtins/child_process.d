@@ -650,12 +650,16 @@ JSHandle jsSpawn(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
         {
             JSHandle[3] sdArgs = [engine.newString("data"), engine.newString(stdoutStr), engine.newUndefined()];
             pushAgnosticPending(engine, stdoutEmit, sdArgs[0 .. 2]);
+            // pushAgnosticPending dupValue()s its args; we own the
+            // originals and must free them.
+            foreach (h; sdArgs) engine.freeValue(h);
         }
 
         // Schedule: stdout.emit('end')
         {
             JSHandle[2] seArgs = [engine.newString("end"), engine.newUndefined()];
             pushAgnosticPending(engine, stdoutEmit, seArgs[0 .. 1]);
+            foreach (h; seArgs) engine.freeValue(h);
         }
 
         // Schedule: stderr.emit('data', data)
@@ -663,24 +667,28 @@ JSHandle jsSpawn(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
         {
             JSHandle[3] edArgs = [engine.newString("data"), engine.newString(stderrStr), engine.newUndefined()];
             pushAgnosticPending(engine, stderrEmit, edArgs[0 .. 2]);
+            foreach (h; edArgs) engine.freeValue(h);
         }
 
         // Schedule: stderr.emit('end')
         {
             JSHandle[2] eeArgs = [engine.newString("end"), engine.newUndefined()];
             pushAgnosticPending(engine, stderrEmit, eeArgs[0 .. 1]);
+            foreach (h; eeArgs) engine.freeValue(h);
         }
 
         // Schedule: cp.emit('exit', code)
         {
             JSHandle[3] exArgs = [engine.newString("exit"), engine.newInt(status), engine.newUndefined()];
             pushAgnosticPending(engine, cpEmit, exArgs[0 .. 2]);
+            foreach (h; exArgs) engine.freeValue(h);
         }
 
         // Schedule: cp.emit('close', code)
         {
             JSHandle[3] clArgs = [engine.newString("close"), engine.newInt(status), engine.newUndefined()];
             pushAgnosticPending(engine, cpEmit, clArgs[0 .. 2]);
+            foreach (h; clArgs) engine.freeValue(h);
         }
 
         engine.freeValue(stdoutEmit);
