@@ -19,13 +19,17 @@ module dun.ts.parser.lexer;
 //     `>>>=`, `&&`, `||`, `&=`, `|=`, `^=`, `+=`, `-=`, `/=`,
 //     `*=`, `%=`, `??=`, `&&=`, `||=`)
 //
-// Not yet in this slice (deferred):
-//   * Template literals (backtick + `${...}`)
-//   * Regex vs divide disambiguation (needs parser feedback)
+// Phase-2 additions (this slice):
+//   * Template literals: `` ` `` plain + `${expr}` substitution
+//     (head / middle / tail / no-substitution variants)
+//   * Regex literals: lexer-internal heuristic on whether the last
+//     emitted token allows an expression-start (`return /x/`) vs
+//     a divide operator (`a / b`).
+//   * BigInt suffix `n` on integer literals.
+//
+// Still deferred:
 //   * Unicode identifier ranges (we accept ASCII + `$` + `_` for now)
 //   * JSX/TSX mode switching
-//   * BigInt literal suffix `n`
-//   * Numeric separators inside literals
 
 @safe pure nothrow @nogc:
 
@@ -48,6 +52,7 @@ enum T : ubyte
     template_head,
     template_middle,
     template_tail,
+    regex_literal,
 
     // punctuation
     ampersand,
@@ -177,6 +182,14 @@ struct Lexer
     uint pos;
     uint line = 1;
     uint col = 1;
+    /// Track the kind of the previously emitted token so we can decide
+    /// whether `/` is a regex-literal start or a divide operator.
+    /// Initialised to a non-expression so a leading `/` parses as regex.
+    private T lastKind = T.eof;
+    /// Stack of template-literal contexts. When non-empty, `}` after a
+    /// `${...}` interpolation re-enters template scanning instead of
+    /// emitting a close-brace token.
+    private int templateDepth = 0;
 
     this(const(char)[] src) @safe pure nothrow @nogc
     {
@@ -188,7 +201,7 @@ struct Lexer
     {
         skipTrivia();
         if (pos >= source.length)
-            return token(T.eof, pos, 0);
+            return emit(T.eof, pos, 0);
 
         immutable startLine = line;
         immutable startCol  = col;
@@ -207,6 +220,21 @@ struct Lexer
         if (c == '"' || c == '\'')
             return scanString(startPos, startLine, startCol, c);
 
+        // Template literal head / no-substitution
+        if (c == '`')
+            return scanTemplate(startPos, startLine, startCol, /*atBacktick=*/true);
+
+        // `}` while inside a template -- resume template scanning to
+        // produce a template_middle / template_tail.
+        if (c == '}' && templateDepth > 0)
+            return scanTemplate(startPos, startLine, startCol, /*atBacktick=*/false);
+
+        // Regex literal: `/` is a regex start when the previous token
+        // doesn't allow a division operator (e.g. after `return`,
+        // `=`, `,`, `(`, `[`, `;`).
+        if (c == '/' && allowsRegex(lastKind))
+            return scanRegex(startPos, startLine, startCol);
+
         // Hashbang at file start
         if (c == '#' && pos == 0 && pos + 1 < source.length && source[pos + 1] == '!')
             return scanLineThenToken(T.hashbang, startPos, startLine, startCol);
@@ -216,7 +244,9 @@ struct Lexer
 
 private:
 
-    Token token(T kind, uint start, uint length,
+    // Build a Token, update lastKind, and return. The lastKind feed
+    // drives regex-vs-divide disambiguation on the next call.
+    Token emit(T kind, uint start, uint length,
         uint line_ = 0, uint col_ = 0,
         const(char)[] text = null) @safe pure nothrow @nogc
     {
@@ -227,6 +257,7 @@ private:
         t.line = line_;
         t.col = col_;
         t.text = text.length ? text : source[start .. start + length];
+        lastKind = kind;
         return t;
     }
 
@@ -275,7 +306,7 @@ private:
         @safe pure nothrow @nogc
     {
         while (pos < source.length && source[pos] != '\n') advance();
-        return token(kind, startPos, pos - startPos, startLine, startCol);
+        return emit(kind, startPos, pos - startPos, startLine, startCol);
     }
 
     Token scanIdent(uint startPos, uint startLine, uint startCol)
@@ -285,8 +316,8 @@ private:
         auto slice = source[startPos .. pos];
         immutable kw = keywordKind(slice);
         if (kw != T.identifier)
-            return token(kw, startPos, cast(uint)(pos - startPos), startLine, startCol, slice);
-        return token(T.identifier, startPos, cast(uint)(pos - startPos),
+            return emit(kw, startPos, cast(uint)(pos - startPos), startLine, startCol, slice);
+        return emit(T.identifier, startPos, cast(uint)(pos - startPos),
             startLine, startCol, slice);
     }
 
@@ -302,26 +333,43 @@ private:
             advance(); advance();
             while (pos < source.length && (isHexDigit(source[pos]) || source[pos] == '_'))
                 advance();
-            return token(T.numeric_literal, startPos, cast(uint)(pos - startPos),
+            // BigInt suffix `n` (e.g. `0xffn`).
+            if (pos < source.length && source[pos] == 'n')
+            {
+                advance();
+                return emit(T.big_integer_literal, startPos, cast(uint)(pos - startPos),
+                    startLine, startCol);
+            }
+            return emit(T.numeric_literal, startPos, cast(uint)(pos - startPos),
                 startLine, startCol);
         }
         // Decimal int/float with optional `.` / `e±`
+        bool sawFractionOrExp = false;
         while (pos < source.length && (isDigit(source[pos]) || source[pos] == '_'))
             advance();
         if (pos < source.length && source[pos] == '.')
         {
+            sawFractionOrExp = true;
             advance();
             while (pos < source.length && (isDigit(source[pos]) || source[pos] == '_'))
                 advance();
         }
         if (pos < source.length && (source[pos] == 'e' || source[pos] == 'E'))
         {
+            sawFractionOrExp = true;
             advance();
             if (pos < source.length && (source[pos] == '+' || source[pos] == '-'))
                 advance();
             while (pos < source.length && isDigit(source[pos])) advance();
         }
-        return token(T.numeric_literal, startPos, cast(uint)(pos - startPos),
+        // BigInt suffix only valid on plain decimal integers (no `.`/`e`).
+        if (!sawFractionOrExp && pos < source.length && source[pos] == 'n')
+        {
+            advance();
+            return emit(T.big_integer_literal, startPos, cast(uint)(pos - startPos),
+                startLine, startCol);
+        }
+        return emit(T.numeric_literal, startPos, cast(uint)(pos - startPos),
             startLine, startCol);
     }
 
@@ -340,8 +388,114 @@ private:
             advance();
         }
         if (pos < source.length) advance();  // closing quote
-        return token(T.string_literal, startPos, cast(uint)(pos - startPos),
+        return emit(T.string_literal, startPos, cast(uint)(pos - startPos),
             startLine, startCol);
+    }
+
+    /// Template literal scanner. Two entry modes:
+    ///   atBacktick=true  -- `pos` points at the opening backtick.
+    ///   atBacktick=false -- `pos` points at the `}` closing a
+    ///                       `${expr}` interpolation; we resume the
+    ///                       enclosing template literal.
+    /// Returns one of the template_* tokens. Updates `templateDepth`.
+    Token scanTemplate(uint startPos, uint startLine, uint startCol, bool atBacktick)
+        @safe pure nothrow @nogc
+    {
+        advance();  // consume opening `` ` `` or `}`
+        while (pos < source.length)
+        {
+            char c = source[pos];
+            if (c == '`')
+            {
+                advance();
+                // Closing backtick. If atBacktick, this is a
+                // no-substitution template; otherwise it's the tail
+                // of a substitution.
+                auto kind = atBacktick ? T.no_substitution_template_literal
+                                       : T.template_tail;
+                if (!atBacktick && templateDepth > 0) templateDepth--;
+                return emit(kind, startPos, cast(uint)(pos - startPos),
+                    startLine, startCol);
+            }
+            if (c == '$' && pos + 1 < source.length && source[pos + 1] == '{')
+            {
+                advance(); advance();
+                // Interpolation start. Caller will see expression
+                // tokens next; the `}` that ends the expression
+                // returns us to template mode.
+                if (atBacktick) templateDepth++;
+                auto kind = atBacktick ? T.template_head : T.template_middle;
+                return emit(kind, startPos, cast(uint)(pos - startPos),
+                    startLine, startCol);
+            }
+            if (c == '\\' && pos + 1 < source.length)
+            {
+                advance(); advance();
+                continue;
+            }
+            advance();
+        }
+        // Unterminated -- return what we have as a tail; parser flags.
+        return emit(atBacktick ? T.no_substitution_template_literal : T.template_tail,
+            startPos, cast(uint)(pos - startPos), startLine, startCol);
+    }
+
+    /// Regex literal scanner. Caller has already determined the `/`
+    /// at `pos` starts a regex (via `allowsRegex(lastKind)`). Walks
+    /// the body (with `\` escapes + character classes `[...]` where
+    /// `/` is literal) plus any trailing flag chars.
+    Token scanRegex(uint startPos, uint startLine, uint startCol)
+        @safe pure nothrow @nogc
+    {
+        advance();  // opening /
+        bool inClass = false;
+        while (pos < source.length)
+        {
+            char c = source[pos];
+            if (c == '\n') break;  // unterminated
+            if (c == '\\' && pos + 1 < source.length)
+            {
+                advance(); advance();
+                continue;
+            }
+            if (c == '[') { inClass = true; advance(); continue; }
+            if (c == ']') { inClass = false; advance(); continue; }
+            if (c == '/' && !inClass) { advance(); break; }
+            advance();
+        }
+        // Trailing flags (g, i, m, s, u, v, y, d)
+        while (pos < source.length && isIdentCont(source[pos])) advance();
+        return emit(T.regex_literal, startPos, cast(uint)(pos - startPos),
+            startLine, startCol);
+    }
+
+    /// Whether the previous token's kind allows a regex literal here.
+    /// A regex starts after operators / keywords that introduce a new
+    /// expression; a divide is only legal after a value-producing
+    /// token (literal, identifier, `)`, `]`, `++`, `--`).
+    static bool allowsRegex(T prev) @safe pure nothrow @nogc
+    {
+        switch (prev)
+        {
+            case T.identifier:
+            case T.numeric_literal:
+            case T.big_integer_literal:
+            case T.string_literal:
+            case T.no_substitution_template_literal:
+            case T.template_tail:
+            case T.close_paren:
+            case T.close_bracket:
+            case T.plus_plus:
+            case T.minus_minus:
+            case T.t_this:
+            case T.t_super:
+            case T.t_null:
+            case T.t_true:
+            case T.t_false:
+                return false;
+            default:
+                return true;
+        }
     }
 
     Token scanPunctuation(uint startPos, uint startLine, uint startCol, char c)
@@ -450,7 +604,7 @@ private:
                 width = 1;
         }
         foreach (_; 0 .. width) advance();
-        return token(kind, startPos, width, startLine, startCol);
+        return emit(kind, startPos, width, startLine, startCol);
     }
 
     static bool isDigit(char c) @safe pure nothrow @nogc { return c >= '0' && c <= '9'; }
@@ -573,4 +727,65 @@ unittest
     auto l = Lexer("a\n  b");
     auto a = l.next(); assert(a.line == 1 && a.col == 1);
     auto b = l.next(); assert(b.line == 2 && b.col == 3);
+}
+
+unittest
+{
+    // Template literals: no-substitution
+    auto l = Lexer("`hello world`");
+    auto t = l.next();
+    assert(t.kind == T.no_substitution_template_literal);
+    assert(t.text == "`hello world`");
+    assert(l.next().kind == T.eof);
+}
+
+unittest
+{
+    // Template literals: substitution head + tail
+    auto l = Lexer("`a${1}b`");
+    auto a = l.next(); assert(a.kind == T.template_head && a.text == "`a${");
+    auto b = l.next(); assert(b.kind == T.numeric_literal && b.text == "1");
+    auto c = l.next(); assert(c.kind == T.template_tail && c.text == "}b`");
+    assert(l.next().kind == T.eof);
+}
+
+unittest
+{
+    // Template literals: middle (two interpolations)
+    auto l = Lexer("`a${1}b${2}c`");
+    assert(l.next().kind == T.template_head);
+    assert(l.next().kind == T.numeric_literal);
+    auto m = l.next(); assert(m.kind == T.template_middle);
+    assert(l.next().kind == T.numeric_literal);
+    assert(l.next().kind == T.template_tail);
+}
+
+unittest
+{
+    // BigInt literals
+    auto l = Lexer("42n 0xffn");
+    auto a = l.next(); assert(a.kind == T.big_integer_literal && a.text == "42n");
+    auto b = l.next(); assert(b.kind == T.big_integer_literal && b.text == "0xffn");
+}
+
+unittest
+{
+    // Regex literal vs divide -- regex after `=`
+    auto l = Lexer("const x = /foo/g; const y = a / b;");
+    foreach (_; 0 .. 3) l.next();                  // const x =
+    auto r = l.next();
+    assert(r.kind == T.regex_literal && r.text == "/foo/g");
+    // After the regex, `;` then identifiers, then `/` should be slash.
+    foreach (_; 0 .. 5) l.next();                  // ; const y = a
+    auto d = l.next();
+    assert(d.kind == T.slash);
+}
+
+unittest
+{
+    // Regex with character class containing `/`
+    auto l = Lexer("return /[a/b]/i;");
+    assert(l.next().kind == T.t_return);
+    auto r = l.next();
+    assert(r.kind == T.regex_literal && r.text == "/[a/b]/i");
 }
