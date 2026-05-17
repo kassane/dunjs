@@ -119,6 +119,29 @@ real workload has a working fix.
   (e.g. `Deno.readTextFileSync("/nonexistent")` previously
   crashed V8 with `rt/dwarfeh.d:370: uncaught exception`).
 
+- **Stream pipe + pipeline + Readable.from** —
+  `Readable.from([...]).pipe(dst)` now actually flows (was sitting
+  idle waiting for a consumer to call `read()`). `pipeline(a, b, c,
+  cb)` actually invokes the callback (the `'finish'` listener
+  attached AFTER the pipe loop synchronously drained the chain).
+  `pipe()` attaches the `'end'` listener before the auto-resuming
+  `'data'` listener so `dest.end()` runs.
+
+- **`performance.now()` high-resolution across all 3 backends** —
+  JSC and V8 ship a native one that rounds to integer milliseconds,
+  so benchmarks measuring sub-ms loops got always-zero diffs. We
+  override with a MonoTime-backed implementation that returns
+  sub-millisecond doubles uniformly.
+
+- **`URL.parse(url, base?)`** — Node 20+ / WHATWG static method
+  (returns URL or null instead of throwing). Sibling to the
+  pre-existing `URL.canParse`.
+
+- **worker_threads message shape** — `.on('message', cb)` now
+  receives the raw posted value (Node semantics) instead of a
+  `{data: payload}` wrapper (Web Worker semantics). Workers
+  authored against Node's `worker_threads` see the right value.
+
 - **Top-level `await`** — Works on all three backends. `isESM()`
   detects top-level `await` anywhere at depth-0 statement scope so
   `.ts` files using top-level await without explicit `import`/`export`
