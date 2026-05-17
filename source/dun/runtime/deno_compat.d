@@ -310,14 +310,25 @@ private string denoServeAndKvSource() pure nothrow @safe
     "    });" ~
     "  });" ~
     "  srv.listen(port, host);" ~
+    /* Read back the actually-bound port from srv.address(). When the
+       caller asks for port:0, Node/DunJS picks a random free port --
+       the requested 0 isn't the listening port. Real Deno reports
+       the real port via server.addr.port; we have to do the same or
+       callers fetching `http://127.0.0.1:${server.addr.port}/` hit
+       port 0 and never connect. */
+    "  var actualPort = port;" ~
+    "  try {" ~
+    "    var addr = srv.address();" ~
+    "    if (addr && typeof addr.port === 'number') actualPort = addr.port;" ~
+    "  } catch (e) {}" ~
     "  if (typeof opts.onListen === 'function') {" ~
-    "    setTimeout(function() { opts.onListen({ hostname: host, port: port }); }, 0);" ~
+    "    setTimeout(function() { opts.onListen({ hostname: host, port: actualPort }); }, 0);" ~
     "  }" ~
     "  var finishedResolve;" ~
     "  var finished = new Promise(function(r) { finishedResolve = r; });" ~
     "  srv.on('close', function() { finishedResolve(); });" ~
     "  return {" ~
-    "    addr: { hostname: host, port: port, transport: 'tcp' }," ~
+    "    addr: { hostname: host, port: actualPort, transport: 'tcp' }," ~
     "    finished: finished," ~
     "    ref: function() {}," ~
     "    unref: function() {}," ~
