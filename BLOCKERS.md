@@ -78,8 +78,11 @@ real workload has a working fix.
   Adds ~30 ms of cold-start for the first TS file but eliminates
   every scanner edge case. Falls back to the byte-level stripper
   when typescript isn't present. Opt-out: `DUN_DISABLE_TSC=1`.
-  V8 backend defaults to scanner (double V8 isolate startup is
-  ~150 ms × 2); opt-in there with `DUN_USE_TSC=1`.
+  Works uniformly on QuickJS / JSC / V8. (The earlier V8-specific
+  opt-in flag is gone: the underlying segfault was a stale
+  __gshared cache from runTranspile's transient engine; minimal-init
+  fix in runTranspile means the main engine no longer reuses
+  V8 handles from a freed isolate.)
 
 - **Bun.hash sub-methods + Deno async FS** —
   `Bun.hash.{crc32, adler32, xxh32, xxh64}` and `Deno.{stat, lstat,

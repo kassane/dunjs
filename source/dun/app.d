@@ -536,8 +536,6 @@ void printUsage()
         ~ "Environment variables:\n"
         ~ "  DUN_DISABLE_TSC=1      Force scanner stripper instead of tsc transpile\n"
         ~ "                         (default: use tsc when typescript is installed)\n"
-        ~ "  DUN_USE_TSC=1          Opt-in to tsc transpile on V8 backend\n"
-        ~ "                         (V8 defaults to scanner due to isolate startup cost)\n"
         ~ "  DUN_TYPECHECK_DEBUG=1  Dump --typecheck driver source to /tmp/dun-typecheck-driver.js\n"
         ~ "                         on engine error (debugging the typecheck shim)\n"
         ~ "  DUN_REPL_HISTORY       Path to REPL history file (default: ~/.dun_repl_history)\n"
@@ -1552,25 +1550,11 @@ string runTranspile(string source, string filename) @trusted
     import dun.security.permissions : Permission, PermissionRegistry;
     import std.process : environment;
 
-    // V8 backend: tsc transpilation works correctly (verified under
-    // gdb), but each V8 Isolate startup is ~150 ms on a cold cache.
-    // Running a second Isolate for transpile + the main one for user
-    // code doubles startup cost, which trips the integration suite's
-    // 30 s budget on slow machines. Stick with the scanner on V8 --
-    // users who need full TS correctness can run on JSC or QJS, or
-    // set DUN_USE_TSC=1 to force tsc on V8 anyway.
-    version (EngineV8)
-    {
-        if (environment.get("DUN_USE_TSC", "") != "1")
-            return "";
-    }
-    else
-    {
-        // Default opt-out for non-V8 backends: DUN_DISABLE_TSC=1
-        // forces scanner mode.
-        if (environment.get("DUN_DISABLE_TSC", "") == "1")
-            return "";
-    }
+    // Opt-out: DUN_DISABLE_TSC=1 forces the scanner stripper
+    // regardless of typescript availability. Useful for benchmarking
+    // and for working around any tsc-specific transpile quirks.
+    if (environment.get("DUN_DISABLE_TSC", "") == "1")
+        return "";
     if (!findTypescriptInstall(filename))
         return "";  // not installed; caller falls back to scanner
 
@@ -1586,7 +1570,25 @@ string runTranspile(string source, string filename) @trusted
     perms.grant(Permission.read);  // typescript reads .ts source + tsconfig
     perms.grant(Permission.env);   // ts looks at process.env occasionally
     state.permissions = &perms;
-    installGlobals(eng, &state);
+    // Minimal setup for transpile -- only `require` + `console` + `process`.
+    // Skips the full `installGlobals` chain because that populates `__gshared`
+    // caches (e.g. `_cachedSubtleDigestFn` in crypto.d) with handles tied to
+    // THIS transient engine's V8 isolate. When the main engine starts and
+    // tries to reuse those cached handles after we've shut this engine down,
+    // V8 segfaults on Object.Set inside Map::TransitionToDataProperty
+    // (caught under gdb -- handles point to a freed isolate).
+    {
+        import dun.runtime.console : installConsole;
+        import dun.runtime.process_api : installProcess;
+        import dun.modules.require : installRequire;
+        // setContextOpaque is normally done by installGlobals -- needed
+        // because process_api dispatch reads DunState back out via
+        // engine.getContextOpaque().
+        eng.setContextOpaque(cast(void*) &state);
+        installConsole(eng);
+        installProcess(eng);
+        installRequire(eng);
+    }
 
     import std.json : JSONValue;
     string srcLit = JSONValue(source).toString();
