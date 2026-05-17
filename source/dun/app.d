@@ -131,13 +131,26 @@ int runScript(T)(T config)
             source = tcResult;
     }
 
-    // Strip TS for .ts/.mts/.cts/.tsx files AND for stdin (where we
-    // have no extension to dispatch on). Stripper is a whitespace-
-    // preserving no-op for plain JS, so the false-positive cost is zero.
+    // TS -> JS pipeline. When typescript is already installed in
+    // node_modules (anywhere upward from the script), we use
+    // `ts.transpileModule()` for full TS-spec correctness (decorators,
+    // const enum, namespace runtime, generic-cast resolution, etc.).
+    // The scanner stripper takes over otherwise -- so users who don't
+    // need full TS still pay zero cold-start cost. Opt-out via
+    // `DUN_DISABLE_TSC=1` to force the scanner regardless.
     if (isTypeScript(config.scriptPath) || isStdinPath(config.scriptPath))
     {
-        import dun.ts.strip : stripTypes;
-        source = stripTypes(source);
+        if (!config.typecheck)  // typecheck path already runs tsc above
+        {
+            auto tsOut = runTranspile(source, config.scriptPath);
+            if (tsOut.length > 0)
+                source = tsOut;
+            else
+            {
+                import dun.ts.strip : stripTypes;
+                source = stripTypes(source);
+            }
+        }
     }
 
     // JSX/TSX → React.createElement transform. Runs after TS strip
@@ -1510,6 +1523,101 @@ bool findTypescriptInstall(string scriptPath) @trusted
         dir = parent;
     }
     return false;
+}
+
+/// Fast transpile-only path via `ts.transpileModule()`. Used as the
+/// default for `.ts`/`.tsx` files when typescript is already present
+/// in node_modules; the scanner stripper takes over otherwise. Trades
+/// ~50 ms of cold-start for full TS-spec correctness (decorators,
+/// enums, namespace runtime, generic-cast resolution, etc.) -- all the
+/// edge cases the scanner re-discovers per release.
+///
+/// Returns the transpiled JS on success, or "" to signal "fall back
+/// to the scanner". No type errors are reported here (use
+/// `--typecheck` for that); transpileModule keeps going on type
+/// errors and just produces JS.
+string runTranspile(string source, string filename) @trusted
+{
+    import dun.engine.iface : createEngine, EngineConfig,
+                              DEFAULT_MEMORY_LIMIT, DEFAULT_MAX_STACK;
+    import dun.runtime.globals : DunState, installGlobals;
+    import dun.security.permissions : Permission, PermissionRegistry;
+    import std.process : environment;
+
+    // V8 backend: tsc transpilation works correctly (verified under
+    // gdb), but each V8 Isolate startup is ~150 ms on a cold cache.
+    // Running a second Isolate for transpile + the main one for user
+    // code doubles startup cost, which trips the integration suite's
+    // 30 s budget on slow machines. Stick with the scanner on V8 --
+    // users who need full TS correctness can run on JSC or QJS, or
+    // set DUN_USE_TSC=1 to force tsc on V8 anyway.
+    version (EngineV8)
+    {
+        if (environment.get("DUN_USE_TSC", "") != "1")
+            return "";
+    }
+    else
+    {
+        // Default opt-out for non-V8 backends: DUN_DISABLE_TSC=1
+        // forces scanner mode.
+        if (environment.get("DUN_DISABLE_TSC", "") == "1")
+            return "";
+    }
+    if (!findTypescriptInstall(filename))
+        return "";  // not installed; caller falls back to scanner
+
+    auto eng = createEngine();
+    eng.initialize(EngineConfig(DEFAULT_MEMORY_LIMIT, DEFAULT_MAX_STACK));
+    scope (exit) eng.shutdown();
+
+    DunState state;
+    state.engine = eng;
+    state.scriptArgs = ["dun", filename];
+    state.eventLoop.initialize(eng);
+    PermissionRegistry perms;
+    perms.grant(Permission.read);  // typescript reads .ts source + tsconfig
+    perms.grant(Permission.env);   // ts looks at process.env occasionally
+    state.permissions = &perms;
+    installGlobals(eng, &state);
+
+    import std.json : JSONValue;
+    string srcLit = JSONValue(source).toString();
+    string fnLit  = JSONValue(filename).toString();
+
+    string driver =
+        `(function(){`
+        ~ `  const ts = require('typescript');`
+        ~ `  const src = ` ~ srcLit ~ `;`
+        ~ `  const filename = ` ~ fnLit ~ `;`
+        /* ESNext module keeps `import x from 'y'` / `import.meta`
+           intact -- DunJS's runtime decides CJS vs ESM dispatch
+           based on file extension + content, same as it does for
+           the scanner output. Using CommonJS here would rewrite
+           imports to require() (good) but also blow up on
+           `import.meta` (no CJS equivalent). */
+        ~ `  const t = ts.transpileModule(src, {`
+        ~ `    compilerOptions: {`
+        ~ `      target: ts.ScriptTarget.ES2022,`
+        ~ `      module: ts.ModuleKind.ESNext,`
+        ~ `      esModuleInterop: true,`
+        ~ `      allowJs: true,`
+        ~ `      jsx: filename.endsWith('.tsx') ? ts.JsxEmit.React : ts.JsxEmit.None,`
+        ~ `      experimentalDecorators: true,`
+        ~ `      emitDecoratorMetadata: false,`
+        ~ `      sourceMap: false,`
+        ~ `      isolatedModules: true,`  /* mirrors --isolatedModules */
+        ~ `      verbatimModuleSyntax: false,`
+        ~ `    },`
+        ~ `    fileName: filename,`
+        ~ `  });`
+        ~ `  return t.outputText;`
+        ~ `})()`;
+
+    auto res = eng.eval(driver, "<transpile>");
+    if (res.isError) { eng.freeValue(res.value); return ""; }
+    string output = eng.extractString(res.value);
+    eng.freeValue(res.value);
+    return output;
 }
 
 /// Spin up a short-lived JS engine, require the user's installed
