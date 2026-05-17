@@ -142,6 +142,18 @@ real workload has a working fix.
   `{data: payload}` wrapper (Web Worker semantics). Workers
   authored against Node's `worker_threads` see the right value.
 
+- **`new WebSocketServer(opts)` / `new WebSocket(url)`** — JS-side
+  class wrappers around the native factories so the canonical
+  `new`-form usage works (extern(C) callbacks themselves can't
+  be invoked as constructors on any of the three backends).
+  Supports both `new` and bare-call forms; added `ws.Server`
+  alias.
+
+- **MessagePort auto-start on `onmessage` setter** — Per WHATWG
+  spec, assigning to `port.onmessage` implicitly starts the port
+  so queued messages flush. Now done via a getter/setter pair on
+  the prototype (was a plain data property).
+
 - **Top-level `await`** — Works on all three backends. `isESM()`
   detects top-level `await` anywhere at depth-0 statement scope so
   `.ts` files using top-level await without explicit `import`/`export`
