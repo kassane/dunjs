@@ -1,5 +1,4 @@
-NOTE: jwt.verify() + some jwt.decode() skipped — DunJS base64url padding bug (non-mod-4 lengths crash runtime)
 
 === npm Deep Compatibility Test Results ===
-Passed: 224/224
-Failed: 0/224
+Passed: 228/228
+Failed: 0/228

@@ -400,13 +400,25 @@ try {
   assertEq(decodedSub.sub, "user123", "jwt: subject claim via decode");
   assertEq(decodedSub.iss, "myapp", "jwt: issuer claim via decode");
 
-  // NOTE: Some JWT operations crash DunJS when the base64url payload
-  // length is not a multiple of 4 (unpadded base64url). DunJS's D-side
-  // std.base64 decoder doesn't handle missing padding characters.
-  // This affects: jwt.verify() (always), and jwt.decode() for tokens
-  // whose payload encodes to a non-mod-4 length (e.g. with jwtid/notBefore).
-  // Skipping: audience, jwtid, notBefore, verify tests.
-  console.log("NOTE: jwt.verify() + some jwt.decode() skipped — DunJS base64url padding bug (non-mod-4 lengths crash runtime)");
+  // jwt.verify() with audience + jwtid (covers the previously-skipped
+  // base64url padding case -- the underlying Buffer.from(s, 'base64url')
+  // now pads correctly on non-mod-4 input lengths).
+  const tokenAud = jwt.sign({}, secret, { audience: "myapp", jwtid: "abc-123" });
+  const verified = jwt.verify(tokenAud, secret, { audience: "myapp" });
+  assertEq(verified.aud, "myapp", "jwt: verify with audience");
+  assertEq(verified.jti, "abc-123", "jwt: verify with jwtid");
+
+  // jwt.verify() with notBefore (also exercises non-mod-4 base64url
+  // because nbf adds another claim that shifts payload length).
+  const tokenNbf = jwt.sign({}, secret, { notBefore: -1 });  // nbf in the past
+  const verifiedNbf = jwt.verify(tokenNbf, secret);
+  assertEq(typeof verifiedNbf.nbf, "number", "jwt: verify with notBefore");
+
+  // jwt.verify() rejects wrong secret.
+  let rejected = false;
+  try { jwt.verify(tokenAud, "wrong-secret"); }
+  catch { rejected = true; }
+  assertEq(rejected, true, "jwt: verify rejects wrong secret");
 
 } catch (e) {
   console.log("FAIL: jsonwebtoken section threw: " + e.message);
