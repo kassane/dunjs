@@ -266,6 +266,12 @@ private:
         uint line_ = 0, uint col_ = 0,
         const(char)[] text = null) @safe pure nothrow @nogc
     {
+        // TIGER_STYLE: every scanner should produce a slice that
+        // fits in the source buffer. A miscount in a scan_*
+        // routine would otherwise propagate to the caller as an
+        // out-of-range token slice.
+        assert(start <= source.length && start + length <= source.length,
+            "emit: token slice escapes source buffer");
         Token t;
         t.kind = kind;
         t.start = start;

@@ -519,7 +519,7 @@ void printUsage()
         ~ "  --eval-file=<path>     Execute file before entering REPL\n"
         ~ "  --watch / -w           Restart script on file changes\n"
         ~ "  --typecheck            Run TS files through tsc first;\n"
-        ~ "                         needs `npm install typescript`\n\n"
+        ~ "                         auto-installs typescript via `dun install` if missing\n\n"
         ~ "REPL environment variables:\n"
         ~ "  DUN_REPL_HISTORY       Path to history file (~/.dun_repl_history)\n"
         ~ "  DUN_REPL_HISTORY_SIZE  Max history entries (default: 1000)\n\n"

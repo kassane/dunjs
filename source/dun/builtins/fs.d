@@ -315,6 +315,12 @@ private:
 __gshared JSHandle _cachedIsFileFn, _cachedIsDirFn, _cachedIsSymlinkFn;
 __gshared bool _statFnsCached = false;
 
+// Cached `(ms) => new Date(ms)` factory. Built once at init; reused
+// across every fs.stat / fs.statSync (4x per call -- atime, mtime,
+// ctime, birthtime). Avoids `engine.eval(...)` per Date construction.
+__gshared JSHandle _cachedDateFactoryFn;
+__gshared bool _dateFactoryCached = false;
+
 void ensureStatFnsCached(IJSEngine engine) @trusted
 {
     if (!_statFnsCached)
@@ -323,6 +329,21 @@ void ensureStatFnsCached(IJSEngine engine) @trusted
         _cachedIsDirFn = engine.newFunction(&jsStatIsDirectory, "isDirectory", 0);
         _cachedIsSymlinkFn = engine.newFunction(&jsStatIsSymbolicLink, "isSymbolicLink", 0);
         _statFnsCached = true;
+    }
+}
+
+private void ensureDateFactoryCached(IJSEngine engine) @trusted
+{
+    if (!_dateFactoryCached)
+    {
+        auto res = engine.eval("(function(ms){return new Date(ms)})", "<date>");
+        if (!res.isError)
+        {
+            _cachedDateFactoryFn = res.value;
+            _dateFactoryCached = true;
+        }
+        else
+            engine.freeValue(res.value);
     }
 }
 
@@ -462,16 +483,17 @@ package JSHandle buildStatObject(IJSEngine engine, ref SafeStatResult r) @truste
 JSHandle makeDate(IJSEngine engine, double ms) @trusted
 {
     assert(engine !is null, "Null engine in makeDate");
-    auto dateCtor = engine.eval("(function(ms){return new Date(ms)})", "<date>");
-    if (dateCtor.isError)
-    {
-        engine.freeValue(dateCtor.value);
+    ensureDateFactoryCached(engine);
+    if (!_dateFactoryCached)
         return engine.newNull();
-    }
     auto msVal = engine.newFloat(ms);
-    auto result = engine.callFunction(dateCtor.value, engine.newUndefined(), (&msVal)[0 .. 1]);
+    auto undef = engine.newUndefined();
+    // dupValue so the cached factory survives this call (the callee
+    // doesn't free the function; we keep it for the next stat() call).
+    auto result = engine.callFunction(engine.dupValue(_cachedDateFactoryFn),
+        undef, (&msVal)[0 .. 1]);
     engine.freeValue(msVal);
-    engine.freeValue(dateCtor.value);
+    engine.freeValue(undef);
     return result;
 }
 

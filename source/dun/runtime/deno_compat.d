@@ -59,9 +59,14 @@ void installDenoCompat(IJSEngine engine) @trusted
     engine.setProperty(denoObj, "lstatSync",
         engine.newFunction(&denoStatSync, "lstatSync", 1));
 
-    // Deno.mkdirSync
+    // Deno.mkdirSync + Deno.mkdir (async). The async variant runs the
+    // same body and wraps in a resolved Promise -- Deno's real
+    // implementation is also synchronous under the hood for the local
+    // FS, so the only observable difference is the Promise return.
     engine.setProperty(denoObj, "mkdirSync",
         engine.newFunction(&denoMkdirSync, "mkdirSync", 1));
+    engine.setProperty(denoObj, "mkdir",
+        engine.newFunction(&denoMkdir, "mkdir", 1));
 
     // Deno.removeSync
     engine.setProperty(denoObj, "removeSync",
@@ -639,17 +644,13 @@ JSHandle denoStatSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trust
     }
 }
 
-// ── Deno.mkdirSync ──
+// ── Deno.mkdirSync / Deno.mkdir ──
 
-JSHandle denoMkdirSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
+private JSHandle doMkdir(IJSEngine engine, DunState* state, scope JSHandle[] args,
+    string callerName) @trusted
 {
-    assert(ctx !is null, "Null ctx in denoMkdirSync");
-    auto state = cast(DunState*) ctx;
-    assert(state.engine !is null, "Null engine in denoMkdirSync");
-    auto engine = state.engine;
-
     if (args.length < 1 || !engine.isString(args[0]))
-        return engine.throwTypeError("mkdirSync requires a path");
+        return engine.throwTypeError(callerName ~ " requires a path");
 
     string path = engine.extractString(args[0]);
     bool recursive = false;
@@ -672,8 +673,85 @@ JSHandle denoMkdirSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trus
     }
     catch (Exception e)
     {
-        return engine.throwTypeError("mkdirSync: " ~ e.msg);
+        return engine.throwTypeError(callerName ~ ": " ~ e.msg);
     }
+}
+
+JSHandle denoMkdirSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
+{
+    assert(ctx !is null, "Null ctx in denoMkdirSync");
+    auto state = cast(DunState*) ctx;
+    assert(state.engine !is null, "Null engine in denoMkdirSync");
+    return doMkdir(state.engine, state, args, "mkdirSync");
+}
+
+JSHandle denoMkdir(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
+{
+    assert(ctx !is null, "Null ctx in denoMkdir");
+    auto state = cast(DunState*) ctx;
+    assert(state.engine !is null, "Null engine in denoMkdir");
+    auto engine = state.engine;
+
+    // Pre-validate args before calling into std.file so an error is
+    // surfaced as a rejected Promise instead of a synchronous throw.
+    if (args.length < 1 || !engine.isString(args[0]))
+        return throwAsRejected(engine, "mkdir requires a path");
+
+    string path = engine.extractString(args[0]);
+    bool recursive = false;
+    if (args.length >= 2 && engine.isObject(args[1]))
+    {
+        auto rv = engine.getProperty(args[1], "recursive");
+        if (engine.isBool(rv)) recursive = engine.extractBool(rv);
+        engine.freeValue(rv);
+    }
+    if (!checkPerm(state, Permission.write, path))
+        return throwAsRejected(engine,
+            "[ERR_PERMISSION_DENIED] Requires --allow-write permission");
+
+    string errMsg;
+    try
+    {
+        import std.file : mkdir, mkdirRecurse;
+        if (recursive) mkdirRecurse(path); else mkdir(path);
+    }
+    catch (Exception e)
+    {
+        errMsg = "mkdir: " ~ e.msg;
+    }
+    if (errMsg.length > 0)
+        return throwAsRejected(engine, errMsg);
+    return resolveUndefined(engine);
+}
+
+// Build `Promise.resolve(undefined)` for async helpers.
+private JSHandle resolveUndefined(IJSEngine engine) @trusted
+{
+    auto res = engine.eval("Promise.resolve(undefined)",
+        "<deno-async-resolve>");
+    if (res.isError) { engine.freeValue(res.value); return engine.newUndefined(); }
+    return res.value;
+}
+
+// Build `Promise.reject(new Error(msg))` for async helpers. msg is
+// JS-escaped for safe interpolation.
+private JSHandle throwAsRejected(IJSEngine engine, string msg) @trusted
+{
+    import std.array : Appender;
+    Appender!(char[]) src;
+    src.reserve(64 + msg.length * 2);
+    src.put("Promise.reject(new Error(");
+    src.put('"');
+    foreach (c; msg)
+    {
+        if (c == '"' || c == '\\') src.put('\\');
+        src.put(c);
+    }
+    src.put("\"))");
+    auto res = engine.eval(cast(string) src.data,
+        "<deno-async-reject>");
+    if (res.isError) { engine.freeValue(res.value); return engine.newUndefined(); }
+    return res.value;
 }
 
 // ── Deno.removeSync ──

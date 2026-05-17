@@ -3,6 +3,7 @@ module dun.engine.jsc.backend;
 import dun.engine.iface;
 import dun.engine.jsc.bindings;
 import dun.engine.jsc.cppbindings : JSCTypeTag, JSCTypeChecks;
+import std.string : toStringz;
 
 static assert(JSHandle.sizeof >= (void*).sizeof, "JSHandle too small for JSC pointer");
 
@@ -40,7 +41,6 @@ class JSCEngine : IJSEngine
 
     JSResult eval(scope const(char)[] source, string filename) @trusted
     {
-        import std.string : toStringz;
 
         assert(ctx !is null, "JSC context not initialized");
         auto jsSource = JSStringCreateWithUTF8CString(source.toStringz);
@@ -100,7 +100,6 @@ class JSCEngine : IJSEngine
         }
         else
         {
-            import std.string : toStringz;
             cstr = s.toStringz;
         }
         auto jsStr = JSStringCreateWithUTF8CString(cstr);
@@ -202,7 +201,6 @@ class JSCEngine : IJSEngine
 
     JSHandle newFunction(NativeCallback cb, string name, int argc) @trusted
     {
-        import std.string : toStringz;
         import dun.engine.callbacks : register;
         assert(ctx !is null, "JSC context not initialized");
         assert(cb !is null, "Null callback in newFunction");
@@ -266,7 +264,6 @@ class JSCEngine : IJSEngine
             buf[name.length] = '\0';
             return buf.ptr;
         }
-        import std.string : toStringz;
         return (cast(string) name).toStringz;
     }
 
@@ -403,7 +400,7 @@ class JSCEngine : IJSEngine
         JSValueRef[NATIVE_CALL_STACK_ARGS] stackArgv = void;
         auto argc = args.length;
         const(JSValueRef)* argp;
-        if (argc <= 16)
+        if (argc <= NATIVE_CALL_STACK_ARGS)
         {
             foreach (i; 0 .. argc)
                 stackArgv[i] = cast(JSValueRef) fromHandle(args[i]);
@@ -586,7 +583,6 @@ class JSCEngine : IJSEngine
 
     void registerJSCFunction(string name, JSObjectCallAsFunctionCallback cb) @trusted
     {
-        import std.string : toStringz;
         assert(ctx !is null, "JSC context not initialized");
         auto jsName = JSStringCreateWithUTF8CString(name.toStringz);
         scope (exit) JSStringRelease(jsName);
@@ -687,11 +683,13 @@ private extern (C) JSValueRef jscNativeTrampoline(JSContextRef ctx,
     thisH.opaque[0] = cast(void*) thisObject;
     JSHandle[NATIVE_CALL_STACK_ARGS] stackArgs = void;
     JSHandle[] args;
+    // Throwable, not Exception: OOM on the heap-allocated args[]
+    // path could otherwise escape into C land.
     try
     {
         if (argumentCount > 0)
         {
-            if (argumentCount <= 16)
+            if (argumentCount <= NATIVE_CALL_STACK_ARGS)
             {
                 foreach (i; 0 .. argumentCount)
                     stackArgs[i].opaque[0] = cast(void*) arguments[i];
@@ -705,7 +703,7 @@ private extern (C) JSValueRef jscNativeTrampoline(JSContextRef ctx,
             }
         }
     }
-    catch (Exception)
+    catch (Throwable)
     {
         return JSValueMakeUndefined(ctx);
     }
@@ -720,7 +718,7 @@ private extern (C) JSValueRef jscNativeTrampoline(JSContextRef ctx,
         }
         return cast(JSValueRef) result.opaque[0];
     }
-    catch (Exception)
+    catch (Throwable)
     {
         return JSValueMakeUndefined(ctx);
     }
@@ -736,10 +734,16 @@ private extern (C) void jscTypedArrayDeallocator(void* bytes, void* deallocCtx) 
 private JSValueRef _jscPendingThrow;
 
 // JSC doesn't have a context opaque API, so we maintain our own map.
-// Fast path: cache the most-recently-used context (single-context is the common case)
-private __gshared JSGlobalContextRef _cachedCtx;
-private __gshared void* _cachedOpaque;
+// The map is `__gshared` (one per process) because callbacks from
+// foreign threads need to find the opaque, but the (ctx, opaque)
+// fast-path cache is `__thread` (thread-local) so worker threads
+// don't tear each other's lookups: if thread A wrote (A_ctx, A_op)
+// and thread B wrote (B_ctx, B_op), without TLS thread A's next
+// `get(A_ctx)` could observe `_cachedCtx == A_ctx` but read
+// `_cachedOpaque == B_op` for an unrelated context.
 private __gshared void*[size_t] jscContextOpaqueMap;
+private static JSGlobalContextRef _cachedCtx;     // TLS
+private static void*              _cachedOpaque;  // TLS
 
 package void jscSetContextOpaque(JSGlobalContextRef ctx, void* ptr) nothrow @trusted
 {
@@ -753,6 +757,10 @@ package void* jscGetContextOpaque(JSGlobalContextRef ctx) nothrow @trusted
 {
     if (ctx is _cachedCtx) return _cachedOpaque;
     if (auto p = cast(size_t) cast(void*) ctx in jscContextOpaqueMap)
+    {
+        _cachedCtx = ctx;     // warm TLS cache for next call on this thread
+        _cachedOpaque = *p;
         return *p;
+    }
     return null;
 }

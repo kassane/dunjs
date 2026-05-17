@@ -3,12 +3,14 @@ module dun.builtins.child_process;
 import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
 import dun.runtime.globals : DunState;
 import dun.security.permissions : Permission;
+// Project convention (CLAUDE.md): allocator helpers go via
+// `dun.platform.arena`, not `std.array` directly.
+import dun.platform.arena : Appender;
 
 enum MAX_BUFFER = 1024 * 1024;
 
 string readAllFromPipe(P)(P pipe) @trusted
 {
-    import std.array : Appender;
     Appender!(ubyte[]) buf;
     enum CHUNK = 4096;
     ubyte[CHUNK] tmp;

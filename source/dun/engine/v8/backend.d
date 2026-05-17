@@ -3,6 +3,7 @@ module dun.engine.v8.backend;
 import dun.engine.iface;
 import dun.engine.v8.bindings;
 import dun.engine.v8.cppbindings : V8TypeTag, V8TypeChecks;
+import std.string : toStringz;
 
 static assert(JSHandle.sizeof >= (void*).sizeof, "JSHandle too small for V8 pointer");
 
@@ -42,7 +43,6 @@ class V8Engine : IJSEngine
 
     JSResult eval(scope const(char)[] source, string filename) @trusted
     {
-        import std.string : toStringz;
 
         assert(ctx !is null, "V8 context not initialized");
         int isError;
@@ -133,7 +133,6 @@ class V8Engine : IJSEngine
 
     JSHandle newFunction(NativeCallback cb, string name, int argc) @trusted
     {
-        import std.string : toStringz;
         import dun.engine.callbacks : register;
         assert(ctx !is null, "V8 context not initialized");
         assert(cb !is null, "Null callback in V8 newFunction");
@@ -280,7 +279,7 @@ class V8Engine : IJSEngine
         DunV8Value*[NATIVE_CALL_STACK_ARGS] stackArgv = void;
         auto argc = cast(int) args.length;
         DunV8Value** argp;
-        if (argc <= 16)
+        if (argc <= NATIVE_CALL_STACK_ARGS)
         {
             foreach (i; 0 .. argc)
                 stackArgv[i] = fromHandle(args[i]);
@@ -472,7 +471,6 @@ class V8Engine : IJSEngine
 
     void registerV8Function(string name, DunV8NativeCallback cb, void* data = null) @trusted
     {
-        import std.string : toStringz;
         assert(cb !is null, "Null callback in registerV8Function");
         auto fn = dun_v8_new_function(ctx, cb, name.toStringz, data);
         auto global = dun_v8_global(ctx);
@@ -490,7 +488,6 @@ class V8Engine : IJSEngine
             buf[name.length] = '\0';
             return buf.ptr;
         }
-        import std.string : toStringz;
         return (cast(string) name).toStringz;
     }
 
@@ -524,11 +521,13 @@ private extern (C) DunV8Value* v8NativeTrampoline(DunV8Context* ctx,
     thisH.opaque[0] = cast(void*) thisVal;
     JSHandle[NATIVE_CALL_STACK_ARGS] stackArgs = void;
     JSHandle[] args;
+    // Throwable, not Exception: OOM on the heap-allocated args[]
+    // path could otherwise escape into C land.
     try
     {
         if (argc > 0)
         {
-            if (argc <= 16)
+            if (argc <= NATIVE_CALL_STACK_ARGS)
             {
                 foreach (i; 0 .. argc)
                     stackArgs[i].opaque[0] = cast(void*) argv[i];
@@ -542,7 +541,7 @@ private extern (C) DunV8Value* v8NativeTrampoline(DunV8Context* ctx,
             }
         }
     }
-    catch (Exception)
+    catch (Throwable)
     {
         return dun_v8_new_undefined(ctx);
     }
@@ -551,7 +550,7 @@ private extern (C) DunV8Value* v8NativeTrampoline(DunV8Context* ctx,
         auto result = cb(ctxOpaque, thisH, args);
         return cast(DunV8Value*) result.opaque[0];
     }
-    catch (Exception)
+    catch (Throwable)
     {
         return dun_v8_new_undefined(ctx);
     }

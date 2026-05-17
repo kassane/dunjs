@@ -2,6 +2,7 @@ module dun.engine.quickjs.backend;
 
 import dun.engine.iface;
 import dun.engine.quickjs.bindings;
+import std.string : toStringz;
 
 class QuickJSEngine : IJSEngine
 
@@ -43,7 +44,6 @@ class QuickJSEngine : IJSEngine
     {
         assert(ctx !is null, "Engine not initialized");
         assert(source.ptr !is null, "Null source pointer");
-        import std.string : toStringz;
 
         auto srcz = source.toStringz;
         auto val = JS_Eval(ctx, srcz, source.length,
@@ -150,7 +150,6 @@ class QuickJSEngine : IJSEngine
     JSHandle newFunction(NativeCallback cb, string name, int argc) @trusted
     {
         assert(ctx !is null, "Engine not initialized");
-        import std.string : toStringz;
         import dun.engine.callbacks : register;
         int slot = register(cb);
         auto fn = JS_NewCFunction2(ctx,
@@ -289,7 +288,7 @@ class QuickJSEngine : IJSEngine
         JSValue* argp = null;
         if (argc > 0)
         {
-            if (argc <= 16)
+            if (argc <= NATIVE_CALL_STACK_ARGS)
             {
                 foreach (i; 0 .. argc)
                     argv[i] = fromHandle(args[i]);
@@ -337,14 +336,12 @@ class QuickJSEngine : IJSEngine
     JSHandle throwTypeError(scope const(char)[] msg) @trusted
     {
         assert(ctx !is null, "Engine not initialized");
-        import std.string : toStringz;
         return toHandle(JS_ThrowTypeError(ctx, "%s", (cast(string) msg).toStringz));
     }
 
     JSHandle throwRangeError(scope const(char)[] msg) @trusted
     {
         assert(ctx !is null, "Engine not initialized");
-        import std.string : toStringz;
         return toHandle(JS_ThrowRangeError(ctx, "%s", (cast(string) msg).toStringz));
     }
 
@@ -410,7 +407,6 @@ class QuickJSEngine : IJSEngine
     {
         assert(ctx !is null, "Engine not initialized");
         assert(source.ptr !is null, "Null source pointer");
-        import std.string : toStringz;
         auto compiled = JS_Eval(ctx, source.toStringz, source.length,
             filename.toStringz, JS_EVAL_TYPE_MODULE | JS_EVAL_FLAG_COMPILE_ONLY);
         JSResult result;
@@ -456,7 +452,6 @@ class QuickJSEngine : IJSEngine
     void registerNativeModule(string name, void* initFunc) @trusted
     {
         assert(ctx !is null, "Engine not initialized in registerNativeModule");
-        import std.string : toStringz;
         JS_NewCModule(ctx, name.toStringz,
             cast(JSModuleInitFunc) initFunc);
     }
@@ -489,7 +484,6 @@ class QuickJSEngine : IJSEngine
     void registerCFunction(string name, JSCFunction func, int argc) @trusted
     {
         assert(func !is null, "Null function pointer");
-        import std.string : toStringz;
         auto global = JS_GetGlobalObject(ctx);
         auto fnVal = JS_NewCFunction(ctx, func, name.toStringz, argc);
         JS_SetPropertyStr(ctx, global, name.toStringz, fnVal);
@@ -507,7 +501,6 @@ class QuickJSEngine : IJSEngine
             buf[name.length] = '\0';
             return buf.ptr;
         }
-        import std.string : toStringz;
         return (cast(string) name).toStringz;
     }
 
@@ -540,11 +533,14 @@ private extern (C) JSValue qjsNativeTrampoline(JSContext* ctx,
     *cast(JSValue*)&thisH = cast(JSValue) this_val;
     JSHandle[NATIVE_CALL_STACK_ARGS] stackArgs = void;
     JSHandle[] args;
+    // catch Throwable, not Exception: `new JSHandle[argc]` can throw
+    // OutOfMemoryError (a Throwable, not Exception). An OOM
+    // propagating out of an extern(C) trampoline into C land is UB.
     try
     {
         if (argc > 0)
         {
-            if (argc <= 16)
+            if (argc <= NATIVE_CALL_STACK_ARGS)
             {
                 foreach (i; 0 .. argc)
                     *cast(JSValue*)&stackArgs[i] = cast(JSValue) argv[i];
@@ -558,7 +554,7 @@ private extern (C) JSValue qjsNativeTrampoline(JSContext* ctx,
             }
         }
     }
-    catch (Exception)
+    catch (Throwable)
     {
         return JS_UNDEFINED();
     }
@@ -567,7 +563,7 @@ private extern (C) JSValue qjsNativeTrampoline(JSContext* ctx,
         auto result = cb(opaque, thisH, args);
         return *cast(JSValue*)&result;
     }
-    catch (Exception)
+    catch (Throwable)
     {
         return JS_UNDEFINED();
     }

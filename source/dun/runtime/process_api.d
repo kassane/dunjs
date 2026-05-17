@@ -645,6 +645,7 @@ JSHandle jsStdoutWrite(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trus
 {
     assert(ctx !is null, "Null ctx in process.stdout.write");
     auto state = cast(DunState*) ctx;
+    assert(state.engine !is null, "Null engine in process.stdout.write");
     auto engine = state.engine;
     if (args.length < 1) return engine.newBool(true);
     try
@@ -680,6 +681,7 @@ JSHandle jsStderrWrite(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trus
 {
     assert(ctx !is null, "Null ctx in process.stderr.write");
     auto state = cast(DunState*) ctx;
+    assert(state.engine !is null, "Null engine in process.stderr.write");
     auto engine = state.engine;
     if (args.length < 1) return engine.newBool(true);
     try
@@ -711,6 +713,7 @@ JSHandle jsHrtime(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in process.hrtime");
     auto state = cast(DunState*) ctx;
+    assert(state.engine !is null, "Null engine in process.hrtime");
     auto engine = state.engine;
     try
     {
@@ -742,6 +745,7 @@ JSHandle jsHrtimeBigint(void* ctx, JSHandle thisVal, scope JSHandle[] args) @tru
 {
     assert(ctx !is null, "Null ctx in process.hrtime.bigint");
     auto state = cast(DunState*) ctx;
+    assert(state.engine !is null, "Null engine in process.hrtime.bigint");
     auto engine = state.engine;
     try
     {
@@ -761,6 +765,7 @@ JSHandle jsUptime(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in process.uptime");
     auto state = cast(DunState*) ctx;
+    assert(state.engine !is null, "Null engine in process.uptime");
     auto engine = state.engine;
     try
     {
@@ -778,6 +783,7 @@ JSHandle jsMemoryUsage(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trus
 {
     assert(ctx !is null, "Null ctx in process.memoryUsage");
     auto state = cast(DunState*) ctx;
+    assert(state.engine !is null, "Null engine in process.memoryUsage");
     auto engine = state.engine;
     auto obj = engine.newObject();
     double rss = 0;
@@ -807,6 +813,7 @@ JSHandle jsCpuUsage(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in process.cpuUsage");
     auto state = cast(DunState*) ctx;
+    assert(state.engine !is null, "Null engine in process.cpuUsage");
     auto engine = state.engine;
     auto obj = engine.newObject();
     double userUs = 0;

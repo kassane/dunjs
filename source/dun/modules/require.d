@@ -3,12 +3,18 @@ module dun.modules.require;
 import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
 import dun.runtime.globals : DunState;
 import dun.security.permissions : Permission;
+// Project convention (CLAUDE.md): allocator helpers go via
+// `dun.platform.arena`, not `std.array` directly.
+import dun.platform.arena : Appender;
 import std.json : JSONValue;
 
 void installRequire(IJSEngine engine) @trusted
 {
     assert(engine !is null, "Null engine in installRequire");
     auto global = engine.getGlobal();
+    // global is an owned handle from getGlobal -- free it on the way out
+    // so the engine doesn't leak one root per init.
+    scope (exit) engine.freeValue(global);
     auto requireFn = engine.newFunction(&jsRequire, "require", 1);
     engine.setProperty(global, "require", requireFn);
     engine.setProperty(global, "__dunCjsCache__", engine.newObject());
@@ -46,7 +52,9 @@ JSHandle jsRequireResolve(void* ctx, JSHandle thisVal, scope JSHandle[] args) @t
     if (specifier.startsWith("node:") || specifier.startsWith("dun:"))
         return engine.newString(specifier);
 
-    string[43] builtins = ["fs", "path", "crypto", "net", "http", "https",
+    // Static immutable so the array lives in rodata, not stack-rebuilt
+    // per call. resolve() runs on every `require(...)` call.
+    static immutable string[43] builtins = ["fs", "path", "crypto", "net", "http", "https",
         "http2", "http3", "os", "buffer", "events", "url", "child_process",
         "stream", "zlib", "dns", "ws", "sqlite", "util", "assert",
         "querystring", "string_decoder", "timers/promises", "tls", "dgram",
@@ -939,7 +947,6 @@ JSHandle throwModuleNotFound(IJSEngine engine, string specifier) @trusted
 
 private string escapeForJs(string s) @trusted nothrow
 {
-    import std.array : Appender;
     Appender!(char[]) buf;
     try { buf.reserve(s.length + 10); } catch (Exception) {}
     foreach (c; s)
