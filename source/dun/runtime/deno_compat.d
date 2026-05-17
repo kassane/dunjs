@@ -53,7 +53,7 @@ void installDenoCompat(IJSEngine engine) @trusted
     engine.setProperty(denoObj, "readFileSync",
         engine.newFunction(&denoReadTextFileSync, "readFileSync", 1));
 
-    // Deno.statSync / Deno.lstatSync
+    // Deno.statSync / Deno.lstatSync.
     engine.setProperty(denoObj, "statSync",
         engine.newFunction(&denoStatSync, "statSync", 1));
     engine.setProperty(denoObj, "lstatSync",
@@ -65,22 +65,22 @@ void installDenoCompat(IJSEngine engine) @trusted
     // FS, so the only observable difference is the Promise return.
     engine.setProperty(denoObj, "mkdirSync",
         engine.newFunction(&denoMkdirSync, "mkdirSync", 1));
-    engine.setProperty(denoObj, "mkdir",
-        engine.newFunction(&denoMkdir, "mkdir", 1));
+    // Deno.mkdir (async) is registered via the JS-side shim at the
+    // bottom of installDenoCompat (denoAsyncFsShim).
 
-    // Deno.removeSync
+    // Deno.removeSync.
     engine.setProperty(denoObj, "removeSync",
         engine.newFunction(&denoRemoveSync, "removeSync", 1));
 
-    // Deno.renameSync
+    // Deno.renameSync.
     engine.setProperty(denoObj, "renameSync",
         engine.newFunction(&denoRenameSync, "renameSync", 2));
 
-    // Deno.copyFileSync
+    // Deno.copyFileSync.
     engine.setProperty(denoObj, "copyFileSync",
         engine.newFunction(&denoCopyFileSync, "copyFileSync", 2));
 
-    // Deno.readDirSync
+    // Deno.readDirSync.
     engine.setProperty(denoObj, "readDirSync",
         engine.newFunction(&denoReadDirSync, "readDirSync", 1));
 
@@ -160,6 +160,50 @@ void installDenoCompat(IJSEngine engine) @trusted
     // here means we can iterate on the wrapper without recompiling.
     auto shimRes = engine.eval(denoServeAndKvSource(), "<deno-serve-kv>");
     if (!shimRes.isError) engine.freeValue(shimRes.value);
+
+    // Async file-system shims. Each delegates to its `*Sync` companion
+    // and wraps the result (or thrown error) in a Promise. Deno's real
+    // implementations are also synchronous under the hood on local FS,
+    // so the only observable difference is the return-type contract.
+    // `readDir` returns an AsyncIterable so `for await` works.
+    auto asyncShim = engine.eval(denoAsyncFsShim(), "<deno-async-fs>");
+    if (!asyncShim.isError) engine.freeValue(asyncShim.value);
+}
+
+private string denoAsyncFsShim() pure nothrow @safe
+{
+    // Same join rules as denoServeAndKvSource -- block comments only.
+    return
+    "(function(){" ~
+    "  function wrapAsync(syncName){" ~
+    "    return function(...args){" ~
+    "      try { return Promise.resolve(Deno[syncName](...args)); }" ~
+    "      catch (e) { return Promise.reject(e); }" ~
+    "    };" ~
+    "  }" ~
+    "  Deno.mkdir     = wrapAsync('mkdirSync');" ~
+    "  Deno.stat      = wrapAsync('statSync');" ~
+    "  Deno.lstat     = wrapAsync('lstatSync');" ~
+    "  Deno.remove    = wrapAsync('removeSync');" ~
+    "  Deno.rename    = wrapAsync('renameSync');" ~
+    "  Deno.copyFile  = wrapAsync('copyFileSync');" ~
+    "  Deno.realPath  = wrapAsync('realPathSync');" ~
+    "  Deno.truncate  = wrapAsync('truncateSync');" ~
+    "  Deno.readTextFile = wrapAsync('readTextFileSync');" ~
+    "  Deno.writeTextFile = wrapAsync('writeTextFileSync');" ~
+    "  Deno.readFile  = wrapAsync('readFileSync');" ~
+    "  Deno.writeFile = wrapAsync('writeFileSync');" ~
+    "  /* readDir: returns AsyncIterable so `for await (const e of Deno.readDir(p))` works. */" ~
+    "  Deno.readDir = function(path){" ~
+    "    return {" ~
+    "      [Symbol.asyncIterator]: async function*(){" ~
+    "        try {" ~
+    "          for (const entry of Deno.readDirSync(path)) yield entry;" ~
+    "        } catch (e) { throw e; }" ~
+    "      }" ~
+    "    };" ~
+    "  };" ~
+    "})();";
 }
 
 private string denoServeAndKvSource() pure nothrow @safe
@@ -646,11 +690,15 @@ JSHandle denoStatSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trust
 
 // ── Deno.mkdirSync / Deno.mkdir ──
 
-private JSHandle doMkdir(IJSEngine engine, DunState* state, scope JSHandle[] args,
-    string callerName) @trusted
+JSHandle denoMkdirSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
+    assert(ctx !is null, "Null ctx in denoMkdirSync");
+    auto state = cast(DunState*) ctx;
+    assert(state.engine !is null, "Null engine in denoMkdirSync");
+    auto engine = state.engine;
+
     if (args.length < 1 || !engine.isString(args[0]))
-        return engine.throwTypeError(callerName ~ " requires a path");
+        return engine.throwTypeError("mkdirSync requires a path");
 
     string path = engine.extractString(args[0]);
     bool recursive = false;
@@ -673,85 +721,8 @@ private JSHandle doMkdir(IJSEngine engine, DunState* state, scope JSHandle[] arg
     }
     catch (Exception e)
     {
-        return engine.throwTypeError(callerName ~ ": " ~ e.msg);
+        return engine.throwTypeError("mkdirSync: " ~ e.msg);
     }
-}
-
-JSHandle denoMkdirSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
-{
-    assert(ctx !is null, "Null ctx in denoMkdirSync");
-    auto state = cast(DunState*) ctx;
-    assert(state.engine !is null, "Null engine in denoMkdirSync");
-    return doMkdir(state.engine, state, args, "mkdirSync");
-}
-
-JSHandle denoMkdir(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
-{
-    assert(ctx !is null, "Null ctx in denoMkdir");
-    auto state = cast(DunState*) ctx;
-    assert(state.engine !is null, "Null engine in denoMkdir");
-    auto engine = state.engine;
-
-    // Pre-validate args before calling into std.file so an error is
-    // surfaced as a rejected Promise instead of a synchronous throw.
-    if (args.length < 1 || !engine.isString(args[0]))
-        return throwAsRejected(engine, "mkdir requires a path");
-
-    string path = engine.extractString(args[0]);
-    bool recursive = false;
-    if (args.length >= 2 && engine.isObject(args[1]))
-    {
-        auto rv = engine.getProperty(args[1], "recursive");
-        if (engine.isBool(rv)) recursive = engine.extractBool(rv);
-        engine.freeValue(rv);
-    }
-    if (!checkPerm(state, Permission.write, path))
-        return throwAsRejected(engine,
-            "[ERR_PERMISSION_DENIED] Requires --allow-write permission");
-
-    string errMsg;
-    try
-    {
-        import std.file : mkdir, mkdirRecurse;
-        if (recursive) mkdirRecurse(path); else mkdir(path);
-    }
-    catch (Exception e)
-    {
-        errMsg = "mkdir: " ~ e.msg;
-    }
-    if (errMsg.length > 0)
-        return throwAsRejected(engine, errMsg);
-    return resolveUndefined(engine);
-}
-
-// Build `Promise.resolve(undefined)` for async helpers.
-private JSHandle resolveUndefined(IJSEngine engine) @trusted
-{
-    auto res = engine.eval("Promise.resolve(undefined)",
-        "<deno-async-resolve>");
-    if (res.isError) { engine.freeValue(res.value); return engine.newUndefined(); }
-    return res.value;
-}
-
-// Build `Promise.reject(new Error(msg))` for async helpers. msg is
-// JS-escaped for safe interpolation.
-private JSHandle throwAsRejected(IJSEngine engine, string msg) @trusted
-{
-    import std.array : Appender;
-    Appender!(char[]) src;
-    src.reserve(64 + msg.length * 2);
-    src.put("Promise.reject(new Error(");
-    src.put('"');
-    foreach (c; msg)
-    {
-        if (c == '"' || c == '\\') src.put('\\');
-        src.put(c);
-    }
-    src.put("\"))");
-    auto res = engine.eval(cast(string) src.data,
-        "<deno-async-reject>");
-    if (res.isError) { engine.freeValue(res.value); return engine.newUndefined(); }
-    return res.value;
 }
 
 // ── Deno.removeSync ──
