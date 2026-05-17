@@ -23,7 +23,7 @@ dub test -c unittest    # All unit tests
 | V8 TMP bridge | `source/dun/engine/v8/cppbindings.d` | compile-time | V8TypeName coverage, tag->name mapping |
 | JSC TMP bridge | `source/dun/engine/jsc/cppbindings.d` | compile-time | JSCTypeName coverage, kJSType* alignment |
 
-### Integration Tests (103 tests, 474 npm compat checks)
+### Integration Tests (127 tests, 145 npm-compat checks)
 
 ```sh
 # Run against a specific backend
@@ -80,7 +80,7 @@ dub build -c v8  && BACKEND=v8  ./tests/integration/run.sh
 | Production gaps 4 | `production_gaps4` | 144 checks: process, Buffer, stream, EventEmitter, path, crypto, fs, Error, util, npm patterns |
 | Production readiness | `production_readiness` | 122 checks: all critical Node.js APIs for production server workloads |
 
-Backend test scores: **QuickJS 108/108**, **JSC 107/107**, **V8 107/107** — **0 failures** across all 3 backends.
+Backend test scores: **QuickJS 127/127**, **JSC 127/127**, **V8 127/127** — **0 failures** across all 3 backends.
 
 Test pattern: fixtures in `tests/integration/fixtures/*.{js,mjs,ts}`, expected stdout in `tests/integration/expected/*.txt`.
 
@@ -91,7 +91,7 @@ dub build -c quickjs -b asan                          # ASan build via DUB
 ASAN_OPTIONS=detect_leaks=0 bash tests/integration/run.sh  # Run with ASan
 ```
 
-All 51 integration tests pass under AddressSanitizer with zero memory errors.
+All 127 integration tests pass under AddressSanitizer with zero memory errors.
 
 ### Stress Benchmarks
 
@@ -154,7 +154,6 @@ Stress test (stress.js, 240 tests, release builds):
 | Bun 1.3.14 | 66s | 240/240 |
 | Node.js v22 | 133s | 240/240 |
 | DunJS V8 | 133s | 240/240 |
-| Node.js v22 | 175s | 240/240 |
 | Deno 2.7.14 | 182s | 240/240 |
 
 ### Concurrency & SIMD Comparison

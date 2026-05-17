@@ -85,7 +85,12 @@ void installWorkerAPI(IJSEngine engine, DunState* state) @trusted
         ~ `  w.on = function(ev, cb) {`
         ~ `    if (listeners[ev]) listeners[ev].push(cb);`
         ~ `    if (ev === 'message') w.onmessage = function(m) {`
-        ~ `      for (const fn of listeners.message) fn(m);`
+        /* Node's worker_threads delivers the raw posted value to
+           message listeners (not a MessageEvent). Web Workers wrap
+           in {data: value} -- our onmessage receives the wrapped
+           form, so unwrap to match Node semantics. */
+        ~ `      const payload = (m && Object.prototype.hasOwnProperty.call(m, 'data')) ? m.data : m;`
+        ~ `      for (const fn of listeners.message) fn(payload);`
         ~ `    };`
         ~ `    if (ev === 'error') w.onerror = function(e) {`
         ~ `      for (const fn of listeners.error) fn(e);`

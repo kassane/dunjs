@@ -411,6 +411,13 @@ string urlSource() pure @safe nothrow
     try { new URL(url, base); return true; }
     catch(e) { return false; }
   };
+  // URL.parse (Node 20+ / WHATWG addition): returns a URL or null
+  // instead of throwing on invalid input. Saves a try/catch at every
+  // call site that doesn't want the throw semantics.
+  URL.parse = function(url, base) {
+    try { return new URL(url, base); }
+    catch(e) { return null; }
+  };
   URL.createObjectURL = function() { throw new Error('URL.createObjectURL is not supported in server-side JS'); };
   URL.revokeObjectURL = function() {};
   if (typeof globalThis !== 'undefined') {

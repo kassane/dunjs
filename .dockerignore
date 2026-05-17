@@ -14,3 +14,8 @@ vendor/sqlite/*.lib
 vendor/v8shim/*.o
 vendor/v8shim/*.a
 vendor/v8shim/build/
+# Stale brotli .a files would otherwise hitch a ride into a cross-
+# build for a different arch (e.g. x86_64 libs in an arm64 Docker
+# build) and the linker would silently skip them.
+vendor/brotli/build/
+vendor/brotli/src/

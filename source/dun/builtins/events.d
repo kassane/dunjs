@@ -53,6 +53,8 @@ version (EngineQuickJS)
 
     private extern (C) int eventsModuleInit(JSContext* ctx, JSModuleDef* m) nothrow @trusted
     {
+        assert(ctx !is null, "Null ctx in eventsModuleInit");
+        assert(m !is null, "Null module def in eventsModuleInit");
         auto global = JS_GetGlobalObject(ctx);
         auto ee = JS_GetPropertyStr(ctx, global, "__dun_cjs_events__");
         auto eeClass = JS_GetPropertyStr(ctx, ee, "EventEmitter");

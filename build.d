@@ -1137,6 +1137,18 @@ bool buildBrotli(ref const Toolchain tc, ref const BuildOptions opts)
         return false;
     }
 
+    // Clean the build dir on --force so stale .a files from a different
+    // host arch (e.g. x86_64 libs hitching a ride into an arm64 Docker
+    // build via `COPY . .`) don't trick CMake into reusing the wrong
+    // binaries. CMake's incremental build doesn't detect host-arch
+    // changes when CMakeCache.txt was generated elsewhere.
+    if (opts.force && exists(brotliBuildDir()))
+    {
+        import std.file : rmdirRecurse;
+        try { rmdirRecurse(brotliBuildDir()); }
+        catch (Exception) {}
+    }
+
     logInfo(tag, "Building google/brotli " ~ BROTLI_VERSION ~ "...");
 
     // Step 1: Download source into vendor/brotli/src/

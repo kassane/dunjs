@@ -1,5 +1,9 @@
 module dun.modules.loader;
 
+// Project convention (CLAUDE.md): allocator helpers go via
+// `dun.platform.arena`, not `std.array` directly.
+import dun.platform.arena : Appender;
+
 struct ModuleLoader
 {
     version (EngineQuickJS)
@@ -156,7 +160,6 @@ version (EngineQuickJS)
                 // fails at link time because ESM requires statically-
                 // declared exports.
                 auto namedExports = extractCjsExports(source);
-                import std.array : Appender;
                 Appender!(char[]) sb;
                 sb.reserve(256 + namedExports.length * 32);
                 sb.put(`const __dun_cjs_mod = require("`);
@@ -264,7 +267,6 @@ version (EngineQuickJS)
 private string[] extractCjsExports(string source) @safe pure
 {
     import std.algorithm : canFind;
-    import std.array : Appender;
     string[] result;
     bool[string] seen;
     void add(string name)

@@ -165,3 +165,8 @@ See [BLOCKERS.md](BLOCKERS.md) for the current open / closed gap status.
 | 24b | dun:wasi | WASI preview1 module (args, env, clock, random, fd_*, path_*) wired through dun:fs / process | **Done** |
 | 24c | dun run *.wasm | `.wasm` extension dispatch synthesizes WASI bootstrap that instantiates and calls `_start` | **Done** |
 | 24d | Binary stdout | process.stdout/stderr.write accepts Uint8Array/Buffer (binary-safe fd_write from WASI) | **Done** |
+| 25a | Persistent transpile cache | `$DUN_HOME/cache/tsc/<sha256>.js` keyed on source+filename+tsc-version; ~30x speedup on cache hit | **Done** |
+| 25b | User-global package store | `dunGlobalRoot()` in `dun.platform.paths` (Posix $HOME/.dun, Windows %LOCALAPPDATA%\dun); `DUN_HOME` override; installPackage gained installRoot | **Done** |
+| 25c | Resolver $DUN_HOME fallback | `require()` falls back to `$DUN_HOME/node_modules` after project tree walk fails | **Done** |
+| 25d | Auto-install typescript | `DUN_AUTO_INSTALL_TSC=1` for default tsc path (--typecheck always auto-installs); both target $DUN_HOME | **Done** |
+| 25e | RegExp /v set ops | `expandVSetOps()` source rewriter resolves `[A--B]` / `[A&&B]` to /u-equivalent range class; ECMAScript spec now 98/98 on QJS+V8 (was 97/98) | **Done** |

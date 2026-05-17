@@ -3,12 +3,14 @@ module dun.builtins.child_process;
 import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
 import dun.runtime.globals : DunState;
 import dun.security.permissions : Permission;
+// Project convention (CLAUDE.md): allocator helpers go via
+// `dun.platform.arena`, not `std.array` directly.
+import dun.platform.arena : Appender;
 
 enum MAX_BUFFER = 1024 * 1024;
 
 string readAllFromPipe(P)(P pipe) @trusted
 {
-    import std.array : Appender;
     Appender!(ubyte[]) buf;
     enum CHUNK = 4096;
     ubyte[CHUNK] tmp;
@@ -463,13 +465,41 @@ JSHandle jsExec(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 /// Evaluated once per engine context, returns the ChildProcess constructor.
 private immutable string childProcessHelperSource = `(function() {
   function mkEmitter() {
-    var e = { _events: {} };
-    e.on = function(ev, cb) { if (!this._events[ev]) this._events[ev] = []; this._events[ev].push(cb); return this; };
-    e.emit = function(ev) { var a = Array.prototype.slice.call(arguments, 1); var cbs = this._events[ev]; if (cbs) { for (var i = 0; i < cbs.length; i++) cbs[i].apply(this, a); } };
+    /* Closure-captured events; emit/on don't rely on this so the
+       D-side pushAgnosticPending (which invokes with undefined this)
+       still works. Without this, emit's this._events is undefined
+       and the listener never fires. */
+    var events = {};
+    var e = { _events: events };
+    e.on = function(ev, cb) { (events[ev] = events[ev] || []).push(cb); return this; };
+    e.once = function(ev, cb) {
+      function w() { e.removeListener(ev, w); cb.apply(null, arguments); }
+      w._orig = cb; e.on(ev, w); return this;
+    };
+    e.emit = function(ev) {
+      var cbs = events[ev]; if (!cbs) return;
+      var a = Array.prototype.slice.call(arguments, 1);
+      var c = cbs.slice();
+      for (var i = 0; i < c.length; i++) c[i].apply(null, a);
+    };
+    e.removeListener = function(ev, cb) {
+      var cbs = events[ev]; if (!cbs) return e;
+      for (var i = cbs.length - 1; i >= 0; i--) {
+        if (cbs[i] === cb || cbs[i]._orig === cb) cbs.splice(i, 1);
+      }
+      return e;
+    };
+    e.removeAllListeners = function(ev) {
+      if (ev) events[ev] = []; else for (var k in events) events[k] = [];
+      return e;
+    };
     return e;
   }
   function ChildProcess() {
-    this._events = {};
+    /* Closure-captured events so cp.emit('exit', ...) works when
+       called via pushAgnosticPending with this=undefined. */
+    var events = {};
+    this._events = events;
     this.pid = 0;
     this.exitCode = null;
     this.signalCode = null;
@@ -478,12 +508,32 @@ private immutable string childProcessHelperSource = `(function() {
     this.stdout = mkEmitter();
     this.stderr = mkEmitter();
     this.stdin = { write: function() {}, end: function() {} };
+    var self = this;
+    this.on = function(ev, cb) { (events[ev] = events[ev] || []).push(cb); return self; };
+    this.once = function(ev, cb) {
+      function w() { self.removeListener(ev, w); cb.apply(self, arguments); }
+      w._orig = cb; self.on(ev, w); return self;
+    };
+    this.emit = function(ev) {
+      var cbs = events[ev]; if (!cbs) return;
+      var a = Array.prototype.slice.call(arguments, 1);
+      var c = cbs.slice();
+      for (var i = 0; i < c.length; i++) c[i].apply(self, a);
+    };
+    this.removeListener = function(ev, cb) {
+      var cbs = events[ev]; if (!cbs) return self;
+      for (var i = cbs.length - 1; i >= 0; i--) {
+        if (cbs[i] === cb || cbs[i]._orig === cb) cbs.splice(i, 1);
+      }
+      return self;
+    };
+    this.removeAllListeners = function(ev) {
+      if (ev) events[ev] = []; else for (var k in events) events[k] = [];
+      return self;
+    };
   }
-  ChildProcess.prototype.on = function(ev, cb) { if (!this._events[ev]) this._events[ev] = []; this._events[ev].push(cb); return this; };
-  ChildProcess.prototype.once = function(ev, cb) { var self = this; function w() { self.removeListener(ev, w); cb.apply(this, arguments); } w._orig = cb; this.on(ev, w); return this; };
-  ChildProcess.prototype.emit = function(ev) { var a = Array.prototype.slice.call(arguments, 1); var cbs = this._events[ev]; if (cbs) { var cc = cbs.slice(); for (var i = 0; i < cc.length; i++) cc[i].apply(this, a); } };
-  ChildProcess.prototype.removeListener = function(ev, cb) { var cbs = this._events[ev]; if (cbs) { for (var i = cbs.length - 1; i >= 0; i--) { if (cbs[i] === cb || cbs[i]._orig === cb) cbs.splice(i, 1); } } return this; };
-  ChildProcess.prototype.removeAllListeners = function(ev) { if (ev) this._events[ev] = []; else this._events = {}; return this; };
+  /* on / once / emit / removeListener / removeAllListeners are
+     installed per-instance in the ctor (closure-captured events). */
   ChildProcess.prototype.kill = function(sig) { this.killed = true; return true; };
   return new ChildProcess();
 })()`;

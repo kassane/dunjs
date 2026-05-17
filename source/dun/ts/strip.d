@@ -8,6 +8,10 @@ import std.base64 : Base64;
 // TS-PARSER-PORT lexer-into-strip integration plan.
 import dun.ts.parser.lexer : skipRegexLit, charAllowsRegex,
     regexAllowingKeywordEndsAt;
+// Project convention (CLAUDE.md): all allocator helpers go through
+// `dun.platform.arena` rather than `std.array` directly, so the arena
+// + Appender choice stays uniform across the runtime.
+import dun.platform.arena : Appender;
 
 // Initial reserve capacities for the per-scan auxiliary stacks. Picked
 // to cover the deepest nesting we've seen on real-world TS without a
@@ -986,7 +990,6 @@ string stripTypes(const(char)[] source) @safe
     // Type-only export shims are appended after the source — those
     // bindings just need to exist for ESM linker resolution and don't
     // care about run-order.
-    import std.array : Appender;
     Appender!(char[]) prologue;
     if (enumDecls.length > 0)
     {
@@ -1019,7 +1022,8 @@ string stripTypes(const(char)[] source) @safe
     // same byte offset, and the LIFO push order encodes the desired
     // nesting (innermost binding's finally first). An unstable sort
     // would scramble the dispose order under any future binding mix.
-    char[] body_ = cast(char[]) buf;
+    // `buf` is already `char[]` from `source.dup` -- no cast needed.
+    char[] body_ = buf;
     if (deferredInserts.length > 0)
     {
         import std.algorithm : SwapStrategy;
@@ -1192,7 +1196,6 @@ private size_t rewriteEnum(char[] buf, size_t blockStart, size_t enumKwStart,
     //     const All = Read | Write | Execute;  __e.All = All; __e[All] = "All";
     //     return Object.freeze(__e);
     //   })();
-    import std.array : Appender;
     Appender!(char[]) out_;
     out_.reserve(128 + members.length * 48);
     auto prefix = cast(string) buf[blockStart .. enumKwStart];
@@ -1342,7 +1345,6 @@ private size_t rewriteNamespace(char[] buf, size_t blockStart,
     // Rewrite `export <kw> X` → `<kw> X` + tail attachment to ns.
     // We do this by scanning for top-level `export <kw> NAME` and
     // emitting the body twice (kept declarations + attachment lines).
-    import std.array : Appender;
     Appender!(char[]) result;
     Appender!(char[]) attach;
     size_t i = 0;
@@ -1563,7 +1565,6 @@ private size_t scanConstructorParamProps(char[] buf, size_t kwStart, size_t kwEn
     // Build the injection text and tell the caller where to insert it.
     // Caller batches a buffer rebuild after the main scan finishes —
     // we can't do it in place because the source buffer is fixed size.
-    import std.array : Appender;
     Appender!(char[]) sb;
     foreach (pp; props)
     {

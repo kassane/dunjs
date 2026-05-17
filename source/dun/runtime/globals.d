@@ -200,11 +200,38 @@ void installGlobals(IJSEngine engine, DunState* state) @trusted
 
     installRequire(engine);
 
+    // Dynamic `import(...)` shim. The source pipeline rewrites
+    // `import(specifier)` -> `__dunImport__(specifier)` so JSC and V8
+    // (which don't wire HostImportModuleDynamicallyCallback) can
+    // service `await import("fs")`. Has to come after installRequire
+    // so the shim can resolve `require`.
+    {
+        import dun.ts.dynamic_import : dunImportShimSource;
+        auto res = engine.eval(dunImportShimSource(), "<dun-import-shim>");
+        if (!res.isError) engine.freeValue(res.value);
+    }
+
     import dun.runtime.rejection_tracker : installRejectionTracker;
     installRejectionTracker(engine, state);
 
     auto global = engine.getGlobal();
     engine.setProperty(global, "gc", engine.newFunction(&jsGlobalGC, "gc", 0));
+
+    // High-resolution performance.now() across all backends. JSC and
+    // V8 ship a native one that rounds to integer milliseconds; ours
+    // uses MonoTime for sub-millisecond precision so benchmarks that
+    // measure a few-hundred-iteration loop produce meaningful timings
+    // (instead of always-zero diffs).
+    {
+        import dun.runtime.process_api : jsPerformanceNow;
+        auto perfObj = engine.getProperty(global, "performance");
+        if (engine.isObject(perfObj))
+        {
+            engine.setProperty(perfObj, "now",
+                engine.newFunction(&jsPerformanceNow, "now", 0));
+        }
+        engine.freeValue(perfObj);
+    }
     engine.freeValue(global);
 
     import dun.runtime.worker_api : installWorkerAPI;
@@ -479,8 +506,25 @@ private string unicodePropPolyfillSource() pure @safe nothrow
 {
     return `(function(){
   'use strict';
-  // Probe: do Unicode property escapes work natively?
-  try { new RegExp('\\p{L}', 'u'); return; } catch (e) {}
+  // Two probes:
+  //   1. \p{L} with /u — engines without ICU (V8's prebuilt monolith)
+  //      throw at parse time.
+  //   2. /v set-difference [\p{L}--\p{ASCII}] — QJS lacks /v entirely;
+  //      V8 14.9's CharacterClass+\p{} interaction returns wrong
+  //      results for set ops. JSC handles both natively.
+  //
+  // Polyfill installs only if at least one probe fails. The probes
+  // double as feature tests for RegExp.prototype.unicodeSets and
+  // the /v set operators.
+  var BS = String.fromCharCode(92);
+  var nativePropOk = false;
+  var nativeVSetOk = false;
+  try { new RegExp(BS + 'p{L}', 'u'); nativePropOk = true; } catch (e) {}
+  try {
+    var probe = new RegExp('[' + BS + 'p{L}--' + BS + 'p{ASCII}]', 'v');
+    nativeVSetOk = probe.test('é') && !probe.test('a');
+  } catch (e) {}
+  if (nativePropOk && nativeVSetOk) return;
 
   // Pre-baked character classes for common Unicode properties.
   // Each entry maps a property escape to the body of an equivalent
@@ -576,14 +620,262 @@ private string unicodePropPolyfillSource() pure @safe nothrow
     return out;
   }
 
+  // /v set-operation helpers. Each set is a sorted array of
+  // [lo, hi] code-point ranges (inclusive). Operates on ranges
+  // rather than expanded character lists so wide \p{L} (~50k codes)
+  // doesn't blow up.
+  function normRanges(rs) {
+    rs.sort(function(a, b) { return a[0] - b[0]; });
+    var out = [];
+    for (var k = 0; k < rs.length; k++) {
+      var r = rs[k];
+      if (out.length && r[0] <= out[out.length - 1][1] + 1)
+        out[out.length - 1][1] = Math.max(out[out.length - 1][1], r[1]);
+      else
+        out.push([r[0], r[1]]);
+    }
+    return out;
+  }
+  function diffRanges(A, B) {
+    A = normRanges(A); B = normRanges(B);
+    var out = [], bi = 0;
+    for (var k = 0; k < A.length; k++) {
+      var lo = A[k][0], hi = A[k][1];
+      while (bi < B.length && B[bi][1] < lo) bi++;
+      var j = bi;
+      while (lo <= hi && j < B.length && B[j][0] <= hi) {
+        if (B[j][0] > lo) out.push([lo, B[j][0] - 1]);
+        lo = Math.max(lo, B[j][1] + 1);
+        j++;
+      }
+      if (lo <= hi) out.push([lo, hi]);
+    }
+    return out;
+  }
+  function interRanges(A, B) {
+    A = normRanges(A); B = normRanges(B);
+    var out = [], ai = 0, bi = 0;
+    while (ai < A.length && bi < B.length) {
+      var lo = Math.max(A[ai][0], B[bi][0]);
+      var hi = Math.min(A[ai][1], B[bi][1]);
+      if (lo <= hi) out.push([lo, hi]);
+      if (A[ai][1] < B[bi][1]) ai++; else bi++;
+    }
+    return out;
+  }
+  function rangesFromKey(key) {
+    var s = T[key];
+    if (!s) return null;
+    var rs = [], i = 0;
+    function dec() {
+      var c = s[i];
+      if (c === BS && s[i+1] === 'u') {
+        var hex = s.slice(i+2, i+6); i += 6;
+        return parseInt(hex, 16);
+      }
+      i++;
+      return c.charCodeAt(0);
+    }
+    while (i < s.length) {
+      var a = dec();
+      if (s[i] === '-' && i+1 < s.length) {
+        i++;
+        var b = dec();
+        rs.push([a, b]);
+      } else {
+        rs.push([a, a]);
+      }
+    }
+    return rs;
+  }
+  function hexEsc(cp) {
+    // Always emit \uXXXX / \u{...} so set operators in /v don't
+    // collide with literal hyphens after expansion.
+    if (cp <= 0xFFFF)
+      return BS + 'u' + ('0000' + cp.toString(16).toUpperCase()).slice(-4);
+    return BS + 'u{' + cp.toString(16).toUpperCase() + '}';
+  }
+  function rangesToClass(rs) {
+    if (rs.length === 0) return '(?!)';  // empty set: never match
+    var out = '[';
+    for (var k = 0; k < rs.length; k++) {
+      out += hexEsc(rs[k][0]);
+      if (rs[k][0] !== rs[k][1]) out += '-' + hexEsc(rs[k][1]);
+    }
+    return out + ']';
+  }
+  // Parse the inside of a [] in /v mode. Returns ranges or null
+  // when the content uses a /v feature we don't support
+  // (\q{strings}, nested negation, etc.).
+  function parseVSet(content) {
+    var i = 0;
+    function parseOperand() {
+      if (i >= content.length) return null;
+      var ch = content[i];
+      if (ch === BS) {
+        if (content[i+1] === 'p' || content[i+1] === 'P') {
+          if (content[i+2] !== '{') return null;
+          var negated = content[i+1] === 'P';
+          var end = content.indexOf('}', i+3);
+          if (end < 0) return null;
+          var name = content.slice(i+3, end);
+          var eq = name.indexOf('=');
+          var key = (eq >= 0) ? name.slice(eq+1) : name;
+          i = end + 1;
+          var r = rangesFromKey(key);
+          if (!r) return null;
+          return negated ? diffRanges([[0, 0x10FFFF]], r) : r;
+        }
+        // Generic escape: \u{...}, \uXXXX, \n, \t, \r, \\, etc.
+        var c;
+        if (content[i+1] === 'u' && content[i+2] === '{') {
+          var end = content.indexOf('}', i+3);
+          if (end < 0) return null;
+          c = parseInt(content.slice(i+3, end), 16);
+          i = end + 1;
+        } else if (content[i+1] === 'u') {
+          c = parseInt(content.slice(i+2, i+6), 16);
+          i += 6;
+        } else if (content[i+1] === 'n') { c = 10; i += 2; }
+        else if (content[i+1] === 't') { c = 9; i += 2; }
+        else if (content[i+1] === 'r') { c = 13; i += 2; }
+        else if (content[i+1] === BS) { c = 92; i += 2; }
+        else { c = content.charCodeAt(i+1); i += 2; }
+        if (content[i] === '-' && content[i+1] !== '-' && i+1 < content.length) {
+          i++;
+          var e = parseChar();
+          if (e === null) return null;
+          return [[c, e]];
+        }
+        return [[c, c]];
+      }
+      if (ch === '[') {
+        var depth = 1, j = i + 1;
+        while (j < content.length && depth > 0) {
+          if (content[j] === BS) { j += 2; continue; }
+          if (content[j] === '[') depth++;
+          else if (content[j] === ']') depth--;
+          if (depth > 0) j++;
+        }
+        var inner = content.slice(i+1, j);
+        i = j + 1;
+        return parseVSet(inner);
+      }
+      // Plain character
+      var start = content.charCodeAt(i); i++;
+      if (content[i] === '-' && content[i+1] !== '-' && i+1 < content.length) {
+        i++;
+        var e2 = parseChar();
+        if (e2 === null) return null;
+        return [[start, e2]];
+      }
+      return [[start, start]];
+    }
+    function parseChar() {
+      if (i >= content.length) return null;
+      if (content[i] === BS) {
+        var c;
+        if (content[i+1] === 'u' && content[i+2] === '{') {
+          var end = content.indexOf('}', i+3);
+          c = parseInt(content.slice(i+3, end), 16);
+          i = end + 1;
+        } else if (content[i+1] === 'u') {
+          c = parseInt(content.slice(i+2, i+6), 16); i += 6;
+        } else { c = content.charCodeAt(i+1); i += 2; }
+        return c;
+      }
+      var x = content.charCodeAt(i); i++;
+      return x;
+    }
+    var lhs = parseOperand();
+    if (lhs === null) return null;
+    var result = lhs;
+    var mode = 'union';  // 'union' | 'diff' | 'inter'
+    while (i < content.length) {
+      if (content[i] === '-' && content[i+1] === '-') {
+        if (mode === 'inter') return null;  // can't mix in same level
+        mode = 'diff'; i += 2;
+        var r = parseOperand(); if (r === null) return null;
+        result = diffRanges(result, r);
+      } else if (content[i] === '&' && content[i+1] === '&') {
+        if (mode === 'diff') return null;
+        mode = 'inter'; i += 2;
+        var r2 = parseOperand(); if (r2 === null) return null;
+        result = interRanges(result, r2);
+      } else {
+        if (mode !== 'union') return null;  // mixed with set op
+        var r3 = parseOperand(); if (r3 === null) return null;
+        result = normRanges(result.concat(r3));
+      }
+    }
+    return result;
+  }
+  // Top-level rewriter: find every [...] in src that contains a /v
+  // set operator (\-\-, &&) and replace with the computed range
+  // class. Tracks bracket depth and skips strings / escapes inside
+  // the regex source itself. Returns null if any rewrite fails.
+  function rewriteVSetOps(src) {
+    var out = '', i = 0;
+    while (i < src.length) {
+      var c = src[i];
+      if (c === BS && i + 1 < src.length) {
+        out += src[i] + src[i+1];
+        i += 2;
+        continue;
+      }
+      if (c === '[') {
+        // Find matching ']' (account for escaped ] and nested [])
+        var depth = 1, j = i + 1;
+        while (j < src.length && depth > 0) {
+          if (src[j] === BS) { j += 2; continue; }
+          if (src[j] === '[') depth++;
+          else if (src[j] === ']') depth--;
+          if (depth > 0) j++;
+        }
+        if (j >= src.length) return null;
+        var inner = src.slice(i + 1, j);
+        if (inner.indexOf('--') !== -1 || inner.indexOf('&&') !== -1) {
+          var rs = parseVSet(inner);
+          if (rs === null) return null;
+          out += rangesToClass(rs);
+        } else {
+          out += src.slice(i, j + 1);
+        }
+        i = j + 1;
+        continue;
+      }
+      out += c;
+      i++;
+    }
+    return out;
+  }
+
   var OrigRegExp = RegExp;
   function PatchedRegExp(pattern, flags) {
     if (pattern instanceof OrigRegExp && flags === undefined) {
       return new OrigRegExp(pattern);
     }
     var src = (typeof pattern === 'string') ? pattern : pattern + '';
-    var BS_ = String.fromCharCode(92);
-    var hasProp = src.indexOf(BS_ + 'p{') !== -1 || src.indexOf(BS_ + 'P{') !== -1;
+    var BS_ = BS;
+    var flagStr = (typeof flags === 'string') ? flags : '';
+    var isV = flagStr.indexOf('v') !== -1;
+    var hasSetOp = isV
+      && (src.indexOf('--') !== -1 || src.indexOf('&&') !== -1);
+    var hasProp = src.indexOf(BS_ + 'p{') !== -1
+      || src.indexOf(BS_ + 'P{') !== -1;
+
+    // /v + set ops: rewrite to a precomputed range class with /u.
+    // Done first so the second branch (\p{} expansion) doesn't see
+    // operators that would clash with hyphens in the expanded ranges.
+    if (hasSetOp) {
+      var rewritten = rewriteVSetOps(src);
+      if (rewritten !== null) {
+        var f1 = flagStr.replace('v', 'u');
+        try { return new OrigRegExp(rewritten, f1); }
+        catch (e) { /* fall through to other paths */ }
+      }
+    }
+
     if (hasProp) {
       try {
         return new OrigRegExp(pattern, flags);
@@ -593,15 +885,12 @@ private string unicodePropPolyfillSource() pure @safe nothrow
         try {
           return new OrigRegExp(expanded, flags);
         } catch (e2) {
-          // /v + set-notation (and-and/dash-dash) cannot be reproduced
-          // by simple range expansion because the operators clash with
-          // hyphen in the expanded ranges. Replace with a never-match
-          // pattern: the regex still constructs and test returns false.
-          if (src.indexOf('&&') !== -1 || src.indexOf('--') !== -1) {
+          var f = flagStr.replace('v', 'u');
+          try { return new OrigRegExp(expanded, f); }
+          catch (e3) {
+            // Last-resort never-match so the regex still constructs.
             return new OrigRegExp('(?!)', '');
           }
-          var f = (typeof flags === 'string') ? flags.replace('v', 'u') : flags;
-          return new OrigRegExp(expanded, f);
         }
       }
     }

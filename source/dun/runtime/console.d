@@ -123,9 +123,11 @@ void writeArgs(IJSEngine engine, scope JSHandle[] args, bool useStderr) @trusted
             foreach (i, arg; args)
                 engine.setPropertyIndex(argsArr, cast(uint) i, engine.dupValue(arg));
 
-            auto result = engine.callFunction(fmtFn, engine.newUndefined(), [argsArr]);
+            auto undef = engine.newUndefined();
+            auto result = engine.callFunction(fmtFn, undef, [argsArr]);
             output.writeln(engine.extractString(result));
             engine.freeValue(result);
+            engine.freeValue(undef);
             engine.freeValue(argsArr);
             engine.freeValue(fmtFn);
         }

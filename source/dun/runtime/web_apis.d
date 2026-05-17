@@ -308,9 +308,53 @@ private string webAPIsSource() pure nothrow @safe
     ~ "this.bodyUsed=false;"
     ~ "};"
     ~ "Response.prototype.clone=function(){return new Response(this._body,{status:this.status,statusText:this.statusText,headers:this.headers});};"
-    ~ "Response.prototype.text=function(){this.bodyUsed=true;return Promise.resolve(this._body?String(this._body):'');};"
+    /* If _body is a ReadableStream (e.g. from Bun.spawn's stdout or
+       Request body), drain it to text. Otherwise toString it. */
+    ~ "Response.prototype.text=function(){"
+    ~   "this.bodyUsed=true;"
+    ~   "var b=this._body;"
+    ~   "if(b&&typeof b.getReader==='function'){"
+    ~     "var reader=b.getReader();var dec=new TextDecoder();var out='';"
+    ~     "return new Promise(function(resolve,reject){"
+    ~       "function pump(){reader.read().then(function(r){"
+    ~         "if(r.done){out+=dec.decode();resolve(out);return;}"
+    ~         "var v=r.value;"
+    ~         "if(v instanceof Uint8Array||(v&&v.buffer instanceof ArrayBuffer)){"
+    ~           "out+=dec.decode(v,{stream:true});"
+    ~         "}else if(v instanceof ArrayBuffer){"
+    ~           "out+=dec.decode(new Uint8Array(v),{stream:true});"
+    ~         "}else{out+=String(v);}"
+    ~         "pump();"
+    ~       "}).catch(reject);}"
+    ~       "pump();"
+    ~     "});"
+    ~   "}"
+    ~   "return Promise.resolve(b?String(b):'');"
+    ~ "};"
     ~ "Response.prototype.json=function(){return this.text().then(JSON.parse);};"
-    ~ "Response.prototype.arrayBuffer=function(){this.bodyUsed=true;if(this._body instanceof ArrayBuffer)return Promise.resolve(this._body);var enc=new TextEncoder();return Promise.resolve(enc.encode(String(this._body||'')).buffer);};"
+    /* Same idea: drain a ReadableStream to ArrayBuffer if present;
+       otherwise fall back to the toString-encode path. */
+    ~ "Response.prototype.arrayBuffer=function(){"
+    ~   "this.bodyUsed=true;"
+    ~   "var b=this._body;"
+    ~   "if(b instanceof ArrayBuffer)return Promise.resolve(b);"
+    ~   "if(b&&typeof b.getReader==='function'){"
+    ~     "var reader=b.getReader();var chunks=[];var total=0;"
+    ~     "return new Promise(function(resolve,reject){"
+    ~       "function pump(){reader.read().then(function(r){"
+    ~         "if(r.done){"
+    ~           "var ab=new ArrayBuffer(total);var view=new Uint8Array(ab);var off=0;"
+    ~           "for(var i=0;i<chunks.length;i++){view.set(chunks[i],off);off+=chunks[i].length;}"
+    ~           "resolve(ab);return;}"
+    ~         "var v=r.value;"
+    ~         "var bytes=v instanceof Uint8Array?v:(v&&v.buffer instanceof ArrayBuffer?new Uint8Array(v.buffer,v.byteOffset,v.byteLength):new TextEncoder().encode(String(v)));"
+    ~         "chunks.push(bytes);total+=bytes.length;pump();"
+    ~       "}).catch(reject);}"
+    ~       "pump();"
+    ~     "});"
+    ~   "}"
+    ~   "var enc=new TextEncoder();return Promise.resolve(enc.encode(String(b||'')).buffer);"
+    ~ "};"
     ~ "Response.prototype.blob=function(){return this.arrayBuffer().then(function(ab){return new Blob([ab]);});};"
     ~ "Response.prototype.formData=function(){return Promise.reject(new TypeError('formData not supported on Response'));};"
     ~ "Response.json=function(data,init){init=init||{};var h=new Headers(init.headers);h.set('content-type','application/json');return new Response(JSON.stringify(data),{status:init.status||200,statusText:init.statusText||'',headers:h});};"
@@ -319,7 +363,10 @@ private string webAPIsSource() pure nothrow @safe
     ~ "}"
 
     // ═══════════════════════════════════
-    // MessageChannel / MessagePort
+    // MessageChannel / MessagePort. Per WHATWG, setting `onmessage`
+    // implicitly starts the port (so consumers don't need an
+    // explicit `.start()` call). Message delivery happens in a
+    // microtask so postMessage doesn't synchronously dispatch.
     // ═══════════════════════════════════
     ~ "globalThis.MessagePort=function MessagePort(){EventTarget.call(this);this._other=null;this._started=false;this._queue=[];};"
     ~ "MessagePort.prototype=Object.create(EventTarget.prototype);"
@@ -332,7 +379,16 @@ private string webAPIsSource() pure nothrow @safe
     ~ "};"
     ~ "MessagePort.prototype.start=function(){this._started=true;var q=this._queue;this._queue=[];for(var i=0;i<q.length;i++){if(typeof this.onmessage==='function')this.onmessage(q[i]);this.dispatchEvent(q[i]);}};"
     ~ "MessagePort.prototype.close=function(){this._other=null;};"
-    ~ "MessagePort.prototype.onmessage=null;"
+    /* Auto-start on onmessage setter -- WHATWG MessagePort spec
+       says assigning to onmessage implicitly calls start(). */
+    ~ "Object.defineProperty(MessagePort.prototype,'onmessage',{"
+    ~ "  configurable:true,"
+    ~ "  get:function(){return this._onmessage;},"
+    ~ "  set:function(fn){"
+    ~ "    this._onmessage=fn;"
+    ~ "    if(typeof fn==='function'&&!this._started)this.start();"
+    ~ "  }"
+    ~ "});"
 
     ~ "globalThis.MessageChannel=function MessageChannel(){"
     ~ "this.port1=new MessagePort();this.port2=new MessagePort();"
@@ -366,9 +422,19 @@ private string webAPIsSource() pure nothrow @safe
     // ═══════════════════════════════════
     ~ "if(typeof globalThis.ReadableStream==='undefined'){"
     ~ "globalThis.ReadableStream=function ReadableStream(source){"
-    ~ "this._source=source||{};this._queue=[];this._closed=false;this._started=false;this._reader=null;"
+    ~ "this._source=source||{};this._queue=[];this._closed=false;this._started=false;this._reader=null;this._pendingReads=[];"
     ~ "var self=this;"
-    ~ "this._controller={enqueue:function(chunk){if(!self._closed)self._queue.push(chunk);},close:function(){self._closed=true;},error:function(e){self._errored=e;self._closed=true;},desiredSize:1};"
+    /* Enqueue: push chunk; if a pending read is waiting, resolve it. */
+    ~ "this._controller={enqueue:function(chunk){"
+    ~   "if(self._closed)return;"
+    ~   "if(self._pendingReads.length>0){self._pendingReads.shift()({value:chunk,done:false});}"
+    ~   "else{self._queue.push(chunk);}"
+    ~ "},close:function(){"
+    ~   "self._closed=true;"
+    ~   "while(self._pendingReads.length>0)self._pendingReads.shift()({value:undefined,done:true});"
+    ~ "},error:function(e){self._errored=e;self._closed=true;"
+    ~   "while(self._pendingReads.length>0)self._pendingReads.shift()({value:undefined,done:true});"
+    ~ "},desiredSize:1};"
     ~ "if(this._source.start){try{this._source.start(this._controller);}catch(e){this._errored=e;this._closed=true;}}"
     ~ "this._started=true;"
     ~ "};"
@@ -380,7 +446,11 @@ private string webAPIsSource() pure nothrow @safe
     ~ "}"
     ~ "if(stream._queue.length>0)return Promise.resolve({value:stream._queue.shift(),done:false});"
     ~ "if(stream._closed)return Promise.resolve({value:undefined,done:true});"
-    ~ "return Promise.resolve({value:undefined,done:true});"
+    /* Source has no `pull`, stream not closed yet, queue empty: park
+       a pending read promise. The next `controller.enqueue` or
+       `controller.close` call resolves it. Required for push-based
+       sources like Readable.toWeb where data arrives via events. */
+    ~ "return new Promise(function(res){stream._pendingReads.push(res);});"
     ~ "},releaseLock:function(){stream._reader=null;},cancel:function(){stream._closed=true;if(stream._source.cancel)stream._source.cancel();return Promise.resolve();}};"
     ~ "return this._reader;};"
     ~ "ReadableStream.prototype.cancel=function(){this._closed=true;if(this._source.cancel)this._source.cancel();return Promise.resolve();};"

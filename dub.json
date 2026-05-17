@@ -88,7 +88,8 @@
 			],
 			"name": "v8",
 			"dflags-linux-ldc": [
-				"--link-internally"
+				"--link-internally",
+				"-L=--eh-frame-hdr"
 			],
 			"lflags-linux": [
 				"-L$PACKAGE_DIR/vendor/v8shim",
@@ -217,7 +218,8 @@
 				"source/dun/engine/jsc/cppbindings.d"
 			],
 			"dflags-linux-ldc": [
-				"--link-internally"
+				"--link-internally",
+				"-L=--eh-frame-hdr"
 			],
 			"lflags-linux": [
 				"-L$PACKAGE_DIR/vendor/v8shim",

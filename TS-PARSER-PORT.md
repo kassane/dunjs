@@ -228,7 +228,7 @@ source/dun/ts/parser/
 
 ## Validation if proceeding (phase 1: lexer-only)
 
-1. `bash tests/integration/run.sh` → 121/121 on QJS/JSC/V8.
+1. `bash tests/integration/run.sh` → 127/127 on QJS/JSC/V8.
 2. `bash tests/benchmarks/ts_compat/compare.sh` → no regression on
    the 6 user fixtures.
 3. New unit tests in `source/dun/ts/parser/lexer.d` ported from

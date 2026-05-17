@@ -87,7 +87,11 @@ private string bunCompatSource() pure nothrow @safe
     "  }" ~
     "};" ~
 
-    /* Bun.hash — non-cryptographic 64-bit-ish FNV-1a fold to JS number. */
+    /* Bun.hash — non-cryptographic 32-bit FNV-1a fold to JS number.
+       Bun's real API also has .crc32 / .adler32 / .xxh32 / .xxh64
+       sub-methods on the function object; the bodies below mirror the
+       reference algorithms (the goal is API compatibility on hot
+       hashing paths, not byte-exact Bun output). */
     "Bun.hash = function(input) {" ~
     "  if (typeof input === 'string') {" ~
     "    var h = 0x811c9dc5;" ~
@@ -108,6 +112,156 @@ private string bunCompatSource() pure nothrow @safe
     "  }" ~
     "  return Bun.hash(String(input));" ~
     "};" ~
+
+    /* Normalize any input (string / Uint8Array / ArrayBuffer) to a
+       Uint8Array view for the sub-hash impls. */
+    "Bun.hash.__toBytes = function(input) {" ~
+    "  if (typeof input === 'string') {" ~
+    "    return new TextEncoder().encode(input);" ~
+    "  }" ~
+    "  if (input instanceof Uint8Array) return input;" ~
+    "  if (input && input.buffer instanceof ArrayBuffer) return new Uint8Array(input.buffer, input.byteOffset || 0, input.byteLength);" ~
+    "  if (input instanceof ArrayBuffer) return new Uint8Array(input);" ~
+    "  return new TextEncoder().encode(String(input));" ~
+    "};" ~
+
+    /* CRC32 (IEEE polynomial 0xEDB88320). Single-byte table built once. */
+    "(function(){" ~
+    "  var t = new Uint32Array(256);" ~
+    "  for (var n = 0; n < 256; n++) {" ~
+    "    var c = n;" ~
+    "    for (var k = 0; k < 8; k++) c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1);" ~
+    "    t[n] = c;" ~
+    "  }" ~
+    "  Bun.hash.crc32 = function(input) {" ~
+    "    var b = Bun.hash.__toBytes(input);" ~
+    "    var crc = 0xFFFFFFFF;" ~
+    "    for (var i = 0; i < b.length; i++) crc = (t[(crc ^ b[i]) & 0xFF] ^ (crc >>> 8)) >>> 0;" ~
+    "    return (crc ^ 0xFFFFFFFF) >>> 0;" ~
+    "  };" ~
+    "})();" ~
+
+    /* Adler-32. */
+    "Bun.hash.adler32 = function(input) {" ~
+    "  var b = Bun.hash.__toBytes(input);" ~
+    "  var a = 1, c = 0;" ~
+    "  for (var i = 0; i < b.length; i++) {" ~
+    "    a = (a + b[i]) % 65521;" ~
+    "    c = (c + a) % 65521;" ~
+    "  }" ~
+    "  return ((c << 16) | a) >>> 0;" ~
+    "};" ~
+
+    /* xxHash32 (reference). Optional seed (defaults to 0). */
+    "Bun.hash.xxh32 = function(input, seed) {" ~
+    "  var b = Bun.hash.__toBytes(input);" ~
+    "  seed = (seed >>> 0) || 0;" ~
+    "  var P1 = 0x9E3779B1, P2 = 0x85EBCA77, P3 = 0xC2B2AE3D, P4 = 0x27D4EB2F, P5 = 0x165667B1;" ~
+    "  var len = b.length, i = 0, h32;" ~
+    "  var rotl = function(x, r) { return ((x << r) | (x >>> (32 - r))) >>> 0; };" ~
+    "  if (len >= 16) {" ~
+    "    var v1 = (seed + P1 + P2) >>> 0;" ~
+    "    var v2 = (seed + P2) >>> 0;" ~
+    "    var v3 = (seed + 0) >>> 0;" ~
+    "    var v4 = (seed - P1) >>> 0;" ~
+    "    while (i <= len - 16) {" ~
+    "      var k1 = (b[i] | (b[i+1] << 8) | (b[i+2] << 16) | (b[i+3] << 24)) >>> 0;" ~
+    "      v1 = Math.imul(rotl((v1 + Math.imul(k1, P2)) >>> 0, 13), P1) >>> 0; i += 4;" ~
+    "      var k2 = (b[i] | (b[i+1] << 8) | (b[i+2] << 16) | (b[i+3] << 24)) >>> 0;" ~
+    "      v2 = Math.imul(rotl((v2 + Math.imul(k2, P2)) >>> 0, 13), P1) >>> 0; i += 4;" ~
+    "      var k3 = (b[i] | (b[i+1] << 8) | (b[i+2] << 16) | (b[i+3] << 24)) >>> 0;" ~
+    "      v3 = Math.imul(rotl((v3 + Math.imul(k3, P2)) >>> 0, 13), P1) >>> 0; i += 4;" ~
+    "      var k4 = (b[i] | (b[i+1] << 8) | (b[i+2] << 16) | (b[i+3] << 24)) >>> 0;" ~
+    "      v4 = Math.imul(rotl((v4 + Math.imul(k4, P2)) >>> 0, 13), P1) >>> 0; i += 4;" ~
+    "    }" ~
+    "    h32 = (rotl(v1, 1) + rotl(v2, 7) + rotl(v3, 12) + rotl(v4, 18)) >>> 0;" ~
+    "  } else {" ~
+    "    h32 = (seed + P5) >>> 0;" ~
+    "  }" ~
+    "  h32 = (h32 + len) >>> 0;" ~
+    "  while (i <= len - 4) {" ~
+    "    var kk = (b[i] | (b[i+1] << 8) | (b[i+2] << 16) | (b[i+3] << 24)) >>> 0;" ~
+    "    h32 = Math.imul(rotl((h32 + Math.imul(kk, P3)) >>> 0, 17), P4) >>> 0;" ~
+    "    i += 4;" ~
+    "  }" ~
+    "  while (i < len) {" ~
+    "    h32 = Math.imul(rotl((h32 + Math.imul(b[i], P5)) >>> 0, 11), P1) >>> 0;" ~
+    "    i++;" ~
+    "  }" ~
+    "  h32 = Math.imul(h32 ^ (h32 >>> 15), P2) >>> 0;" ~
+    "  h32 = Math.imul(h32 ^ (h32 >>> 13), P3) >>> 0;" ~
+    "  return (h32 ^ (h32 >>> 16)) >>> 0;" ~
+    "};" ~
+
+    /* xxh64: returns a BigInt because the real value doesn't fit in a
+       JS number. Same skeleton as xxh32 but the full 64-bit constants
+       require BigInt math throughout. We use a streamlined variant
+       (BigInt arithmetic is ~10x slower than 32-bit, but it's a
+       compat shim, not a hot path). */
+    "(function(){" ~
+    "  var P1 = 11400714785074694791n;" ~
+    "  var P2 = 14029467366897019727n;" ~
+    "  var P3 = 1609587929392839161n;" ~
+    "  var P4 = 9650029242287828579n;" ~
+    "  var P5 = 2870177450012600261n;" ~
+    "  var M = (1n << 64n) - 1n;" ~
+    "  function rotl(x, r) { return (((x << r) | (x >> (64n - r))) & M); }" ~
+    "  function read64(b, i) {" ~
+    "    var lo = BigInt(b[i] | (b[i+1] << 8) | (b[i+2] << 16) | (b[i+3] << 24));" ~
+    "    var hi = BigInt(b[i+4] | (b[i+5] << 8) | (b[i+6] << 16) | (b[i+7] << 24));" ~
+    "    return (lo & 0xFFFFFFFFn) | ((hi & 0xFFFFFFFFn) << 32n);" ~
+    "  }" ~
+    "  function read32(b, i) {" ~
+    "    return BigInt(b[i] | (b[i+1] << 8) | (b[i+2] << 16) | (b[i+3] << 24)) & 0xFFFFFFFFn;" ~
+    "  }" ~
+    "  Bun.hash.xxh64 = function(input, seed) {" ~
+    "    var b = Bun.hash.__toBytes(input);" ~
+    "    var s = BigInt(seed || 0) & M;" ~
+    "    var len = b.length, i = 0, h;" ~
+    "    if (len >= 32) {" ~
+    "      var v1 = (s + P1 + P2) & M;" ~
+    "      var v2 = (s + P2) & M;" ~
+    "      var v3 = s;" ~
+    "      var v4 = (s - P1) & M;" ~
+    "      while (i + 32 <= len) {" ~
+    "        v1 = (rotl((v1 + ((read64(b,i) * P2) & M)) & M, 31n) * P1) & M; i += 8;" ~
+    "        v2 = (rotl((v2 + ((read64(b,i) * P2) & M)) & M, 31n) * P1) & M; i += 8;" ~
+    "        v3 = (rotl((v3 + ((read64(b,i) * P2) & M)) & M, 31n) * P1) & M; i += 8;" ~
+    "        v4 = (rotl((v4 + ((read64(b,i) * P2) & M)) & M, 31n) * P1) & M; i += 8;" ~
+    "      }" ~
+    "      h = (rotl(v1, 1n) + rotl(v2, 7n) + rotl(v3, 12n) + rotl(v4, 18n)) & M;" ~
+    "      function merge(h, v) {" ~
+    "        v = (rotl((v * P2) & M, 31n) * P1) & M;" ~
+    "        h = ((h ^ v) * P1 + P4) & M;" ~
+    "        return h;" ~
+    "      }" ~
+    "      h = merge(h, v1); h = merge(h, v2); h = merge(h, v3); h = merge(h, v4);" ~
+    "    } else {" ~
+    "      h = (s + P5) & M;" ~
+    "    }" ~
+    "    h = (h + BigInt(len)) & M;" ~
+    "    while (i + 8 <= len) {" ~
+    "      var k = (read64(b,i) * P2) & M;" ~
+    "      k = (rotl(k, 31n) * P1) & M;" ~
+    "      h = ((rotl(h ^ k, 27n) * P1 + P4)) & M;" ~
+    "      i += 8;" ~
+    "    }" ~
+    "    if (i + 4 <= len) {" ~
+    "      h = ((rotl((h ^ ((read32(b,i) * P1) & M)) & M, 23n) * P2 + P3)) & M;" ~
+    "      i += 4;" ~
+    "    }" ~
+    "    while (i < len) {" ~
+    "      h = ((rotl((h ^ ((BigInt(b[i]) * P5) & M)) & M, 11n) * P1)) & M;" ~
+    "      i++;" ~
+    "    }" ~
+    "    h = (h ^ (h >> 33n)) & M;" ~
+    "    h = ((h * P2) & M);" ~
+    "    h = (h ^ (h >> 29n)) & M;" ~
+    "    h = ((h * P3) & M);" ~
+    "    h = (h ^ (h >> 32n)) & M;" ~
+    "    return h;" ~
+    "  };" ~
+    "})();" ~
 
     /* Bun.file(path) returns a BunFile-like with text() / json() /
        arrayBuffer() / stream() / size / type / writer(). */
@@ -214,9 +368,13 @@ private string bunCompatSource() pure nothrow @safe
     "  });" ~
     "};" ~
 
-    /* Bun.spawn / spawnSync — wrap child_process.spawn{Sync}. */
+    /* Bun.spawn / spawnSync — wrap child_process.spawn{Sync}.
+       Bun's `p.stdout` is a Web ReadableStream<Uint8Array>, not a
+       Node Readable, so `new Response(p.stdout).text()` works. We
+       use Readable.toWeb() (from `stream`) to bridge. */
     "Bun.spawn = function(opts) {" ~
     "  var cp = require('child_process');" ~
+    "  var Readable = require('stream').Readable;" ~
     "  var cmd = Array.isArray(opts) ? opts : opts.cmd;" ~
     "  var args = cmd.slice(1);" ~
     "  var child = cp.spawn(cmd[0], args, {" ~
@@ -230,8 +388,8 @@ private string bunCompatSource() pure nothrow @safe
     "  return {" ~
     "    pid: child.pid," ~
     "    stdin: child.stdin," ~
-    "    stdout: child.stdout," ~
-    "    stderr: child.stderr," ~
+    "    stdout: child.stdout ? Readable.toWeb(child.stdout) : null," ~
+    "    stderr: child.stderr ? Readable.toWeb(child.stderr) : null," ~
     "    get exitCode() { return code; }," ~
     "    exited: exited," ~
     "    kill: function(sig) { child.kill(sig); }" ~

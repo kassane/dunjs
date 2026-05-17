@@ -3,12 +3,18 @@ module dun.modules.require;
 import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
 import dun.runtime.globals : DunState;
 import dun.security.permissions : Permission;
+// Project convention (CLAUDE.md): allocator helpers go via
+// `dun.platform.arena`, not `std.array` directly.
+import dun.platform.arena : Appender;
 import std.json : JSONValue;
 
 void installRequire(IJSEngine engine) @trusted
 {
     assert(engine !is null, "Null engine in installRequire");
     auto global = engine.getGlobal();
+    // global is an owned handle from getGlobal -- free it on the way out
+    // so the engine doesn't leak one root per init.
+    scope (exit) engine.freeValue(global);
     auto requireFn = engine.newFunction(&jsRequire, "require", 1);
     engine.setProperty(global, "require", requireFn);
     engine.setProperty(global, "__dunCjsCache__", engine.newObject());
@@ -46,7 +52,9 @@ JSHandle jsRequireResolve(void* ctx, JSHandle thisVal, scope JSHandle[] args) @t
     if (specifier.startsWith("node:") || specifier.startsWith("dun:"))
         return engine.newString(specifier);
 
-    string[43] builtins = ["fs", "path", "crypto", "net", "http", "https",
+    // Static immutable so the array lives in rodata, not stack-rebuilt
+    // per call. resolve() runs on every `require(...)` call.
+    static immutable string[43] builtins = ["fs", "path", "crypto", "net", "http", "https",
         "http2", "http3", "os", "buffer", "events", "url", "child_process",
         "stream", "zlib", "dns", "ws", "sqlite", "util", "assert",
         "querystring", "string_decoder", "timers/promises", "tls", "dgram",
@@ -408,6 +416,10 @@ JSHandle jsRequire(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
     {
         import dun.runtime.unicode_props : expandUnicodePropertyEscapes;
         source = expandUnicodePropertyEscapes(source);
+    }
+    {
+        import dun.runtime.unicode_props : expandVSetOps;
+        source = expandVSetOps(source);
     }
 
     bool esmTranspiled = false;
@@ -802,6 +814,50 @@ public string findNodeModule(string specifier, string fromDir) @trusted
         if (parent == dir) break;
         dir = parent;
     }
+
+    // Fallback: user-global DunJS store (~/.dun/node_modules on Posix,
+    // %LOCALAPPDATA%\dun\node_modules on Windows, or $DUN_HOME if set).
+    // Lets `dun install typescript` from any directory satisfy every
+    // `dun run` on this machine (auto-install + `--typecheck`
+    // install into this path).
+    {
+        import dun.platform.paths : dunGlobalRoot;
+        auto nmDir = buildNormalizedPath(dunGlobalRoot(), "node_modules", pkg);
+        if (exists(nmDir) && isDir(nmDir))
+        {
+            auto pkgJson = buildNormalizedPath(nmDir, "package.json");
+            if (sub.length == 0)
+            {
+                if (exists(pkgJson))
+                {
+                    try
+                    {
+                        auto j = parseJSON(readText(pkgJson));
+                        if ("main" in j && j["main"].type == JSONType.string)
+                        {
+                            auto main = j["main"].str;
+                            auto p = buildNormalizedPath(nmDir, main);
+                            if (exists(p) && isFile(p)) return p;
+                        }
+                    }
+                    catch (Exception) {}
+                }
+                foreach (idx; ["index.js", "index.cjs", "index.mjs"])
+                {
+                    auto p = buildNormalizedPath(nmDir, idx);
+                    if (exists(p) && isFile(p)) return p;
+                }
+            }
+            else
+            {
+                foreach (ext; ["", ".js", ".cjs", ".mjs", ".json"])
+                {
+                    auto p = buildNormalizedPath(nmDir, sub ~ ext);
+                    if (exists(p) && isFile(p)) return p;
+                }
+            }
+        }
+    }
     return "";
 }
 
@@ -939,7 +995,6 @@ JSHandle throwModuleNotFound(IJSEngine engine, string specifier) @trusted
 
 private string escapeForJs(string s) @trusted nothrow
 {
-    import std.array : Appender;
     Appender!(char[]) buf;
     try { buf.reserve(s.length + 10); } catch (Exception) {}
     foreach (c; s)

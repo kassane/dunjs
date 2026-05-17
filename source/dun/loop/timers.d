@@ -73,6 +73,10 @@ struct TimerWheel
             auto undef = entry.engine.newUndefined();
             auto ret = entry.engine.callFunction(entry.callback, undef, null);
             entry.engine.freeValue(ret);
+            // On V8, `newUndefined` allocates a ref-counted DunV8Value;
+            // QJS/JSC sentinel undefined values are no-ops in freeValue.
+            // Either way, free it so we don't accumulate per timer tick.
+            entry.engine.freeValue(undef);
 
             if (entry.interval != Duration.zero)
             {

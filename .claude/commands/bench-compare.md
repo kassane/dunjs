@@ -48,12 +48,12 @@ done
 - **`feature_bench`** auto-calibrates iters; total wall time ~30s per runtime.
 - **`npm_compat_test`** loads 15 simulated npm packages; ~5s per runtime.
 
-## Reference numbers (May 2026, this branch)
+## Reference numbers
 
-| Benchmark         | Bun 1.3 | Node 22 | DunJS V8 | DunJS QJS |
-|-------------------|---------|---------|----------|-----------|
-| feature_bench     | 416M    | 111M    | 109M     | 14M       |
-| framework_bench   | 249M    | 133M    | 125M     | 12M       |
-| npm_compat        | 145/145 | 145/145 | 145/145  | 145/145   |
+See [TESTING.md](../../TESTING.md) for the canonical perf tables — numbers
+are updated each release and can drift across snapshots.
 
-DunJS V8 is ~98% of Node on feature, ~94% on framework. QuickJS is interpreter-only.
+Cross-runtime correctness is `145/145` on `npm_compat` for every supported
+runtime; the per-benchmark throughput delta between DunJS V8 and Node is
+within a few percent, and QuickJS is interpreter-only (10-100× slower on
+CPU-bound code, comparable on I/O-bound).

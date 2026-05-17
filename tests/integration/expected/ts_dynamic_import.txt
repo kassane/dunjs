@@ -1,0 +1,6 @@
+fs.mkdirSync: function
+statSync: function
+path.join: function
+util.format: function
+os.platform: function
+import.meta.url: true

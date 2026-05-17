@@ -27,13 +27,46 @@ void registerWsModule(IJSEngine engine) @trusted
 {
     assert(engine !is null, "Null IJSEngine in registerWsModule");
     auto obj = engine.newObject();
-    engine.setProperty(obj, "WebSocketServer", engine.newFunction(&jsWsCreateServer, "WebSocketServer", 1));
-    engine.setProperty(obj, "WebSocket", engine.newFunction(&jsWsConnect, "WebSocket", 1));
+    // Native functions can't be invoked with `new` on JSC/V8/QJS
+    // (extern(C) callbacks aren't constructors). The ws package's
+    // canonical API is `new WebSocketServer(opts)` -- wrap the
+    // native factory in a JS class so the `new` form works while
+    // calling without `new` still returns the right shape.
+    engine.setProperty(obj, "__createServer",
+        engine.newFunction(&jsWsCreateServer, "__createServer", 1));
+    engine.setProperty(obj, "__connect",
+        engine.newFunction(&jsWsConnect, "__connect", 1));
 
     auto global = engine.getGlobal();
     engine.setProperty(global, "__dun_cjs_ws__", obj);
-    engine.setProperty(global, "WebSocket", engine.newFunction(&jsWsConnect, "WebSocket", 1));
     engine.freeValue(global);
+
+    // JS-side class wrappers so `new WebSocketServer(opts)` works.
+    auto shim = engine.eval(
+        "(function() {" ~
+        "  var m = globalThis.__dun_cjs_ws__;" ~
+        "  /* class form to support both `new WebSocketServer(...)` and " ~
+        "     `WebSocketServer(...)` -- the native factory returns the " ~
+        "     server object; we copy its props onto `this`. */" ~
+        "  function WebSocketServer(opts) {" ~
+        "    var srv = m.__createServer(opts);" ~
+        "    if (!(this instanceof WebSocketServer)) return srv;" ~
+        "    for (var k in srv) this[k] = srv[k];" ~
+        "    return this;" ~
+        "  }" ~
+        "  function WebSocket(url, protocols) {" ~
+        "    var s = m.__connect(url, protocols);" ~
+        "    if (!(this instanceof WebSocket)) return s;" ~
+        "    for (var k in s) this[k] = s[k];" ~
+        "    return this;" ~
+        "  }" ~
+        "  m.WebSocketServer = WebSocketServer;" ~
+        "  m.WebSocket = WebSocket;" ~
+        "  m.Server = WebSocketServer;" ~  /* common alias */
+        "  globalThis.WebSocket = WebSocket;" ~
+        "})();",
+        "<ws-shim>");
+    if (!shim.isError) engine.freeValue(shim.value);
 
     version (EngineQuickJS)
         registerQuickJSModule(engine);

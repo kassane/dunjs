@@ -356,7 +356,10 @@ struct HttpConnState
 
     void ensureBufCapacity(size_t needed) nothrow @trusted {
         if (needed <= buf.length) return;
-        size_t newCap = buf.length;
+        // Seed from INITIAL_BUF if the buffer is still empty -- doubling
+        // a zero capacity loops forever and never reaches `needed`. This
+        // path triggers if `initBuffers` swallowed an OOM earlier.
+        size_t newCap = buf.length == 0 ? INITIAL_BUF : buf.length;
         while (newCap < needed) newCap = newCap * 2;
         if (newCap > MAX_REQUEST_BODY) newCap = MAX_REQUEST_BODY;
         try {
@@ -368,7 +371,7 @@ struct HttpConnState
 
     void ensureRespCapacity(size_t needed) nothrow @trusted {
         if (needed <= respBuf.length) return;
-        size_t newCap = respBuf.length;
+        size_t newCap = respBuf.length == 0 ? INITIAL_BUF : respBuf.length;
         while (newCap < needed) newCap = newCap * 2;
         try {
             auto newBuf = new char[](newCap);
@@ -455,17 +458,21 @@ int allocConnSlot() nothrow @trusted
     return nextHttpConnId++;
 }
 
-// Return a connection slot to the free list and release large buffers
+// Return a connection slot to the free list and release large buffers.
+// Idempotent: a double-free must not underflow `_activeConnCount` -- a
+// stale counter would stall the event loop's O(1) `hasActiveHttpIO`
+// check (counter wraps to UINT_MAX and reads as "always active").
 void freeConnSlot(int slot) nothrow @trusted
 {
-    _activeConnCount--;
-    // Release connection buffers to free memory
-    if (slot >= 0 && slot < cast(int) httpConns.length)
-    {
-        httpConns[slot].buf = null;
-        httpConns[slot].respBuf = null;
-        httpConns[slot].closed = true;
-    }
+    if (slot < 0 || slot >= cast(int) httpConns.length)
+        return;
+    if (httpConns[slot].closed)
+        return;  // already freed -- skip the counter decrement too
+    if (_activeConnCount > 0)
+        _activeConnCount--;
+    httpConns[slot].buf = null;
+    httpConns[slot].respBuf = null;
+    httpConns[slot].closed = true;
     try { httpFreeSlots ~= slot; } catch (Throwable) {}
 }
 

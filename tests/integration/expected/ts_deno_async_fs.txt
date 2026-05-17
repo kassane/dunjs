@@ -1,0 +1,7 @@
+read async: hello
+stat size: 5
+rename ok: 5
+copy ok: 5
+readDir: b.txt,c.txt
+lstat is_file: true
+cleanup ok

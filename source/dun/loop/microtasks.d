@@ -29,6 +29,7 @@ struct NextTickQueue
             auto undef = entry.engine.newUndefined();
             auto ret = entry.engine.callFunction(entry.func, undef, null);
             entry.engine.freeValue(ret);
+            entry.engine.freeValue(undef);
             entry.engine.freeValue(entry.func);
         }
         queue.length = 0;
@@ -66,6 +67,7 @@ struct MicrotaskQueue
             auto undef = entry.engine.newUndefined();
             auto ret = entry.engine.callFunction(entry.func, undef, null);
             entry.engine.freeValue(ret);
+            entry.engine.freeValue(undef);
             entry.engine.freeValue(entry.func);
         }
         queue.length = 0;

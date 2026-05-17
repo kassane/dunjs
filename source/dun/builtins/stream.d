@@ -45,6 +45,8 @@ version (EngineQuickJS)
 
     private extern (C) int streamModuleInit(JSContext* ctx, JSModuleDef* m) nothrow @trusted
     {
+        assert(ctx !is null, "Null ctx in streamModuleInit");
+        assert(m !is null, "Null module def in streamModuleInit");
         auto global = JS_GetGlobalObject(ctx);
         auto mod = JS_GetPropertyStr(ctx, global, "__dun_cjs_stream__");
 
@@ -87,12 +89,14 @@ string streamSource() pure @safe nothrow
   Readable.prototype.push = function(chunk) {
     if (chunk === null) {
       this._ended = true;
+      this._pushDidWork = true;
       if (this._buffer.length === 0) {
         this.emit('end');
         if (!this._closed) { this._closed = true; this.emit('close'); }
       }
       return false;
     }
+    this._pushDidWork = true;
     if (this._flowing) {
       this.emit('data', chunk);
     } else {
@@ -127,12 +131,18 @@ string streamSource() pure @safe nothrow
 
   Readable.prototype.pipe = function(dest) {
     var src = this;
-    this._flowing = true;
 
-    // Flush buffered data first
-    while (this._buffer.length > 0) {
-      dest.write(this._buffer.shift());
-    }
+    // Attach 'end' / 'error' FIRST. on('data') auto-resumes (see
+    // Readable.prototype.on override), which synchronously drains
+    // the source -- if 'end' isn't subscribed yet, the upstream
+    // 'end' event fires into the void and dest.end() never runs.
+    this.once('end', function() {
+      dest.end();
+    });
+
+    this.once('error', function(err) {
+      dest.destroy(err);
+    });
 
     this.on('data', function(chunk) {
       var ok = dest.write(chunk);
@@ -145,13 +155,9 @@ string streamSource() pure @safe nothrow
       }
     });
 
-    this.once('end', function() {
-      dest.end();
-    });
-
-    this.once('error', function(err) {
-      dest.destroy(err);
-    });
+    // on('data') auto-resumed if flow was off; force a resume here in
+    // case 'data' was already attached so the pump runs.
+    if (!this._flowing) this.resume();
 
     return dest;
   };
@@ -164,8 +170,24 @@ string streamSource() pure @safe nothrow
 
   Readable.prototype.resume = function() {
     this._flowing = true;
+    // Drain any pre-buffered data first.
     while (this._buffer.length > 0) {
       this.emit('data', this._buffer.shift());
+    }
+    // Then pump _read() until exhausted. Push-mode readables
+    // (Readable.from([...])) need this to flow -- on(data) +
+    // pipe don't trigger a pull on their own. _pushDidWork
+    // gates so we stop when _read makes no progress (would
+    // loop forever otherwise -- e.g. Transform whose _read is
+    // a no-op).
+    while (this._flowing && !this._ended) {
+      this._pushDidWork = false;
+      try { this._read(this._readableState.highWaterMark); }
+      catch (e) { this.emit('error', e); break; }
+      if (!this._pushDidWork) break;
+      while (this._buffer.length > 0) {
+        this.emit('data', this._buffer.shift());
+      }
     }
     if (this._ended) {
       this.emit('end');
@@ -211,6 +233,13 @@ string streamSource() pure @safe nothrow
         if (done) return Promise.resolve({ value: undefined, done: true });
         var chunk = self.read();
         if (chunk !== null) return Promise.resolve({ value: chunk, done: false });
+        // read() returned null but might have synchronously triggered
+        // 'end' (e.g. Readable.from's _read pushes null when items
+        // exhausted, which fires 'end' inside push). The done flag
+        // we set on 'end' catches that case so we don't hang waiting
+        // for an event that already fired.
+        if (self._ended || done)
+          return Promise.resolve({ value: undefined, done: true });
         return new Promise(function(resolve) {
           function onData(d) { cleanup(); resolve({ value: d, done: false }); }
           function onEnd() { cleanup(); resolve({ value: undefined, done: true }); }
@@ -414,30 +443,38 @@ string streamSource() pure @safe nothrow
       return;
     }
 
-    var errorOccurred = false;
-
-    function onError(err) {
-      if (errorOccurred) return;
-      errorOccurred = true;
-      for (var k = 0; k < streams.length; k++) {
-        if (typeof streams[k].destroy === 'function') streams[k].destroy();
+    // Attach completion listeners on the LAST stream BEFORE wiring
+    // the pipes. Our pipe() is synchronous (resume drains
+    // immediately) so by the time the for loop reaches the second
+    // pipe call, the last stream may already be finished -- a
+    // listener attached afterward would miss the event and the
+    // callback never fires.
+    var doneCalled = false;
+    function done(err) {
+      if (doneCalled) return;
+      doneCalled = true;
+      if (err) {
+        for (var k = 0; k < streams.length; k++) {
+          if (typeof streams[k].destroy === 'function') streams[k].destroy();
+        }
       }
       if (callback) callback(err);
     }
+    var errorOccurred = false;
+    function onError(err) {
+      if (errorOccurred) return;
+      errorOccurred = true;
+      done(err);
+    }
+    var last = streams[streams.length - 1];
+    last.on('finish', function() { if (!errorOccurred) done(null); });
+    last.on('end', function() { if (!errorOccurred) done(null); });
+    last.on('error', onError);
 
     for (var s = 0; s < streams.length - 1; s++) {
       streams[s].on('error', onError);
       streams[s].pipe(streams[s + 1]);
     }
-
-    var last = streams[streams.length - 1];
-    last.on('error', onError);
-    last.on('finish', function() {
-      if (!errorOccurred && callback) callback(null);
-    });
-    last.on('end', function() {
-      if (!errorOccurred && callback) callback(null);
-    });
 
     return last;
   }

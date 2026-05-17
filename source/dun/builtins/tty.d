@@ -40,8 +40,8 @@ version (EngineQuickJS)
 
     private extern (C) int ttyModuleInit(JSContext* ctx, JSModuleDef* m) nothrow @trusted
     {
-        assert(ctx !is null);
-        assert(m !is null);
+        assert(ctx !is null, "Null ctx in ttyModuleInit");
+        assert(m !is null, "Null module def in ttyModuleInit");
         auto global = JS_GetGlobalObject(ctx);
         auto mod = JS_GetPropertyStr(ctx, global, "__dun_cjs_tty__");
         foreach (name; ["isatty", "ReadStream", "WriteStream"])

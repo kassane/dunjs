@@ -1,0 +1,7 @@
+crc32: 470b99f4
+adler32: 280010
+xxh32: df1c16c8
+xxh64: bigint
+crc32 of 'hello': 3610a686
+mkdir async ok
+mkdir sync ok

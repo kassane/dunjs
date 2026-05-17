@@ -4,7 +4,9 @@
 /// positions (e.g. `a < b`, `a / b`) parses unchanged.
 module dun.ts.jsx;
 
-import std.array : Appender;
+// Project convention (CLAUDE.md): allocator helpers go via
+// `dun.platform.arena`, not `std.array` directly.
+import dun.platform.arena : Appender;
 import std.algorithm : canFind;
 
 /// Transform JSX expressions in `source` to React.createElement calls.

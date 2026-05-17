@@ -645,6 +645,7 @@ JSHandle jsStdoutWrite(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trus
 {
     assert(ctx !is null, "Null ctx in process.stdout.write");
     auto state = cast(DunState*) ctx;
+    assert(state.engine !is null, "Null engine in process.stdout.write");
     auto engine = state.engine;
     if (args.length < 1) return engine.newBool(true);
     try
@@ -680,6 +681,7 @@ JSHandle jsStderrWrite(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trus
 {
     assert(ctx !is null, "Null ctx in process.stderr.write");
     auto state = cast(DunState*) ctx;
+    assert(state.engine !is null, "Null engine in process.stderr.write");
     auto engine = state.engine;
     if (args.length < 1) return engine.newBool(true);
     try
@@ -711,6 +713,7 @@ JSHandle jsHrtime(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in process.hrtime");
     auto state = cast(DunState*) ctx;
+    assert(state.engine !is null, "Null engine in process.hrtime");
     auto engine = state.engine;
     try
     {
@@ -738,10 +741,33 @@ JSHandle jsHrtime(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
     catch (Exception) { return engine.newArray(); }
 }
 
+/// `performance.now()` -- high-resolution monotonic time in milliseconds
+/// as a JS number (double). Uses MonoTime for sub-millisecond
+/// precision; some engines (JSC, V8) ship a native performance.now
+/// that rounds to integer milliseconds, breaking sub-ms benchmark
+/// measurements.
+public JSHandle jsPerformanceNow(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
+{
+    assert(ctx !is null, "Null ctx in performance.now");
+    auto state = cast(DunState*) ctx;
+    assert(state.engine !is null, "Null engine in performance.now");
+    auto engine = state.engine;
+    try
+    {
+        import core.time : MonoTime, ticksToNSecs;
+        auto now = MonoTime.currTime;
+        long totalNs = ticksToNSecs(now.ticks);
+        long originNs = ticksToNSecs(_processStartTimeTicks);
+        return engine.newFloat((cast(double)(totalNs - originNs)) / 1_000_000.0);
+    }
+    catch (Throwable) { return engine.newFloat(0.0); }
+}
+
 JSHandle jsHrtimeBigint(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in process.hrtime.bigint");
     auto state = cast(DunState*) ctx;
+    assert(state.engine !is null, "Null engine in process.hrtime.bigint");
     auto engine = state.engine;
     try
     {
@@ -761,6 +787,7 @@ JSHandle jsUptime(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in process.uptime");
     auto state = cast(DunState*) ctx;
+    assert(state.engine !is null, "Null engine in process.uptime");
     auto engine = state.engine;
     try
     {
@@ -778,6 +805,7 @@ JSHandle jsMemoryUsage(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trus
 {
     assert(ctx !is null, "Null ctx in process.memoryUsage");
     auto state = cast(DunState*) ctx;
+    assert(state.engine !is null, "Null engine in process.memoryUsage");
     auto engine = state.engine;
     auto obj = engine.newObject();
     double rss = 0;
@@ -807,6 +835,7 @@ JSHandle jsCpuUsage(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in process.cpuUsage");
     auto state = cast(DunState*) ctx;
+    assert(state.engine !is null, "Null engine in process.cpuUsage");
     auto engine = state.engine;
     auto obj = engine.newObject();
     double userUs = 0;

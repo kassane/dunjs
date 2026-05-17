@@ -5,10 +5,18 @@ import dun.loop.timers : TimerID;
 import dun.runtime.globals : DunState;
 import core.time : dur;
 
+// Cached `(o,id) => { o.valueOf=...; o[Symbol.toPrimitive]=...; }`
+// for numeric-coercion of timer-id objects. Used by every
+// setTimeout / setInterval call -- caching eliminates an
+// `engine.eval()` per timer creation.
+private __gshared JSHandle _cachedTimerSetupFn;
+private __gshared bool _timerSetupCached = false;
+
 void installTimers(IJSEngine engine) @trusted
 {
     assert(engine !is null, "Null engine");
     auto global = engine.getGlobal();
+    scope (exit) engine.freeValue(global);
 
     engine.setProperty(global, "setTimeout",
         engine.newFunction(&jsSetTimeout, "setTimeout", 2));
@@ -18,7 +26,17 @@ void installTimers(IJSEngine engine) @trusted
         engine.newFunction(&jsClearTimer, "clearTimeout", 1));
     engine.setProperty(global, "clearInterval",
         engine.newFunction(&jsClearTimer, "clearInterval", 1));
-    engine.freeValue(global);
+
+    auto setupRes = engine.eval(
+        "(function(o,id){o.valueOf=function(){return id};"
+        ~ "o[Symbol.toPrimitive]=function(){return id};})", "<timer-setup>");
+    if (!setupRes.isError)
+    {
+        _cachedTimerSetupFn = setupRes.value;
+        _timerSetupCached = true;
+    }
+    else
+        engine.freeValue(setupRes.value);
 }
 
 private:
@@ -114,17 +132,22 @@ JSHandle makeTimerObject(IJSEngine engine, int id) @trusted
     engine.setProperty(obj, "hasRef", engine.newFunction(&jsTimerHasRef, "hasRef", 0));
     engine.setProperty(obj, "refresh", engine.newFunction(&jsTimerRef, "refresh", 0));
 
-    // valueOf + Symbol.toPrimitive for numeric coercion (clearTimeout(timer) compat)
-    auto setupRes = engine.eval(
-        "(function(o,id){o.valueOf=function(){return id};"
-        ~ "o[Symbol.toPrimitive]=function(){return id};})", "<timer-setup>");
-    if (!setupRes.isError)
+    // valueOf + Symbol.toPrimitive for numeric coercion (clearTimeout(timer) compat).
+    // Uses the cached setup fn registered in installTimers -- avoids an
+    // engine.eval per call (this path runs on every setTimeout/setInterval).
+    if (_timerSetupCached)
     {
         auto idVal = engine.newInt(id);
-        engine.callFunction(setupRes.value, engine.newUndefined(), [obj, idVal]);
+        auto undef = engine.newUndefined();
+        // dupValue: keep the cached function alive for the next call.
+        // The result handle is undefined; free it to avoid the
+        // per-timer leak the audit flagged.
+        auto rv = engine.callFunction(engine.dupValue(_cachedTimerSetupFn),
+            undef, [obj, idVal]);
+        engine.freeValue(rv);
         engine.freeValue(idVal);
+        engine.freeValue(undef);
     }
-    engine.freeValue(setupRes.value);
 
     return obj;
 }

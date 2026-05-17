@@ -53,29 +53,34 @@ void installDenoCompat(IJSEngine engine) @trusted
     engine.setProperty(denoObj, "readFileSync",
         engine.newFunction(&denoReadTextFileSync, "readFileSync", 1));
 
-    // Deno.statSync / Deno.lstatSync
+    // Deno.statSync / Deno.lstatSync.
     engine.setProperty(denoObj, "statSync",
         engine.newFunction(&denoStatSync, "statSync", 1));
     engine.setProperty(denoObj, "lstatSync",
         engine.newFunction(&denoStatSync, "lstatSync", 1));
 
-    // Deno.mkdirSync
+    // Deno.mkdirSync + Deno.mkdir (async). The async variant runs the
+    // same body and wraps in a resolved Promise -- Deno's real
+    // implementation is also synchronous under the hood for the local
+    // FS, so the only observable difference is the Promise return.
     engine.setProperty(denoObj, "mkdirSync",
         engine.newFunction(&denoMkdirSync, "mkdirSync", 1));
+    // Deno.mkdir (async) is registered via the JS-side shim at the
+    // bottom of installDenoCompat (denoAsyncFsShim).
 
-    // Deno.removeSync
+    // Deno.removeSync.
     engine.setProperty(denoObj, "removeSync",
         engine.newFunction(&denoRemoveSync, "removeSync", 1));
 
-    // Deno.renameSync
+    // Deno.renameSync.
     engine.setProperty(denoObj, "renameSync",
         engine.newFunction(&denoRenameSync, "renameSync", 2));
 
-    // Deno.copyFileSync
+    // Deno.copyFileSync.
     engine.setProperty(denoObj, "copyFileSync",
         engine.newFunction(&denoCopyFileSync, "copyFileSync", 2));
 
-    // Deno.readDirSync
+    // Deno.readDirSync.
     engine.setProperty(denoObj, "readDirSync",
         engine.newFunction(&denoReadDirSync, "readDirSync", 1));
 
@@ -127,23 +132,9 @@ void installDenoCompat(IJSEngine engine) @trusted
     engine.setProperty(denoObj, "inspect",
         engine.newFunction(&denoInspect, "inspect", 1));
 
-    // Deno.errors
+    // Deno.errors -- placeholder; the JS-side shim below replaces each
+    // member with a real Error subclass so `instanceof` checks work.
     auto errorsObj = engine.newObject();
-    engine.setProperty(errorsObj, "NotFound", engine.newObject());
-    engine.setProperty(errorsObj, "PermissionDenied", engine.newObject());
-    engine.setProperty(errorsObj, "AlreadyExists", engine.newObject());
-    engine.setProperty(errorsObj, "InvalidData", engine.newObject());
-    engine.setProperty(errorsObj, "TimedOut", engine.newObject());
-    engine.setProperty(errorsObj, "ConnectionRefused", engine.newObject());
-    engine.setProperty(errorsObj, "ConnectionReset", engine.newObject());
-    engine.setProperty(errorsObj, "NotConnected", engine.newObject());
-    engine.setProperty(errorsObj, "AddrInUse", engine.newObject());
-    engine.setProperty(errorsObj, "AddrNotAvailable", engine.newObject());
-    engine.setProperty(errorsObj, "BrokenPipe", engine.newObject());
-    engine.setProperty(errorsObj, "WriteZero", engine.newObject());
-    engine.setProperty(errorsObj, "UnexpectedEof", engine.newObject());
-    engine.setProperty(errorsObj, "BadResource", engine.newObject());
-    engine.setProperty(errorsObj, "Busy", engine.newObject());
     engine.setProperty(denoObj, "errors", errorsObj);
 
     auto global = engine.getGlobal();
@@ -155,6 +146,107 @@ void installDenoCompat(IJSEngine engine) @trusted
     // here means we can iterate on the wrapper without recompiling.
     auto shimRes = engine.eval(denoServeAndKvSource(), "<deno-serve-kv>");
     if (!shimRes.isError) engine.freeValue(shimRes.value);
+
+    // Async file-system shims. Each delegates to its `*Sync` companion
+    // and wraps the result (or thrown error) in a Promise. Deno's real
+    // implementations are also synchronous under the hood on local FS,
+    // so the only observable difference is the return-type contract.
+    // `readDir` returns an AsyncIterable so `for await` works.
+    auto asyncShim = engine.eval(denoAsyncFsShim(), "<deno-async-fs>");
+    if (!asyncShim.isError) engine.freeValue(asyncShim.value);
+}
+
+private string denoAsyncFsShim() pure nothrow @safe
+{
+    // Same join rules as denoServeAndKvSource -- block comments only.
+    return
+    "(function(){" ~
+    "  /* Promote Deno.errors entries to real Error subclasses so " ~
+    "     `e instanceof Deno.errors.NotFound` works. We use the function-" ~
+    "     constructor + Object.create(Error.prototype) pattern instead of " ~
+    "     `class C extends Error` because QuickJS / JSC have a long-" ~
+    "     standing instanceof bug on class-extends-Error (V8 is correct " ~
+    "     here, but we want one shim that passes on all three backends). */" ~
+    "  function makeErrCls(n) {" ~
+    "    function C(m) {" ~
+    "      Error.call(this, m);" ~
+    "      this.name = n;" ~
+    "      this.message = m;" ~
+    "      if (Error.captureStackTrace) Error.captureStackTrace(this, C);" ~
+    "    }" ~
+    "    C.prototype = Object.create(Error.prototype);" ~
+    "    C.prototype.constructor = C;" ~
+    "    C.prototype.name = n;" ~
+    "    Object.defineProperty(C, 'name', { value: n });" ~
+    "    return C;" ~
+    "  }" ~
+    "  var errNames = ['NotFound','PermissionDenied','AlreadyExists'," ~
+    "    'InvalidData','TimedOut','ConnectionRefused','ConnectionReset'," ~
+    "    'NotConnected','AddrInUse','AddrNotAvailable','BrokenPipe'," ~
+    "    'WriteZero','UnexpectedEof','BadResource','Busy','Interrupted'," ~
+    "    'WouldBlock','NotSupported','FilesystemLoop','IsADirectory'," ~
+    "    'NetworkUnreachable','NotADirectory','NotCapable'];" ~
+    "  for (var i = 0; i < errNames.length; i++) {" ~
+    "    Deno.errors[errNames[i]] = makeErrCls(errNames[i]);" ~
+    "  }" ~
+    "  /* Convert TypeError messages that map to a Deno.errors.* class. " ~
+    "     The sync impls use engine.throwTypeError for OS-level failures; " ~
+    "     this re-wraps them so `e instanceof Deno.errors.NotFound` works. */" ~
+    "  function classify(e) {" ~
+    "    if (!e || typeof e.message !== 'string') return e;" ~
+    "    var m = e.message;" ~
+    "    if (m.indexOf('No such file or directory') >= 0) return new Deno.errors.NotFound(m);" ~
+    "    if (m.indexOf('Permission denied') >= 0 || m.indexOf('--allow-') >= 0) return new Deno.errors.PermissionDenied(m);" ~
+    "    if (m.indexOf('File exists') >= 0 || m.indexOf('already exists') >= 0) return new Deno.errors.AlreadyExists(m);" ~
+    "    if (m.indexOf('Connection refused') >= 0) return new Deno.errors.ConnectionRefused(m);" ~
+    "    if (m.indexOf('Connection reset') >= 0) return new Deno.errors.ConnectionReset(m);" ~
+    "    if (m.indexOf('Address already in use') >= 0) return new Deno.errors.AddrInUse(m);" ~
+    "    if (m.indexOf('Operation timed out') >= 0 || m.indexOf('TimedOut') >= 0) return new Deno.errors.TimedOut(m);" ~
+    "    return e;" ~
+    "  }" ~
+    "  /* Wrap every *Sync function so it throws a Deno.errors.* class " ~
+    "     instead of a plain TypeError when the underlying OS error matches. */" ~
+    "  function wrapSyncClassify(name) {" ~
+    "    var orig = Deno[name];" ~
+    "    if (typeof orig !== 'function') return;" ~
+    "    Deno[name] = function(...args) {" ~
+    "      try { return orig.apply(this, args); }" ~
+    "      catch (e) { throw classify(e); }" ~
+    "    };" ~
+    "  }" ~
+    "  ['statSync','lstatSync','removeSync','renameSync','copyFileSync'," ~
+    "   'readDirSync','readTextFileSync','writeTextFileSync','readFileSync'," ~
+    "   'writeFileSync','mkdirSync','realPathSync','truncateSync']" ~
+    "    .forEach(wrapSyncClassify);" ~
+    "  function wrapAsync(syncName){" ~
+    "    return function(...args){" ~
+    "      try { return Promise.resolve(Deno[syncName](...args)); }" ~
+    "      catch (e) { return Promise.reject(e); }" ~
+    "    };" ~
+    "  }" ~
+    "  Deno.mkdir     = wrapAsync('mkdirSync');" ~
+    "  Deno.stat      = wrapAsync('statSync');" ~
+    "  Deno.lstat     = wrapAsync('lstatSync');" ~
+    "  Deno.remove    = wrapAsync('removeSync');" ~
+    "  Deno.rename    = wrapAsync('renameSync');" ~
+    "  Deno.copyFile  = wrapAsync('copyFileSync');" ~
+    "  Deno.realPath  = wrapAsync('realPathSync');" ~
+    "  Deno.truncate  = wrapAsync('truncateSync');" ~
+    "  Deno.readTextFile = wrapAsync('readTextFileSync');" ~
+    "  Deno.writeTextFile = wrapAsync('writeTextFileSync');" ~
+    "  Deno.readFile  = wrapAsync('readFileSync');" ~
+    "  Deno.writeFile = wrapAsync('writeFileSync');" ~
+    "  /* readDir: returns AsyncIterable so `for await (const e of Deno.readDir(p))` works. */" ~
+    "  Deno.readDir = function(path){" ~
+    "    return {" ~
+    "      [Symbol.asyncIterator]: async function*(){" ~
+    "        try {" ~
+    "          for (const entry of Deno.readDirSync(path)) yield entry;" ~
+    "        } catch (e) { throw e; }" ~
+    "      }" ~
+    "    };" ~
+    "  };" ~
+    "})();";
 }
 
 private string denoServeAndKvSource() pure nothrow @safe
@@ -218,14 +310,25 @@ private string denoServeAndKvSource() pure nothrow @safe
     "    });" ~
     "  });" ~
     "  srv.listen(port, host);" ~
+    /* Read back the actually-bound port from srv.address(). When the
+       caller asks for port:0, Node/DunJS picks a random free port --
+       the requested 0 isn't the listening port. Real Deno reports
+       the real port via server.addr.port; we have to do the same or
+       callers fetching `http://127.0.0.1:${server.addr.port}/` hit
+       port 0 and never connect. */
+    "  var actualPort = port;" ~
+    "  try {" ~
+    "    var addr = srv.address();" ~
+    "    if (addr && typeof addr.port === 'number') actualPort = addr.port;" ~
+    "  } catch (e) {}" ~
     "  if (typeof opts.onListen === 'function') {" ~
-    "    setTimeout(function() { opts.onListen({ hostname: host, port: port }); }, 0);" ~
+    "    setTimeout(function() { opts.onListen({ hostname: host, port: actualPort }); }, 0);" ~
     "  }" ~
     "  var finishedResolve;" ~
     "  var finished = new Promise(function(r) { finishedResolve = r; });" ~
     "  srv.on('close', function() { finishedResolve(); });" ~
     "  return {" ~
-    "    addr: { hostname: host, port: port, transport: 'tcp' }," ~
+    "    addr: { hostname: host, port: actualPort, transport: 'tcp' }," ~
     "    finished: finished," ~
     "    ref: function() {}," ~
     "    unref: function() {}," ~
@@ -639,7 +742,7 @@ JSHandle denoStatSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trust
     }
 }
 
-// ── Deno.mkdirSync ──
+// ── Deno.mkdirSync / Deno.mkdir ──
 
 JSHandle denoMkdirSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {

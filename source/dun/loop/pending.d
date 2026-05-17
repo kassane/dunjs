@@ -17,7 +17,12 @@ struct PendingCall
     int argc;
 }
 
+// Head-indexed FIFO: `queue` only grows; `head` advances per pop. A
+// previous version used `queue = queue[1 .. $]` which copies the tail
+// each iteration -- O(N^2) drain on a burst of I/O callbacks.
+// Matches the pattern used by NextTickQueue / MicrotaskQueue.
 private PendingCall[] queue;
+private size_t head;
 
 void pushPending(JSContext* ctx, JSValue func, JSValue[] args) nothrow @trusted
 {
@@ -32,18 +37,22 @@ void pushPending(JSContext* ctx, JSValue func, JSValue[] args) nothrow @trusted
     catch (Throwable) {}
 }
 
-bool hasPending() @safe nothrow { return queue.length > 0; }
+bool hasPending() @safe nothrow { return head < queue.length; }
 
 void drainPending() @trusted
 {
-    while (queue.length > 0)
+    while (head < queue.length)
     {
-        auto c = queue[0];
-        queue = queue[1 .. $];
+        auto c = queue[head];
+        head++;
         auto ret = JS_Call(c.ctx, c.func, JS_UNDEFINED(), c.argc, c.args.ptr);
         JS_FreeValue(c.ctx, ret);
         JS_FreeValue(c.ctx, c.func);
         foreach (i; 0 .. c.argc)
             JS_FreeValue(c.ctx, c.args[i]);
     }
+    // Compact: once the queue has been fully drained, reset both
+    // indices so the GC can collect the prior backing array.
+    queue.length = 0;
+    head = 0;
 }

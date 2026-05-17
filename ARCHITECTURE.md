@@ -6,10 +6,12 @@ DunJS is a 7-layer JavaScript/TypeScript runtime with a **pluggable engine archi
 (IJSEngine interface), a cross-platform I/O poller (epoll/kqueue/poll), and a Deno-inspired permission system.
 
 Three backends are fully functional: QuickJS-NG (default), JavaScriptCore, and V8.
-All 66 integration tests pass on QuickJS, JSC, and V8 (full parity across all 3 backends).
-All 28 built-in modules (fs, path, crypto, net, http, http2, buffer, events, url, os, fetch,
-child_process, stream, zlib, dns, ws, sqlite, util, assert, querystring, string_decoder,
-timers/promises, vm, cluster, async_hooks, worker_threads, tls) are engine-agnostic.
+All 127 integration tests pass on QuickJS, JSC, and V8 (full parity across all 3 backends).
+All built-in modules (see CLAUDE.md for the canonical list — 30+ including fs, path,
+crypto, net, http, http2, http3, buffer, events, url, os, fetch, child_process, stream,
+zlib, dns, ws, sqlite, util, assert, querystring, string_decoder, timers/promises, vm,
+cluster, async_hooks, worker_threads, https, fs/promises, readline, tls, dgram,
+perf_hooks, wasi) are engine-agnostic.
 Workers, SharedArrayBuffer, and Atomics work on all backends.
 HTTPS via OpenSSL, npm package install, 30+ Deno APIs, web standard globals, POSIX signal handling.
 fetch() returns proper Response objects. import.meta works on all backends. process.stdin available.
@@ -586,4 +588,4 @@ tests/benchmarks/http_bench/
 HTTP server optimizations: TCP_NODELAY, buffered single-write response, CTFE pre-computed
 status lines, connection slot pooling, fd→connId hashmap (O(1) lookup), JS-level dispatch
 for reduced FFI overhead, lazy header loading, MSG_NOSIGNAL, EOF detection with RAII cleanup.
-**QuickJS 66/66, JSC 66/66, V8 66/66** (all backends at full parity).
+**QuickJS 127/127, JSC 127/127, V8 127/127** (all backends at full parity).

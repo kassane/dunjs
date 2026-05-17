@@ -131,13 +131,36 @@ int runScript(T)(T config)
             source = tcResult;
     }
 
-    // Strip TS for .ts/.mts/.cts/.tsx files AND for stdin (where we
-    // have no extension to dispatch on). Stripper is a whitespace-
-    // preserving no-op for plain JS, so the false-positive cost is zero.
+    // TS -> JS pipeline. When typescript is already installed in
+    // node_modules (anywhere upward from the script), we use
+    // `ts.transpileModule()` for full TS-spec correctness (decorators,
+    // const enum, namespace runtime, generic-cast resolution, etc.).
+    // The scanner stripper takes over otherwise -- so users who don't
+    // need full TS still pay zero cold-start cost. Opt-out via
+    // `DUN_DISABLE_TSC=1` to force the scanner regardless.
     if (isTypeScript(config.scriptPath) || isStdinPath(config.scriptPath))
     {
-        import dun.ts.strip : stripTypes;
-        source = stripTypes(source);
+        if (!config.typecheck)  // typecheck path already runs tsc above
+        {
+            auto tsOut = runTranspile(source, config.scriptPath);
+            if (tsOut.length > 0)
+                source = tsOut;
+            else
+            {
+                import dun.ts.strip : stripTypes;
+                source = stripTypes(source);
+            }
+        }
+    }
+
+    // Dynamic `import(specifier)` rewrite. JSC and V8 don't wire
+    // `HostImportModuleDynamicallyCallback`, so the engine throws
+    // "Not supported" at any `await import(...)` call site. We
+    // rewrite to `__dunImport__(...)` (installed in JS land at engine
+    // boot) which wraps `require(...)` in a Promise.
+    {
+        import dun.ts.dynamic_import : rewriteDynamicImport;
+        source = rewriteDynamicImport(source);
     }
 
     // JSX/TSX → React.createElement transform. Runs after TS strip
@@ -155,6 +178,14 @@ int runScript(T)(T config)
     {
         import dun.runtime.unicode_props : expandUnicodePropertyEscapes;
         source = expandUnicodePropertyEscapes(source);
+    }
+    // /v set-op rewrite — QuickJS-NG rejects `[A--B]/v` literals at
+    // parse time; V8 14.9 returns wrong matches for `[\p{X}--\p{Y}]`.
+    // JSC handles /v natively; the rewriter no-ops when neither flag
+    // nor set operators are present, so this is cheap on all backends.
+    {
+        import dun.runtime.unicode_props : expandVSetOps;
+        source = expandVSetOps(source);
     }
 
     if (isWasmFile(config.scriptPath))
@@ -368,6 +399,10 @@ int evalInline(T)(T config)
         import dun.runtime.unicode_props : expandUnicodePropertyEscapes;
         evalSource = expandUnicodePropertyEscapes(evalSource);
     }
+    {
+        import dun.runtime.unicode_props : expandVSetOps;
+        evalSource = expandVSetOps(evalSource);
+    }
     auto result = engine.eval(evalSource, "<eval>");
     if (result.isError)
     {
@@ -519,10 +554,28 @@ void printUsage()
         ~ "  --eval-file=<path>     Execute file before entering REPL\n"
         ~ "  --watch / -w           Restart script on file changes\n"
         ~ "  --typecheck            Run TS files through tsc first;\n"
-        ~ "                         needs `npm install typescript`\n\n"
-        ~ "REPL environment variables:\n"
-        ~ "  DUN_REPL_HISTORY       Path to history file (~/.dun_repl_history)\n"
-        ~ "  DUN_REPL_HISTORY_SIZE  Max history entries (default: 1000)\n\n"
+        ~ "                         auto-installs typescript via `dun install` if missing\n\n"
+        ~ "Environment variables:\n"
+        ~ "  DUN_HOME                  User-global store root (default: $HOME/.dun on\n"
+        ~ "                            Posix, %LOCALAPPDATA%\\dun on Windows). Holds the\n"
+        ~ "                            transpile cache + auto-installed packages.\n"
+        ~ "  DUN_DISABLE_TSC=1         Force scanner stripper instead of tsc transpile\n"
+        ~ "                            (default: use tsc when typescript is installed)\n"
+        ~ "  DUN_AUTO_INSTALL_TSC=1    Default-path TS files auto-install typescript into\n"
+        ~ "                            $DUN_HOME/node_modules (off by default; --typecheck\n"
+        ~ "                            always auto-installs regardless of this flag)\n"
+        ~ "  DUN_TSC_CACHE_MAX_ENTRIES Max entries in the transpile cache (default: 2000)\n"
+        ~ "  DUN_TSC_CACHE_MAX_MB      Max size of transpile cache in MiB (default: 64)\n"
+        ~ "  DUN_TSC_CACHE_TRIM_INTERVAL_SECS\n"
+        ~ "                            Min seconds between trim sweeps (default: 300)\n"
+        ~ "  DUN_TSC_CACHE_DEBUG=1     Print cache write/trim errors to stderr\n"
+        ~ "  DUN_TSC_QUIET=1           Suppress 'tsc transpile failed; using scanner' warning\n"
+        ~ "  DUN_TYPECHECK_DEBUG=1     Dump --typecheck driver source to /tmp/dun-typecheck-driver.js\n"
+        ~ "                            on engine error (debugging the typecheck shim)\n"
+        ~ "  DUN_REPL_HISTORY          Path to REPL history file (default: ~/.dun_repl_history)\n"
+        ~ "  DUN_REPL_HISTORY_SIZE     Max REPL history entries (default: 1000)\n"
+        ~ "  DUN_TEST_TIMEOUT          Per-fixture timeout in seconds for integration runner\n"
+        ~ "                            (default: 30; only honored by tests/integration/run.sh)\n\n"
         ~ "D runtime GC tuning (passed before command):\n"
         ~ "  \"--DRT-gcopt=profile:1\"          Print GC stats on exit\n"
         ~ "  \"--DRT-gcopt=minPoolSize:32\"     Pool size in MB (default: 16)\n"
@@ -611,6 +664,14 @@ int runSingleTest(T)(T config, string filePath) @trusted
     {
         import dun.runtime.unicode_props : expandUnicodePropertyEscapes;
         source = expandUnicodePropertyEscapes(source);
+    }
+    // /v set-op rewrite — QuickJS-NG rejects `[A--B]/v` literals at
+    // parse time; V8 14.9 returns wrong matches for `[\p{X}--\p{Y}]`.
+    // JSC handles /v natively; the rewriter no-ops when neither flag
+    // nor set operators are present, so this is cheap on all backends.
+    {
+        import dun.runtime.unicode_props : expandVSetOps;
+        source = expandVSetOps(source);
     }
 
     // Inject test harness preamble
@@ -770,6 +831,14 @@ int runSingleBench(T)(T config, string filePath) @trusted
     {
         import dun.runtime.unicode_props : expandUnicodePropertyEscapes;
         source = expandUnicodePropertyEscapes(source);
+    }
+    // /v set-op rewrite — QuickJS-NG rejects `[A--B]/v` literals at
+    // parse time; V8 14.9 returns wrong matches for `[\p{X}--\p{Y}]`.
+    // JSC handles /v natively; the rewriter no-ops when neither flag
+    // nor set operators are present, so this is cheap on all backends.
+    {
+        import dun.runtime.unicode_props : expandVSetOps;
+        source = expandVSetOps(source);
     }
 
     // Bench harness: Deno.bench(name, fn) runs fn multiple times and measures
@@ -1493,23 +1562,248 @@ bool isWasmFile(string path) @safe pure nothrow @nogc
 }
 
 /// Walk up from the script file looking for `node_modules/typescript`.
-/// Returns true if a typescript install is found at any ancestor.
+/// Returns true if a typescript install is found at any ancestor of
+/// `scriptPath`, OR in DunJS's user-global store at `~/.dun/node_modules`.
+/// The user-global path lets `dun install typescript` from any cwd
+/// satisfy every `dun run` invocation on this machine, even when the
+/// script lives outside a project tree.
 bool findTypescriptInstall(string scriptPath) @trusted
 {
     import std.file : exists;
     import std.path : absolutePath, dirName, buildPath;
     string dir;
     try { dir = absolutePath(scriptPath).dirName; }
-    catch (Exception) { dir = "."; }
+    catch (Exception) { dir = absolutePath("."); }
+    auto pkgRel = buildPath("node_modules", "typescript", "lib", "typescript.js");
     while (dir.length > 1)
     {
-        auto candidate = buildPath(dir, "node_modules", "typescript", "lib", "typescript.js");
-        if (exists(candidate)) return true;
+        if (exists(buildPath(dir, pkgRel))) return true;
         auto parent = dirName(dir);
         if (parent == dir) break;
         dir = parent;
     }
-    return false;
+    return exists(buildPath(dunGlobalRoot(), pkgRel));
+}
+
+// dunGlobalRoot() lives in dun.platform.paths so other modules
+// (transpile_cache, require, ...) can use it without depending on
+// dun.app. Re-exported here for ergonomics inside this module.
+public import dun.platform.paths : dunGlobalRoot;
+
+/// Fast transpile-only path via `ts.transpileModule()`. Used as the
+/// default for `.ts`/`.tsx` files when typescript is already present
+/// in node_modules; the scanner stripper takes over otherwise. Trades
+/// ~50 ms of cold-start for full TS-spec correctness (decorators,
+/// enums, namespace runtime, generic-cast resolution, etc.) -- all the
+/// edge cases the scanner re-discovers per release.
+///
+/// Returns the transpiled JS on success, or "" to signal "fall back
+/// to the scanner". No type errors are reported here (use
+/// `--typecheck` for that); transpileModule keeps going on type
+/// errors and just produces JS.
+string runTranspile(string source, string filename) @trusted
+{
+    import dun.engine.iface : createEngine, EngineConfig,
+                              DEFAULT_MEMORY_LIMIT, DEFAULT_MAX_STACK;
+    import dun.runtime.globals : DunState, installGlobals;
+    import dun.security.permissions : Permission, PermissionRegistry;
+    import std.process : environment;
+    import dun.ts.transpile_cache : cacheKey, lookup, store;
+
+    // Opt-out: DUN_DISABLE_TSC=1 forces the scanner stripper
+    // regardless of typescript availability. Useful for benchmarking
+    // and for working around any tsc-specific transpile quirks.
+    if (environment.get("DUN_DISABLE_TSC", "") == "1")
+        return "";
+    if (!findTypescriptInstall(filename))
+    {
+        // DUN_AUTO_INSTALL_TSC=1 makes the default tsc path
+        // auto-install typescript (matching the behaviour of
+        // --typecheck). Skipping by default because installing 5+ MB
+        // on first run is intrusive when the scanner stripper is
+        // good enough for most workloads.
+        if (environment.get("DUN_AUTO_INSTALL_TSC", "") != "1")
+            return "";  // not installed; caller falls back to scanner
+        import dun.modules.npm : installPackage, AuditMode;
+        import std.stdio : writeln;
+        import std.file : mkdirRecurse;
+        immutable globalRoot = dunGlobalRoot();
+        try { mkdirRecurse(globalRoot); } catch (Throwable) {}
+        try writeln("dun: typescript not installed; installing into ", globalRoot, " ...");
+        catch (Throwable) {}
+        if (!installPackage("typescript", AuditMode.off, globalRoot))
+            return "";  // install failed; fall back to scanner
+        if (!findTypescriptInstall(filename))
+            return "";  // shouldn't happen, but be defensive
+    }
+
+    // Cache check: hash (source, filename, tsc version, compiler options
+    // fingerprint) and look in ~/.dun/cache/tsc/. On hit we skip the
+    // ~300-700 ms tsc startup entirely (~30x speedup on cache hit).
+    immutable tscVersion = readTscVersion(filename);
+    immutable key = cacheKey(source, filename, tscVersion);
+    if (auto cached = lookup(key))
+        return cached;
+
+    auto eng = createEngine();
+    eng.initialize(EngineConfig(DEFAULT_MEMORY_LIMIT, DEFAULT_MAX_STACK));
+    scope (exit) eng.shutdown();
+
+    DunState state;
+    state.engine = eng;
+    state.scriptArgs = ["dun", filename];
+    state.eventLoop.initialize(eng);
+    PermissionRegistry perms;
+    perms.grant(Permission.read);  // typescript reads .ts source + tsconfig
+    perms.grant(Permission.env);   // ts looks at process.env occasionally
+    state.permissions = &perms;
+    // Set of globals tsc actually touches: console, process,
+    // require, fs, path, os, util, Buffer. Skip the full installGlobals
+    // because it populates `__gshared` caches (notably crypto's
+    // subtle-fn cache) with handles tied to THIS transient engine's
+    // V8 isolate -- when the main engine reuses them after we've shut
+    // this engine down, V8 segfaults on Object.Set inside
+    // Map::TransitionToDataProperty (gdb-verified). Manual list keeps
+    // the set narrow + the boot fast.
+    {
+        import dun.runtime.console : installConsole;
+        import dun.runtime.process_api : installProcess;
+        import dun.runtime.web_compat : installWebCompat;
+        import dun.modules.require : installRequire;
+        import dun.builtins.fs : registerFsModule;
+        import dun.builtins.path : registerPathModule;
+        import dun.builtins.os : registerOsModule;
+        import dun.builtins.buffer : registerBufferModule;
+        import dun.builtins.util : registerUtilModule;
+        // setContextOpaque is normally done by installGlobals -- needed
+        // because process_api dispatch reads DunState back out via
+        // engine.getContextOpaque().
+        import dun.runtime.timers_api : installTimers;
+        eng.setContextOpaque(cast(void*) &state);
+        installConsole(eng);
+        installTimers(eng);        // tsc's node-system uses setTimeout for async
+        installProcess(eng);
+        installWebCompat(eng);     // Buffer/TextEncoder used by tsc's node-system path
+        registerBufferModule(eng);
+        registerFsModule(eng);
+        registerPathModule(eng);
+        registerOsModule(eng);
+        registerUtilModule(eng);
+        installRequire(eng);
+    }
+
+    import std.json : JSONValue;
+    string srcLit = JSONValue(source).toString();
+    string fnLit  = JSONValue(filename).toString();
+
+    string driver =
+        `(function(){`
+        ~ `  const ts = require('typescript');`
+        ~ `  const src = ` ~ srcLit ~ `;`
+        ~ `  const filename = ` ~ fnLit ~ `;`
+        /* ESNext module keeps `import x from 'y'` / `import.meta`
+           intact -- DunJS's runtime decides CJS vs ESM dispatch
+           based on file extension + content, same as it does for
+           the scanner output. Using CommonJS here would rewrite
+           imports to require() (good) but also blow up on
+           `import.meta` (no CJS equivalent). */
+        ~ `  const t = ts.transpileModule(src, {`
+        ~ `    compilerOptions: {`
+        ~ `      target: ts.ScriptTarget.ES2022,`
+        ~ `      module: ts.ModuleKind.ESNext,`
+        ~ `      esModuleInterop: true,`
+        ~ `      allowJs: true,`
+        ~ `      jsx: filename.endsWith('.tsx') ? ts.JsxEmit.React : ts.JsxEmit.None,`
+        ~ `      experimentalDecorators: true,`
+        ~ `      emitDecoratorMetadata: false,`
+        ~ `      sourceMap: false,`
+        ~ `      isolatedModules: true,`  /* mirrors --isolatedModules */
+        ~ `      verbatimModuleSyntax: false,`
+        ~ `    },`
+        ~ `    fileName: filename,`
+        ~ `  });`
+        ~ `  return t.outputText;`
+        ~ `})()`;
+
+    auto res = eng.eval(driver, "<transpile>");
+    if (res.isError)
+    {
+        // tsc transpile failed (e.g. broken tsc install, OOM, missing
+        // module the transient engine doesn't provide). Surface the
+        // first line so users know to investigate; the caller falls
+        // back to the scanner stripper which is a reasonable best
+        // effort. Opt-out the warning with DUN_TSC_QUIET=1.
+        if (environment.get("DUN_TSC_QUIET", "") != "1")
+        {
+            import std.stdio : stderr;
+            try { stderr.writeln("dun: tsc transpile failed (",
+                firstLine(res.errorMessage),
+                "); falling back to scanner"); }
+            catch (Throwable) {}
+        }
+        eng.freeValue(res.value);
+        return "";
+    }
+    string output = eng.extractString(res.value);
+    eng.freeValue(res.value);
+
+    // Persist for the next run. `store()` self-rate-limits its trim
+    // call (mtime-marker, default 5 min between trims) so it's safe
+    // to call on every write.
+    if (output.length > 0)
+        store(key, output);
+
+    return output;
+}
+
+/// First line of a multi-line error message (truncated to 200 chars).
+/// Lets us surface a one-line diagnostic without flooding stderr.
+private string firstLine(string s) @safe pure nothrow
+{
+    enum size_t MAX_LEN = 200;
+    foreach (i, c; s)
+    {
+        if (c == '\n')
+            return i < MAX_LEN ? s[0 .. i] : s[0 .. MAX_LEN];
+    }
+    return s.length > MAX_LEN ? s[0 .. MAX_LEN] : s;
+}
+
+/// Read the installed typescript package version. Used as a cache-key
+/// component so upgrading typescript invalidates the cache. Returns
+/// "?" if package.json can't be read -- the cache still works, just
+/// without version isolation across upgrades.
+private string readTscVersion(string scriptPath) @trusted
+{
+    import std.file : exists, readText;
+    import std.path : absolutePath, dirName, buildPath;
+    import std.json : parseJSON;
+    auto pkgRel = buildPath("node_modules", "typescript", "package.json");
+    string readVer(string root)
+    {
+        auto candidate = buildPath(root, pkgRel);
+        if (!exists(candidate)) return null;
+        try
+        {
+            auto j = parseJSON(readText(candidate));
+            if ("version" in j) return j["version"].str;
+        }
+        catch (Throwable) {}
+        return null;
+    }
+    string dir;
+    try { dir = absolutePath(scriptPath).dirName; }
+    catch (Throwable) { return "?"; }
+    while (dir.length > 1)
+    {
+        if (auto v = readVer(dir)) return v;
+        auto parent = dirName(dir);
+        if (parent == dir) break;
+        dir = parent;
+    }
+    // Fallback: user-global store.
+    if (auto v = readVer(dunGlobalRoot())) return v;
+    return "?";
 }
 
 /// Spin up a short-lived JS engine, require the user's installed
@@ -1532,13 +1826,17 @@ string runTypecheck(string source, string filename, out int rc) @trusted
     // Auto-install typescript via DunJS's own package manager so users
     // don't need a separate `npm install typescript`. Walks upward from
     // the file's directory looking for node_modules/typescript; if not
-    // found, runs `dun install typescript` into the cwd.
+    // found, installs into the user-global `~/.dun/node_modules` so
+    // every `dun run --typecheck` on this machine reuses the same copy.
     if (!findTypescriptInstall(filename))
     {
         import dun.modules.npm : installPackage, AuditMode;
         import std.stdio : writeln;
-        writeln("dun: typescript not installed; running `dun install typescript`...");
-        if (!installPackage("typescript", AuditMode.off))
+        import std.file : mkdirRecurse;
+        immutable globalRoot = dunGlobalRoot();
+        try { mkdirRecurse(globalRoot); } catch (Throwable) {}
+        writeln("dun: typescript not installed; installing into ", globalRoot, " ...");
+        if (!installPackage("typescript", AuditMode.off, globalRoot))
         {
             writeStderr("dun: --typecheck: failed to install typescript; "
                 ~ "falling back to scanner strip\n");

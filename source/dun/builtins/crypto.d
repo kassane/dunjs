@@ -585,6 +585,8 @@ JSHandle jsHashDigest(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trust
             import std.base64 : Base64;
             return engine.newString((() @trusted => cast(string) Base64.encode(result))());
         }
+        else if (encoding == "base64url")
+            return engine.newString(bytesToBase64Url(result));
         else if (encoding == "buffer" || encoding == "binary")
         {
             import dun.builtins.buffer : makeBufferObj;
@@ -626,7 +628,13 @@ JSHandle jsCryptoCreateHmac(void* ctx, JSHandle thisVal, scope JSHandle[] args) 
         _hmacFnsCached = true;
     }
 
-    // Extract key as binary (supports Buffer and string)
+    // Extract key as binary. Supports:
+    //  - string ("secretA")
+    //  - Buffer (has __isBuffer flag)
+    //  - KeyObject (jsonwebtoken / jws pass these: `{type:'secret', _data:Buffer}`)
+    //    -- previously fell through to `extractString` which yielded
+    //    "[object Object]", silently signing every JWT with a constant
+    //    "key", breaking jws.verify on round-trips.
     ubyte[] keyBytes;
     if (engine.isObject(args[1]))
     {
@@ -639,7 +647,26 @@ JSHandle jsCryptoCreateHmac(void* ctx, JSHandle thisVal, scope JSHandle[] args) 
             keyBytes = extractBytes(engine, args[1]).dup;
         }
         else
-            keyBytes = cast(ubyte[]) engine.extractString(args[1]).dup;
+        {
+            // KeyObject: unwrap `._data` (a Buffer).
+            auto data = engine.getProperty(args[1], "_data");
+            scope (exit) engine.freeValue(data);
+            if (engine.isObject(data))
+            {
+                auto dIsBuf = engine.getProperty(data, "__isBuffer");
+                bool dataIsBuffer = engine.isBool(dIsBuf) && engine.extractBool(dIsBuf);
+                engine.freeValue(dIsBuf);
+                if (dataIsBuffer)
+                {
+                    import dun.builtins.buffer : extractBytes;
+                    keyBytes = extractBytes(engine, data).dup;
+                }
+                else
+                    keyBytes = cast(ubyte[]) engine.extractString(args[1]).dup;
+            }
+            else
+                keyBytes = cast(ubyte[]) engine.extractString(args[1]).dup;
+        }
     }
     else
         keyBytes = cast(ubyte[]) engine.extractString(args[1]).dup;
@@ -746,6 +773,8 @@ JSHandle jsHmacDigest(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trust
             import std.base64 : Base64;
             return engine.newString((() @trusted => cast(string) Base64.encode(result))());
         }
+        else if (encoding == "base64url")
+            return engine.newString(bytesToBase64Url(result));
         else if (encoding == "buffer" || encoding == "binary")
         {
             import dun.builtins.buffer : makeBufferObj;
@@ -1692,6 +1721,8 @@ private JSHandle encodeOutput(IJSEngine engine, const(ubyte)[] data, string enco
         import std.base64 : Base64;
         return engine.newString(Base64.encode(data));
     }
+    else if (encoding == "base64url")
+        return engine.newString(bytesToBase64Url(data));
     else // "buffer" — return as Uint8Array
     {
         return engine.newUint8Array(cast(ubyte[]) data);
@@ -1713,6 +1744,23 @@ private ubyte[] decodeInput(string input, string encoding) @trusted
     {
         import std.base64 : Base64;
         try { return Base64.decode(input); }
+        catch (Exception) { return null; }
+    }
+    else if (encoding == "base64url")
+    {
+        // Pad to mod-4 then map `-`/`_` -> `+`/`/` so std.base64 accepts it.
+        import std.base64 : Base64;
+        import dun.platform.arena : Appender;
+        Appender!(char[]) buf;
+        buf.reserve(input.length + 4);
+        foreach (c; input)
+        {
+            if (c == '-') buf ~= '+';
+            else if (c == '_') buf ~= '/';
+            else buf ~= c;
+        }
+        while (buf[].length % 4 != 0) buf ~= '=';
+        try { return Base64.decode(buf[]); }
         catch (Exception) { return null; }
     }
     else // "buffer" — raw bytes
@@ -1821,6 +1869,17 @@ private string bytesToHexStr(const(ubyte)[] data) @safe pure
         buf ~= hexChars[b & 0xF];
     }
     return (() @trusted => cast(string) buf[])();
+}
+
+/// Encode raw bytes as base64url (RFC 7515 §2: `-`/`_` alphabet, no
+/// padding). Used by digest / HMAC / cipher output paths when the
+/// caller asks for `"base64url"`. Without this, the fallback path
+/// returns hex, which silently corrupts JWT / WebPush / similar flows.
+private string bytesToBase64Url(const(ubyte)[] data) @safe pure
+{
+    if (data.length == 0) return "";
+    import std.base64 : Base64URLNoPadding;
+    return (() @trusted => cast(string) Base64URLNoPadding.encode(data))();
 }
 
 private ubyte[] computeHmacBinary(string algo, const(ubyte)[] key, const(ubyte)[] data) @trusted
