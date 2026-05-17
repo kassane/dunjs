@@ -52,6 +52,7 @@ enum T : ubyte
 
     syntax_error,
     hashbang,
+    private_identifier,    // `#x` class-private fields / methods (ES2022)
 
     no_substitution_template_literal,
     numeric_literal,
@@ -200,6 +201,16 @@ struct Lexer
     /// emitting a close-brace token.
     private int templateDepth = 0;
 
+    // Brace balance per active template substitution. Without this,
+    // `${ {x:1} }` would close the substitution at the first `}` --
+    // the lexer can't tell an object literal `}` from a substitution
+    // terminator without counting balanced braces inside the
+    // expression. Bumped on `{`, dropped on `}` while > 0 inside an
+    // active interpolation; only when the count reaches 0 does the
+    // `}` resume template scanning.
+    enum size_t MAX_TEMPLATE_NESTING = 16;
+    private uint[MAX_TEMPLATE_NESTING] templateBraces;
+
     // `src` is stored into a struct member -- DIP1000 forbids
     // `scope` on it because the slice outlives the function. Caller
     // discipline: the Lexer must not outlive the source buffer.
@@ -240,10 +251,23 @@ struct Lexer
         if (c == '`')
             return scanTemplate(startPos, startLine, startCol, /*atBacktick=*/true);
 
-        // `}` while inside a template -- resume template scanning to
-        // produce a template_middle / template_tail.
+        // `}` while inside a template substitution. If the enclosing
+        // expression has unbalanced `{`s (e.g. an object literal),
+        // this `}` closes one of those first; only the *outermost* `}`
+        // resumes template scanning. See `templateBraces` for the
+        // counter rationale.
         if (c == '}' && templateDepth > 0)
-            return scanTemplate(startPos, startLine, startCol, /*atBacktick=*/false);
+        {
+            uint* depth = &templateBraces[templateDepth - 1];
+            if (*depth > 0) { (*depth)--; /* fall through to scanPunctuation */ }
+            else
+                return scanTemplate(startPos, startLine, startCol, /*atBacktick=*/false);
+        }
+        // `{` inside a template substitution bumps the brace counter
+        // for the current substitution so the matching `}` doesn't
+        // prematurely close it.
+        if (c == '{' && templateDepth > 0)
+            templateBraces[templateDepth - 1]++;
 
         // Regex literal: `/` is a regex start when the previous token
         // doesn't allow a division operator (e.g. after `return`,
@@ -254,6 +278,23 @@ struct Lexer
         // Hashbang at file start
         if (c == '#' && pos == 0 && pos + 1 < source.length && source[pos + 1] == '!')
             return scanLineThenToken(T.hashbang, startPos, startLine, startCol);
+
+        // Private identifier `#name` — only valid inside a class body
+        // per spec, but the lexer doesn't track that context. Emit as
+        // `T.private_identifier` whenever `#` is followed by an
+        // identifier-start byte; downstream consumers can reject if
+        // they care about position. Without this every `this.#x`
+        // reference in real code lexes as a syntax_error.
+        if (c == '#' && pos + 1 < source.length
+            && (isIdentStart(source[pos + 1])
+                || cast(ubyte) source[pos + 1] >= 0x80))
+        {
+            advance();  // skip '#'
+            while (pos < source.length && isIdentCont(source[pos]))
+                advance();
+            return emit(T.private_identifier, startPos,
+                cast(uint)(pos - startPos), startLine, startCol);
+        }
 
         return scanPunctuation(startPos, startLine, startCol, c);
     }
@@ -444,8 +485,26 @@ private:
                 advance(); advance();
                 // Interpolation start. Caller will see expression
                 // tokens next; the `}` that ends the expression
-                // returns us to template mode.
-                if (atBacktick) templateDepth++;
+                // returns us to template mode. atBacktick=true means
+                // we're opening a NEW substitution; atBacktick=false
+                // (template_middle) means we're re-opening one inside
+                // an existing template -- the depth was already
+                // incremented when we entered the outer template.
+                if (atBacktick)
+                {
+                    if (templateDepth < cast(int) MAX_TEMPLATE_NESTING)
+                    {
+                        templateBraces[templateDepth] = 0;
+                        templateDepth++;
+                    }
+                }
+                else
+                {
+                    // template_middle case: reset the brace counter for
+                    // the substitution we just re-entered.
+                    if (templateDepth > 0)
+                        templateBraces[templateDepth - 1] = 0;
+                }
                 auto kind = atBacktick ? T.template_head : T.template_middle;
                 return emit(kind, startPos, cast(uint)(pos - startPos),
                     startLine, startCol);
@@ -1018,3 +1077,231 @@ unittest
     auto kw3 = regexAllowingKeywordEndsAt(src6, 8);
     assert(kw3 == 8, "suffix of keyword must not match");
 }
+
+// ─────────── Expanded coverage (ported from Bun's lexer_test.zig) ──────────
+//
+// Bun's lexer_test.zig has ~80 test functions; we don't need exhaustive
+// parity here, but the gaps below were what the strip.d fixtures kept
+// stumbling on. Each unittest is ≤30 lines so they're greppable and the
+// failures point at one tokenizer state.
+
+unittest
+{
+    // Numeric forms strip.d relies on: exponent + decimal + BigInt +
+    // leading-dot. BigInt literals are emitted as `big_integer_literal`,
+    // not `numeric_literal`.
+    auto l = Lexer("3.14e10 .5 1e-3 99999n 0xDEADn 0b101n");
+    assert(l.next().kind == T.numeric_literal);     // 3.14e10
+    assert(l.next().kind == T.numeric_literal);     // .5
+    assert(l.next().kind == T.numeric_literal);     // 1e-3
+    assert(l.next().kind == T.big_integer_literal); // 99999n
+    assert(l.next().kind == T.big_integer_literal); // 0xDEADn
+    assert(l.next().kind == T.big_integer_literal); // 0b101n
+    assert(l.next().kind == T.eof);
+}
+
+unittest
+{
+    // Strings with every escape category (Bun uses these in stripper).
+    auto l = Lexer(`"\n" "\t" "\r" "\\\\" "\"" "ÿ" '\x41' '\0'`);
+    foreach (_; 0 .. 8) assert(l.next().kind == T.string_literal);
+}
+
+unittest
+{
+    // Template with NESTED braces inside ${...} — depth tracking must
+    // not bail out on the first `}`.
+    auto l = Lexer("`a${ {x:1, y:2} }b`");
+    assert(l.next().kind == T.template_head);   // `a${
+    assert(l.next().kind == T.open_brace);      // {
+    assert(l.next().kind == T.identifier);      // x
+    assert(l.next().kind == T.colon);
+    assert(l.next().kind == T.numeric_literal); // 1
+    assert(l.next().kind == T.comma);
+    assert(l.next().kind == T.identifier);      // y
+    assert(l.next().kind == T.colon);
+    assert(l.next().kind == T.numeric_literal); // 2
+    assert(l.next().kind == T.close_brace);     // }
+    assert(l.next().kind == T.template_tail);   // }b`
+}
+
+unittest
+{
+    // Template inside template (recursive interpolation).
+    auto l = Lexer("`a${`x${1}y`}b`");
+    assert(l.next().kind == T.template_head);
+    assert(l.next().kind == T.template_head);
+    assert(l.next().kind == T.numeric_literal);
+    assert(l.next().kind == T.template_tail);
+    assert(l.next().kind == T.template_tail);
+}
+
+unittest
+{
+    // CRLF line tracking: line counter advances exactly once per \r\n.
+    auto l = Lexer("a\r\nb\r\nc");
+    auto a = l.next(); assert(a.line == 1 && a.col == 1);
+    auto b = l.next(); assert(b.line == 2 && b.col == 1);
+    auto c = l.next(); assert(c.line == 3 && c.col == 1);
+}
+
+unittest
+{
+    // Block comment spanning multiple lines bumps line counter.
+    auto l = Lexer("a /* x\ny\nz */ b");
+    auto a = l.next(); assert(a.kind == T.identifier && a.line == 1);
+    auto b = l.next(); assert(b.kind == T.identifier && b.text == "b");
+    assert(b.line == 3, "comment with 2 newlines should leave b on line 3");
+}
+
+unittest
+{
+    // Verify every multi-char operator round-trips as a single token.
+    // Sources are wrapped in `(...)` so the operator never sits at a
+    // regex-allowing position; otherwise `*/` etc. would be lexed as
+    // a regex.
+    static immutable string[] forms = [
+        "===", "!==", "??=", "??", "?.", "**=", ">>>=",
+        ">>>", ">>=", "<<=", "<<", ">>",
+        "==", "!=", "<=", ">=", "&&", "||", "**",
+        "+=", "-=", "*=", "/=", "%=", "&=", "|=", "^=",
+        "&&=", "||=",
+        "++", "--", "=>", "..."
+    ];
+    // Pre-built input strings — `~` concat would allocate inside the
+    // module's `@nogc` colon. `forms` and `sources` line up.
+    static immutable string[] sources = [
+        "a === b;", "a !== b;", "a ??= b;", "a ?? b;", "a ?. b;",
+        "a **= b;", "a >>>= b;",
+        "a >>> b;", "a >>= b;", "a <<= b;", "a << b;", "a >> b;",
+        "a == b;", "a != b;", "a <= b;", "a >= b;", "a && b;",
+        "a || b;", "a ** b;",
+        "a += b;", "a -= b;", "a *= b;", "a /= b;", "a %= b;",
+        "a &= b;", "a |= b;", "a ^= b;",
+        "a &&= b;", "a ||= b;",
+        "a++;", "a--;", "() => b;", "[...a];"
+    ];
+    static assert(forms.length == sources.length,
+        "forms/sources arrays must line up");
+    foreach (i, op; forms)
+    {
+        auto l = Lexer(sources[i]);
+        // Walk until we find the operator token (skip the leading
+        // expression tokens — `a`, `(`, `[`, etc.).
+        while (true)
+        {
+            auto t = l.next();
+            if (t.kind == T.eof) { assert(false, "operator missing"); break; }
+            if (t.text == op) break;
+        }
+    }
+}
+
+unittest
+{
+    // Position tracking: Token.start + .length cover the original byte
+    // span exactly. strip.d depends on this for whitespace-blanking.
+    immutable src = "const xyz = 'abc';";
+    auto l = Lexer(src);
+    auto t1 = l.next();  // const
+    assert(t1.kind == T.t_const);
+    assert(src[t1.start .. t1.start + t1.length] == "const");
+    auto t2 = l.next();  // xyz
+    assert(t2.kind == T.identifier);
+    assert(src[t2.start .. t2.start + t2.length] == "xyz");
+    auto t3 = l.next();  // =
+    assert(src[t3.start .. t3.start + t3.length] == "=");
+    auto t4 = l.next();  // 'abc'
+    assert(t4.kind == T.string_literal);
+    assert(src[t4.start .. t4.start + t4.length] == "'abc'");
+}
+
+unittest
+{
+    // Reserved-word table covers the full ES2023+ set used by strip.d.
+    // Bun's lexer_tables.zig is the source; if a new keyword lands
+    // upstream, strip.d's heuristics ride the same enum.
+    immutable kws = "var let const if else for while do break continue "
+                  ~ "return function class extends super this new yield "
+                  ~ "await async typeof instanceof in of try catch finally "
+                  ~ "throw switch case default delete void null true false";
+    auto l = Lexer(kws);
+    while (true)
+    {
+        auto t = l.next();
+        if (t.kind == T.eof) break;
+        // Every word above is a recognised keyword OR identifier — never
+        // a syntax error.
+        assert(t.kind != T.syntax_error, "unexpected syntax error");
+    }
+}
+
+unittest
+{
+    // Regex disambiguation after the reserved-word set. Contextual
+    // keywords (yield, await, of) lex as `T.identifier` here -- after
+    // an identifier the lexer treats `/` as divide. strip.d compensates
+    // via `regexAllowingKeywordEndsAt` which inspects raw bytes.
+    static immutable string[] tail = ["return /x/",
+        "void /x/", "typeof /x/", "delete /x/", "throw /x/",
+        "case /x/", "in /x/", "instanceof /x/", "new /x/"];
+    foreach (s; tail)
+    {
+        auto l = Lexer(s);
+        l.next();                  // keyword
+        auto r = l.next();
+        assert(r.kind == T.regex_literal,
+            "regex after reserved-word should lex as regex");
+    }
+}
+
+unittest
+{
+    // Regex with sticky / unicode-sets / hasIndices flag combos.
+    auto l = Lexer("/abc/dgimsuvy ; /x/v ; /y/d");
+    assert(l.next().kind == T.regex_literal);
+    assert(l.next().kind == T.semicolon);
+    assert(l.next().kind == T.regex_literal);
+    assert(l.next().kind == T.semicolon);
+    assert(l.next().kind == T.regex_literal);
+}
+
+unittest
+{
+    // Multi-byte identifier with combining marks (UTF-8 surrogate pair).
+    // π + acute = U+03C0 U+0301 → cf 80 cc 81. The lexer's >=0x80
+    // policy accepts both bytes as identifier-class. (`let` is a
+    // contextual keyword in JS, lexed as `T.identifier`, not `T.t_let`.)
+    auto l = Lexer("let \xCF\x80\xCC\x81 = 1");
+    assert(l.next().kind == T.identifier);   // let
+    auto t = l.next();
+    assert(t.kind == T.identifier);
+    assert(t.text == "\xCF\x80\xCC\x81");
+    assert(l.next().kind == T.equals);
+    assert(l.next().kind == T.numeric_literal);
+}
+
+unittest
+{
+    // Unterminated string -> syntax error token, not infinite loop.
+    auto l = Lexer(`"oops`);
+    auto t = l.next();
+    assert(t.kind == T.syntax_error
+        || t.kind == T.string_literal,  // some implementations terminate at EOF
+        "unterminated string must not infinite-loop");
+}
+
+unittest
+{
+    // Unterminated block comment -> ditto.
+    auto l = Lexer("/* never closed");
+    while (true)
+    {
+        auto t = l.next();
+        if (t.kind == T.eof || t.kind == T.syntax_error) break;
+    }
+}
+
+// (Corpus-walk lives in dun.ts.parser package.d — it uses CTFE
+// `import("…")` which needs to escape this module's `@nogc pure`
+// defaults.)

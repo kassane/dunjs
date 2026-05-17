@@ -53,6 +53,19 @@ unittest
         "tsadvanced.ts",
         "workerdemo.ts",
         "reactapp.tsx",
+        // ts_parity/ conformance fixtures (added 2026-05-17).
+        "01_class_fields.ts",
+        "02_enum_namespace.ts",
+        "03_generics.ts",
+        "04_destructure_types.ts",
+        "05_modifiers.ts",
+        "06_regex_in_ts.ts",
+        "07_typeonly_imports.ts",
+        "08_template_types.ts",
+        "09_async_iter.ts",
+        "10_decorators.ts",
+        "11_using.ts",
+        "12_jsx.tsx",
     ];
     static foreach (name; fixtures)
     {{

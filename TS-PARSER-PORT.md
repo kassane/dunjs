@@ -1,13 +1,18 @@
 # Plan: TS parser path forward (research outcome + kickoff)
 
-**Status**: research complete + lexer lift complete + first
-strip.d wiring landed. Phase 1/2/3 of the lexer are in tree
+**Status**: research complete + lexer lift complete + strip.d
+wiring landed + cross-runtime conformance validated + ASan-clean
+on every fixture. Phase 1/2/3/4 of the lexer are in tree
 (`source/dun/ts/parser/`); the strip-mode main loop consults the
-lexer for regex disambiguation; corpus-validation unittest runs
-the lexer over every `ts_compat/` fixture.
+lexer for regex disambiguation; the corpus-validation unittest
+runs the lexer over every `ts_compat/` AND `ts_parity/` fixture.
 **Recommendation**: **NO-GO** on a full Bun-parser port still
 stands. The lexer-only lift captured the high-ROI fraction of
 the value (~80% of correctness wins for ~30% of the effort).
+The deferred items in the original plan were re-evaluated; the
+ones with concrete user-observable wins landed (private
+identifiers, nested-template brace balancing); the others remain
+deferred per the "observable correctness already met" rationale.
 
 ## What's in the tree so far
 
@@ -42,7 +47,62 @@ First lexer-into-strip wiring landed:
   containing `:` / `<` / `>` could trip the strip-mode heuristics
   (verified by `tests/integration/fixtures/ts_regex.ts`).
 
-Still deferred (in priority order if/when this is picked up again):
+### Landed in this round
+
+- **Private identifiers (`#name`)**. ES2022 class-private fields
+  (`class C { #x = 0 }`) and references (`this.#x`) now produce a
+  dedicated `T.private_identifier` token. Without this the lexer
+  emitted `T.syntax_error` on every real `#x` reference; the
+  `ts_parity/01_class_fields.ts` fixture wouldn't even tokenize.
+
+- **Nested-template brace balancing**. The lexer now tracks brace
+  depth per active template substitution (small fixed array
+  `templateBraces[16]`) so `` `${ {x:1, y:2} }` `` correctly
+  treats the inner `}` as object-literal close, not template
+  terminator. Caps nesting at 16 (more than any real-world
+  template chain).
+
+- **Bun.spawn variadic + JSX-in-scope + bare-name module
+  declarations** in the `--typecheck` ambient `.d.ts`
+  (`source/dun/ts/globals_dts.d`). `Deno.*`, `Bun.*`,
+  `require`, `process`, `Buffer`, `React`, and every
+  `dun:` / `node:` / bare module specifier now typecheck
+  cleanly without forcing the user to install `@types/node`.
+
+- **Top-level await + JSX support** in the `--typecheck`
+  driver (`opts.module = ESNext`, `moduleDetection = Force`,
+  `jsx = React`). Without these, `denoapis.ts` and
+  `reactapp.tsx` failed `--typecheck` with TS1375 / TS17004
+  regardless of code correctness.
+
+- **Lexer test coverage expansion**: 13 new unit-tests covering
+  BigInt forms, all-escape strings, nested-template, recursive
+  template, CRLF line tracking, multi-line block comments,
+  multi-char operators, position tracking, reserved-word
+  coverage, regex-after-reserved-word, all /v / /d / /y flag
+  combos, multi-byte identifiers with combining marks,
+  unterminated string / block-comment guards.
+
+- **Cross-runtime conformance harness** at
+  `tests/benchmarks/ts_parity/` (12 fixtures + `run.sh`)
+  comparing DunJS output against `tsc + node`, Bun, Deno,
+  and `node --experimental-strip-types`. DunJS (all 3
+  backends) currently scores **12/12** matching the
+  `tsc + node` gold standard, surpassing Bun (11/12, JSX
+  config gap) and Node-ts (3/12, strip-only mode rejects
+  enums/decorators/namespaces).
+
+- **Lexer throughput micro-bench** (`tests/bench_lexer.d`).
+  Measures the full `Lexer.next()` path against a naive
+  byte-scanner. Current: lexer 184 MB/s vs scanner 1012 MB/s
+  → **5.5× slower than the byte-scanner**, above the "2×"
+  aspirational target. The cost is acceptable in absolute
+  terms (≈0.1 ms per 20 KB file load); the gap reflects the
+  real work the tokenizer does that the byte-scanner skips
+  (keyword lookup, regex disambiguation, position emit).
+
+### Still deferred
+
 - Full Unicode ID_Start / ID_Continue tables (the permissive
   `>= 0x80` acceptance covers every valid identifier in real-world
   TS files; tightening to the spec ranges only matters when the

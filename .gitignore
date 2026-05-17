@@ -32,10 +32,12 @@ build/
 /dun-jsc
 /dun-v8
 /dun-dbg-qjs
+/dun-dbg-v8
 /dun-jsc-dbg
 /dun-rel-qjs
 /dun-rel-jsc
 /dun-rel-v8
+/dun-asan
 
 .omc/
 

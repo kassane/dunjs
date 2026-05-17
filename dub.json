@@ -271,7 +271,8 @@
 	"targetPath": "build",
 	"stringImportPaths": [
 		"source",
-		"tests/benchmarks/ts_compat"
+		"tests/benchmarks/ts_compat",
+		"tests/benchmarks/ts_parity"
 	],
 	"name": "dunjs",
 	"sourcePaths": [
