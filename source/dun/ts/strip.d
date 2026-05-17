@@ -1,6 +1,13 @@
 module dun.ts.strip;
 
 import std.base64 : Base64;
+// Lexer primitives we lean on for literal-region skipping. Strip.d is
+// a byte-level scanner; the lexer is the source of truth for "where
+// does this literal end" so we don't have to maintain a parallel
+// implementation per literal kind. First wiring point of the
+// TS-PARSER-PORT lexer-into-strip integration plan.
+import dun.ts.parser.lexer : skipRegexLit, charAllowsRegex,
+    regexAllowingKeywordEndsAt;
 
 /// Strip TypeScript type annotations, replacing them with whitespace
 /// to preserve source positions. Erasable subset only (no enum/namespace).
@@ -57,6 +64,20 @@ string stripTypes(const(char)[] source) @trusted
     // properties otherwise. The top is the depth *inside* the body.
     int[] classBraceStack;
     classBraceStack.reserve(8);
+    // Active `using` declarations: name + brace depth + position just
+    // after the trailing `;`. Popped when the enclosing `}` closes
+    // the scope. Each pop emits a `try { ... } finally { ... }` pair
+    // around the rest of the block so `Symbol.dispose` fires
+    // deterministically -- even on engines (QJS, JSC) that don't
+    // support `using` natively.
+    struct UsingBinding { string name; int depth; size_t declEnd; bool isAsync; }
+    UsingBinding[] activeUsing;
+    activeUsing.reserve(4);
+    // Counter for synthetic dispose temporary names. Each `using x = expr`
+    // gets its own `__dunUsing<N>` shadow so we can dispose by reference
+    // even if user code later reassigns `x`. Module-level counter so
+    // names stay unique across nested + sequential using declarations.
+    int usingTemp = 0;
     // After `class X` / `class X extends Y` / `class X implements Z`,
     // the next `{` opens a class body. We mark that the next-brace-open
     // is a class so the `{` handler can push it.
@@ -78,7 +99,13 @@ string stripTypes(const(char)[] source) @trusted
             continue;
         }
 
-        // --- skip comments ---
+        // --- skip comments + regex literals ---
+        // A `/` is one of three things: the start of a single-line
+        // comment, the start of a block comment, the start of a regex
+        // literal, or a divide operator. We pick the right branch the
+        // same way the lexer does: comments by lookahead, regex vs
+        // divide by the previous non-whitespace byte (see
+        // `charAllowsRegex` -- the rule mirrors `Lexer.allowsRegex`).
         if (c == '/' && pos + 1 < buf.length)
         {
             if (buf[pos + 1] == '/')
@@ -91,6 +118,28 @@ string stripTypes(const(char)[] source) @trusted
                 pos = skipBlockComment(buf, pos);
                 continue;
             }
+            // Regex disambiguation: walk back to the previous non-WS
+            // byte. If it allows a regex (operator / open-bracket /
+            // line start) -- or if it's the last byte of a keyword
+            // like `return` / `typeof` / `throw` -- consume the regex
+            // literal so nested `:`, `<`, `>`, etc. inside the regex
+            // body don't trigger the strip-mode heuristics below.
+            immutable prevIdx = prevNonWS(buf, pos);
+            immutable prevCh  = prevIdx < buf.length ? buf[prevIdx] : '\n';
+            bool isRegex = charAllowsRegex(prevCh);
+            if (!isRegex && prevIdx < buf.length)
+            {
+                // Identifier-tail case: check for regex-allowing keyword.
+                immutable kwStart = regexAllowingKeywordEndsAt(buf, prevIdx + 1);
+                isRegex = kwStart < prevIdx + 1;
+            }
+            if (isRegex)
+            {
+                pos = skipRegexLit(buf, pos);
+                continue;
+            }
+            // Otherwise it's a divide operator: fall through and
+            // advance one byte like any other punctuation.
         }
 
         // --- track nesting ---
@@ -122,6 +171,30 @@ string stripTypes(const(char)[] source) @trusted
         if (c == '}') {
             if (classBraceStack.length > 0 && classBraceStack[$ - 1] == braceDepth)
                 classBraceStack.length = classBraceStack.length - 1;
+            // Pop any `using` bindings that belonged to the scope this
+            // `}` closes (i.e. were declared at the current braceDepth).
+            // For each one, defer-insert a `try { ... } finally { ... }`
+            // wrap so the dispose hook fires deterministically. Inserts
+            // happen in LIFO order so the innermost binding gets the
+            // innermost try/finally pair -- which matches the spec'd
+            // dispose order.
+            while (activeUsing.length > 0
+                && activeUsing[$ - 1].depth == braceDepth)
+            {
+                auto u = activeUsing[$ - 1];
+                activeUsing.length = activeUsing.length - 1;
+                deferredInserts ~= DeferredInsert(u.declEnd, "try{");
+                // Inject before the `}`. Async bindings await the
+                // asyncDispose; sync bindings call dispose. The
+                // catch is intentional -- a throwing dispose mustn't
+                // suppress the in-flight throw.
+                auto cleanup = u.isAsync
+                    ? ("}finally{try{await " ~ u.name
+                       ~ "?.[Symbol.asyncDispose]?.()}catch(_){}}")
+                    : ("}finally{try{" ~ u.name
+                       ~ "?.[Symbol.dispose]?.()}catch(_){}}");
+                deferredInserts ~= DeferredInsert(pos, cleanup);
+            }
             if (braceDepth > 0) braceDepth--;
             assert(classBraceStack.length == 0
                 || classBraceStack[$ - 1] <= braceDepth);
@@ -304,29 +377,44 @@ string stripTypes(const(char)[] source) @trusted
             // `using x = expr;` / `await using x = expr;` -- ES2026
             // explicit resource management. V8 14+ supports natively;
             // QuickJS-NG and the JSC build we link don't yet. We
-            // rewrite to `const` so the file parses on every backend.
-            // Deterministic Symbol.dispose semantics are lost, which
-            // matches Bun's behaviour when running on engines without
-            // native using support.
+            // rewrite to `const` so the file parses on every backend,
+            // then wrap the rest of the enclosing block in a synthetic
+            // `try { ... } finally { x?.[Symbol.dispose]?.() }` so the
+            // dispose hook fires deterministically.
+            //
+            // The `try` / `finally` braces are inserted via the
+            // `deferredInserts` mechanism after the main scan, so they
+            // don't affect brace-depth tracking during the walk.
             if (word == "using" && isStmtStart(buf, wordStart))
             {
-                // Make sure this is the declaration form -- next token
-                // must be an identifier (rule out `using.foo()` etc.).
                 auto ws = skipWS(buf, pos);
                 if (ws < buf.length && isIdentStart(buf[ws]))
                 {
-                    // `using` (5) -> `const` (5) -- equal length, no
-                    // shift needed.
                     static assert("using".length == "const".length);
                     buf[wordStart .. wordStart + 5] = "const";
+                    auto nameStart = ws;
+                    auto nameEnd = ws;
+                    while (nameEnd < buf.length && isIdentChar(buf[nameEnd]))
+                        nameEnd++;
+                    auto declEnd = findDeclEnd(buf, nameEnd);
+                    // findDeclEnd may return at the closing `}` of an
+                    // object/RHS literal -- advance past the trailing `;`
+                    // (with optional whitespace) so the synthetic `try{`
+                    // lands after the statement terminator.
+                    declEnd = passTrailingSemi(buf, declEnd);
+                    auto bindingName = cast(string) buf[nameStart .. nameEnd].idup;
+                    activeUsing ~= UsingBinding(bindingName, braceDepth,
+                        declEnd, /*isAsync=*/false);
+                    pos = declEnd;
                     continue;
                 }
             }
             if (word == "await" && isStmtStart(buf, wordStart))
             {
-                // `await using x = ...` -- erase `await ` (6 chars
-                // including the space) and let the next iteration
-                // handle `using` as above.
+                // `await using x = ...` -- erase the `await ` keyword,
+                // then rewrite the `using` itself the same way as above
+                // but mark the binding as async-disposable so the
+                // generated cleanup uses Symbol.asyncDispose.
                 auto ws = skipWS(buf, pos);
                 if (ws < buf.length && matchWord(buf, ws, "using"))
                 {
@@ -334,7 +422,22 @@ string stripTypes(const(char)[] source) @trusted
                     auto afterWs = skipWS(buf, afterUsing);
                     if (afterWs < buf.length && isIdentStart(buf[afterWs]))
                     {
+                        // Erase `await ` (everything from wordStart up to
+                        // the start of `using`). Then rewrite `using` ->
+                        // `const` in place + record the binding.
                         blankRange(buf, wordStart, ws);
+                        static assert("using".length == "const".length);
+                        buf[ws .. ws + 5] = "const";
+                        auto nameStart = afterWs;
+                        auto nameEnd = afterWs;
+                        while (nameEnd < buf.length && isIdentChar(buf[nameEnd]))
+                            nameEnd++;
+                        auto declEnd = findDeclEnd(buf, nameEnd);
+                        declEnd = passTrailingSemi(buf, declEnd);
+                        auto bindingName = cast(string) buf[nameStart .. nameEnd].idup;
+                        activeUsing ~= UsingBinding(bindingName, braceDepth,
+                            declEnd, /*isAsync=*/true);
+                        pos = declEnd;
                         continue;
                     }
                 }
@@ -1695,6 +1798,19 @@ size_t skipBlockComment(const(char)[] buf, size_t i) @safe pure nothrow @nogc
 // ---------------------------------------------------------------------------
 
 /// Find end of a declaration: either ';' or matching '}' for a block.
+/// Walk past optional whitespace and a single trailing `;`, returning
+/// the byte after. Lets the `using` rewrite anchor its synthetic
+/// `try {` insertion AFTER the statement terminator -- `findDeclEnd`
+/// returns at the `}` of an object-literal RHS without consuming the
+/// trailing `;`, so we need this top-up.
+size_t passTrailingSemi(const(char)[] buf, size_t start) @safe pure nothrow @nogc
+{
+    size_t i = start;
+    while (i < buf.length && (buf[i] == ' ' || buf[i] == '\t')) i++;
+    if (i < buf.length && buf[i] == ';') i++;
+    return i;
+}
+
 size_t findDeclEnd(const(char)[] buf, size_t start) @safe pure nothrow @nogc
 {
     size_t i = start;
@@ -2264,4 +2380,83 @@ unittest
 {
     auto js = "function hello() { console.log('world'); }";
     assert(stripTypes(js) == js);
+}
+
+@("strip: regex literal body preserved across `:` `<` `>` traps")
+unittest
+{
+    // Without the lexer-driven regex skip, the `:` / `<` / `>`
+    // inside these regex bodies would trigger the strip-mode
+    // heuristics (type annotation, generic arg list).
+    auto a = "const r = /^[0-2][0-9]:[0-5][0-9]$/.test(t);";
+    assert(stripTypes(a) == a);
+    auto b = "const t = /<[a-z]+>/.test(html);";
+    assert(stripTypes(b) == b);
+    auto c = "const re = /(?:foo|bar)/g;";
+    assert(stripTypes(c) == c);
+}
+
+@("strip: regex after `return` keyword preserved (regex-allowing kw)")
+unittest
+{
+    // `return` ends in an ident-cont byte (`n`); without the
+    // `regexAllowingKeywordEndsAt` check, `/` after `return` would
+    // be treated as divide and walked byte-by-byte.
+    auto src = "function f() { return /a:b/.test(x); }";
+    assert(stripTypes(src) == src);
+}
+
+@("strip: divide operator (no regex) stays divide")
+unittest
+{
+    // `)` / `]` / identifier-tail prevent regex disambiguation,
+    // so the `/` here must still be a divide operator.
+    auto src = "const r = a / b; const s = arr[0] / 2;";
+    // Stripper should be byte-identical -- it only erases TS-only
+    // syntax, never JS operators.
+    assert(stripTypes(src) == src);
+}
+
+@("strip: `using x = expr` wraps in try/finally + Symbol.dispose")
+unittest
+{
+    import std.algorithm : canFind;
+    auto src = "function f(){using x={};}";
+    auto out_ = stripTypes(src);
+    // `using` -> `const`, and a try/finally with Symbol.dispose
+    // wraps the rest of the function body.
+    assert(out_.canFind("const x={}"),
+        "using -> const rewrite missing: " ~ out_);
+    assert(out_.canFind("try{"),
+        "synthetic try{ not emitted: " ~ out_);
+    assert(out_.canFind("Symbol.dispose"),
+        "Symbol.dispose cleanup missing: " ~ out_);
+}
+
+@("strip: `await using` -> const + Symbol.asyncDispose await")
+unittest
+{
+    import std.algorithm : canFind;
+    auto src = "async function f(){await using r={};}";
+    auto out_ = stripTypes(src);
+    assert(out_.canFind("const r={}"),
+        "await using -> const rewrite missing: " ~ out_);
+    assert(out_.canFind("Symbol.asyncDispose"),
+        "Symbol.asyncDispose cleanup missing: " ~ out_);
+    assert(out_.canFind("await r?.[Symbol.asyncDispose]"),
+        "async dispose not awaited: " ~ out_);
+}
+
+@("strip: nested `using` -> LIFO dispose (inner wraps inside outer)")
+unittest
+{
+    import std.algorithm : countUntil, canFind;
+    auto src = "function f(){using a={};using b={};}";
+    auto out_ = stripTypes(src);
+    // Inner dispose (`b`) must come BEFORE outer (`a`) in the
+    // generated cleanup chain because the inner try opens first.
+    auto bIdx = out_.countUntil("b?.[Symbol.dispose]");
+    auto aIdx = out_.countUntil("a?.[Symbol.dispose]");
+    assert(bIdx >= 0 && aIdx >= 0, "both bindings should be present");
+    assert(bIdx < aIdx, "b's dispose must precede a's in output");
 }

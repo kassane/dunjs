@@ -1,0 +1,11 @@
+basic body
+dispose: b
+dispose: a
+dispose: throw-1
+caught: boom
+dispose: propagate-1
+outer: up
+inner block
+dispose: inner
+outer body after inner block
+dispose: outer

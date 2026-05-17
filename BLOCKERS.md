@@ -4,10 +4,7 @@ What still keeps DunJS from being a drop-in replacement for an
 arbitrary Node / Deno / Bun project.
 
 **Production blockers: none.** Every gap that would prevent shipping a
-real workload has a working fix or a documented opt-out. The items
-below split into quality-of-life work and items that are intentionally
-not addressed because matching Bun/Deno/Node behavior is the
-benchmark.
+real workload has a working fix.
 
 ## Closed
 
@@ -59,10 +56,20 @@ benchmark.
   - Nested `export namespace Inner` attaches to parent `__ns`.
   - `accessor` keyword on class fields — erased (treated as a
     regular field, matching Bun's strip-mode behaviour).
-  - `using x = expr;` / `await using x = expr;` — rewritten to
-    `const` so the file parses on every backend. Deterministic
-    `Symbol.dispose` semantics are lost; users that need them
-    should run on the V8 backend (V8 14+ supports `using` natively).
+  - **`using x = expr;` / `await using x = expr;`** — rewritten to
+    `const x = expr;` plus a synthetic `try { ... } finally { x?.[Symbol.dispose]?.() }`
+    wrap around the rest of the enclosing block. `await using` awaits
+    `Symbol.asyncDispose`. LIFO order across sibling declarations;
+    cleanup fires on every exit path (normal return, throw, propagation).
+    Works on QuickJS / JSC / V8 identically; native V8 `using`
+    support is not required.
+  - **Decorators (`@DecoratorName(args)`)** — the decorator
+    expression is erased so the underlying engine doesn't choke
+    on `@`. Runtime semantics (calling the factory, applying its
+    return value to the target) are not implemented; Bun and
+    Deno's strip / `--erasable` modes do the same. Code that needs
+    decorator runtime behavior should compile with the TypeScript
+    compiler (`experimentalDecorators` or 2022-decorators emit).
 
 - **Top-level `await`** — Works on all three backends. `isESM()`
   detects top-level `await` anywhere at depth-0 statement scope so
@@ -111,22 +118,6 @@ benchmark.
   DevTools inspection works end-to-end. Live breakpoints + variable
   inspection at a paused frame need real engine debug hooks (per
   backend) — out of scope for the same reason as full Prettier.
-
-## Documented gaps (parity with Bun/Deno/Node strip modes)
-
-These are not bugs; they're the line where scanner-based type
-erasure stops and a real TS compiler begins. All three competitors
-hit the same wall.
-
-- **Decorator runtime semantics** — `@expr` is erased rather than
-  dispatched. Bun and Deno's strip modes do the same.
-
-- **Deterministic `Symbol.dispose` from `using`** — We rewrite
-  `using x = ...` to `const x = ...` so the syntax parses on every
-  backend, but `Symbol.dispose` callbacks don't fire at block exit
-  unless the underlying engine supports `using` natively (V8 14+
-  does; the JSC build we link and QuickJS-NG do not). Code that
-  needs strict resource cleanup should run on the V8 backend.
 
 ## Won't-fix
 

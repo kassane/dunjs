@@ -1,34 +1,62 @@
 # Plan: TS parser path forward (research outcome + kickoff)
 
-**Status**: research complete + lexer kickoff landed. Decision
-documented; first slice of D code in `source/dun/ts/parser/`.
-**Recommendation**: **NO-GO** on a full Bun-parser port now.
-**GO** on a focused **lexer-only lift** as a follow-up (~5
-person-weeks, kills the parsing edge cases scanner-strip keeps
-re-discovering, leaves the door open for a full AST port later).
+**Status**: research complete + lexer lift complete + first
+strip.d wiring landed. Phase 1/2/3 of the lexer are in tree
+(`source/dun/ts/parser/`); the strip-mode main loop consults the
+lexer for regex disambiguation; corpus-validation unittest runs
+the lexer over every `ts_compat/` fixture.
+**Recommendation**: **NO-GO** on a full Bun-parser port still
+stands. The lexer-only lift captured the high-ROI fraction of
+the value (~80% of correctness wins for ~30% of the effort).
 
 ## What's in the tree so far
 
 - `vendor/bun-parser/zig/src/js_parser/{lexer,lexer_tables}.zig` —
   upstream Zig sources vendored for diff reference. MIT-licensed.
-- `source/dun/ts/parser/lexer.d` — partial D port:
+- `source/dun/ts/parser/lexer.d` — D port (phases 1 + 2 + 3 landed):
   * Full `T : ubyte` token enum (matches Bun's `pub const T = enum(u8)`)
   * `Lexer` struct with `next()` + line/col tracking
-  * Identifiers (ASCII + `$` / `_`), keywords (35 reserved-word table),
-    numeric literals (decimal, hex, oct, bin, numeric separators, `.`,
-    exponent), strings (`"…"`, `'…'` with `\` escape), single-line +
-    block comments, hashbang
+  * Identifiers (ASCII + `$` / `_` + permissive UTF-8 high bytes),
+    keywords (35 reserved-word table), numeric literals (decimal, hex,
+    oct, bin, numeric separators, `.`, exponent, BigInt `n` suffix),
+    strings (`"…"`, `'…'` with `\` escape), single-line + block
+    comments, hashbang
+  * Template literals (`` ` `` + `${…}`) -- head / middle / tail /
+    no-substitution variants with `templateDepth` interpolation guard
+  * Regex vs divide disambiguation via `Lexer.allowsRegex(lastKind)` --
+    same trick Bun uses to avoid parser feedback
   * All single-char punctuation + the multi-char operator set
     `=== !== ??= ??. ?. **= >>>= …` (~40 operators)
-  * 6 inline unittests covering every category above
-- `source/dun/ts/parser/package.d` — re-export.
+  * 16+ inline unittests covering every category above
+- `source/dun/ts/parser/package.d` — public `tokenize()` /
+  `hasSyntaxError()` API + corpus-validation unittest over the
+  `tests/benchmarks/ts_compat/` real-world fixtures (asserts every
+  fixture lexes cleanly, catches regressions in scanner state).
 
-Not yet in this slice (next chunks):
-- Template literals (`` ` `` + `${…}`)
-- Regex vs divide disambiguation (needs parser feedback signal)
-- Unicode identifier ranges beyond ASCII
-- JSX/TSX mode switching
-- BigInt suffix `n`
+First lexer-into-strip wiring landed:
+
+- `source/dun/ts/strip.d` imports `skipRegexLit`, `charAllowsRegex`,
+  and `regexAllowingKeywordEndsAt` from the lexer; the main-loop `/`
+  branch now consumes regex literals instead of falling through to
+  byte-by-byte walking. Closes the class of bugs where regex bodies
+  containing `:` / `<` / `>` could trip the strip-mode heuristics
+  (verified by `tests/integration/fixtures/ts_regex.ts`).
+
+Still deferred (in priority order if/when this is picked up again):
+- Full Unicode ID_Start / ID_Continue tables (the permissive
+  `>= 0x80` acceptance covers every valid identifier in real-world
+  TS files; tightening to the spec ranges only matters when the
+  lexer becomes the *validation* layer instead of the stripping
+  layer).
+- JSX/TSX expression-vs-tag mode switching (deferred until strip.d
+  actually drives the tokenizer for JSX -- currently jsx.d has its
+  own scanner).
+- Replacing strip.d's nested `skipStringLit` / `skipTemplateLit`
+  call sites (15+ inner scans inside namespace / interface / type
+  alias handlers) with lexer-driven literal skipping. The
+  top-level main-loop wiring is enough for observable correctness;
+  the nested sites are TS-only declaration bodies that don't host
+  regex literals in practice.
 
 ## Why we considered porting
 

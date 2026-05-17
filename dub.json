@@ -268,7 +268,8 @@
 	"license": "MIT",
 	"targetPath": "build",
 	"stringImportPaths": [
-		"source"
+		"source",
+		"tests/benchmarks/ts_compat"
 	],
 	"name": "dunjs",
 	"sourcePaths": [
