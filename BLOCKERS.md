@@ -63,13 +63,38 @@ real workload has a working fix.
     cleanup fires on every exit path (normal return, throw, propagation).
     Works on QuickJS / JSC / V8 identically; native V8 `using`
     support is not required.
-  - **Decorators (`@DecoratorName(args)`)** — the decorator
-    expression is erased so the underlying engine doesn't choke
-    on `@`. Runtime semantics (calling the factory, applying its
-    return value to the target) are not implemented; Bun and
-    Deno's strip / `--erasable` modes do the same. Code that needs
-    decorator runtime behavior should compile with the TypeScript
-    compiler (`experimentalDecorators` or 2022-decorators emit).
+  - **Decorators (`@DecoratorName(args)`)** — handled correctly when
+    the user has `typescript` installed (DunJS auto-routes through
+    `ts.transpileModule()` and emits `__decorate` calls). Falls back
+    to the scanner stripper (which erases decorators) when typescript
+    isn't installed. Matches Bun and Deno's strip / `--erasable` mode
+    in the fallback path.
+
+- **TS-to-JS pipeline (tsc by default)** — when `typescript` is
+  installed in node_modules (anywhere upward from the script),
+  `.ts` / `.tsx` files go through `ts.transpileModule()` for full
+  TS-spec correctness: decorators, namespace runtime, const enum
+  member references, generic call sites, the entire TS surface.
+  Adds ~30 ms of cold-start for the first TS file but eliminates
+  every scanner edge case. Falls back to the byte-level stripper
+  when typescript isn't present. Opt-out: `DUN_DISABLE_TSC=1`.
+  V8 backend defaults to scanner (double V8 isolate startup is
+  ~150 ms × 2); opt-in there with `DUN_USE_TSC=1`.
+
+- **Bun.hash sub-methods + Deno async FS** —
+  `Bun.hash.{crc32, adler32, xxh32, xxh64}` and `Deno.{stat, lstat,
+  mkdir, remove, rename, copyFile, readDir, readTextFile,
+  writeTextFile, realPath, truncate}` async variants all match
+  their respective vendor's surface. `Deno.errors.*` are real
+  Error subclasses now (instanceof works), classified from OS
+  failure messages.
+
+- **child_process + Web streams** — `child.stdout.on('data', ...)`
+  fires reliably (closure-captured emitter, not `this._events`).
+  `Bun.spawn(...).stdout` is a Web ReadableStream;
+  `new Response(p.stdout).text()` consumes it correctly.
+  `Readable.prototype[Symbol.asyncIterator]` no longer hangs when
+  `_read` synchronously emits `end` before subscription.
 
 - **Top-level `await`** — Works on all three backends. `isESM()`
   detects top-level `await` anywhere at depth-0 statement scope so
