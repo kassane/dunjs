@@ -9,12 +9,19 @@ import std.base64 : Base64;
 import dun.ts.parser.lexer : skipRegexLit, charAllowsRegex,
     regexAllowingKeywordEndsAt;
 
+// Initial reserve capacities for the per-scan auxiliary stacks. Picked
+// to cover the deepest nesting we've seen on real-world TS without a
+// realloc (Express 5 hit `parenDepth` 12 once in its dispatch table).
+private enum size_t PAREN_STACK_RESERVE  = 16;
+private enum size_t CLASS_STACK_RESERVE  = 8;
+private enum size_t USING_STACK_RESERVE  = 4;
+
 /// Strip TypeScript type annotations, replacing them with whitespace
 /// to preserve source positions. Erasable subset only (no enum/namespace).
 ///
 /// If generateMap is true, also generates a V3 source map (identity mapping)
 /// and returns it via the sourceMap out parameter.
-string stripTypes(const(char)[] source, bool generateMap, out string sourceMap) @trusted
+string stripTypes(const(char)[] source, bool generateMap, out string sourceMap) @safe
 {
     auto stripped = stripTypes(source);
     if (generateMap)
@@ -24,7 +31,7 @@ string stripTypes(const(char)[] source, bool generateMap, out string sourceMap) 
 
 /// Strip TypeScript type annotations, replacing them with whitespace
 /// to preserve source positions. Erasable subset only (no enum/namespace).
-string stripTypes(const(char)[] source) @trusted
+string stripTypes(const(char)[] source) @safe
 {
     if (source.length == 0)
         return "";
@@ -58,12 +65,12 @@ string stripTypes(const(char)[] source) @trusted
     // an inline object literal like `f({ key: value })`). Stack lives
     // on the heap because parenDepth can grow arbitrarily.
     int[] braceAtParenOpen;
-    braceAtParenOpen.reserve(16);
+    braceAtParenOpen.reserve(PAREN_STACK_RESERVE);
     // Stack of braceDepth values that opened a class body. Used to
     // identify class fields (`name: type;`) which look like object
     // properties otherwise. The top is the depth *inside* the body.
     int[] classBraceStack;
-    classBraceStack.reserve(8);
+    classBraceStack.reserve(CLASS_STACK_RESERVE);
     // Active `using` declarations: name + brace depth + position just
     // after the trailing `;`. Popped when the enclosing `}` closes
     // the scope. Each pop emits a `try { ... } finally { ... }` pair
@@ -72,12 +79,7 @@ string stripTypes(const(char)[] source) @trusted
     // support `using` natively.
     struct UsingBinding { string name; int depth; size_t declEnd; bool isAsync; }
     UsingBinding[] activeUsing;
-    activeUsing.reserve(4);
-    // Counter for synthetic dispose temporary names. Each `using x = expr`
-    // gets its own `__dunUsing<N>` shadow so we can dispose by reference
-    // even if user code later reassigns `x`. Module-level counter so
-    // names stay unique across nested + sequential using declarations.
-    int usingTemp = 0;
+    activeUsing.reserve(USING_STACK_RESERVE);
     // After `class X` / `class X extends Y` / `class X implements Z`,
     // the next `{` opens a class body. We mark that the next-brace-open
     // is a class so the `{` handler can push it.
@@ -178,12 +180,22 @@ string stripTypes(const(char)[] source) @trusted
             // happen in LIFO order so the innermost binding gets the
             // innermost try/finally pair -- which matches the spec'd
             // dispose order.
+            // TIGER_STYLE: the stack invariant is that depths are
+            // non-decreasing from bottom to top. A `}` can never
+            // legally observe a binding with depth > braceDepth --
+            // that would mean we lost a brace.
+            assert(activeUsing.length == 0
+                || activeUsing[$ - 1].depth <= braceDepth,
+                "using stack desync: deeper binding survived its `}`");
             while (activeUsing.length > 0
                 && activeUsing[$ - 1].depth == braceDepth)
             {
                 auto u = activeUsing[$ - 1];
                 activeUsing.length = activeUsing.length - 1;
-                deferredInserts ~= DeferredInsert(u.declEnd, "try{");
+                // Lead with `;` so an ASI-less declaration like
+                // `using x = {...}` (no trailing semicolon) still
+                // parses -- QuickJS won't auto-insert before `try`.
+                deferredInserts ~= DeferredInsert(u.declEnd, ";try{");
                 // Inject before the `}`. Async bindings await the
                 // asyncDispose; sync bindings call dispose. The
                 // catch is intentional -- a throwing dispose mustn't
@@ -396,13 +408,18 @@ string stripTypes(const(char)[] source) @trusted
                     auto nameEnd = ws;
                     while (nameEnd < buf.length && isIdentChar(buf[nameEnd]))
                         nameEnd++;
-                    auto declEnd = findDeclEnd(buf, nameEnd);
-                    // findDeclEnd may return at the closing `}` of an
-                    // object/RHS literal -- advance past the trailing `;`
-                    // (with optional whitespace) so the synthetic `try{`
-                    // lands after the statement terminator.
-                    declEnd = passTrailingSemi(buf, declEnd);
+                    // findStmtEnd is ASI-aware: stops at the top-level
+                    // `;`, at a newline that isn't continuing a binary
+                    // expression, or at the enclosing `}`. The plain
+                    // `findDeclEnd` only looks for `;` and walks past
+                    // the entire rest of the function when the decl
+                    // omits its trailing semicolon.
+                    auto declEnd = findStmtEnd(buf, nameEnd);
                     auto bindingName = cast(string) buf[nameStart .. nameEnd].idup;
+                    assert(declEnd >= nameEnd,
+                        "using: declEnd before nameEnd");
+                    assert(braceDepth >= 0,
+                        "using: negative braceDepth at binding push");
                     activeUsing ~= UsingBinding(bindingName, braceDepth,
                         declEnd, /*isAsync=*/false);
                     pos = declEnd;
@@ -432,9 +449,10 @@ string stripTypes(const(char)[] source) @trusted
                         auto nameEnd = afterWs;
                         while (nameEnd < buf.length && isIdentChar(buf[nameEnd]))
                             nameEnd++;
-                        auto declEnd = findDeclEnd(buf, nameEnd);
-                        declEnd = passTrailingSemi(buf, declEnd);
+                        auto declEnd = findStmtEnd(buf, nameEnd);
                         auto bindingName = cast(string) buf[nameStart .. nameEnd].idup;
+                        assert(declEnd >= nameEnd,
+                            "await using: declEnd before nameEnd");
                         activeUsing ~= UsingBinding(bindingName, braceDepth,
                             declEnd, /*isAsync=*/true);
                         pos = declEnd;
@@ -995,12 +1013,18 @@ string stripTypes(const(char)[] source) @trusted
 
     // Apply deferred inserts (constructor param-property `this.x=x;`
     // assignments and similar). Done after the main scan finishes so
-    // we don't disturb offsets while scanning.
+    // we don't disturb offsets while scanning. Stable sort is
+    // critical for the `using` rewrite: multiple bindings closing at
+    // the same `}` push their `} finally { ... }` inserts at the
+    // same byte offset, and the LIFO push order encodes the desired
+    // nesting (innermost binding's finally first). An unstable sort
+    // would scramble the dispose order under any future binding mix.
     char[] body_ = cast(char[]) buf;
     if (deferredInserts.length > 0)
     {
-        import std.algorithm : sort;
-        sort!"a.at < b.at"(deferredInserts);
+        import std.algorithm : SwapStrategy;
+        import std.algorithm.sorting : sort;
+        sort!("a.at < b.at", SwapStrategy.stable)(deferredInserts);
         size_t total = body_.length;
         foreach (di; deferredInserts) total += di.text.length;
         auto rebuilt = new char[total];
@@ -1023,9 +1047,15 @@ string stripTypes(const(char)[] source) @trusted
         body_ = rebuilt[0 .. dstPos];
     }
 
-    if (prologue.data.length == 0 && footer.data.length == 0)
-        return cast(string) body_;
-    return cast(string) (prologue.data ~ body_ ~ footer.data);
+    // `body_` is private to this function -- nothing else holds the
+    // mutable view -- so the cast to `string` is safe. Wrap in a
+    // narrow @trusted lambda instead of the whole stripTypes body so
+    // the rest of the function stays @safe-verifiable.
+    return (() @trusted {
+        if (prologue.data.length == 0 && footer.data.length == 0)
+            return cast(string) body_;
+        return cast(string) (prologue.data ~ body_ ~ footer.data);
+    })();
 }
 
 /// Read an identifier starting at `start`. Returns empty slice if
@@ -1798,16 +1828,58 @@ size_t skipBlockComment(const(char)[] buf, size_t i) @safe pure nothrow @nogc
 // ---------------------------------------------------------------------------
 
 /// Find end of a declaration: either ';' or matching '}' for a block.
-/// Walk past optional whitespace and a single trailing `;`, returning
-/// the byte after. Lets the `using` rewrite anchor its synthetic
-/// `try {` insertion AFTER the statement terminator -- `findDeclEnd`
-/// returns at the `}` of an object-literal RHS without consuming the
-/// trailing `;`, so we need this top-up.
-size_t passTrailingSemi(const(char)[] buf, size_t start) @safe pure nothrow @nogc
+/// Find the end of a single statement starting at `start`, returning
+/// the byte just past the terminator (`;` or ASI-inserted newline).
+/// `findDeclEnd` only looks for `;` so it walks past an entire
+/// no-semicolon declaration; this variant also stops at a top-level
+/// (depth 0 paren/brace/bracket) newline that's followed by a non-
+/// continuation byte -- mirrors ECMA-262 ASI rules well enough for
+/// the using-rewrite trailing-semi top-up.
+size_t findStmtEnd(const(char)[] buf, size_t start) @safe pure nothrow @nogc
 {
     size_t i = start;
-    while (i < buf.length && (buf[i] == ' ' || buf[i] == '\t')) i++;
-    if (i < buf.length && buf[i] == ';') i++;
+    int paren = 0, brace = 0, bracket = 0;
+    while (i < buf.length)
+    {
+        immutable c = buf[i];
+        if (c == '\'' || c == '"') { i = skipStringLit(buf, i); continue; }
+        if (c == '`') { i = skipTemplateLit(buf, i); continue; }
+        if (c == '(') { paren++; i++; continue; }
+        if (c == ')') { if (paren > 0) paren--; i++; continue; }
+        if (c == '[') { bracket++; i++; continue; }
+        if (c == ']') { if (bracket > 0) bracket--; i++; continue; }
+        if (c == '{') { brace++; i++; continue; }
+        if (c == '}')
+        {
+            // Closing brace at depth 0 ends the enclosing block --
+            // the statement also ends here (without consuming the `}`).
+            if (brace == 0) return i;
+            brace--; i++; continue;
+        }
+        if (c == ';' && paren == 0 && brace == 0 && bracket == 0)
+            return i + 1;
+        if (c == '\n' && paren == 0 && brace == 0 && bracket == 0)
+        {
+            // ASI: line terminator at depth 0 ends the statement
+            // unless the immediately-preceding byte is a binary-op
+            // continuation (`,`, `.`, `+`, `-`, `*`, `/`, `=`, `<`,
+            // `>`, `&`, `|`, `^`, `?`, `:`). Conservative: keep
+            // walking on those, terminate otherwise.
+            size_t prev = i;
+            while (prev > start && (buf[prev - 1] == ' ' || buf[prev - 1] == '\t'))
+                prev--;
+            if (prev > start)
+            {
+                immutable p = buf[prev - 1];
+                if (p == ',' || p == '.' || p == '+' || p == '-' || p == '*'
+                    || p == '/' || p == '=' || p == '<' || p == '>'
+                    || p == '&' || p == '|' || p == '^' || p == '?' || p == ':')
+                { i++; continue; }
+            }
+            return i + 1;
+        }
+        i++;
+    }
     return i;
 }
 

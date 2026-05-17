@@ -9,3 +9,5 @@ inner block
 dispose: inner
 outer body after inner block
 dispose: outer
+no-semi body
+dispose: no-semi

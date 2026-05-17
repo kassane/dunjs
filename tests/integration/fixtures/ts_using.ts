@@ -48,3 +48,11 @@ function nested() {
     console.log("outer body after inner block");
 }
 nested();
+
+// (5) No trailing semicolon (ASI) -- `using x = {...}` still parses
+// because strip leads the synthetic `try{` with a `;`.
+function noSemi() {
+    using r = makeRes("no-semi")
+    console.log("no-semi body")
+}
+noSemi()
