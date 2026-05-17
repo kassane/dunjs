@@ -99,6 +99,26 @@ real workload has a working fix.
   `Readable.prototype[Symbol.asyncIterator]` no longer hangs when
   `_read` synchronously emits `end` before subscription.
 
+- **Dynamic `import()`** — `await import("fs")` works on all three
+  backends. JSC and V8 don't wire
+  `HostImportModuleDynamicallyCallback`, so the source pipeline
+  rewrites the call site to `__dunImport__(...)` (a tiny shim that
+  wraps `require(...)` in a Promise). QJS uses its native module
+  loader. Source rewriter respects string / template / comment /
+  regex contexts; static `import x from "y"` and `import.meta`
+  pass through unchanged.
+
+- **V8 D exception unwinding** — V8 backend now properly unwinds D
+  exceptions through native callbacks. The `.eh_frame_hdr` section
+  is required by glibc's `_Unwind_RaiseException` to look up
+  LSDA tables. LDC's `--link-internally` mode (needed for V8's
+  CREL relocations in libv8_monolith.a) doesn't emit it by
+  default; passing `-L=--eh-frame-hdr` to lld fixes it. Without
+  this, any D `try { ... } catch` inside a native callback was
+  silently bypassed and the process aborted on the first throw
+  (e.g. `Deno.readTextFileSync("/nonexistent")` previously
+  crashed V8 with `rt/dwarfeh.d:370: uncaught exception`).
+
 - **Top-level `await`** — Works on all three backends. `isESM()`
   detects top-level `await` anywhere at depth-0 statement scope so
   `.ts` files using top-level await without explicit `import`/`export`
