@@ -57,6 +57,12 @@ benchmark.
   - `import X = Y.Z` TS namespace aliases are erased.
   - `const enum` falls through to the rewriter.
   - Nested `export namespace Inner` attaches to parent `__ns`.
+  - `accessor` keyword on class fields — erased (treated as a
+    regular field, matching Bun's strip-mode behaviour).
+  - `using x = expr;` / `await using x = expr;` — rewritten to
+    `const` so the file parses on every backend. Deterministic
+    `Symbol.dispose` semantics are lost; users that need them
+    should run on the V8 backend (V8 14+ supports `using` natively).
 
 - **Top-level `await`** — Works on all three backends. `isESM()`
   detects top-level `await` anywhere at depth-0 statement scope so
@@ -71,10 +77,16 @@ benchmark.
   `fsP.readdir(path, { withFileTypes: true })` returns Dirent
   objects with `.isFile()` / `.isDirectory()` / `.isSymlink()`.
 
-- **`Worker` constructor** — `require('worker_threads').Worker`
-  is now real-class-constructible (was a `JS_NewCFunction` callable
-  without [[Construct]]). The `Worker` global from `dun.runtime.worker_api`
-  still backs the actual spawn.
+- **`Worker` constructor + eval-source + EventEmitter** —
+  `require('worker_threads').Worker` is real-class-constructible.
+  `new Worker(src, { eval: true, workerData: {...} })` writes the
+  inline source to a temp file with the workerData baked in; the
+  returned worker exposes `on`/`once`/`off`/`removeListener`/`terminate`
+  that dispatch through the existing `onmessage` / `onerror` /
+  `onexit` hooks. Inside the worker, `require('worker_threads')
+  .parentPort` is an EventEmitter delegating to `self.postMessage`.
+  workerdemo.ts in the ts_compat grid passes on all three DunJS
+  backends (parity with Bun; Node and Deno fail).
 
 - **Vendor isolation** — brotli and lsquic now vendored. No more
   system `libbrotli-dev` dep. lsquic ImportC bridge cross-checks the
@@ -109,21 +121,12 @@ hit the same wall.
 - **Decorator runtime semantics** — `@expr` is erased rather than
   dispatched. Bun and Deno's strip modes do the same.
 
-- **`using` / `await using` declarations** — Engine-support gated, not
-  a strip-mode issue. QJS, JSC, and V8 versions we link don't all
-  expose Symbol.dispose yet.
-
-- **`accessor` keyword on class fields** — Tied to stage-3 decorator
-  semantics; mismatched runtime expectations make this safer to leave
-  alone for now.
-
-- **`new Worker(source, { eval: true, workerData })` with event-emitter
-  `.on('message', ...)`** — The current Worker takes a script *path*
-  (not inline source) and exposes a `.postMessage` method but not the
-  `Readable`/`EventEmitter` listener surface. Bun has this; Node and
-  Deno's `worker_threads` module does too. Implementing the inline-
-  source variant + the event listener surface is a discrete feature
-  block, not a parser/strip gap.
+- **Deterministic `Symbol.dispose` from `using`** — We rewrite
+  `using x = ...` to `const x = ...` so the syntax parses on every
+  backend, but `Symbol.dispose` callbacks don't fire at block exit
+  unless the underlying engine supports `using` natively (V8 14+
+  does; the JSC build we link and QuickJS-NG do not). Code that
+  needs strict resource cleanup should run on the V8 backend.
 
 ## Won't-fix
 

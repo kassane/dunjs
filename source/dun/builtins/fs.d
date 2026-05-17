@@ -243,9 +243,24 @@ void registerFsModule(IJSEngine engine) @trusted
     }
     engine.freeValue(watchRes.value);
 
+    // Compile-once wrapper that turns a Node-style `(err, data)`
+    // callback into a `{ resolve, reject }` pair so jsReadFileAsync
+    // can hand it to the existing asyncSubmitSafe path. Cached here
+    // to avoid per-call eval (~3-5 us) and to keep the global
+    // namespace clean (no scratch `__dun_fs_cb_tmp__`).
+    auto wrapRes = engine.eval(
+        "(function(cb){return {"
+        ~ "resolve: function(data){ cb(null, data); },"
+        ~ "reject:  function(err){ cb(err); }"
+        ~ "};})",
+        "<fs-cb-wrap>");
+    if (!wrapRes.isError) _cbToResolveRejectFn = wrapRes.value;
+
     version (EngineQuickJS)
         registerQuickJSModule(engine);
 }
+
+private __gshared JSHandle _cbToResolveRejectFn;
 
 version (EngineQuickJS)
 {
@@ -894,27 +909,17 @@ JSHandle jsReadFileAsync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @tr
 
     if (hasCallback)
     {
-        // Wrap the user's `(err, data)` callback into a `(resolve, reject)`
-        // pair so we can reuse the same asyncSubmitSafe path the promise
-        // form uses. `resolve` becomes `cb(null, data)`, `reject` becomes
-        // `cb(err)`.
-        auto global = engine.getGlobal();
-        engine.setProperty(global, "__dun_fs_cb_tmp__", callback);
-        auto wrapRes = engine.eval(
-            "(function(cb){return {"
-            ~ "resolve: function(data){ cb(null, data); },"
-            ~ "reject:  function(err){ cb(err); }"
-            ~ "};})(globalThis.__dun_fs_cb_tmp__)",
-            "<fs-cb-wrap>");
-        engine.freeValue(global);
-        engine.freeValue(callback);  // consumed by setProperty/dupValue cycle
+        // Call the cached (err,data) -> {resolve,reject} wrapper with
+        // the user's callback. No per-call eval; no global scratch.
+        auto undef = engine.newUndefined();
+        scope(exit) engine.freeValue(undef);
+        JSHandle[1] cbArgs = [callback];
+        auto pair = engine.callFunction(_cbToResolveRejectFn, undef, cbArgs[]);
+        engine.freeValue(callback);
 
-        if (wrapRes.isError)
-            return engine.newUndefined();
-
-        auto resolve = engine.getProperty(wrapRes.value, "resolve");
-        auto reject  = engine.getProperty(wrapRes.value, "reject");
-        engine.freeValue(wrapRes.value);
+        auto resolve = engine.getProperty(pair, "resolve");
+        auto reject  = engine.getProperty(pair, "reject");
+        engine.freeValue(pair);
 
         asyncSubmitSafe(engine, resolve, reject, () @trusted nothrow {
             try

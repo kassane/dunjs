@@ -75,22 +75,3 @@ version (EngineQuickJS)
         return 0;
     }
 }
-
-private:
-
-JSHandle jsWorkerThreadsWorker(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
-{
-    assert(ctx !is null, "Null ctx in worker_threads.Worker");
-    auto state = cast(DunState*) ctx;
-    assert(state !is null && state.engine !is null);
-    auto engine = state.engine;
-
-    auto global = engine.getGlobal();
-    auto workerCtor = engine.getProperty(global, "__workerCreate");
-    engine.freeValue(global);
-
-    if (engine.isUndefined(workerCtor) || !engine.isFunction(workerCtor))
-        return engine.throwTypeError("Worker API not available");
-
-    return engine.callFunction(workerCtor, engine.newUndefined(), args);
-}

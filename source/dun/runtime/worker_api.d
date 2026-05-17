@@ -2,6 +2,7 @@ module dun.runtime.worker_api;
 
 import dun.engine.iface : IJSEngine, JSHandle;
 import dun.runtime.globals : DunState;
+import core.atomic : atomicLoad, atomicStore, atomicFetchAdd, cas, MemoryOrder;
 
 version (linux)
 {
@@ -358,7 +359,6 @@ private JSHandle _atomicsLoad(void* ctx, JSHandle thisVal, scope JSHandle[] args
     int idx = engine.extractInt(args[1]);
     auto ptr = _getAtomicPtr(engine, args[0], idx);
     if (!ptr) return engine.newUndefined();
-    import core.atomic : atomicLoad, MemoryOrder;
     return engine.newInt(atomicLoad!(MemoryOrder.seq)(*cast(shared(int)*) ptr));
 }
 
@@ -372,7 +372,6 @@ private JSHandle _atomicsStore(void* ctx, JSHandle thisVal, scope JSHandle[] arg
     int val = engine.extractInt(args[2]);
     auto ptr = _getAtomicPtr(engine, args[0], idx);
     if (!ptr) return engine.newUndefined();
-    import core.atomic : atomicStore, MemoryOrder;
     atomicStore!(MemoryOrder.seq)(*cast(shared(int)*) ptr, val);
     return engine.newInt(val);
 }
@@ -387,7 +386,6 @@ private JSHandle _atomicsAdd(void* ctx, JSHandle thisVal, scope JSHandle[] args)
     int val = engine.extractInt(args[2]);
     auto ptr = _getAtomicPtr(engine, args[0], idx);
     if (!ptr) return engine.newUndefined();
-    import core.atomic : atomicFetchAdd;
     return engine.newInt(atomicFetchAdd(*cast(shared(int)*) ptr, val));
 }
 
@@ -401,7 +399,6 @@ private JSHandle _atomicsSub(void* ctx, JSHandle thisVal, scope JSHandle[] args)
     int val = engine.extractInt(args[2]);
     auto ptr = _getAtomicPtr(engine, args[0], idx);
     if (!ptr) return engine.newUndefined();
-    import core.atomic : atomicFetchAdd;
     return engine.newInt(atomicFetchAdd(*cast(shared(int)*) ptr, -val));
 }
 
@@ -415,7 +412,6 @@ private JSHandle _atomicsAnd(void* ctx, JSHandle thisVal, scope JSHandle[] args)
     int val = engine.extractInt(args[2]);
     auto ptr = _getAtomicPtr(engine, args[0], idx);
     if (!ptr) return engine.newUndefined();
-    import core.atomic : atomicLoad, cas, MemoryOrder;
     auto sptr = cast(shared(int)*) ptr;
     int old = atomicLoad!(MemoryOrder.seq)(*sptr);
     while (!cas(sptr, old, old & val))
@@ -433,7 +429,6 @@ private JSHandle _atomicsOr(void* ctx, JSHandle thisVal, scope JSHandle[] args) 
     int val = engine.extractInt(args[2]);
     auto ptr = _getAtomicPtr(engine, args[0], idx);
     if (!ptr) return engine.newUndefined();
-    import core.atomic : atomicLoad, cas, MemoryOrder;
     auto sptr = cast(shared(int)*) ptr;
     int old = atomicLoad!(MemoryOrder.seq)(*sptr);
     while (!cas(sptr, old, old | val))
@@ -451,7 +446,6 @@ private JSHandle _atomicsXor(void* ctx, JSHandle thisVal, scope JSHandle[] args)
     int val = engine.extractInt(args[2]);
     auto ptr = _getAtomicPtr(engine, args[0], idx);
     if (!ptr) return engine.newUndefined();
-    import core.atomic : atomicLoad, cas, MemoryOrder;
     auto sptr = cast(shared(int)*) ptr;
     int old = atomicLoad!(MemoryOrder.seq)(*sptr);
     while (!cas(sptr, old, old ^ val))
@@ -469,7 +463,6 @@ private JSHandle _atomicsExchange(void* ctx, JSHandle thisVal, scope JSHandle[] 
     int val = engine.extractInt(args[2]);
     auto ptr = _getAtomicPtr(engine, args[0], idx);
     if (!ptr) return engine.newUndefined();
-    import core.atomic : atomicLoad, cas, MemoryOrder;
     auto sptr = cast(shared(int)*) ptr;
     int old = atomicLoad!(MemoryOrder.seq)(*sptr);
     while (!cas(sptr, old, val))
@@ -498,7 +491,6 @@ private JSHandle _atomicsCmpXch(void* ctx, JSHandle thisVal, scope JSHandle[] ar
     int replacement = engine.extractInt(args[3]);
     auto ptr = _getAtomicPtr(engine, args[0], idx);
     if (!ptr) return engine.newUndefined();
-    import core.atomic : atomicLoad, cas, MemoryOrder;
     auto sptr = cast(shared(int)*) ptr;
     int old = atomicLoad!(MemoryOrder.seq)(*sptr);
     cas(sptr, expected, replacement);
@@ -525,7 +517,6 @@ private JSHandle _atomicsWait(void* ctx, JSHandle thisVal, scope JSHandle[] args
     auto ptr = _getAtomicPtr(engine, args[0], idx);
     if (!ptr) return engine.newUndefined();
 
-    import core.atomic : atomicLoad, MemoryOrder;
     if (atomicLoad!(MemoryOrder.seq)(*cast(shared(int)*) ptr) != expected)
         return engine.newString("not-equal");
 
@@ -648,7 +639,6 @@ private JSHandle _atomicsWaitAsync(void* ctx, JSHandle thisVal, scope JSHandle[]
     if (!ptr)
         return engine.throwTypeError("Atomics.waitAsync: invalid typed array");
 
-    import core.atomic : atomicLoad, MemoryOrder;
     int current = atomicLoad!(MemoryOrder.seq)(*cast(shared(int)*) ptr);
 
     auto result = engine.newObject();

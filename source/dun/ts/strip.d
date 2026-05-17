@@ -94,11 +94,19 @@ string stripTypes(const(char)[] source) @trusted
         }
 
         // --- track nesting ---
-        if (c == '(') { parenDepth++; braceAtParenOpen ~= braceDepth; pos++; continue; }
+        // TIGER_STYLE: keep the auxiliary stacks in lockstep with their
+        // respective depths so a desync surfaces immediately at the
+        // offending source byte instead of as garbled output later.
+        if (c == '(') {
+            parenDepth++; braceAtParenOpen ~= braceDepth;
+            assert(braceAtParenOpen.length == parenDepth);
+            pos++; continue;
+        }
         if (c == ')') {
             if (parenDepth > 0) parenDepth--;
             if (braceAtParenOpen.length > 0)
                 braceAtParenOpen.length = braceAtParenOpen.length - 1;
+            assert(braceAtParenOpen.length == parenDepth);
             pos++; continue;
         }
         if (c == '{') {
@@ -115,6 +123,8 @@ string stripTypes(const(char)[] source) @trusted
             if (classBraceStack.length > 0 && classBraceStack[$ - 1] == braceDepth)
                 classBraceStack.length = classBraceStack.length - 1;
             if (braceDepth > 0) braceDepth--;
+            assert(classBraceStack.length == 0
+                || classBraceStack[$ - 1] <= braceDepth);
             pos++; continue;
         }
 
@@ -276,14 +286,58 @@ string stripTypes(const(char)[] source) @trusted
 
             // TS-only access modifiers on class members. JS has `static`
             // and `#`-private, so we only strip the keywords that have no
-            // runtime semantics. `override` is also TS-only.
+            // runtime semantics. `override` is also TS-only. `accessor`
+            // (TS 4.9 / stage-3 decorators) generates getter/setter pairs
+            // when paired with a decorator -- without a decorator runtime
+            // we erase it and let the field act as a regular property,
+            // matching how Bun + Deno's strippers handle it.
             if (classBraceStack.length > 0 && braceDepth == classBraceStack[$ - 1]
                 && parenDepth == 0
                 && (word == "public" || word == "private" || word == "protected"
-                    || word == "readonly" || word == "abstract" || word == "override"))
+                    || word == "readonly" || word == "abstract" || word == "override"
+                    || word == "accessor"))
             {
                 blankRange(buf, wordStart, pos);
                 continue;
+            }
+
+            // `using x = expr;` / `await using x = expr;` -- ES2026
+            // explicit resource management. V8 14+ supports natively;
+            // QuickJS-NG and the JSC build we link don't yet. We
+            // rewrite to `const` so the file parses on every backend.
+            // Deterministic Symbol.dispose semantics are lost, which
+            // matches Bun's behaviour when running on engines without
+            // native using support.
+            if (word == "using" && isStmtStart(buf, wordStart))
+            {
+                // Make sure this is the declaration form -- next token
+                // must be an identifier (rule out `using.foo()` etc.).
+                auto ws = skipWS(buf, pos);
+                if (ws < buf.length && isIdentStart(buf[ws]))
+                {
+                    // `using` (5) -> `const` (5) -- equal length, no
+                    // shift needed.
+                    static assert("using".length == "const".length);
+                    buf[wordStart .. wordStart + 5] = "const";
+                    continue;
+                }
+            }
+            if (word == "await" && isStmtStart(buf, wordStart))
+            {
+                // `await using x = ...` -- erase `await ` (6 chars
+                // including the space) and let the next iteration
+                // handle `using` as above.
+                auto ws = skipWS(buf, pos);
+                if (ws < buf.length && matchWord(buf, ws, "using"))
+                {
+                    auto afterUsing = ws + 5;
+                    auto afterWs = skipWS(buf, afterUsing);
+                    if (afterWs < buf.length && isIdentStart(buf[afterWs]))
+                    {
+                        blankRange(buf, wordStart, ws);
+                        continue;
+                    }
+                }
             }
 
             // TS `this:` parameter annotation: `f(this: X, a, b)`. The
@@ -717,17 +771,39 @@ string stripTypes(const(char)[] source) @trusted
                         || buf[qPos] == '}' || buf[qPos] == ']'))
                 {
                     size_t scan = qPos;
-                    // Skip identifier (or optional ?, } / ])
-                    if (buf[scan] == '?' && scan > 0) scan--;
-                    while (scan > 0 && isIdentChar(buf[scan])) scan--;
-                    if (scan > 0 && (buf[scan] == ' ' || buf[scan] == '\t')) {
-                        while (scan > 0 && (buf[scan] == ' ' || buf[scan] == '\t')) scan--;
+                    // Destructure / tuple patterns: `{a,b}: T`, `[a]: T`.
+                    // Walk back to the matching opener then re-check the
+                    // char before that opener.
+                    if (buf[scan] == '}' || buf[scan] == ']')
+                    {
+                        immutable close = buf[scan];
+                        immutable open  = close == '}' ? '{' : '[';
+                        int d = 1;
+                        while (scan > 0 && d > 0)
+                        {
+                            scan--;
+                            if (buf[scan] == close) d++;
+                            else if (buf[scan] == open) d--;
+                        }
                     }
-                    // Now check the char preceding the identifier.
-                    // Param head: just after `(`, `,`, or destructure
-                    // braces `{ ` / `[`. Anything else (operator,
-                    // digit, `.`, `)`) means we're mid-expression and
-                    // the colon belongs to a ternary.
+                    else
+                    {
+                        if (buf[scan] == '?' && scan > 0) scan--;
+                        while (scan > 0 && isIdentChar(buf[scan])) scan--;
+                    }
+                    while (scan > 0 && (buf[scan] == ' ' || buf[scan] == '\t'))
+                        scan--;
+                    // `...` (rest parameter) — walk past the dots and
+                    // re-check.
+                    while (scan >= 2 && buf[scan] == '.' && buf[scan - 1] == '.'
+                            && buf[scan - 2] == '.')
+                        scan -= 3;
+                    while (scan > 0 && (buf[scan] == ' ' || buf[scan] == '\t'))
+                        scan--;
+                    // Param head: just after `(`, `,`, or a destructure
+                    // opener nested inside another destructure. Anything
+                    // else (operator, digit, `)`) means we're
+                    // mid-expression and the colon is a ternary.
                     if (buf[scan] == '(' || buf[scan] == ',' || buf[scan] == '\n'
                         || buf[scan] == '{' || buf[scan] == '[')
                         looksLikeParam = true;
@@ -1456,7 +1532,7 @@ size_t prevNonWS(const(char)[] buf, size_t i) @safe pure nothrow @nogc
 /// specifier list at `braceStart`. Leaves a trailing comma if the
 /// erased specifier wasn't the last one; otherwise also eats the
 /// preceding comma to keep `import { a, } from` from breaking.
-void blankTypeSpecifiersInBraces(char[] buf, size_t braceStart) @trusted pure nothrow
+void blankTypeSpecifiersInBraces(char[] buf, size_t braceStart) @safe pure nothrow @nogc
 {
     if (braceStart >= buf.length || buf[braceStart] != '{') return;
     size_t p = braceStart + 1;

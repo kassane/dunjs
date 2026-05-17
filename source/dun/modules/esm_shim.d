@@ -332,9 +332,12 @@ private bool hasTopLevelAwait(string s) @safe pure nothrow
 {
     // Stack of brace "kinds": true = function/method/class body (await
     // inside is *not* top-level), false = block body (try / if / for /
-    // while / switch). We push on every `{` based on what precedes it
-    // and pop on `}`.
-    bool[] fnStack;
+    // while / switch). Plus a running counter of how many "true" entries
+    // are on the stack so the inner top-level check stays O(1) instead
+    // of walking the whole stack on every byte.
+    bool[64] fnStackBuf;
+    bool[] fnStack = fnStackBuf[0 .. 0];
+    int fnDepth = 0;
     int parenD = 0, bracketD = 0;
     size_t i = 0;
     while (i < s.length)
@@ -409,13 +412,24 @@ private bool hasTopLevelAwait(string s) @safe pure nothrow
                         || s[j] == '\n' || s[j] == '\r')) j++;
                 if (j + 5 <= i && s[j .. j + 5] == "class") isFn = true;
             }
-            fnStack ~= isFn;
+            // Stack-buffer-first, GC-spill fallback: keeps the common
+            // case (depth <= 64) GC-free.
+            if (fnStack.length < fnStackBuf.length)
+                fnStack = fnStackBuf[0 .. fnStack.length + 1];
+            else
+                fnStack.length = fnStack.length + 1;
+            fnStack[$ - 1] = isFn;
+            if (isFn) fnDepth++;
             i++;
             continue;
         }
         if (c == '}')
         {
-            if (fnStack.length > 0) fnStack.length = fnStack.length - 1;
+            if (fnStack.length > 0)
+            {
+                if (fnStack[$ - 1] && fnDepth > 0) fnDepth--;
+                fnStack = fnStack[0 .. $ - 1];
+            }
             i++;
             continue;
         }
@@ -425,10 +439,8 @@ private bool hasTopLevelAwait(string s) @safe pure nothrow
         if (c == ']') { if (bracketD > 0) bracketD--; i++; continue; }
 
         // "Top-level" = depth-0 parens/brackets AND no enclosing
-        // function/class scope on the brace stack.
-        bool insideFn = false;
-        foreach (b; fnStack) if (b) { insideFn = true; break; }
-        if (!insideFn && parenD == 0 && bracketD == 0)
+        // function/class scope.
+        if (fnDepth == 0 && parenD == 0 && bracketD == 0)
         {
             if (i + 6 <= s.length && s[i .. i + 5] == "await"
                 && (s[i + 5] == ' ' || s[i + 5] == '\t' || s[i + 5] == '\n'
