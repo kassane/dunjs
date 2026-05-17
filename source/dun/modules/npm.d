@@ -14,7 +14,11 @@ version (Posix):
 
 import std.stdio : writeln, writefln;
 
-bool installPackage(string spec, AuditMode auditMode = AuditMode.warn) @trusted
+/// Install a package into `installRoot/node_modules/<name>`. The default
+/// `"."` mirrors npm's behaviour (cwd-relative). Pass an absolute path
+/// like `~/.dun` (expanded) to install into the user-global DunJS store.
+bool installPackage(string spec, AuditMode auditMode = AuditMode.warn,
+    string installRoot = ".") @trusted
 {
     import std.string : indexOf;
     import std.file : exists, mkdirRecurse, write;
@@ -104,7 +108,7 @@ bool installPackage(string spec, AuditMode auditMode = AuditMode.warn) @trusted
         return false;
     }
 
-    string nmDir = buildNormalizedPath(".", "node_modules", name);
+    string nmDir = buildNormalizedPath(installRoot, "node_modules", name);
     writefln("extracting to %s...", nmDir);
 
     if (!extractTarGz(tarball, nmDir))
@@ -127,10 +131,10 @@ bool installPackage(string spec, AuditMode auditMode = AuditMode.warn) @trusted
                 auto deps = j["dependencies"].object;
                 foreach (depName, depRange; deps)
                 {
-                    auto depDir = buildNormalizedPath(".", "node_modules", depName);
+                    auto depDir = buildNormalizedPath(installRoot, "node_modules", depName);
                     if (!exists(depDir))
                     {
-                        installPackage(depName ~ "@" ~ depRange.str, auditMode);
+                        installPackage(depName ~ "@" ~ depRange.str, auditMode, installRoot);
                     }
                 }
             }
@@ -287,7 +291,7 @@ void createBinLinks(string pkgDir, string pkgName) @trusted
 {
     import std.file : exists, readText, mkdirRecurse;
     import std.json : parseJSON, JSONType;
-    import std.path : buildNormalizedPath, absolutePath, relativePath;
+    import std.path : buildNormalizedPath, absolutePath, relativePath, dirName;
 
     auto pkgJson = buildNormalizedPath(pkgDir, "package.json");
     if (!exists(pkgJson)) return;
@@ -297,7 +301,8 @@ void createBinLinks(string pkgDir, string pkgName) @trusted
         auto j = parseJSON(readText(pkgJson));
         if ("bin" !in j) return;
 
-        auto binDir = buildNormalizedPath(".", "node_modules", ".bin");
+        // pkgDir == <installRoot>/node_modules/<name>; .bin sibling.
+        auto binDir = buildNormalizedPath(dirName(pkgDir), ".bin");
         mkdirRecurse(binDir);
 
         if (j["bin"].type == JSONType.string)

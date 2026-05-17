@@ -810,6 +810,50 @@ public string findNodeModule(string specifier, string fromDir) @trusted
         if (parent == dir) break;
         dir = parent;
     }
+
+    // Fallback: user-global DunJS store (~/.dun/node_modules on Posix,
+    // %LOCALAPPDATA%\dun\node_modules on Windows, or $DUN_HOME if set).
+    // Lets `dun install typescript` from any directory satisfy every
+    // `dun run` on this machine (auto-install + `--typecheck`
+    // install into this path).
+    {
+        import dun.platform.paths : dunGlobalRoot;
+        auto nmDir = buildNormalizedPath(dunGlobalRoot(), "node_modules", pkg);
+        if (exists(nmDir) && isDir(nmDir))
+        {
+            auto pkgJson = buildNormalizedPath(nmDir, "package.json");
+            if (sub.length == 0)
+            {
+                if (exists(pkgJson))
+                {
+                    try
+                    {
+                        auto j = parseJSON(readText(pkgJson));
+                        if ("main" in j && j["main"].type == JSONType.string)
+                        {
+                            auto main = j["main"].str;
+                            auto p = buildNormalizedPath(nmDir, main);
+                            if (exists(p) && isFile(p)) return p;
+                        }
+                    }
+                    catch (Exception) {}
+                }
+                foreach (idx; ["index.js", "index.cjs", "index.mjs"])
+                {
+                    auto p = buildNormalizedPath(nmDir, idx);
+                    if (exists(p) && isFile(p)) return p;
+                }
+            }
+            else
+            {
+                foreach (ext; ["", ".js", ".cjs", ".mjs", ".json"])
+                {
+                    auto p = buildNormalizedPath(nmDir, sub ~ ext);
+                    if (exists(p) && isFile(p)) return p;
+                }
+            }
+        }
+    }
     return "";
 }
 

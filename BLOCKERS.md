@@ -71,18 +71,49 @@ real workload has a working fix.
     in the fallback path.
 
 - **TS-to-JS pipeline (tsc by default)** — when `typescript` is
-  installed in node_modules (anywhere upward from the script),
-  `.ts` / `.tsx` files go through `ts.transpileModule()` for full
-  TS-spec correctness: decorators, namespace runtime, const enum
-  member references, generic call sites, the entire TS surface.
-  Adds ~30 ms of cold-start for the first TS file but eliminates
-  every scanner edge case. Falls back to the byte-level stripper
-  when typescript isn't present. Opt-out: `DUN_DISABLE_TSC=1`.
-  Works uniformly on QuickJS / JSC / V8. (The earlier V8-specific
-  opt-in flag is gone: the underlying segfault was a stale
-  __gshared cache from runTranspile's transient engine; minimal-init
-  fix in runTranspile means the main engine no longer reuses
-  V8 handles from a freed isolate.)
+  installed in node_modules (anywhere upward from the script, or in
+  `$DUN_HOME/node_modules`), `.ts` / `.tsx` files go through
+  `ts.transpileModule()` for full TS-spec correctness: decorators,
+  namespace runtime, const enum member references, generic call
+  sites, the entire TS surface. Falls back to the byte-level
+  stripper when typescript isn't present. Opt-out:
+  `DUN_DISABLE_TSC=1`. Works uniformly on QuickJS / JSC / V8.
+  (The earlier V8-specific opt-in flag is gone: the underlying
+  segfault was a stale __gshared cache from runTranspile's transient
+  engine; minimal-init fix in runTranspile means the main engine no
+  longer reuses V8 handles from a freed isolate.)
+
+  Three production-grade refinements on top of that:
+
+  1. **Persistent transpile cache** at
+     `$DUN_HOME/cache/tsc/<first-2-chars>/<sha256>.js`. Key hashes
+     (source, filename, tsc version, compiler-options fingerprint),
+     so any input change invalidates exactly its own entries. Drops
+     a cache hit's wall time from ~900 ms (cold tsc startup) to
+     ~30 ms (~30× speedup). LRU eviction triggers at most every 5
+     min via a `.last_trim` mtime marker (in-process counters would
+     never advance across `dun` invocations). Bounds:
+     `DUN_TSC_CACHE_MAX_ENTRIES` (default 2000),
+     `DUN_TSC_CACHE_MAX_MB` (default 64),
+     `DUN_TSC_CACHE_TRIM_INTERVAL_SECS` (default 300).
+
+  2. **Auto-install consistency**. Both `--typecheck` and the
+     default tsc path now auto-install typescript when missing
+     (was: only `--typecheck`). Default path needs explicit
+     opt-in via `DUN_AUTO_INSTALL_TSC=1` so first-run latency is
+     opt-in; `--typecheck` still auto-installs unconditionally.
+     Both install into `$DUN_HOME/node_modules` so every
+     invocation on the machine shares one copy.
+
+  3. **User-global store at `$DUN_HOME`** (default
+     `$HOME/.dun` on Posix, `%LOCALAPPDATA%\dun` on Windows).
+     Hosts both the transpile cache and the auto-installed
+     packages. Overridable via `DUN_HOME=/path` for CI caches,
+     multi-user sandboxes, etc. `installPackage` takes an
+     `installRoot` parameter; `require()`'s resolver falls back
+     to `$DUN_HOME/node_modules` after the project tree walk
+     fails. Cross-platform — uses `std.path.buildPath` everywhere,
+     no embedded posix separators.
 
 - **Bun.hash sub-methods + Deno async FS** —
   `Bun.hash.{crc32, adler32, xxh32, xxh64}` and `Deno.{stat, lstat,
