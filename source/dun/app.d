@@ -153,6 +153,16 @@ int runScript(T)(T config)
         }
     }
 
+    // Dynamic `import(specifier)` rewrite. JSC and V8 don't wire
+    // `HostImportModuleDynamicallyCallback`, so the engine throws
+    // "Not supported" at any `await import(...)` call site. We
+    // rewrite to `__dunImport__(...)` (installed in JS land at engine
+    // boot) which wraps `require(...)` in a Promise.
+    {
+        import dun.ts.dynamic_import : rewriteDynamicImport;
+        source = rewriteDynamicImport(source);
+    }
+
     // JSX/TSX → React.createElement transform. Runs after TS strip
     // since the stripper already cleared parameter annotations etc.
     // that would otherwise confuse the JSX scanner.

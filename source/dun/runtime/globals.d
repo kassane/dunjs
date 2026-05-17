@@ -200,6 +200,17 @@ void installGlobals(IJSEngine engine, DunState* state) @trusted
 
     installRequire(engine);
 
+    // Dynamic `import(...)` shim. The source pipeline rewrites
+    // `import(specifier)` -> `__dunImport__(specifier)` so JSC and V8
+    // (which don't wire HostImportModuleDynamicallyCallback) can
+    // service `await import("fs")`. Has to come after installRequire
+    // so the shim can resolve `require`.
+    {
+        import dun.ts.dynamic_import : dunImportShimSource;
+        auto res = engine.eval(dunImportShimSource(), "<dun-import-shim>");
+        if (!res.isError) engine.freeValue(res.value);
+    }
+
     import dun.runtime.rejection_tracker : installRejectionTracker;
     installRejectionTracker(engine, state);
 
