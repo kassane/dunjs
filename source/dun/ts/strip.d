@@ -94,11 +94,19 @@ string stripTypes(const(char)[] source) @trusted
         }
 
         // --- track nesting ---
-        if (c == '(') { parenDepth++; braceAtParenOpen ~= braceDepth; pos++; continue; }
+        // TIGER_STYLE: keep the auxiliary stacks in lockstep with their
+        // respective depths so a desync surfaces immediately at the
+        // offending source byte instead of as garbled output later.
+        if (c == '(') {
+            parenDepth++; braceAtParenOpen ~= braceDepth;
+            assert(braceAtParenOpen.length == parenDepth);
+            pos++; continue;
+        }
         if (c == ')') {
             if (parenDepth > 0) parenDepth--;
             if (braceAtParenOpen.length > 0)
                 braceAtParenOpen.length = braceAtParenOpen.length - 1;
+            assert(braceAtParenOpen.length == parenDepth);
             pos++; continue;
         }
         if (c == '{') {
@@ -115,6 +123,8 @@ string stripTypes(const(char)[] source) @trusted
             if (classBraceStack.length > 0 && classBraceStack[$ - 1] == braceDepth)
                 classBraceStack.length = classBraceStack.length - 1;
             if (braceDepth > 0) braceDepth--;
+            assert(classBraceStack.length == 0
+                || classBraceStack[$ - 1] <= braceDepth);
             pos++; continue;
         }
 
@@ -1456,7 +1466,7 @@ size_t prevNonWS(const(char)[] buf, size_t i) @safe pure nothrow @nogc
 /// specifier list at `braceStart`. Leaves a trailing comma if the
 /// erased specifier wasn't the last one; otherwise also eats the
 /// preceding comma to keep `import { a, } from` from breaking.
-void blankTypeSpecifiersInBraces(char[] buf, size_t braceStart) @trusted pure nothrow
+void blankTypeSpecifiersInBraces(char[] buf, size_t braceStart) @safe pure nothrow @nogc
 {
     if (braceStart >= buf.length || buf[braceStart] != '{') return;
     size_t p = braceStart + 1;

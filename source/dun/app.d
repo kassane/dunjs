@@ -1522,14 +1522,11 @@ bool findTypescriptInstall(string scriptPath) @trusted
 /// `rc = 0` so the outer pipeline falls back to the scanner strip.
 string runTypecheck(string source, string filename, out int rc) @trusted
 {
-    import dun.engine.iface : createEngine, EngineConfig;
+    import dun.engine.iface : createEngine, EngineConfig,
+                              DEFAULT_MEMORY_LIMIT, DEFAULT_MAX_STACK;
     import dun.runtime.globals : DunState, installGlobals;
     import dun.security.permissions : Permission, PermissionRegistry;
-    import std.string : replace;
-    import std.file : exists;
-    import std.path : buildNormalizedPath, dirName, absolutePath;
 
-    import dun.engine.iface : DEFAULT_MEMORY_LIMIT, DEFAULT_MAX_STACK;
     rc = 0;
 
     // Auto-install typescript via DunJS's own package manager so users

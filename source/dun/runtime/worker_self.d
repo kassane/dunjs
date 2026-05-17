@@ -2,7 +2,7 @@ module dun.runtime.worker_self;
 
 import dun.engine.iface : IJSEngine, JSHandle;
 import dun.runtime.globals : DunState;
-import dun.workers.worker : WorkerState;
+import dun.workers.worker : WorkerState, jsonStringify;
 
 void installWorkerSelf(IJSEngine engine, DunState* state, WorkerState wst) @trusted
 {
@@ -99,7 +99,6 @@ private JSHandle _selfPostMessage(void* ctx, JSHandle thisVal, scope JSHandle[] 
     if (!wst)
         return engine.newUndefined();
 
-    import dun.workers.worker : jsonStringify;
     auto jsonStr = jsonStringify(engine, args[0]);
     if (jsonStr is null)
         return engine.newUndefined();
