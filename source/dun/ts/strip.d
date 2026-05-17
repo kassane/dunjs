@@ -1,6 +1,13 @@
 module dun.ts.strip;
 
 import std.base64 : Base64;
+// Lexer primitives we lean on for literal-region skipping. Strip.d is
+// a byte-level scanner; the lexer is the source of truth for "where
+// does this literal end" so we don't have to maintain a parallel
+// implementation per literal kind. First wiring point of the
+// TS-PARSER-PORT lexer-into-strip integration plan.
+import dun.ts.parser.lexer : skipRegexLit, charAllowsRegex,
+    regexAllowingKeywordEndsAt;
 
 /// Strip TypeScript type annotations, replacing them with whitespace
 /// to preserve source positions. Erasable subset only (no enum/namespace).
@@ -78,7 +85,13 @@ string stripTypes(const(char)[] source) @trusted
             continue;
         }
 
-        // --- skip comments ---
+        // --- skip comments + regex literals ---
+        // A `/` is one of three things: the start of a single-line
+        // comment, the start of a block comment, the start of a regex
+        // literal, or a divide operator. We pick the right branch the
+        // same way the lexer does: comments by lookahead, regex vs
+        // divide by the previous non-whitespace byte (see
+        // `charAllowsRegex` -- the rule mirrors `Lexer.allowsRegex`).
         if (c == '/' && pos + 1 < buf.length)
         {
             if (buf[pos + 1] == '/')
@@ -91,6 +104,28 @@ string stripTypes(const(char)[] source) @trusted
                 pos = skipBlockComment(buf, pos);
                 continue;
             }
+            // Regex disambiguation: walk back to the previous non-WS
+            // byte. If it allows a regex (operator / open-bracket /
+            // line start) -- or if it's the last byte of a keyword
+            // like `return` / `typeof` / `throw` -- consume the regex
+            // literal so nested `:`, `<`, `>`, etc. inside the regex
+            // body don't trigger the strip-mode heuristics below.
+            immutable prevIdx = prevNonWS(buf, pos);
+            immutable prevCh  = prevIdx < buf.length ? buf[prevIdx] : '\n';
+            bool isRegex = charAllowsRegex(prevCh);
+            if (!isRegex && prevIdx < buf.length)
+            {
+                // Identifier-tail case: check for regex-allowing keyword.
+                immutable kwStart = regexAllowingKeywordEndsAt(buf, prevIdx + 1);
+                isRegex = kwStart < prevIdx + 1;
+            }
+            if (isRegex)
+            {
+                pos = skipRegexLit(buf, pos);
+                continue;
+            }
+            // Otherwise it's a divide operator: fall through and
+            // advance one byte like any other punctuation.
         }
 
         // --- track nesting ---
@@ -2264,4 +2299,39 @@ unittest
 {
     auto js = "function hello() { console.log('world'); }";
     assert(stripTypes(js) == js);
+}
+
+@("strip: regex literal body preserved across `:` `<` `>` traps")
+unittest
+{
+    // Without the lexer-driven regex skip, the `:` / `<` / `>`
+    // inside these regex bodies would trigger the strip-mode
+    // heuristics (type annotation, generic arg list).
+    auto a = "const r = /^[0-2][0-9]:[0-5][0-9]$/.test(t);";
+    assert(stripTypes(a) == a);
+    auto b = "const t = /<[a-z]+>/.test(html);";
+    assert(stripTypes(b) == b);
+    auto c = "const re = /(?:foo|bar)/g;";
+    assert(stripTypes(c) == c);
+}
+
+@("strip: regex after `return` keyword preserved (regex-allowing kw)")
+unittest
+{
+    // `return` ends in an ident-cont byte (`n`); without the
+    // `regexAllowingKeywordEndsAt` check, `/` after `return` would
+    // be treated as divide and walked byte-by-byte.
+    auto src = "function f() { return /a:b/.test(x); }";
+    assert(stripTypes(src) == src);
+}
+
+@("strip: divide operator (no regex) stays divide")
+unittest
+{
+    // `)` / `]` / identifier-tail prevent regex disambiguation,
+    // so the `/` here must still be a divide operator.
+    auto src = "const r = a / b; const s = arr[0] / 2;";
+    // Stripper should be byte-identical -- it only erases TS-only
+    // syntax, never JS operators.
+    assert(stripTypes(src) == src);
 }

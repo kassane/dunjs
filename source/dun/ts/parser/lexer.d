@@ -9,27 +9,36 @@ module dun.ts.parser.lexer;
 // TS-PARSER-PORT.md for the project plan; this is the lexer-only
 // lift it recommended.
 //
-// Scope of this initial slice (see TODO markers for the rest):
+// Scope (phases 1 + 2 + 3 landed):
 //   * Single-line + block comments + shebang
 //   * Identifiers + numeric literals (decimal, hex, oct, bin) +
-//     keywords table
+//     keywords table; permissive Unicode (any byte >= 0x80 is
+//     identifier-class -- see `isIdentStart` below)
 //   * Single + double quoted strings (no escapes beyond \\ \r \n)
 //   * Common punctuation + multi-char operators (`==`, `===`, `=>`,
 //     `??`, `?.`, `**`, `**=`, `<<`, `<<=`, `>>`, `>>=`, `>>>`,
 //     `>>>=`, `&&`, `||`, `&=`, `|=`, `^=`, `+=`, `-=`, `/=`,
 //     `*=`, `%=`, `??=`, `&&=`, `||=`)
-//
-// Phase-2 additions (this slice):
 //   * Template literals: `` ` `` plain + `${expr}` substitution
 //     (head / middle / tail / no-substitution variants)
 //   * Regex literals: lexer-internal heuristic on whether the last
 //     emitted token allows an expression-start (`return /x/`) vs
 //     a divide operator (`a / b`).
 //   * BigInt suffix `n` on integer literals.
+//   * Public `skipRegexLit` / `charAllowsRegex` /
+//     `regexAllowingKeywordEndsAt` helpers so byte-level scanners
+//     (currently `dun.ts.strip`) can defer regex disambiguation
+//     to the lexer without spinning up a full token stream.
 //
 // Still deferred:
-//   * Unicode identifier ranges (we accept ASCII + `$` + `_` for now)
-//   * JSX/TSX mode switching
+//   * Full Unicode ID_Start / ID_Continue tables (the permissive
+//     >=0x80 acceptance covers every valid identifier in real-world
+//     TS files; tightening to the spec ranges only matters when
+//     the lexer becomes the *validation* layer instead of the
+//     stripping layer.)
+//   * JSX/TSX expression-vs-tag mode switching (deferred until
+//     strip.d drives the tokenizer for JSX -- currently jsx.d has
+//     its own scanner).
 
 @safe pure nothrow @nogc:
 
@@ -612,14 +621,147 @@ private:
     {
         return isDigit(c) || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
     }
+    // Identifier classification. We don't ship the full Unicode
+    // ID_Start / ID_Continue tables (~3000 ranges, 60 KB); instead we
+    // accept any byte >= 0x80 as part of an identifier. That covers
+    // every valid ID_Start/ID_Continue code point in UTF-8 (their
+    // leading bytes are all >= 0xC2) plus all UTF-8 continuation
+    // bytes. The trade-off: we'd also accept some non-identifier
+    // code points (e.g. emoji). For a strip-mode tokenizer that's
+    // fine -- the engine is the final arbiter of identifier validity.
     static bool isIdentStart(char c) @safe pure nothrow @nogc
     {
         return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
-            || c == '_' || c == '$';
+            || c == '_' || c == '$' || cast(ubyte) c >= 0x80;
     }
     static bool isIdentCont(char c) @safe pure nothrow @nogc
     {
         return isIdentStart(c) || isDigit(c);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Public token-stream helpers. `tokenize` allocates so its body lives
+// in a nested function that escapes the module-level `@nogc` colon.
+// ---------------------------------------------------------------------------
+
+/// Whether the source contains any `syntax_error` tokens. Useful for
+/// corpus-validation tests: a clean file should never hit one. The
+/// lexer treats unknown punctuation as `T.syntax_error` (single byte
+/// width) so an offending position can be located by walking the stream.
+bool hasSyntaxError(const(char)[] src) @safe pure nothrow @nogc
+{
+    auto lx = Lexer(src);
+    for (;;)
+    {
+        auto tk = lx.next();
+        if (tk.kind == T.syntax_error) return true;
+        if (tk.kind == T.eof) return false;
+    }
+}
+
+/// Skip past a regex literal starting at `buf[pos]` (which the caller
+/// has already determined to be `/` in a regex-allowed position).
+/// Returns the byte index just past the closing `/` and flag chars.
+/// Lifts the same body+class+flag logic the lexer's `scanRegex` uses,
+/// so callers don't have to spin up a full `Lexer` for one-off skips
+/// (e.g. `strip.d` walking past a regex on its main scan).
+///
+/// Same flag set as ECMA-262 + V8: `g i m s u v y d`. Any
+/// `isIdentCont` byte at the tail is consumed -- the caller is
+/// presumed to have validated the slash already.
+size_t skipRegexLit(const(char)[] buf, size_t pos) @safe pure nothrow @nogc
+{
+    assert(pos < buf.length && buf[pos] == '/',
+        "skipRegexLit called without a `/` at pos");
+    pos++;  // opening /
+    bool inClass = false;
+    while (pos < buf.length)
+    {
+        immutable c = buf[pos];
+        if (c == '\n') break;  // unterminated -- bail
+        if (c == '\\' && pos + 1 < buf.length)
+        {
+            pos += 2;
+            continue;
+        }
+        if (c == '[') { inClass = true; pos++; continue; }
+        if (c == ']') { inClass = false; pos++; continue; }
+        if (c == '/' && !inClass) { pos++; break; }
+        pos++;
+    }
+    // Trailing flags. Use Lexer.isIdentCont so the set stays in sync
+    // with the lexer's identifier classification.
+    while (pos < buf.length && Lexer.isIdentCont(buf[pos])) pos++;
+    return pos;
+}
+
+/// Whether a `/` at `prevChar`'s following position starts a regex
+/// literal or a divide. The caller passes the previous non-whitespace
+/// byte. Mirrors `Lexer.allowsRegex` but operates on raw chars so
+/// strip-mode callers don't need a token stream.
+///
+/// Returns true (regex) when prev is one of:
+///   - structural / operator: `(` `,` `;` `[` `{` `}` `:` `?` `=`
+///     `+` `-` `*` `/` `%` `&` `|` `^` `~` `!` `<` `>`
+///   - end-of-line (newline) or buffer start
+/// Returns false (divide) when prev is identifier-continuing,
+/// `)`, `]`, or backtick (template_tail-equivalent).
+///
+/// Caller should special-case identifier-keyword-then-slash (e.g.
+/// `return /x/`) via `regexAllowingKeywordEndsAt` before calling this:
+/// after `return` the previous byte is `n`, an ident-cont, which
+/// would otherwise say divide. See the strip.d main-loop wiring.
+bool charAllowsRegex(char prev) @safe pure nothrow @nogc
+{
+    if (Lexer.isIdentCont(prev)) return false;  // ident / digit / `_`
+    switch (prev)
+    {
+        case ')':
+        case ']':
+        case '`':
+            return false;
+        default:
+            return true;
+    }
+}
+
+/// If `buf[..endExclusive]` ends in a regex-allowing keyword (`return`,
+/// `typeof`, `void`, `delete`, `throw`, `in`, `instanceof`, `new`,
+/// `yield`, `await`, `do`, `else`), returns the byte offset where that
+/// keyword starts; otherwise returns `endExclusive` (caller should
+/// fall through to `charAllowsRegex`). The check requires the byte
+/// just before the keyword to be a non-ident byte (or buffer start) so
+/// `myreturn` doesn't match `return`.
+size_t regexAllowingKeywordEndsAt(const(char)[] buf, size_t endExclusive)
+    @safe pure nothrow @nogc
+{
+    if (endExclusive == 0) return endExclusive;
+    // Walk back through ident-continuing bytes to find the word start.
+    size_t start = endExclusive;
+    while (start > 0 && Lexer.isIdentCont(buf[start - 1])) start--;
+    if (start == endExclusive) return endExclusive;
+    const s = buf[start .. endExclusive];
+    // Same set as ECMA-262 RegularExpressionLiteral lookahead rules
+    // plus the common JS expression-start keywords.
+    switch (s)
+    {
+        case "return":
+        case "typeof":
+        case "void":
+        case "delete":
+        case "throw":
+        case "in":
+        case "instanceof":
+        case "new":
+        case "yield":
+        case "await":
+        case "do":
+        case "else":
+        case "case":
+            return start;
+        default:
+            return endExclusive;
     }
 }
 
@@ -788,4 +930,74 @@ unittest
     assert(l.next().kind == T.t_return);
     auto r = l.next();
     assert(r.kind == T.regex_literal && r.text == "/[a/b]/i");
+}
+
+unittest
+{
+    // Non-ASCII identifier (Greek `pi`). Permissive Unicode -- accepts
+    // any byte >= 0x80 as identifier-class. Catches `let π = 3.14;` /
+    // `const λ = x => x;` patterns that real-world libraries use.
+    immutable src = "let \xCF\x80 = 3.14;";  // π is U+03C0 = CF 80
+    auto l = Lexer(src);
+    assert(l.next().kind == T.identifier);   // let -> identifier? no, it's not reserved
+    auto id = l.next();
+    assert(id.kind == T.identifier);
+    assert(id.text == "\xCF\x80");
+    assert(l.next().kind == T.equals);
+    assert(l.next().kind == T.numeric_literal);
+    assert(l.next().kind == T.semicolon);
+    assert(l.next().kind == T.eof);
+}
+
+unittest
+{
+    // Public hasSyntaxError on clean source.
+    assert(!hasSyntaxError("const x = 1;"));
+    // ... and on a source with a stray byte that doesn't match any token.
+    assert(hasSyntaxError("let \x01 = 1;"));  // control byte
+}
+
+unittest
+{
+    // skipRegexLit + charAllowsRegex.
+    assert(charAllowsRegex('='));
+    assert(charAllowsRegex(','));
+    assert(charAllowsRegex('('));
+    assert(charAllowsRegex(' '));   // whitespace -> regex
+    assert(charAllowsRegex('\n'));
+    assert(!charAllowsRegex(')'));
+    assert(!charAllowsRegex(']'));
+    assert(!charAllowsRegex('a'));
+    assert(!charAllowsRegex('5'));
+
+    // skipRegexLit walks to end of the slash + flags.
+    auto src1 = "/abc/g xyz";
+    auto end1 = skipRegexLit(src1, 0);
+    assert(end1 == 6 && src1[0 .. end1] == "/abc/g");
+
+    // Regex with `/` inside a `[...]` class -- class context keeps
+    // the inner slash literal.
+    auto src2 = "/[a/b]/i;";
+    auto end2 = skipRegexLit(src2, 0);
+    assert(end2 == 8 && src2[0 .. end2] == "/[a/b]/i");
+
+    // Regex with escape sequences.
+    auto src3 = "/\\d+\\s*/g";
+    auto end3 = skipRegexLit(src3, 0);
+    assert(end3 == src3.length);
+
+    // Keyword-aware regex disambiguation. `return /` is regex; `foo /`
+    // (after a non-keyword identifier) is divide.
+    immutable src4 = "return /x/";
+    auto kw = regexAllowingKeywordEndsAt(src4, 6);  // end of "return"
+    assert(kw == 0, "expected keyword start at 0");
+
+    immutable src5 = "foo /x";
+    auto kw2 = regexAllowingKeywordEndsAt(src5, 3);  // end of "foo"
+    assert(kw2 == 3, "non-keyword identifier should not match");
+
+    // Word boundary: `myreturn` should not match `return`.
+    immutable src6 = "myreturn";
+    auto kw3 = regexAllowingKeywordEndsAt(src6, 8);
+    assert(kw3 == 8, "suffix of keyword must not match");
 }
