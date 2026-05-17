@@ -1,10 +1,34 @@
-# Plan: TS parser path forward (research outcome)
+# Plan: TS parser path forward (research outcome + kickoff)
 
-**Status**: research complete, decision documented.
+**Status**: research complete + lexer kickoff landed. Decision
+documented; first slice of D code in `source/dun/ts/parser/`.
 **Recommendation**: **NO-GO** on a full Bun-parser port now.
 **GO** on a focused **lexer-only lift** as a follow-up (~5
 person-weeks, kills the parsing edge cases scanner-strip keeps
 re-discovering, leaves the door open for a full AST port later).
+
+## What's in the tree so far
+
+- `vendor/bun-parser/zig/src/js_parser/{lexer,lexer_tables}.zig` —
+  upstream Zig sources vendored for diff reference. MIT-licensed.
+- `source/dun/ts/parser/lexer.d` — partial D port:
+  * Full `T : ubyte` token enum (matches Bun's `pub const T = enum(u8)`)
+  * `Lexer` struct with `next()` + line/col tracking
+  * Identifiers (ASCII + `$` / `_`), keywords (35 reserved-word table),
+    numeric literals (decimal, hex, oct, bin, numeric separators, `.`,
+    exponent), strings (`"…"`, `'…'` with `\` escape), single-line +
+    block comments, hashbang
+  * All single-char punctuation + the multi-char operator set
+    `=== !== ??= ??. ?. **= >>>= …` (~40 operators)
+  * 6 inline unittests covering every category above
+- `source/dun/ts/parser/package.d` — re-export.
+
+Not yet in this slice (next chunks):
+- Template literals (`` ` `` + `${…}`)
+- Regex vs divide disambiguation (needs parser feedback signal)
+- Unicode identifier ranges beyond ASCII
+- JSX/TSX mode switching
+- BigInt suffix `n`
 
 ## Why we considered porting
 
