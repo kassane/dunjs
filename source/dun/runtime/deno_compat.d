@@ -132,23 +132,9 @@ void installDenoCompat(IJSEngine engine) @trusted
     engine.setProperty(denoObj, "inspect",
         engine.newFunction(&denoInspect, "inspect", 1));
 
-    // Deno.errors
+    // Deno.errors -- placeholder; the JS-side shim below replaces each
+    // member with a real Error subclass so `instanceof` checks work.
     auto errorsObj = engine.newObject();
-    engine.setProperty(errorsObj, "NotFound", engine.newObject());
-    engine.setProperty(errorsObj, "PermissionDenied", engine.newObject());
-    engine.setProperty(errorsObj, "AlreadyExists", engine.newObject());
-    engine.setProperty(errorsObj, "InvalidData", engine.newObject());
-    engine.setProperty(errorsObj, "TimedOut", engine.newObject());
-    engine.setProperty(errorsObj, "ConnectionRefused", engine.newObject());
-    engine.setProperty(errorsObj, "ConnectionReset", engine.newObject());
-    engine.setProperty(errorsObj, "NotConnected", engine.newObject());
-    engine.setProperty(errorsObj, "AddrInUse", engine.newObject());
-    engine.setProperty(errorsObj, "AddrNotAvailable", engine.newObject());
-    engine.setProperty(errorsObj, "BrokenPipe", engine.newObject());
-    engine.setProperty(errorsObj, "WriteZero", engine.newObject());
-    engine.setProperty(errorsObj, "UnexpectedEof", engine.newObject());
-    engine.setProperty(errorsObj, "BadResource", engine.newObject());
-    engine.setProperty(errorsObj, "Busy", engine.newObject());
     engine.setProperty(denoObj, "errors", errorsObj);
 
     auto global = engine.getGlobal();
@@ -175,6 +161,63 @@ private string denoAsyncFsShim() pure nothrow @safe
     // Same join rules as denoServeAndKvSource -- block comments only.
     return
     "(function(){" ~
+    "  /* Promote Deno.errors entries to real Error subclasses so " ~
+    "     `e instanceof Deno.errors.NotFound` works. We use the function-" ~
+    "     constructor + Object.create(Error.prototype) pattern instead of " ~
+    "     `class C extends Error` because QuickJS / JSC have a long-" ~
+    "     standing instanceof bug on class-extends-Error (V8 is correct " ~
+    "     here, but we want one shim that passes on all three backends). */" ~
+    "  function makeErrCls(n) {" ~
+    "    function C(m) {" ~
+    "      Error.call(this, m);" ~
+    "      this.name = n;" ~
+    "      this.message = m;" ~
+    "      if (Error.captureStackTrace) Error.captureStackTrace(this, C);" ~
+    "    }" ~
+    "    C.prototype = Object.create(Error.prototype);" ~
+    "    C.prototype.constructor = C;" ~
+    "    C.prototype.name = n;" ~
+    "    Object.defineProperty(C, 'name', { value: n });" ~
+    "    return C;" ~
+    "  }" ~
+    "  var errNames = ['NotFound','PermissionDenied','AlreadyExists'," ~
+    "    'InvalidData','TimedOut','ConnectionRefused','ConnectionReset'," ~
+    "    'NotConnected','AddrInUse','AddrNotAvailable','BrokenPipe'," ~
+    "    'WriteZero','UnexpectedEof','BadResource','Busy','Interrupted'," ~
+    "    'WouldBlock','NotSupported','FilesystemLoop','IsADirectory'," ~
+    "    'NetworkUnreachable','NotADirectory','NotCapable'];" ~
+    "  for (var i = 0; i < errNames.length; i++) {" ~
+    "    Deno.errors[errNames[i]] = makeErrCls(errNames[i]);" ~
+    "  }" ~
+    "  /* Convert TypeError messages that map to a Deno.errors.* class. " ~
+    "     The sync impls use engine.throwTypeError for OS-level failures; " ~
+    "     this re-wraps them so `e instanceof Deno.errors.NotFound` works. */" ~
+    "  function classify(e) {" ~
+    "    if (!e || typeof e.message !== 'string') return e;" ~
+    "    var m = e.message;" ~
+    "    if (m.indexOf('No such file or directory') >= 0) return new Deno.errors.NotFound(m);" ~
+    "    if (m.indexOf('Permission denied') >= 0 || m.indexOf('--allow-') >= 0) return new Deno.errors.PermissionDenied(m);" ~
+    "    if (m.indexOf('File exists') >= 0 || m.indexOf('already exists') >= 0) return new Deno.errors.AlreadyExists(m);" ~
+    "    if (m.indexOf('Connection refused') >= 0) return new Deno.errors.ConnectionRefused(m);" ~
+    "    if (m.indexOf('Connection reset') >= 0) return new Deno.errors.ConnectionReset(m);" ~
+    "    if (m.indexOf('Address already in use') >= 0) return new Deno.errors.AddrInUse(m);" ~
+    "    if (m.indexOf('Operation timed out') >= 0 || m.indexOf('TimedOut') >= 0) return new Deno.errors.TimedOut(m);" ~
+    "    return e;" ~
+    "  }" ~
+    "  /* Wrap every *Sync function so it throws a Deno.errors.* class " ~
+    "     instead of a plain TypeError when the underlying OS error matches. */" ~
+    "  function wrapSyncClassify(name) {" ~
+    "    var orig = Deno[name];" ~
+    "    if (typeof orig !== 'function') return;" ~
+    "    Deno[name] = function(...args) {" ~
+    "      try { return orig.apply(this, args); }" ~
+    "      catch (e) { throw classify(e); }" ~
+    "    };" ~
+    "  }" ~
+    "  ['statSync','lstatSync','removeSync','renameSync','copyFileSync'," ~
+    "   'readDirSync','readTextFileSync','writeTextFileSync','readFileSync'," ~
+    "   'writeFileSync','mkdirSync','realPathSync','truncateSync']" ~
+    "    .forEach(wrapSyncClassify);" ~
     "  function wrapAsync(syncName){" ~
     "    return function(...args){" ~
     "      try { return Promise.resolve(Deno[syncName](...args)); }" ~

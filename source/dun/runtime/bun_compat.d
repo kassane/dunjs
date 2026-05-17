@@ -368,9 +368,13 @@ private string bunCompatSource() pure nothrow @safe
     "  });" ~
     "};" ~
 
-    /* Bun.spawn / spawnSync — wrap child_process.spawn{Sync}. */
+    /* Bun.spawn / spawnSync — wrap child_process.spawn{Sync}.
+       Bun's `p.stdout` is a Web ReadableStream<Uint8Array>, not a
+       Node Readable, so `new Response(p.stdout).text()` works. We
+       use Readable.toWeb() (from `stream`) to bridge. */
     "Bun.spawn = function(opts) {" ~
     "  var cp = require('child_process');" ~
+    "  var Readable = require('stream').Readable;" ~
     "  var cmd = Array.isArray(opts) ? opts : opts.cmd;" ~
     "  var args = cmd.slice(1);" ~
     "  var child = cp.spawn(cmd[0], args, {" ~
@@ -384,8 +388,8 @@ private string bunCompatSource() pure nothrow @safe
     "  return {" ~
     "    pid: child.pid," ~
     "    stdin: child.stdin," ~
-    "    stdout: child.stdout," ~
-    "    stderr: child.stderr," ~
+    "    stdout: child.stdout ? Readable.toWeb(child.stdout) : null," ~
+    "    stderr: child.stderr ? Readable.toWeb(child.stderr) : null," ~
     "    get exitCode() { return code; }," ~
     "    exited: exited," ~
     "    kill: function(sig) { child.kill(sig); }" ~

@@ -213,6 +213,13 @@ string streamSource() pure @safe nothrow
         if (done) return Promise.resolve({ value: undefined, done: true });
         var chunk = self.read();
         if (chunk !== null) return Promise.resolve({ value: chunk, done: false });
+        // read() returned null but might have synchronously triggered
+        // 'end' (e.g. Readable.from's _read pushes null when items
+        // exhausted, which fires 'end' inside push). The done flag
+        // we set on 'end' catches that case so we don't hang waiting
+        // for an event that already fired.
+        if (self._ended || done)
+          return Promise.resolve({ value: undefined, done: true });
         return new Promise(function(resolve) {
           function onData(d) { cleanup(); resolve({ value: d, done: false }); }
           function onEnd() { cleanup(); resolve({ value: undefined, done: true }); }
