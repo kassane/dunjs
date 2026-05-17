@@ -200,8 +200,15 @@ struct Lexer
     /// emitting a close-brace token.
     private int templateDepth = 0;
 
+    // `src` is stored into a struct member -- DIP1000 forbids
+    // `scope` on it because the slice outlives the function. Caller
+    // discipline: the Lexer must not outlive the source buffer.
     this(const(char)[] src) @safe pure nothrow @nogc
     {
+        // TIGER_STYLE: positions are `uint`, so a 4-GiB+ source would
+        // silently truncate. Fail fast at the boundary instead.
+        assert(src.length < uint.max,
+            "Lexer source exceeds uint position space (>= 4 GiB)");
         source = src;
     }
 
@@ -649,6 +656,10 @@ private:
 /// corpus-validation tests: a clean file should never hit one. The
 /// lexer treats unknown punctuation as `T.syntax_error` (single byte
 /// width) so an offending position can be located by walking the stream.
+// `src` isn't `scope` because the inner `Lexer` stores the slice in a
+// non-scope member (see `Lexer.this`). DIP1000 propagation would
+// require the whole Lexer to be `scope`, which complicates the API
+// without observable gain for the strip-time short-lived usage.
 bool hasSyntaxError(const(char)[] src) @safe pure nothrow @nogc
 {
     auto lx = Lexer(src);
