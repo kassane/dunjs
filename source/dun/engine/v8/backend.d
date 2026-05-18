@@ -120,7 +120,7 @@ class V8Engine : IJSEngine
         return toHandle(dun_v8_new_uint8array(ctx, null, length));
     }
 
-    ubyte[] getTypedArrayBytes(JSHandle val) @trusted
+    ubyte[] getTypedArrayBytes(return scope JSHandle val) @trusted
     {
         assert(ctx !is null, "V8 context not initialized");
         auto v = fromHandle(val);

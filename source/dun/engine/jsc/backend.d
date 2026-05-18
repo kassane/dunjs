@@ -184,7 +184,7 @@ class JSCEngine : IJSEngine
         JSValueProtect(ctx, cast(JSValueRef) uint8ArrayCtor);
     }
 
-    ubyte[] getTypedArrayBytes(JSHandle val) @trusted
+    ubyte[] getTypedArrayBytes(return scope JSHandle val) @trusted
     {
         assert(ctx !is null, "JSC context not initialized");
         auto obj = cast(JSObjectRef) fromHandle(val);

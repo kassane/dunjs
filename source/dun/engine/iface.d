@@ -134,8 +134,10 @@ interface IJSEngine
 
     /// Raw bytes of a Uint8Array / Buffer / typed-array view. Slice
     /// is engine-owned and tied to `val`'s lifetime — `.dup` if you
-    /// need it past the JSHandle (e.g. async dispatch).
-    ubyte[] getTypedArrayBytes(JSHandle val) @trusted;
+    /// need it past the JSHandle (e.g. async dispatch). `return scope`
+    /// makes DIP1000 propagate the constraint to callers: the result
+    /// inherits `val`'s scope and cannot outlive it without copying.
+    ubyte[] getTypedArrayBytes(return scope JSHandle val) @trusted;
 
     // --- Indexed property access (O(1) for arrays) ---
     void setPropertyIndex(JSHandle obj, uint idx, JSHandle val);
