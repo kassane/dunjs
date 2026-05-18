@@ -339,7 +339,10 @@ ubyte hexDigit(char c) pure @safe
     return 0;
 }
 
-package ubyte[] extractBytes(IJSEngine engine, JSHandle obj) @trusted
+/// Returned slice inherits `obj`'s scope (DIP1000 `return scope`):
+/// callers must consume it inline or `.dup` to keep past `obj`'s
+/// lifetime. Matches `IJSEngine.getTypedArrayBytes` which it wraps.
+package ubyte[] extractBytes(IJSEngine engine, return scope JSHandle obj) @trusted
 {
     // Buffer is now a Uint8Array subclass — no `.__u8` indirection needed.
     // Falls back to the legacy `.__u8` property in case some non-Buffer

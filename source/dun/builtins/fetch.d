@@ -47,10 +47,25 @@ private JSHandle jsFetch(void* ctx, JSHandle thisVal, scope JSHandle[] args) @tr
     string reqBody;
     string[string] reqHeaders;
     bool hasBody = false;
+    // Fetch spec redirect modes: "follow" (default — chase 3xx up to
+    // MAX_FOLLOWS), "manual" (return the 3xx response as-is), "error"
+    // (throw a TypeError on 3xx). Real Deno + Node + Bun all implement
+    // the trio; without it, `fetch(redirect: 'manual')` silently
+    // followed redirects and broke auth-flow scripts.
+    string redirectMode = "follow";
 
     if (args.length >= 2 && engine.isObject(args[1]))
     {
         auto opts = args[1];
+
+        auto rVal = engine.getProperty(opts, "redirect");
+        if (engine.isString(rVal))
+        {
+            auto r = engine.extractString(rVal);
+            if (r == "follow" || r == "manual" || r == "error")
+                redirectMode = r;
+        }
+        engine.freeValue(rVal);
         auto mVal = engine.getProperty(opts, "method");
         if (engine.isString(mVal))
             method = engine.extractString(mVal);
@@ -122,7 +137,7 @@ private JSHandle jsFetch(void* ctx, JSHandle thisVal, scope JSHandle[] args) @tr
     };
 
     asyncSubmit(engine, ph.resolve, ph.reject, () @trusted {
-        auto result = doFetch(url, method, reqBody, hasBody, reqHeaders);
+        auto result = doFetch(url, method, reqBody, hasBody, reqHeaders, 0, redirectMode);
         return serializeFetchResult(result);
     }, transform);
 
@@ -204,12 +219,18 @@ struct FetchResult
     bool ok;
 }
 
+// Fetch spec hard limit of 20 redirect hops before erroring;
+// we use 5 as a more conservative default consistent with curl's
+// default. Bumpable via the redirectMode handling at the call site.
+enum int MAX_REDIRECT_FOLLOWS = 5;
+
 FetchResult doFetch(string url, string method, string reqBody,
-    bool hasBody, string[string] reqHeaders, int redirectCount = 0) @trusted
+    bool hasBody, string[string] reqHeaders, int redirectCount = 0,
+    string redirectMode = "follow") @trusted
 {
     import std.string : indexOf, toLower;
 
-    if (redirectCount > 5)
+    if (redirectCount > MAX_REDIRECT_FOLLOWS)
         throw new Exception("too many redirects");
 
     auto parsed = parseUrl(url);
@@ -270,16 +291,25 @@ FetchResult doFetch(string url, string method, string reqBody,
 
             tls.close();
 
+            // Redirect handling per Fetch spec: "follow" chases, "error"
+            // throws a TypeError, "manual" returns the 3xx response so
+            // the caller can inspect Location / set-cookie / etc.
             if (response.status >= 301 && response.status <= 308)
             {
-                if (auto loc = "location" in response.headers)
+                if (redirectMode == "error")
+                    throw new Exception("fetch: redirected with redirect:error");
+                if (redirectMode == "follow")
                 {
-                    string newUrl = *loc;
-                    if (newUrl.length > 0 && newUrl[0] == '/')
-                        newUrl = parsed.scheme ~ "://" ~ parsed.host ~ newUrl;
-                    return doFetch(newUrl, method, reqBody, hasBody,
-                        reqHeaders, redirectCount + 1);
+                    if (auto loc = "location" in response.headers)
+                    {
+                        string newUrl = *loc;
+                        if (newUrl.length > 0 && newUrl[0] == '/')
+                            newUrl = parsed.scheme ~ "://" ~ parsed.host ~ newUrl;
+                        return doFetch(newUrl, method, reqBody, hasBody,
+                            reqHeaders, redirectCount + 1, redirectMode);
+                    }
                 }
+                // redirectMode == "manual": fall through, return 3xx as-is.
             }
             response.url = url;
             return response;
@@ -310,14 +340,20 @@ FetchResult doFetch(string url, string method, string reqBody,
 
         if (response.status >= 301 && response.status <= 308)
         {
-            if (auto loc = "location" in response.headers)
+            if (redirectMode == "error")
+                throw new Exception("fetch: redirected with redirect:error");
+            if (redirectMode == "follow")
             {
-                string newUrl = *loc;
-                if (newUrl.length > 0 && newUrl[0] == '/')
-                    newUrl = parsed.scheme ~ "://" ~ parsed.host ~ newUrl;
-                return doFetch(newUrl, method, reqBody, hasBody,
-                    reqHeaders, redirectCount + 1);
+                if (auto loc = "location" in response.headers)
+                {
+                    string newUrl = *loc;
+                    if (newUrl.length > 0 && newUrl[0] == '/')
+                        newUrl = parsed.scheme ~ "://" ~ parsed.host ~ newUrl;
+                    return doFetch(newUrl, method, reqBody, hasBody,
+                        reqHeaders, redirectCount + 1, redirectMode);
+                }
             }
+            // redirectMode == "manual": fall through, return 3xx as-is.
         }
         response.url = url;
         return response;

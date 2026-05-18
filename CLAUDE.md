@@ -417,7 +417,7 @@ Key shim patterns:
 ## Testing
 
 See [TESTING.md](TESTING.md) — unit tests (118 quickjs+v8 / 47 jsc),
-integration sweep (129/129 across 3 backends), 145 npm-compat checks,
+integration sweep (131/131 across 3 backends), 145 npm-compat checks,
 98/98 ECMAScript spec, 35/35 TypeScript spec, 81/81 react-compat,
 231/231 safe-features, 45/45 security audit, 12/12 ts_parity vs
 `tsc`, 12/12 deno_deploy_compat vs Deno 2.7, 13/13
@@ -518,12 +518,50 @@ dun "--DRT-gcopt=parallel:4" run script.js
 dun "--DRT-gcopt=help"
 ```
 
-Benchmark impact (25 benchmarks, feature_bench.js):
-| Config | GC Collections | GC Time | Throughput |
-|--------|---------------|---------|------------|
-| Default (1MB pool) | 260 | 27ms | 5.67M ops/sec |
-| minPoolSize:16 | 23 | 6ms | 5.92M ops/sec |
-| precise + 16MB | 20 | 7ms | ~5.9M ops/sec |
+Benchmark impact (25 benchmarks, feature_bench.js, release builds):
+
+| Config | dun-qjs ops/sec | dun-jsc ops/sec | dun-v8 ops/sec | GCs |
+|--------|----------------:|----------------:|---------------:|----:|
+| **Default (16 MB pool)** | 23.7M | **513M** | 165M | 6–25 |
+| minPoolSize:32 | 23.5M | 497M | 169M | 3–12 |
+| minPoolSize:64 | 23.3M | 463M | 163M | 2–7 |
+| parallel:4 | 22.6M | 508M | 162M | 6–23 |
+| gc:precise | 22.6M | 497M | 169M | 6–23 |
+
+The 16 MB default is at the throughput knee — `minPoolSize:32` halves
+GC count but throughput barely moves (within noise). `minPoolSize:64`
+actually regresses JSC throughput ~10% (pool re-allocs cost more than
+the saved collections). `parallel:4` is a no-op or slight loss on
+single-threaded workloads (single JS thread); useful for Worker-heavy
+apps. `gc:precise` is a no-op on feature_bench's working set.
+
+GC time itself is already negligible (1–5 ms over a 14–15 s run).
+Don't change the default unless you have profile data showing GC
+overhead — `--DRT-gcopt=profile:1` reports it.
+
+## D-side previews + DIPs enabled
+
+`dub.json` `dflags` enables five DMD/LDC previews. Each maps to an
+accepted DIP and tightens what the compiler will accept:
+
+| Preview | Effect | DIP |
+|---------|--------|-----|
+| `fixImmutableConv` | Disallow unsafe immutable conversions | (LDC patch) |
+| `fixAliasThis` | Strict `alias this` lookup order | (LDC patch) |
+| `rvaluerefparam` | Allow rvalue → `ref` parameter binding | (LDC patch) |
+| `safer` | `@safe` is the default for non-extern functions | (in progress) |
+| `dip1000` | Scope / `return scope` lifetime tracking on slices, refs, pointers | [DIP 1000](https://github.com/dlang/DIPs/blob/master/DIPs/other/DIP1000.md) |
+
+DIP1000 specifically: `scope` is **not** inferred for virtual / interface
+methods, so engine APIs that return slices into engine-owned memory must
+spell out `return scope` on both the interface declaration and every
+backend override. We currently annotate:
+
+- `IJSEngine.getTypedArrayBytes(return scope JSHandle val) → ubyte[]`
+- `dun.builtins.buffer.extractBytes(IJSEngine, return scope JSHandle) → ubyte[]`
+
+Callers that need the slice past the JSHandle's lifetime (e.g. shipping
+into an `asyncSubmit` worker) must `.dup`. Compiler-checked.
 
 ## Phased Roadmap
 

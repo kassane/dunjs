@@ -132,7 +132,7 @@ class QuickJSEngine : IJSEngine
         return toHandle(result);
     }
 
-    ubyte[] getTypedArrayBytes(JSHandle val) @trusted
+    ubyte[] getTypedArrayBytes(return scope JSHandle val) @trusted
     {
         assert(ctx !is null, "Engine not initialized");
         auto v = fromHandle(val);
