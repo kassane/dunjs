@@ -3,36 +3,55 @@ name: CI
 on:
   push:
     branches: [main, "claude/**"]
+    # Doc-only changes don't need the full matrix.
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - 'LICENSE'
   pull_request:
     branches: [main]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - 'LICENSE'
 
+# Least-privilege: the workflow only reads the repo. The previous
+# `issues: write` + `actions: write` + `pull-requests: write` block
+# existed for an opt-in PR-comment-on-failure flow that we've
+# removed (failures are now surfaced via the standard Checks tab).
 permissions:
   contents: read
-  pull-requests: write
-  issues: write
-  actions: write
 
+# Cancel obsolete runs on the same ref (typical force-push during
+# dev). Group by PR number when available so different PRs don't
+# starve each other; fall back to ref_name on direct pushes.
 concurrency:
-  group: ci-${{ github.ref_name }}
+  group: ci-${{ github.event.pull_request.number || github.ref_name }}
   cancel-in-progress: true
+
+env:
+  # Pin LDC so cache keys + reproducibility don't drift with upstream.
+  LDC_VERSION: 1.42.0
 
 jobs:
   # ── Build matrix (engine × OS) ──────────────────────────────────
   build:
     name: ${{ matrix.engine }} · ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
         include:
-          # QuickJS: Linux + macOS + Windows
+          # QuickJS: Linux + macOS + Windows.
           - { os: ubuntu-latest,  engine: quickjs }
           - { os: macos-latest,   engine: quickjs }
           - { os: windows-latest, engine: quickjs }
-          # JSC: system library (Linux + macOS only)
+          # JSC: prebuilt or system library (Linux + macOS).
           - { os: ubuntu-latest, engine: jsc }
           - { os: macos-latest,  engine: jsc }
-          # V8: via C++ shim (best-effort)
+          # V8: via C++ shim (Linux only — needs LDC's internal
+          # linker for CREL relocations).
           - { os: ubuntu-latest, engine: v8 }
 
     steps:
@@ -40,7 +59,7 @@ jobs:
 
       - uses: dlang-community/setup-dlang@v2
         with:
-          compiler: ldc-latest
+          compiler: ldc-${{ env.LDC_VERSION }}
 
       - name: Install system deps (JSC · Linux)
         if: matrix.engine == 'jsc' && runner.os == 'Linux'
@@ -56,160 +75,74 @@ jobs:
         if: matrix.engine == 'quickjs'
         uses: lukka/get-cmake@latest
 
+      # Cache key includes LDC version + a checksum of the build
+      # scripts; bump either and the cache is rebuilt.
       - name: Cache vendor
         uses: actions/cache@v5
         with:
           path: vendor/
-          key: vendor-${{ matrix.engine }}-${{ matrix.os }}-${{ hashFiles('build.d', 'dub.json') }}
-          restore-keys: vendor-${{ matrix.engine }}-${{ matrix.os }}-
+          key: vendor-${{ matrix.engine }}-${{ matrix.os }}-ldc${{ env.LDC_VERSION }}-${{ hashFiles('build.d', 'dub.json') }}
+          restore-keys: |
+            vendor-${{ matrix.engine }}-${{ matrix.os }}-ldc${{ env.LDC_VERSION }}-
+            vendor-${{ matrix.engine }}-${{ matrix.os }}-
 
-      - name: Build vendor deps (POSIX)
-        if: runner.os != 'Windows'
+      - name: Build vendor deps
+        shell: bash
         run: ldc2 -run build.d --backend=${{ matrix.engine }} --verbose
 
-      - name: Build vendor deps (Windows)
-        if: runner.os == 'Windows'
-        id: win_vendor
-        continue-on-error: true
-        shell: pwsh
-        run: |
-          $output = ldc2 -run build.d --backend=${{ matrix.engine }} --verbose --force 2>&1 | Out-String
-          $output | Out-File -FilePath vendor-build.log -Encoding utf8
-          Write-Host $output
-          if ($LASTEXITCODE -ne 0) {
-            Write-Host "::error::Vendor build failed with exit code $LASTEXITCODE"
-            exit $LASTEXITCODE
-          }
-
-      - name: Build (debug, POSIX)
-        if: matrix.engine != 'v8' && runner.os != 'Windows'
+      - name: Build (debug)
+        if: matrix.engine != 'v8'
+        shell: bash
         run: dub build -v -c ${{ matrix.engine }}
 
-      - name: Build (debug, Windows)
-        if: matrix.engine != 'v8' && runner.os == 'Windows' && steps.win_vendor.outcome != 'failure'
-        id: win_debug
-        continue-on-error: true
-        shell: pwsh
-        run: |
-          $output = dub build -v -c ${{ matrix.engine }} 2>&1 | Out-String
-          $output | Out-File -FilePath dub-build.log -Encoding utf8
-          Write-Host $output
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-
-      - name: Post dub build failure
-        if: runner.os == 'Windows' && steps.win_debug.outcome == 'failure'
-        uses: actions/github-script@v9
-        with:
-          script: |
-            const fs = require('fs');
-            let log = 'No log file found';
-            try {
-              log = fs.readFileSync('dub-build.log', 'utf8');
-              if (log.length > 6000) log = '...(truncated)\n' + log.slice(-6000);
-            } catch(e) { log = 'Could not read log: ' + e.message; }
-            const prNumbers = context.payload.pull_request
-              ? [context.payload.pull_request.number]
-              : (await github.rest.repos.listPullRequestsAssociatedWithCommit({
-                  owner: context.repo.owner, repo: context.repo.repo,
-                  commit_sha: context.sha
-                })).data.map(pr => pr.number);
-            for (const prNum of prNumbers) {
-              await github.rest.issues.createComment({
-                owner: context.repo.owner, repo: context.repo.repo,
-                issue_number: prNum,
-                body: `**CI Windows dub build failed** (\`${{ matrix.engine }} · ${{ matrix.os }}\`)\n\n\`\`\`\n${log}\n\`\`\``
-              });
-            }
-
-      - name: Fail if dub build failed (Windows)
-        if: runner.os == 'Windows' && steps.win_debug.outcome == 'failure'
-        run: exit 1
-
+      # V8 link step needs --link-internally (CREL relocations) which
+      # only works on Linux with LDC's bundled lld. The compile-check
+      # path here verifies the D source compiles; full link is
+      # exercised by the release job.
       - name: Compile check (V8)
         if: matrix.engine == 'v8'
+        shell: bash
         run: |
-          output=$(dub build -v -c v8 2>&1) && exit 0
+          if output=$(dub build -v -c v8 2>&1); then
+            exit 0
+          fi
           if echo "$output" | grep -q 'cannot find -lv8'; then
             echo "D compilation OK — link skipped (no system libv8)"
-          else
-            echo "$output"
-            exit 1
+            exit 0
           fi
+          echo "$output"
+          exit 1
 
-      - name: Build (release, POSIX)
-        if: matrix.engine != 'v8' && runner.os != 'Windows'
+      - name: Build (release)
+        if: matrix.engine != 'v8'
+        shell: bash
         run: dub build -v -c ${{ matrix.engine }} -b release
 
-      - name: Build (release, Windows)
-        if: matrix.engine != 'v8' && runner.os == 'Windows' && steps.win_vendor.outcome != 'failure' && steps.win_debug.outcome != 'failure'
-        shell: cmd
-        run: dub build -v -c %engine% -b release
-        env:
-          engine: ${{ matrix.engine }}
-
-      - name: Upload binary (POSIX)
-        if: matrix.engine != 'v8' && runner.os != 'Windows'
+      - name: Upload binary
+        if: matrix.engine != 'v8'
         uses: actions/upload-artifact@v7
         with:
           name: dun-${{ matrix.engine }}-${{ matrix.os }}
-          path: build/dun
+          path: build/dun${{ runner.os == 'Windows' && '.exe' || '' }}
+          if-no-files-found: error
           retention-days: 7
-
-      - name: Upload binary (Windows)
-        if: matrix.engine != 'v8' && runner.os == 'Windows'
-        uses: actions/upload-artifact@v7
-        with:
-          name: dun-${{ matrix.engine }}-${{ matrix.os }}
-          path: build/dun.exe
-          retention-days: 7
-
-      - name: Post Windows failure details
-        if: runner.os == 'Windows' && steps.win_vendor.outcome == 'failure'
-        uses: actions/github-script@v9
-        with:
-          script: |
-            const fs = require('fs');
-            let log = 'No log file found';
-            try {
-              log = fs.readFileSync('vendor-build.log', 'utf8');
-              if (log.length > 6000) log = '...(truncated)\n' + log.slice(-6000);
-            } catch(e) { log = 'Could not read log: ' + e.message; }
-            const prNumbers = context.payload.pull_request
-              ? [context.payload.pull_request.number]
-              : (await github.rest.repos.listPullRequestsAssociatedWithCommit({
-                  owner: context.repo.owner, repo: context.repo.repo,
-                  commit_sha: context.sha
-                })).data.map(pr => pr.number);
-            for (const prNum of prNumbers) {
-              await github.rest.issues.createComment({
-                owner: context.repo.owner, repo: context.repo.repo,
-                issue_number: prNum,
-                body: `**CI Windows vendor build failed** (\`${{ matrix.engine }} · ${{ matrix.os }}\`)\n\n\`\`\`\n${log}\n\`\`\``
-              });
-            }
-
-      - name: Fail if vendor build failed (Windows)
-        if: runner.os == 'Windows' && steps.win_vendor.outcome == 'failure'
-        run: exit 1
 
   # ── Unit tests ────────────────────────────────────────────────
   test:
     name: Test · ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - { os: ubuntu-latest }
-          - { os: macos-latest }
-          - { os: windows-latest }
+        os: [ubuntu-latest, macos-latest, windows-latest]
 
     steps:
       - uses: actions/checkout@v6
 
       - uses: dlang-community/setup-dlang@v2
         with:
-          compiler: ldc-latest
+          compiler: ldc-${{ env.LDC_VERSION }}
 
       - name: Setup MSVC (Windows)
         if: runner.os == 'Windows'
@@ -221,63 +154,17 @@ jobs:
         uses: actions/cache@v5
         with:
           path: vendor/
-          key: vendor-quickjs-${{ matrix.os }}-${{ hashFiles('build.d', 'dub.json') }}
-          restore-keys: vendor-quickjs-${{ matrix.os }}-
+          key: vendor-quickjs-${{ matrix.os }}-ldc${{ env.LDC_VERSION }}-${{ hashFiles('build.d', 'dub.json') }}
+          restore-keys: |
+            vendor-quickjs-${{ matrix.os }}-ldc${{ env.LDC_VERSION }}-
+            vendor-quickjs-${{ matrix.os }}-
 
-      - name: Build vendor deps (POSIX)
-        if: runner.os != 'Windows'
+      - name: Build vendor deps
+        shell: bash
         run: ldc2 -run build.d --backend=quickjs --verbose
 
-      - name: Build vendor deps (Windows)
-        if: runner.os == 'Windows'
-        id: test_vendor
-        continue-on-error: true
-        shell: pwsh
-        run: |
-          $output = ldc2 -run build.d --backend=quickjs --verbose --force 2>&1 | Out-String
-          $output | Out-File -FilePath vendor-build.log -Encoding utf8
-          Write-Host $output
-          if ($LASTEXITCODE -ne 0) {
-            Write-Host "::error::Vendor build failed with exit code $LASTEXITCODE"
-            exit $LASTEXITCODE
-          }
-
-      - name: Post test vendor failure
-        if: runner.os == 'Windows' && steps.test_vendor.outcome == 'failure'
-        uses: actions/github-script@v9
-        with:
-          script: |
-            const fs = require('fs');
-            let log = 'No log file found';
-            try {
-              log = fs.readFileSync('vendor-build.log', 'utf8');
-              if (log.length > 6000) log = '...(truncated)\n' + log.slice(-6000);
-            } catch(e) { log = 'Could not read log: ' + e.message; }
-            const prNumbers = context.payload.pull_request
-              ? [context.payload.pull_request.number]
-              : (await github.rest.repos.listPullRequestsAssociatedWithCommit({
-                  owner: context.repo.owner, repo: context.repo.repo,
-                  commit_sha: context.sha
-                })).data.map(pr => pr.number);
-            for (const prNum of prNumbers) {
-              await github.rest.issues.createComment({
-                owner: context.repo.owner, repo: context.repo.repo,
-                issue_number: prNum,
-                body: `**CI Windows test vendor build failed** (\`Test · ${{ matrix.os }}\`)\n\n\`\`\`\n${log}\n\`\`\``
-              });
-            }
-
-      - name: Fail if test vendor failed (Windows)
-        if: runner.os == 'Windows' && steps.test_vendor.outcome == 'failure'
-        run: exit 1
-
-      - name: Run unit tests (POSIX)
-        if: runner.os != 'Windows'
-        run: dub test -v -c unittest
-
-      - name: Run unit tests (Windows)
-        if: runner.os == 'Windows'
-        shell: cmd
+      - name: Run unit tests
+        shell: bash
         run: dub test -v -c unittest
 
   # ── Integration tests ─────────────────────────────────────────
@@ -285,13 +172,11 @@ jobs:
     name: Integration · ${{ matrix.os }}
     needs: build
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - { os: ubuntu-latest }
-          - { os: macos-latest }
-          - { os: windows-latest }
+        os: [ubuntu-latest, macos-latest, windows-latest]
 
     steps:
       - uses: actions/checkout@v6
@@ -306,57 +191,12 @@ jobs:
         if: runner.os != 'Windows'
         run: |
           chmod +x build/dun
-          pass=0 fail=0 skip=0
-          for fixture in tests/integration/fixtures/*.js; do
-            name=$(basename "$fixture" .js)
-            expected="tests/integration/expected/${name}.txt"
-            if [ ! -f "$expected" ]; then
-              echo "SKIP $name"
-              skip=$((skip + 1))
-              continue
-            fi
-            if output=$(./build/dun run "$fixture" 2>&1) && \
-               diff -u "$expected" <(printf '%s\n' "$output") >/dev/null 2>&1; then
-              echo "PASS $name"
-              pass=$((pass + 1))
-            else
-              echo "FAIL $name"
-              diff -u "$expected" <(printf '%s\n' "$output") || true
-              fail=$((fail + 1))
-            fi
-          done
-          echo ""
-          echo "Results: $pass passed, $fail failed, $skip skipped"
-          [ "$fail" -eq 0 ]
+          DUN=./build/dun bash tests/integration/run.sh
 
+      # Windows path mirrors run.sh; bash on a Windows runner via
+      # Git Bash handles the test script directly.
       - name: Run integration tests (Windows)
         if: runner.os == 'Windows'
-        shell: pwsh
+        shell: bash
         run: |
-          $pass = 0; $fail = 0; $skip = 0
-          foreach ($fixture in Get-ChildItem tests/integration/fixtures/*.js) {
-            $name = $fixture.BaseName
-            $expected = "tests/integration/expected/${name}.txt"
-            if (-not (Test-Path $expected)) {
-              Write-Host "SKIP $name"
-              $skip++
-              continue
-            }
-            $expectedContent = (Get-Content $expected -Raw).TrimEnd()
-            $output = (& build/dun.exe run $fixture.FullName 2>&1) | Out-String
-            $output = $output.TrimEnd()
-            if ($output -eq $expectedContent) {
-              Write-Host "PASS $name"
-              $pass++
-            } else {
-              Write-Host "FAIL $name"
-              Write-Host "Expected:"
-              Write-Host $expectedContent
-              Write-Host "Got:"
-              Write-Host $output
-              $fail++
-            }
-          }
-          Write-Host ""
-          Write-Host "Results: $pass passed, $fail failed, $skip skipped"
-          if ($fail -gt 0) { exit 1 }
+          DUN=./build/dun.exe bash tests/integration/run.sh

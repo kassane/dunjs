@@ -8,30 +8,32 @@ on:
 permissions:
   contents: write
 
+env:
+  LDC_VERSION: 1.42.0
+
 jobs:
   build-release:
     name: Release (${{ matrix.engine }}, ${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
         include:
-          # QuickJS — all platforms (self-contained)
+          # QuickJS — all platforms (self-contained, smallest binary).
           - { os: ubuntu-latest,  target: linux-x86_64,    engine: quickjs }
           - { os: macos-latest,   target: macos-arm64,     engine: quickjs }
-          # JSC — platform-native
+          # JSC — platform-native; Linux uses prebuilt from kassane/WebKit,
+          # macOS uses the system framework.
           - { os: ubuntu-latest,  target: linux-x86_64,    engine: jsc     }
           - { os: macos-latest,   target: macos-arm64,     engine: jsc     }
 
-    runs-on: ${{ matrix.os }}
-
     steps:
       - uses: actions/checkout@v6
-        with:
-          submodules: recursive
 
       - uses: dlang-community/setup-dlang@v2
         with:
-          compiler: ldc-latest
+          compiler: ldc-${{ env.LDC_VERSION }}
 
       - name: Install JSC dev (Linux)
         if: matrix.engine == 'jsc' && runner.os == 'Linux'
@@ -46,8 +48,10 @@ jobs:
         uses: actions/cache@v5
         with:
           path: vendor/
-          key: vendor-${{ matrix.engine }}-${{ matrix.os }}-${{ hashFiles('build.d', 'dub.json') }}
-          restore-keys: vendor-${{ matrix.engine }}-${{ matrix.os }}-
+          key: vendor-${{ matrix.engine }}-${{ matrix.os }}-ldc${{ env.LDC_VERSION }}-${{ hashFiles('build.d', 'dub.json') }}
+          restore-keys: |
+            vendor-${{ matrix.engine }}-${{ matrix.os }}-ldc${{ env.LDC_VERSION }}-
+            vendor-${{ matrix.engine }}-${{ matrix.os }}-
 
       - name: Build vendor deps
         run: ldc2 -run build.d --backend=${{ matrix.engine }} --verbose
@@ -66,17 +70,22 @@ jobs:
         with:
           name: dun-${{ matrix.engine }}-${{ matrix.target }}
           path: dist/
+          if-no-files-found: error
 
   publish:
     name: Publish release
     needs: build-release
     runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
 
     steps:
       - name: Download all artifacts
         uses: actions/download-artifact@v8
         with:
           path: artifacts/
+          merge-multiple: true
 
       - name: Collect binaries
         run: |
