@@ -15,15 +15,16 @@ checks, not whole-file errors.
 
 | Spec    | Bun   | Node  | Deno  | DunJS QJS | DunJS JSC | DunJS V8 |
 |---------|------:|------:|------:|----------:|----------:|---------:|
-| total   | 98/98 | 98/98 | 98/98 | **97/98** | **98/98** | **97/98**|
+| total   | 98/98 | 98/98 | 98/98 | **98/98** | **98/98** | **98/98**|
 
-DunJS QJS and DunJS V8 each miss one check: `RegExp /v` flag (ES2025
-unicodeSets — "v" set-operation regex). QuickJS-NG hasn't shipped
-`/v` yet; the prebuilt libv8 we link is V8 14.9 which does
-support `/v` but the `--` set-difference operator in the
-polyfilled-`\p{L}` form blows up there. JSC has both. Three of the
-six runtimes are at 100%; the other three (Bun, Node, Deno) all
-ship modern engines that include `/v`.
+All six runtimes are at 100%. The `RegExp /v` flag (ES2025
+unicodeSets, "v" set-operation regex) is the long-standing gap on
+QuickJS-NG and on the libv8 14.9 we link; `expandVSetOps` in
+`dun.runtime.unicode_props` rewrites `[A--B]/v` and `[A&&B]/v` source
+literals to `/u`-equivalent range classes before handing the source
+to the engine. JSC handles `/v` natively. The rewriter no-ops when
+neither the flag nor the set operators are present, so it's free on
+the common path.
 
 ## TypeScript (May 2026)
 

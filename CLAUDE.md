@@ -79,20 +79,20 @@ source/dun/engine/
 |   +-- exceptions.d
 |   +-- package.d
 +-- jsc/             # JavaScriptCore backend (fully functional)
-|   +-- backend.d    # JSCEngine : IJSEngine (uses JSCTypeChecks dispatch)
-|   +-- bindings.d   # extern(C) declarations for JSC C API (~290 lines)
-|   +-- cppbindings.d # D TMP bridge (JSCTypeTag, JSCTypeChecks, getType)
+|   +-- backend.d    # JSCEngine : IJSEngine (uses JSCTypeChecks dispatch, ~766 LOC)
+|   +-- bindings.d   # extern(C) declarations for JSC C API (~289 lines)
+|   +-- cppbindings.d # D TMP bridge (JSCTypeTag, JSCTypeChecks, getType, ~180 LOC)
 |   +-- package.d     #   + experimental extern(C++, "JSC") bindings
 +-- v8/              # V8 backend (fully functional, via C shim)
-    +-- backend.d    # V8Engine : IJSEngine (uses V8TypeChecks dispatch)
-    +-- bindings.d   # extern(C) declarations for v8shim (~90 lines)
+    +-- backend.d    # V8Engine : IJSEngine (uses V8TypeChecks dispatch, ~557 LOC)
+    +-- bindings.d   # extern(C) declarations for v8shim (~112 lines)
     +-- cppbindings.d # D TMP bridge (V8TypeTag, V8TypeChecks)
     +-- package.d     #   + extern(C++, "v8") static-method bindings
 
-vendor/v8shim/           # V8 C++ shim (refactored with TMP)
-+-- v8shim.h             # extern "C" header (~38 functions)
-+-- v8shim.cpp           # C++ impl (withContext<F> eliminates boilerplate)
-+-- v8shim_tmpl.hpp      # C++ TMP (withContext, withIsolate, V8TypeMap, isV8Type)
+vendor/v8shim/           # V8 C++ shim (refactored with TMP, ~1118 LOC total)
++-- v8shim.h             # extern "C" header (~129 LOC, ~54 functions)
++-- v8shim.cpp           # C++ impl (~868 LOC, withContext<F> eliminates boilerplate)
++-- v8shim_tmpl.hpp      # C++ TMP (~121 LOC: withContext, withIsolate, V8TypeMap, isV8Type)
 
 source/dun/ts/           # TypeScript type stripping
 +-- strip.d              # Scanner-based type eraser (~600 lines, 20 unit tests)
@@ -352,11 +352,11 @@ import stdcpp.allocator;
 
 | Engine | API | FFI Approach | Lines |
 |--------|-----|-------------|-------|
-| QuickJS | C API (quickjs.h) | extern(C) -- manual D bindings, audited via ImportC `-H` | ~400 |
-| JSC | C API (JSObjectRef) | extern(C) -- straightforward, ~90 functions | ~290 |
+| QuickJS | C API (quickjs.h) | extern(C) -- manual D bindings, audited via ImportC `-H` | ~498 |
+| JSC | C API (JSObjectRef) | extern(C) -- straightforward, ~90 functions | ~289 |
 | JSC | C++ internals | extern(C++, "JSC") -- experimental cppbindings.d | ~30 |
-| JSC | D TMP bridge | JSCTypeTag + JSCTypeChecks + getType() fast path | ~140 |
-| V8 | C++ only | extern(C) via C shim (vendor/v8shim/) | ~300 C++ + ~90 D |
+| JSC | D TMP bridge | JSCTypeTag + JSCTypeChecks + getType() fast path | ~180 |
+| V8 | C++ only | extern(C) via C shim (vendor/v8shim/) | ~868 C++ + 121 templates + ~112 D |
 | V8 | C++ internals | extern(C++, "v8") -- static methods only (V8 class) | ~50 |
 | V8 | C++ TMP bridge | D TMP (V8TypeChecks) <-> C++ TMP (isV8Type, withContext) | ~120 |
 | SQLite | C API (sqlite3.h) | ImportC -- real header processed by D compiler | ~10 D + header |
@@ -562,6 +562,27 @@ backend override. We currently annotate:
 
 Callers that need the slice past the JSHandle's lifetime (e.g. shipping
 into an `asyncSubmit` worker) must `.dup`. Compiler-checked.
+
+DIP1038 (`@mustuse` from `core.attribute`) annotates struct returns
+whose value must never be silently dropped. We currently annotate:
+
+- `JSResult` — every `engine.eval(...)` / `engine.evalModule(...)`
+  caller must either check `isError` or hand the value to a consumer.
+- `AsyncResult` — every `asyncSubmitSafe` work delegate must build
+  a result via `AsyncResult.ok(...)` / `AsyncResult.fail(...)` and
+  return it (vs. silently discarding the constructed value).
+
+For closed-world inline JS init code where a parse failure is a
+build-time bug rather than user data, use the canonical drop-only
+consumer:
+
+```d
+mustEval(engine, source, filename, what);  // asserts !isError, frees value
+```
+
+Defined in `dun.engine.iface`. Used by `worker_api.installWorkerAPI`
+(Worker constructor installer) and `workers.worker._runWorker`
+(`__filename`/`__dirname` setup).
 
 ## Phased Roadmap
 

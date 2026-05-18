@@ -171,6 +171,16 @@ DunJS leverages D's memory safety system:
 - **`@system`**: Only in platform abstraction layer for raw OS calls
 - **`@nogc`**: Zero garbage collection in hot paths
 - **`nothrow`**: All `extern(C)` callbacks (C cannot handle D exceptions)
+- **DIP1000 (`return scope`)**: Engine APIs returning slices into engine-owned
+  memory (`IJSEngine.getTypedArrayBytes`, `builtins.buffer.extractBytes`) carry
+  the `return scope` qualifier on the virtual method + every backend override;
+  the compiler refuses to let a caller leak the slice past the source
+  JSHandle's lifetime without an explicit `.dup`
+- **DIP1038 (`@mustuse`)**: `JSResult` (eval result) and `AsyncResult` (async
+  worker result) are `@mustuse` structs — the compiler refuses to drop them
+  silently, catching at compile time the bug class where an `engine.eval(...)`
+  failure gets swallowed and the symptom surfaces seconds later as
+  `Worker is undefined` with no stderr diagnostic
 
 ### Per-Engine Memory Management
 

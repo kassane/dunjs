@@ -4,7 +4,7 @@ import core.thread : Thread;
 import core.sync.mutex : Mutex;
 import dun.workers.channel : MessageChannel;
 import dun.engine.iface : IJSEngine, JSHandle, EngineConfig, createEngine,
-    TEST_MEMORY_LIMIT;
+    TEST_MEMORY_LIMIT, mustEval;
 import dun.runtime.globals : DunState;
 import dun.security.permissions : PermissionRegistry, Permission;
 
@@ -159,7 +159,14 @@ private void _runWorker(WorkerState wst) @trusted
     auto dir  = dirName(abs);
     auto eabs = abs.replace(`\`, `\\`).replace(`"`, `\"`);
     auto edir = dir.replace(`\`, `\\`).replace(`"`, `\"`);
-    engine.eval(`var __filename="` ~ eabs ~ `";var __dirname="` ~ edir ~ `";`, "<init>");
+    // Set __filename / __dirname before the user script runs. Closed-
+    // world string concat — a failure here is a build-time bug, not
+    // a user-data issue. `mustEval` is the canonical drop-only
+    // consumer for `@mustuse JSResult` (DIP 1038).
+    mustEval(engine,
+        `var __filename="` ~ eabs ~ `";var __dirname="` ~ edir ~ `";`,
+        "<worker-init>", "Worker __filename/__dirname init");
+
     auto res = engine.eval(source, wst.scriptPath);
     if (res.isError)
         return;

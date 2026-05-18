@@ -5,6 +5,12 @@ import core.atomic : atomicStore, atomicLoad, MemoryOrder;
 
 alias ResultTransform = JSHandle delegate(IJSEngine engine, string result) @trusted;
 
+/// Result of an async worker task. `@mustuse` (DIP 1038) catches the
+/// common bug where the result is built but never delivered to its
+/// promise — the surrounding code looks fine but the JS-side .then()
+/// never fires.
+import core.attribute : mustuse;
+@mustuse
 struct AsyncResult
 {
     string value;
