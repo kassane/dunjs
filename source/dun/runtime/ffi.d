@@ -19,6 +19,11 @@ import dun.security.permissions : Permission;
 //   `r.value` everywhere it appears.
 // * TIGER_STYLE asserts at every callback entry.
 
+// FFI / engine constants — see `dun.declarations` for definitions.
+import dun.declarations :
+    RTLD_LAZY, RTLD_NOW, FFI_NONNULL_SENTINEL,
+    NATIVE_CALL_STACK_ARGS;
+
 version (Posix)
 {
     private extern (C) nothrow @nogc
@@ -28,21 +33,7 @@ version (Posix)
         int dlclose(void* handle);
         const(char)* dlerror();
     }
-    // POSIX dlfcn.h flags — `RTLD_NOW` resolves all symbols up-front
-    // so a missing dep fails at `dlopen()` time, not at the first
-    // `dlsym()` call. Mirrors what Deno + Bun pass to libffi.
-    private enum int RTLD_LAZY = 1;
-    private enum int RTLD_NOW  = 2;
 }
-
-// Stack-buffer capacity for argument arrays. Matches the existing
-// `JSHandle[16]` trampoline buffer in each backend — keeps small-arg
-// FFI calls off the GC.
-private enum size_t MAX_FFI_STACK_ARGS = 16;
-
-// Sentinel returned by `napi_async_init` / `napi_open_callback_scope`
-// in our shim — non-null but never dereferenced.
-private enum void* FFI_NONNULL_SENTINEL = cast(void*) 1;
 
 void installFfiCompat(IJSEngine engine, DunState* state) @trusted
 {

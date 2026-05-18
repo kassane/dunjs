@@ -320,8 +320,8 @@ JSHandle jsBrotliDecompressSync(void* ctx, JSHandle thisVal, scope JSHandle[] ar
     scope (exit) BrotliDecoderDestroyInstance(brState);
 
     enum CHUNK = 64 * 1024;
-    import std.array : appender;
-    auto out_ = appender!(ubyte[])();
+    import dun.platform.arena : Appender;
+    Appender!(ubyte[]) out_;
     out_.reserve(input.length * 4);
 
     size_t availIn = input.length;

@@ -467,8 +467,8 @@ napi_status napi_create_string_latin1(napi_env env, const(char)* str, size_t len
             ? { size_t l; while (str[l] != 0) l++; return l; }()
             : length;
         // Latin-1 → UTF-8: any byte ≥ 0x80 must be expanded to two UTF-8 bytes.
-        import std.array : appender;
-        auto buf = appender!string;
+        import dun.platform.arena : Appender;
+        Appender!string buf;
         buf.reserve(len + (len >> 2));
         foreach (i; 0 .. len)
         {
@@ -1723,22 +1723,10 @@ private template Check(string args)
     }();
 }
 
-// N-API spec: async-init / callback-scope returns an opaque
-// non-null handle. We don't model libuv resource scopes, so use
-// a named sentinel that never gets dereferenced.
-private enum void* NAPI_ASYNC_SENTINEL = cast(void*) 1;
-
-// N-API version we implement (Node 22 baseline = v9). Bump in
-// lockstep with the underlying Node ABI when we add v10 features.
-private enum uint NAPI_VERSION = 9;
-
-// Node version triple advertised to addons via napi_get_node_version.
-// Major / minor / patch are picked so feature-detect code that
-// compares against `>= 22` works; the `release` string is a static
-// C literal so addons can read it past return without ownership.
-private enum uint NODE_VERSION_MAJOR = 22;
-private enum uint NODE_VERSION_MINOR = 0;
-private enum uint NODE_VERSION_PATCH = 0;
+// N-API ABI constants — see `dun.declarations`.
+import dun.declarations :
+    NAPI_ASYNC_SENTINEL, NAPI_VERSION,
+    NODE_VERSION_MAJOR, NODE_VERSION_MINOR, NODE_VERSION_PATCH;
 
 napi_status napi_get_version(napi_env env, uint* result)
 {
@@ -2215,7 +2203,7 @@ napi_status napi_create_bigint_words(napi_env env, int sign_bit,
         *result = allocValue(z.value);
         return napi_ok;
     }
-    import std.array : Appender;
+    import dun.platform.arena : Appender;
     Appender!(char[]) sb;
     sb.reserve(4 + word_count * 16 + 2);
     if (sign_bit) sb.put('-');

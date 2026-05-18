@@ -1,1 +1,1 @@
---allow-read
+--allow-read --allow-sys

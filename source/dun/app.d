@@ -1161,8 +1161,8 @@ private string normalizeQuotes(string source, string style) @safe pure
     if (style != "single" && style != "double") return source;
     immutable target = style == "single" ? '\'' : '"';
     immutable other  = style == "single" ? '"'  : '\'';
-    import std.array : appender;
-    auto buf = appender!string;
+    import dun.platform.arena : Appender;
+    Appender!string buf;
     buf.reserve(source.length);
     size_t i = 0;
     bool inLine = false, inBlock = false;
@@ -1262,9 +1262,9 @@ string basicFormat(string source, string quoteStyle = "") @safe pure
     //
     // String / comment / template-literal contents are preserved verbatim.
     import std.string : stripRight, stripLeft;
-    import std.array : appender;
+    import dun.platform.arena : Appender;
 
-    auto result = appender!string;
+    Appender!string result;
     result.reserve(source.length + 32);
     int indent = 0;
     bool lastWasEmpty = false;
@@ -1338,10 +1338,10 @@ string basicFormat(string source, string quoteStyle = "") @safe pure
 // collapsed.
 private string reformatLine(string line) @safe pure
 {
-    import std.array : appender;
+    import dun.platform.arena : Appender;
     if (line.length == 0) return line;
 
-    auto buf = appender!string;
+    Appender!string buf;
     buf.reserve(line.length + 8);
 
     char strQuote = 0;     // 0 = not in string, else the open quote char

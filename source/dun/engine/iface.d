@@ -24,16 +24,12 @@ struct JSResult
     string errorMessage;
 }
 
-private size_t MiB(size_t n) @safe pure nothrow @nogc
-{
-    return n * 1024 * 1024;
-}
-
-enum DEFAULT_MEMORY_LIMIT = MiB(2048);
-enum DEFAULT_MAX_STACK = MiB(8);
-enum TEST_MEMORY_LIMIT = MiB(64);
-enum TEST_MAX_STACK = MiB(4);
-enum NATIVE_CALL_STACK_ARGS = 16;
+// Engine limits — defined in `dun.declarations`, re-exported here
+// so existing engine-layer imports keep working unchanged.
+public import dun.declarations :
+    DEFAULT_MEMORY_LIMIT, DEFAULT_MAX_STACK,
+    TEST_MEMORY_LIMIT, TEST_MAX_STACK,
+    NATIVE_CALL_STACK_ARGS;
 
 struct EngineConfig
 {

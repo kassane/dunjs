@@ -16,7 +16,40 @@ unittest
     assert(!perms.check(Permission.env));
     assert(!perms.check(Permission.run));
     assert(!perms.check(Permission.ffi));
+    assert(!perms.check(Permission.sys));
     assert(!perms.check(Permission.hrtime));
+}
+
+@("net scope: host[:port] granularity matches Deno semantics")
+unittest
+{
+    PermissionRegistry perms;
+    perms.grantScoped(Permission.net, ["example.com"]);
+    assert( perms.check(Permission.net, "example.com"));
+    assert( perms.check(Permission.net, "example.com:80"));
+    assert( perms.check(Permission.net, "example.com:443"));
+    assert(!perms.check(Permission.net, "other.com"));
+
+    PermissionRegistry perms2;
+    perms2.grantScoped(Permission.net, ["example.com:443"]);
+    assert( perms2.check(Permission.net, "example.com:443"));
+    assert(!perms2.check(Permission.net, "example.com:80"));
+    assert(!perms2.check(Permission.net, "example.com"));
+
+    PermissionRegistry perms3;
+    perms3.grantScoped(Permission.net, ["*"]);
+    assert( perms3.check(Permission.net, "anything.com"));
+    assert( perms3.check(Permission.net, "anything.com:1234"));
+}
+
+@("sys scope: matches by exact name (cpus, networkInterfaces, ...)")
+unittest
+{
+    PermissionRegistry perms;
+    perms.grantScoped(Permission.sys, ["cpus", "networkInterfaces"]);
+    assert( perms.check(Permission.sys, "cpus"));
+    assert( perms.check(Permission.sys, "networkInterfaces"));
+    assert(!perms.check(Permission.sys, "userInfo"));
 }
 
 @("default deny: scoped paths denied by default")
