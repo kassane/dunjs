@@ -136,7 +136,15 @@ JSHandle jsRequire(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 
     if (specifier.startsWith("node:"))
         specifier = "dun:" ~ specifier[5 .. $];
-    else if (specifier == "fs") specifier = "dun:fs";
+
+    // `assert/strict` and `assert/strict.js` collapse to the parent
+    // assert module — same shape both ways, the strict bindings are
+    // already exported from `dun:assert`.
+    if (specifier == "dun:assert/strict" || specifier == "dun:assert/strict.js"
+     || specifier == "assert/strict" || specifier == "assert/strict.js")
+        specifier = "dun:assert";
+
+    if (specifier == "fs") specifier = "dun:fs";
     else if (specifier == "path") specifier = "dun:path";
     else if (specifier == "crypto") specifier = "dun:crypto";
     else if (specifier == "net") specifier = "dun:net";
@@ -156,6 +164,7 @@ JSHandle jsRequire(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
     else if (specifier == "sqlite") specifier = "dun:sqlite";
     else if (specifier == "util") specifier = "dun:util";
     else if (specifier == "assert") specifier = "dun:assert";
+    else if (specifier == "test") specifier = "dun:test";
     else if (specifier == "querystring") specifier = "dun:querystring";
     else if (specifier == "string_decoder") specifier = "dun:string_decoder";
     else if (specifier == "timers/promises") specifier = "dun:timers/promises";
@@ -218,6 +227,7 @@ JSHandle jsRequire(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
         else if (specifier == "dun:sqlite") propName = "__dun_cjs_sqlite__";
         else if (specifier == "dun:util") propName = "__dun_cjs_util__";
         else if (specifier == "dun:assert") propName = "__dun_cjs_assert__";
+        else if (specifier == "dun:test") propName = "__dun_cjs_node_test__";
         else if (specifier == "dun:querystring") propName = "__dun_cjs_querystring__";
         else if (specifier == "dun:string_decoder") propName = "__dun_cjs_string_decoder__";
         else if (specifier == "dun:timers/promises") propName = "__dun_cjs_timers_promises__";

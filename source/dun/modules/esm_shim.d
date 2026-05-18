@@ -758,7 +758,11 @@ private string builtinGlobalProp(string specifier) @safe pure nothrow
     if (specifier == "dun:events" || specifier == "node:events" || specifier == "events") return "__dun_cjs_events__";
     if (specifier == "dun:url" || specifier == "node:url" || specifier == "url") return "__dun_cjs_url__";
     if (specifier == "dun:util" || specifier == "node:util" || specifier == "util") return "__dun_cjs_util__";
-    if (specifier == "dun:assert" || specifier == "node:assert" || specifier == "assert") return "__dun_cjs_assert__";
+    if (specifier == "dun:assert" || specifier == "node:assert" || specifier == "assert"
+     || specifier == "dun:assert/strict" || specifier == "node:assert/strict" || specifier == "assert/strict")
+        return "__dun_cjs_assert__";
+    if (specifier == "dun:test" || specifier == "node:test" || specifier == "test")
+        return "__dun_cjs_node_test__";
     if (specifier == "dun:querystring" || specifier == "node:querystring" || specifier == "querystring") return "__dun_cjs_querystring__";
     if (specifier == "dun:string_decoder" || specifier == "node:string_decoder" || specifier == "string_decoder") return "__dun_cjs_string_decoder__";
     if (specifier == "dun:timers/promises" || specifier == "node:timers/promises" || specifier == "timers/promises") return "__dun_cjs_timers_promises__";

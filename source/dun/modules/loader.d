@@ -49,6 +49,13 @@ version (EngineQuickJS)
                 isBareBuiltin(name))
                 name = "dun:" ~ name;
 
+            // Strict-mode submodules — `assert/strict` and
+            // `assert/strict.js` collapse to the parent module since
+            // our assert already exposes both `default` and `strict`
+            // bindings. Node treats both as the same module.
+            if (name == "dun:assert/strict" || name == "dun:assert/strict.js")
+                name = "dun:assert";
+
             // Builtins: return canonical name so QuickJS finds the pre-registered C module
             if (name.startsWith("dun:"))
                 return js_strdup(ctx, name.toStringz);
@@ -534,7 +541,7 @@ private bool isBareBuiltin(string name) @safe pure nothrow @nogc
         "stream", "zlib", "child_process", "worker_threads", "cluster",
         "vm", "assert", "querystring", "string_decoder", "readline",
         "perf_hooks", "async_hooks", "timers/promises", "fs/promises",
-        "ws", "sqlite", "tty", "module",
+        "ws", "sqlite", "tty", "module", "test",
     ];
     foreach (b; builtins)
         if (name == b)
