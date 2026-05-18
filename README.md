@@ -135,9 +135,9 @@ for 24 hours. `dun install` checks packages before download. See [SECURITY.md](S
 
 | Backend | Tests | Notes |
 |---------|-------|-------|
-| QuickJS-NG | 135/135 | Default. Interpreter, ES2025, smallest binary (9.8MB) |
-| JavaScriptCore | 135/135 | JIT. Same engine as Safari/Bun |
-| V8 | 135/135 | JIT. Same engine as Chrome/Node.js (V8 15.0). Via C++ shim |
+| QuickJS-NG | 136/136 | Default. Interpreter, ES2025, smallest binary (9.8MB) |
+| JavaScriptCore | 136/136 | JIT. Same engine as Safari/Bun |
+| V8 | 136/136 | JIT. Same engine as Chrome/Node.js (V8 15.0). Via C++ shim |
 
 All 24 built-in modules, Workers, SharedArrayBuffer, Atomics, fetch, Deno compat, and web globals work identically on every backend.
 
@@ -162,12 +162,12 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for the full design.
 
 ```sh
 dub test -c unittest                            # unit tests
-bash tests/integration/run.sh                   # QuickJS integration (135 tests)
+bash tests/integration/run.sh                   # QuickJS integration (136 tests)
 BACKEND=jsc DUN=./dun-jsc bash tests/integration/run.sh
 BACKEND=v8  DUN=./dun-v8  bash tests/integration/run.sh
 ```
 
-135/135 integration on every backend, plus 145 npm-compat checks,
+136/136 integration on every backend, plus 145 npm-compat checks,
 98/98 ECMAScript spec audit (all 3 backends — /v set-op gap on
 QJS / V8 closed via source rewriter), 81/81 react-compat,
 231/231 safe-features, 45/45 security audit, 35/35 TypeScript
