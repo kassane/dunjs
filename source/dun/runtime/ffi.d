@@ -106,8 +106,11 @@ private JSHandle jsDenoDlopen(void* ctx, JSHandle thisVal, scope JSHandle[] args
     if (args.length < 2)
         return engine.throwTypeError("Deno.dlopen requires (path, symbols)");
 
-    if (!state.permissions.check(Permission.run, ""))
-        return engine.throwTypeError("Deno.dlopen requires --allow-run");
+    // Deno.dlopen is gated on --allow-ffi per Deno's security model
+    // (dynamic-library loading is its own permission class — separate
+    // from --allow-run for subprocess spawning).
+    if (!state.permissions.check(Permission.ffi, ""))
+        return engine.throwTypeError("Deno.dlopen requires --allow-ffi");
 
     auto path = engine.extractString(args[0]);
 
