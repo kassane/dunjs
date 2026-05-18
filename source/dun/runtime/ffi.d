@@ -75,22 +75,27 @@ void installFfiCompat(IJSEngine engine, DunState* state) @trusted
 // Each combination has a matching D dispatcher that casts the dlsym'd
 // void* to the proper extern(C) function pointer type.
 
-private alias FnVoid    = extern(C) void function() nothrow;
-private alias FnI32     = extern(C) int function() nothrow;
-private alias FnI64     = extern(C) long function() nothrow;
-private alias FnF64     = extern(C) double function() nothrow;
-private alias FnPtr     = extern(C) void* function() nothrow;
-private alias FnI32I32  = extern(C) int function(int) nothrow;
-private alias FnVoidI32 = extern(C) void function(int) nothrow;
-private alias FnI32_I32_I32 = extern(C) int function(int, int) nothrow;
-private alias FnVoid_Ptr    = extern(C) void function(void*) nothrow;
-private alias FnI32_Ptr     = extern(C) int function(void*) nothrow;
-private alias FnPtr_Ptr     = extern(C) void* function(void*) nothrow;
-private alias FnI32_Ptr_I32 = extern(C) int function(void*, int) nothrow;
-private alias FnI32_Ptr_Ptr = extern(C) int function(void*, void*) nothrow;
-private alias FnVoid_Ptr_Sz = extern(C) void function(void*, size_t) nothrow;
-private alias FnI32_Cstr    = extern(C) int function(const(char)*) nothrow;
-private alias FnI32_Cstr_Ptr = extern(C) int function(const(char)*, void*) nothrow;
+// All FFI function pointers are `nothrow @nogc` — the host C
+// function is opaque to D's GC + EH; if it ever surfaced a D
+// exception or triggered a GC collection across the boundary the
+// runtime invariants would break. `@nogc` here guarantees the cast
+// site can't be the source of a Druntime allocation.
+private alias FnVoid    = extern(C) void function() nothrow @nogc;
+private alias FnI32     = extern(C) int function() nothrow @nogc;
+private alias FnI64     = extern(C) long function() nothrow @nogc;
+private alias FnF64     = extern(C) double function() nothrow @nogc;
+private alias FnPtr     = extern(C) void* function() nothrow @nogc;
+private alias FnI32I32  = extern(C) int function(int) nothrow @nogc;
+private alias FnVoidI32 = extern(C) void function(int) nothrow @nogc;
+private alias FnI32_I32_I32 = extern(C) int function(int, int) nothrow @nogc;
+private alias FnVoid_Ptr    = extern(C) void function(void*) nothrow @nogc;
+private alias FnI32_Ptr     = extern(C) int function(void*) nothrow @nogc;
+private alias FnPtr_Ptr     = extern(C) void* function(void*) nothrow @nogc;
+private alias FnI32_Ptr_I32 = extern(C) int function(void*, int) nothrow @nogc;
+private alias FnI32_Ptr_Ptr = extern(C) int function(void*, void*) nothrow @nogc;
+private alias FnVoid_Ptr_Sz = extern(C) void function(void*, size_t) nothrow @nogc;
+private alias FnI32_Cstr    = extern(C) int function(const(char)*) nothrow @nogc;
+private alias FnI32_Cstr_Ptr = extern(C) int function(const(char)*, void*) nothrow @nogc;
 
 private JSHandle jsDenoDlopen(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
@@ -401,7 +406,7 @@ private JSHandle _dispatchSignature(IJSEngine engine, FfiSlot slot, scope JSHand
                 _arg2ptr(engine, args, 0), _arg2ptr(engine, args, 1)));
         case "p:pointer,pointer;r:void":
             {
-                alias FnVoid_Ptr_Ptr = extern(C) void function(void*, void*) nothrow;
+                alias FnVoid_Ptr_Ptr = extern(C) void function(void*, void*) nothrow @nogc;
                 (cast(FnVoid_Ptr_Ptr) fp)(_arg2ptr(engine, args, 0), _arg2ptr(engine, args, 1));
                 return engine.newUndefined();
             }
