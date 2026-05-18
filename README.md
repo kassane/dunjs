@@ -188,37 +188,40 @@ See [TESTING.md](TESTING.md) for the full suite breakdown.
 | npm | Native | `npm:` specifier | Native | `dun install` |
 | TLS | OpenSSL | rustls | BoringSSL | OpenSSL |
 | Deno compat | No | -- | None | 30+ `Deno.*` APIs |
-| ES2025 spec | 98/98 | 98/98 | 98/98 | **98/98 / 98/98 / 98/98** (QJS / JSC / V8) |
+| ES2025 spec | 98/98 | 98/98 | 98/98 | **98/98 / 98/98 / 98/98** |
 | TS strip parity | FAIL (rejects param-prop / enum / namespace) | 35/35 | 35/35 | **35/35 / 35/35 / 35/35** |
 | Cold start | 27 ms | 42 ms | 11 ms | **27 ms / 27 ms / 22 ms** |
 | Binary | 119 MB | 119 MB | 89 MB | **9.8 MB / 60 MB / 56 MB** |
 
-Cold start: `time runtime -e ';'`, best of 15 on this host. Binary
-size: stripped release executables — DunJS QJS statically links
-QuickJS-NG (the small interpreter); DunJS JSC and DunJS V8 embed
-the full WebKit / V8 engine libraries.
+DunJS triple values are always ordered **QJS / JSC / V8**. Cold
+start: `time runtime -e ';'`, best of 15 on this host. Binary size:
+stripped release executables — DunJS QJS statically links QuickJS-NG
+(the small interpreter); DunJS JSC and DunJS V8 embed the full
+WebKit / V8 engine libraries.
 
 ### Performance
 
-Feature benchmarks (25 tests, ops/sec — higher is better):
+Feature benchmarks (25 tests, ops/sec — higher is better, median of 3 runs):
 
 | Runtime | Total Throughput | Relative |
 |---------|-----------------|----------|
-| Bun 1.3.11 | 399M | 1.00x |
-| DunJS JSC | 373M | 0.94x |
-| Node.js v22 | 118M | 0.30x |
-| Deno 2.7.14 | 108M | 0.27x |
-| DunJS V8 | 103M | 0.26x |
+| Bun 1.3.14 | 491M | 1.00x |
+| DunJS JSC | **488M** | **0.99x** |
+| Node.js 22.22.2 | 172M | 0.35x |
+| Deno 2.7.14 | 169M | 0.34x |
+| DunJS V8 | 160M | 0.33x |
+| DunJS QuickJS | 22M | 0.05x (interpreter-only) |
 
-Framework benchmarks (39 tests, ops/sec):
+Framework benchmarks (39 tests, ops/sec — median of 3 runs):
 
 | Runtime | Total Throughput | Relative |
 |---------|-----------------|----------|
-| Bun 1.3.11 | 275M | 1.00x |
-| DunJS JSC | 260M | 0.95x |
-| Deno 2.7.14 | 143M | 0.52x |
-| DunJS V8 | 138M | 0.50x |
-| Node.js v22 | 125M | 0.45x |
+| Bun 1.3.14 | 339M | 1.00x |
+| DunJS JSC | 277M | 0.82x |
+| Node.js 22.22.2 | 180M | 0.53x |
+| DunJS V8 | 172M | 0.51x |
+| Deno 2.7.14 | 154M | 0.45x |
+| DunJS QuickJS | 17M | 0.05x |
 
 HTTP stress (wrk, 128 connections, req/sec — higher is better):
 
@@ -229,7 +232,8 @@ HTTP stress (wrk, 128 connections, req/sec — higher is better):
 | /compute | 55,132 | 42,544 | 39,778 | 40,334 | 27,372 |
 | /transaction | 42,694 | 41,792 | 34,138 | 26,501 | 19,046 |
 
-DunJS JSC is 94-95% of Bun on JS compute. DunJS V8 beats Node.js on all HTTP endpoints.
+DunJS JSC is within 1% of Bun on `feature_bench.js` JS compute.
+DunJS V8 beats Node.js on all HTTP endpoints.
 npm compat: **145/145** pass across all 6 runtimes.
 
 ## Docs
