@@ -1,10 +1,17 @@
 #!/usr/bin/env bash
 # Cross-runtime memory + time comparison.
 #
-# Measures peak RSS (VmHWM via Linux rusage) + wall time of each
+# Measures peak RSS (rusage.ru_maxrss via wait4) + wall time of each
 # runtime running identical pure-JS benchmarks. All runtimes are
 # release builds; Bun's BUN_OPTIONS is cleared so --smol can't skew
 # results.
+#
+# Benchmark note: safe_features.js intentionally creates an unhandled
+# rejection (`Promise.reject(1).catch === 'function'` checks .catch
+# exists without attaching a handler) — every runtime exits with
+# code 1 at end, which is expected behavior. The wall-time + peak
+# RSS numbers are still meaningful since the test body completes
+# before the rejection fires.
 #
 # Usage: bash tests/benchmarks/runtime_memory.sh
 set -u
