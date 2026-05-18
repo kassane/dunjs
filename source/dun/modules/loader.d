@@ -288,17 +288,9 @@ version (EngineQuickJS)
     }
 }
 
-/// Extract identifiers that appear to be named CJS exports.
-///
-/// Recognized patterns:
-///   - `module.exports.NAME =`
-///   - `exports.NAME =`
-///   - `module.exports = { NAME: ..., ... }`
-///   - `Object.defineProperty(exports, "NAME", ...)`
-///
-/// Heuristic — does no AST work, so it can miss exports built via
-/// computed property names or weird control flow. Good enough for the
-/// vast majority of npm packages.
+/// Scrape named CJS exports (`module.exports.X = …`, `exports.X = …`,
+/// `module.exports = { X: … }`, `Object.defineProperty(exports, "X", …)`).
+/// Regex-style heuristic — misses computed-name / dynamic exports.
 private string[] extractCjsExports(string source) @safe pure
 {
     import std.algorithm : canFind;

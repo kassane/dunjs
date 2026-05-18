@@ -743,11 +743,8 @@ JSHandle jsHrtime(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
     catch (Exception) { return engine.newArray(); }
 }
 
-/// `performance.now()` -- high-resolution monotonic time in milliseconds
-/// as a JS number (double). Uses MonoTime for sub-millisecond
-/// precision; some engines (JSC, V8) ship a native performance.now
-/// that rounds to integer milliseconds, breaking sub-ms benchmark
-/// measurements.
+/// `performance.now()` via MonoTime — sub-ms precision. Overrides
+/// JSC/V8 natives that round to integer ms (kills benchmarks).
 public JSHandle jsPerformanceNow(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in performance.now");

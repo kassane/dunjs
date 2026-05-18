@@ -1561,12 +1561,8 @@ bool isWasmFile(string path) @safe pure nothrow @nogc
     return path.length >= 5 && path[$ - 5 .. $] == ".wasm";
 }
 
-/// Walk up from the script file looking for `node_modules/typescript`.
-/// Returns true if a typescript install is found at any ancestor of
-/// `scriptPath`, OR in DunJS's user-global store at `~/.dun/node_modules`.
-/// The user-global path lets `dun install typescript` from any cwd
-/// satisfy every `dun run` invocation on this machine, even when the
-/// script lives outside a project tree.
+/// Walk ancestors of `scriptPath` for `node_modules/typescript`,
+/// then fall back to `$DUN_HOME/node_modules`.
 bool findTypescriptInstall(string scriptPath) @trusted
 {
     import std.file : exists;
@@ -1590,17 +1586,10 @@ bool findTypescriptInstall(string scriptPath) @trusted
 // dun.app. Re-exported here for ergonomics inside this module.
 public import dun.platform.paths : dunGlobalRoot;
 
-/// Fast transpile-only path via `ts.transpileModule()`. Used as the
-/// default for `.ts`/`.tsx` files when typescript is already present
-/// in node_modules; the scanner stripper takes over otherwise. Trades
-/// ~50 ms of cold-start for full TS-spec correctness (decorators,
-/// enums, namespace runtime, generic-cast resolution, etc.) -- all the
-/// edge cases the scanner re-discovers per release.
-///
-/// Returns the transpiled JS on success, or "" to signal "fall back
-/// to the scanner". No type errors are reported here (use
-/// `--typecheck` for that); transpileModule keeps going on type
-/// errors and just produces JS.
+/// Transpile via `ts.transpileModule()` — full TS-spec correctness
+/// (decorators, enums, namespaces) at ~50 ms cold-start cost.
+/// Returns `""` to fall back to the scanner stripper. Use
+/// `--typecheck` for type errors; this path emits JS regardless.
 string runTranspile(string source, string filename) @trusted
 {
     import dun.engine.iface : createEngine, EngineConfig,
@@ -1806,14 +1795,9 @@ private string readTscVersion(string scriptPath) @trusted
     return "?";
 }
 
-/// Spin up a short-lived JS engine, require the user's installed
-/// `typescript` package, run `ts.transpileModule()` with diagnostics
-/// enabled, print any type errors, and return the emitted JS.
-///
-/// On success returns the emitted JS and sets `rc = 0`. If typecheck
-/// found errors, sets `rc` to a non-zero exit code and returns "".
-/// If `typescript` isn't installed, prints a hint, returns "" and
-/// `rc = 0` so the outer pipeline falls back to the scanner strip.
+/// Run user's installed `typescript` with diagnostics and emit JS.
+/// `rc != 0` on type errors. Returns `""` + `rc = 0` when tsc is
+/// missing so the caller can fall back to the scanner strip.
 string runTypecheck(string source, string filename, out int rc) @trusted
 {
     import dun.engine.iface : createEngine, EngineConfig,

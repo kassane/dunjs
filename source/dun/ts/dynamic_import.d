@@ -1,18 +1,7 @@
-/// Rewrite dynamic `import("specifier")` calls to a runtime helper so
-/// JSC and V8 backends (which don't wire `HostImportModuleDynamically`)
-/// can still service `await import("fs")`. QuickJS handles dynamic
-/// import natively via its module loader, so the rewrite is harmless
-/// there too: the helper itself wraps `require` in a Promise, matching
-/// the spec's "Promise<Namespace>" return for the CJS-compatible case.
-///
-/// Replacement shape:
-///   `import("x")`      ->  `__dunImport__("x")`
-///   `import(specifier)` ->  `__dunImport__(specifier)`
-///
-/// Static import declarations (`import x from "y"`) and `import.meta`
-/// are NOT touched -- only the function-call form qualifies. The
-/// scanner respects string / template / comment / regex contexts so
-/// `"import("` literals stay literal.
+/// Rewrite `import("x")` → `__dunImport__("x")` so JSC/V8 (which
+/// don't wire `HostImportModuleDynamically`) can service dynamic
+/// import. Static `import x from "y"` and `import.meta` are left
+/// alone; string/template/comment/regex contexts are skipped.
 module dun.ts.dynamic_import;
 
 import dun.platform.arena : Appender;

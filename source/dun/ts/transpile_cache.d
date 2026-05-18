@@ -1,18 +1,6 @@
-/// Persistent transpile cache for the default tsc TS->JS path.
-///
-/// Skip the ~300-700 ms cold-start of loading typescript +
-/// `transpileModule()` when the same source file was already
-/// transpiled with the same compiler options. Cache key is the
-/// SHA-256 of (source bytes + filename + compiler-options
-/// fingerprint + typescript version), so any change to inputs
-/// invalidates exactly its own entries.
-///
-/// Cache layout:
-///   ~/.dun/cache/tsc/<first-2-chars>/<full-hash>.js
-///
-/// Eviction: bounded by `DUN_TSC_CACHE_MAX_ENTRIES` (default 2000)
-/// and `DUN_TSC_CACHE_MAX_MB` (default 64). When the cache exceeds
-/// either limit, the oldest-modified files are dropped.
+/// SHA-256-keyed persistent cache for the tsc transpile path —
+/// skips the ~300–700 ms tsc cold-start on cache hit. Bounded by
+/// `DUN_TSC_CACHE_MAX_{ENTRIES,MB}`; oldest-modified evicted first.
 module dun.ts.transpile_cache;
 
 import std.file : exists, mkdirRecurse, write, read, dirEntries,

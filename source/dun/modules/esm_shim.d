@@ -342,11 +342,10 @@ string transpileESM(string source, string filename) @safe pure
     return transpiled;
 }
 
-/// Detects an `await` token at top-level statement position (not in a
-/// string, comment, nested function, or class). `try { await … }` at the
-/// top of the file counts as top-level -- `try`/`if`/`for`/`while`/`switch`
-/// blocks don't create a function scope. Used to decide whether the
-/// transpiled ESM body needs an async-IIFE wrapper.
+/// True if `await` appears at top-level (outside string/comment/
+/// function/class). Block statements don't count as scopes, so
+/// `try { await … }` still qualifies. Decides whether to wrap in an
+/// async IIFE.
 private bool hasTopLevelAwait(string s) @safe pure nothrow
 {
     // Stack of brace "kinds": true = function/method/class body (await

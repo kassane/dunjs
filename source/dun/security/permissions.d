@@ -241,10 +241,8 @@ struct PermissionRegistry
     }
 }
 
-/// Nothrow wrapper around PermissionRegistry.check, suitable for use
-/// inside extern(C) callbacks where we can't propagate exceptions.
-/// Null-state defaults to deny so a misconfigured DunState* can't
-/// silently permit I/O.
+/// `extern(C)`-safe permission check — nothrow, defaults to deny on
+/// null state so a misconfigured DunState* can't silently permit I/O.
 bool checkPerm(StateT)(StateT* state, Permission perm, string resource = "") @trusted nothrow
 {
     if (state is null || state.permissions is null) return false;

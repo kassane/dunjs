@@ -1,14 +1,9 @@
 /// Path canonicalization (resolves symlinks before permission checks).
 module dun.platform.paths;
 
-/// The user-global DunJS install directory (npm packages, transpile
-/// cache, lockfile mirrors, ...). Cross-platform:
-///   Posix:   $HOME/.dun           (e.g. /home/alice/.dun)
-///   Windows: %LOCALAPPDATA%\dun   (e.g. C:\Users\Alice\AppData\Local\dun)
-///            falls back to %USERPROFILE%\.dun
-/// Honors `DUN_HOME` for users who want to relocate the store
-/// (CI caches, multi-user sandboxes). Always returns an absolute
-/// path using the platform's native directory separator.
+/// User-global DunJS store (npm packages, transpile cache).
+/// Posix `$HOME/.dun`, Windows `%LOCALAPPDATA%\dun`. `DUN_HOME`
+/// overrides; result is always absolute.
 string dunGlobalRoot() @trusted
 {
     import std.path : buildPath, isAbsolute, absolutePath;
