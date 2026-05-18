@@ -1054,10 +1054,98 @@ napi_status napi_define_class(napi_env env, const(char)* utf8name, size_t length
     return napi_create_function(env, utf8name, length, constructor, data, result);
 }
 
-napi_status napi_define_properties(napi_env env, napi_value object, size_t property_count, void* properties)
+napi_status napi_define_properties(napi_env env, napi_value object,
+    size_t property_count, void* properties)
 {
-    // Properties descriptor decoding not implemented yet — accept silently
-    // so addons don't abort.
+    if (env is null || object is null) return napi_invalid_arg;
+    if (property_count == 0) return napi_ok;
+    if (properties is null) return napi_invalid_arg;
+
+    import dun.napi.types : napi_property_descriptor;
+    auto descs = (cast(napi_property_descriptor*) properties)[0 .. property_count];
+    auto engine = env.engine;
+
+    foreach (ref d; descs)
+    {
+        // Resolve property name — either utf8name or a napi_value name.
+        string name;
+        if (d.utf8name !is null)
+        {
+            import std.string : fromStringz;
+            try { name = cast(string) fromStringz(d.utf8name); }
+            catch (Exception) { return napi_invalid_arg; }
+        }
+        else if (d.name !is null)
+        {
+            name = engine.extractString(d.name.handle);
+        }
+        else
+        {
+            return napi_name_expected;
+        }
+
+        // Pick the value: method > value > getter/setter (accessor).
+        if (d.method !is null)
+        {
+            napi_value fnVal;
+            auto st = napi_create_function(env, d.utf8name,
+                name.length, d.method, d.data, &fnVal);
+            if (st != napi_ok) return st;
+            engine.setProperty(object.handle, name, fnVal.handle);
+        }
+        else if (d.value !is null)
+        {
+            engine.setProperty(object.handle, name, d.value.handle);
+        }
+        else if (d.getter !is null || d.setter !is null)
+        {
+            // Build `Object.defineProperty(obj, name, { get, set, configurable, enumerable })`.
+            auto global = engine.getGlobal();
+            auto objectCtor = engine.getProperty(global, "Object");
+            auto defineProp = engine.getProperty(objectCtor, "defineProperty");
+            engine.freeValue(objectCtor);
+            engine.freeValue(global);
+
+            auto descObj = engine.newObject();
+            if (d.getter !is null)
+            {
+                napi_value getter;
+                auto st = napi_create_function(env, null, 0, d.getter, d.data, &getter);
+                if (st != napi_ok) { engine.freeValue(descObj); engine.freeValue(defineProp); return st; }
+                engine.setProperty(descObj, "get", getter.handle);
+            }
+            if (d.setter !is null)
+            {
+                napi_value setter;
+                auto st = napi_create_function(env, null, 0, d.setter, d.data, &setter);
+                if (st != napi_ok) { engine.freeValue(descObj); engine.freeValue(defineProp); return st; }
+                engine.setProperty(descObj, "set", setter.handle);
+            }
+            // Honour attribute flags. N-API default for accessors is
+            // configurable+enumerable; `napi_default` (0) means no flags
+            // → JS default of non-configurable/non-enumerable, matching
+            // Node's behaviour.
+            engine.setProperty(descObj, "configurable",
+                engine.newBool((d.attributes & napi_configurable) != 0));
+            engine.setProperty(descObj, "enumerable",
+                engine.newBool((d.attributes & napi_enumerable) != 0));
+
+            auto undef = engine.newUndefined();
+            auto nameStr = engine.newString(name);
+            JSHandle[3] argv = [object.handle, nameStr, descObj];
+            auto ret = engine.callFunction(defineProp, undef, argv[]);
+            engine.freeValue(ret);
+            engine.freeValue(nameStr);
+            engine.freeValue(descObj);
+            engine.freeValue(undef);
+            engine.freeValue(defineProp);
+        }
+        else
+        {
+            // Empty descriptor — no method, value, getter or setter.
+            // Skip silently; Node N-API treats this as no-op.
+        }
+    }
     return napi_ok;
 }
 
