@@ -6,7 +6,7 @@ DunJS is a 7-layer JavaScript/TypeScript runtime with a **pluggable engine archi
 (IJSEngine interface), a cross-platform I/O poller (epoll/kqueue/poll), and a Deno-inspired permission system.
 
 Three backends are fully functional: QuickJS-NG (default), JavaScriptCore, and V8.
-All 129 integration tests pass on QuickJS, JSC, and V8 (full parity across all 3 backends).
+All 130 integration tests pass on QuickJS, JSC, and V8 (full parity across all 3 backends).
 All built-in modules (see CLAUDE.md for the canonical list — 30+ including fs, path,
 crypto, net, http, http2, http3, buffer, events, url, os, fetch, child_process, stream,
 zlib, dns, ws, sqlite, util, assert, querystring, string_decoder, timers/promises, vm,
@@ -483,7 +483,7 @@ Framework benchmarks (39 tests, release builds, ops/sec):
 |---------|-----------------|----------|
 | Bun 1.3.11 | 266M | 1.00x |
 | DunJS JSC | 242M | 0.91x |
-| Node.js v22 | 130M | 0.49x |
+| Node.js v22 | 129M | 0.49x |
 | DunJS V8 | 127M | 0.48x |
 | Deno 2.7.14 | 126M | 0.47x |
 
@@ -588,4 +588,4 @@ tests/benchmarks/http_bench/
 HTTP server optimizations: TCP_NODELAY, buffered single-write response, CTFE pre-computed
 status lines, connection slot pooling, fd→connId hashmap (O(1) lookup), JS-level dispatch
 for reduced FFI overhead, lazy header loading, MSG_NOSIGNAL, EOF detection with RAII cleanup.
-**QuickJS 129/129, JSC 129/129, V8 129/129** (all backends at full parity).
+**QuickJS 130/130, JSC 130/130, V8 130/130** (all backends at full parity).

@@ -189,3 +189,4 @@ design constraints`.
 | 27f | Bun.build options | `target` / `define` / `external` / `minify` (whitespace) / `naming.entry` / `outputs[i].arrayBuffer()`; unresolved imports surface in `logs[]` with `success: false` | **Done** |
 | 27g | deno_deploy_compat suite | `tests/benchmarks/deno_deploy_compat.js` — 12 checks; DunJS 12/12 on QJS/JSC/V8 = Deno 2.7 12/12 | **Done** |
 | 27h | bun_bundler_compat suite | `tests/benchmarks/bun_bundler_compat.js` — 13 checks; DunJS 13/13 on QJS/JSC/V8 = Bun 1.3 13/13 | **Done** |
+| 28a | fetch `opts.redirect` modes | Implement Fetch-spec `redirect: "follow" \| "manual" \| "error"` (was always-follow). `MAX_REDIRECT_FOLLOWS = 5` named constant replaces the bare `5`. New `tests/integration/fixtures/fetch_redirect.js` — 6/6 on QJS/JSC/V8 + Node + Bun + Deno | **Done** |
