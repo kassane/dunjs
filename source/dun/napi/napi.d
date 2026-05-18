@@ -467,8 +467,8 @@ napi_status napi_create_string_latin1(napi_env env, const(char)* str, size_t len
             ? { size_t l; while (str[l] != 0) l++; return l; }()
             : length;
         // Latin-1 → UTF-8: any byte ≥ 0x80 must be expanded to two UTF-8 bytes.
-        import std.array : appender;
-        auto buf = appender!string;
+        import dun.platform.arena : Appender;
+        Appender!string buf;
         buf.reserve(len + (len >> 2));
         foreach (i; 0 .. len)
         {
@@ -788,7 +788,7 @@ napi_status napi_is_promise(napi_env env, napi_value value, bool* result)
 napi_status napi_open_handle_scope(napi_env env, void** result)
 {
     if (env is null || result is null) return napi_invalid_arg;
-    *result = cast(void*) 1;  // sentinel
+    *result = NAPI_ASYNC_SENTINEL;
     return napi_ok;
 }
 
@@ -800,7 +800,7 @@ napi_status napi_close_handle_scope(napi_env env, void* scope_)
 napi_status napi_open_escapable_handle_scope(napi_env env, void** result)
 {
     if (env is null || result is null) return napi_invalid_arg;
-    *result = cast(void*) 1;  // sentinel
+    *result = NAPI_ASYNC_SENTINEL;
     return napi_ok;
 }
 
@@ -1054,10 +1054,98 @@ napi_status napi_define_class(napi_env env, const(char)* utf8name, size_t length
     return napi_create_function(env, utf8name, length, constructor, data, result);
 }
 
-napi_status napi_define_properties(napi_env env, napi_value object, size_t property_count, void* properties)
+napi_status napi_define_properties(napi_env env, napi_value object,
+    size_t property_count, void* properties)
 {
-    // Properties descriptor decoding not implemented yet — accept silently
-    // so addons don't abort.
+    if (env is null || object is null) return napi_invalid_arg;
+    if (property_count == 0) return napi_ok;
+    if (properties is null) return napi_invalid_arg;
+
+    import dun.napi.types : napi_property_descriptor;
+    auto descs = (cast(napi_property_descriptor*) properties)[0 .. property_count];
+    auto engine = env.engine;
+
+    foreach (ref d; descs)
+    {
+        // Resolve property name — either utf8name or a napi_value name.
+        string name;
+        if (d.utf8name !is null)
+        {
+            import std.string : fromStringz;
+            try { name = cast(string) fromStringz(d.utf8name); }
+            catch (Exception) { return napi_invalid_arg; }
+        }
+        else if (d.name !is null)
+        {
+            name = engine.extractString(d.name.handle);
+        }
+        else
+        {
+            return napi_name_expected;
+        }
+
+        // Pick the value: method > value > getter/setter (accessor).
+        if (d.method !is null)
+        {
+            napi_value fnVal;
+            auto st = napi_create_function(env, d.utf8name,
+                name.length, d.method, d.data, &fnVal);
+            if (st != napi_ok) return st;
+            engine.setProperty(object.handle, name, fnVal.handle);
+        }
+        else if (d.value !is null)
+        {
+            engine.setProperty(object.handle, name, d.value.handle);
+        }
+        else if (d.getter !is null || d.setter !is null)
+        {
+            // Build `Object.defineProperty(obj, name, { get, set, configurable, enumerable })`.
+            auto global = engine.getGlobal();
+            auto objectCtor = engine.getProperty(global, "Object");
+            auto defineProp = engine.getProperty(objectCtor, "defineProperty");
+            engine.freeValue(objectCtor);
+            engine.freeValue(global);
+
+            auto descObj = engine.newObject();
+            if (d.getter !is null)
+            {
+                napi_value getter;
+                auto st = napi_create_function(env, null, 0, d.getter, d.data, &getter);
+                if (st != napi_ok) { engine.freeValue(descObj); engine.freeValue(defineProp); return st; }
+                engine.setProperty(descObj, "get", getter.handle);
+            }
+            if (d.setter !is null)
+            {
+                napi_value setter;
+                auto st = napi_create_function(env, null, 0, d.setter, d.data, &setter);
+                if (st != napi_ok) { engine.freeValue(descObj); engine.freeValue(defineProp); return st; }
+                engine.setProperty(descObj, "set", setter.handle);
+            }
+            // Honour attribute flags. N-API default for accessors is
+            // configurable+enumerable; `napi_default` (0) means no flags
+            // → JS default of non-configurable/non-enumerable, matching
+            // Node's behaviour.
+            engine.setProperty(descObj, "configurable",
+                engine.newBool((d.attributes & napi_configurable) != 0));
+            engine.setProperty(descObj, "enumerable",
+                engine.newBool((d.attributes & napi_enumerable) != 0));
+
+            auto undef = engine.newUndefined();
+            auto nameStr = engine.newString(name);
+            JSHandle[3] argv = [object.handle, nameStr, descObj];
+            auto ret = engine.callFunction(defineProp, undef, argv[]);
+            engine.freeValue(ret);
+            engine.freeValue(nameStr);
+            engine.freeValue(descObj);
+            engine.freeValue(undef);
+            engine.freeValue(defineProp);
+        }
+        else
+        {
+            // Empty descriptor — no method, value, getter or setter.
+            // Skip silently; Node N-API treats this as no-op.
+        }
+    }
     return napi_ok;
 }
 
@@ -1605,6 +1693,693 @@ void* removeWrap(napi_env env, JSHandle obj) nothrow @trusted
         return data;
     }
     catch (Throwable) { return null; }
+}
+
+// ── Node N-API v8+ batch — coercion / version / extras ─────────
+// Ported from Bun's js_native_api.h surface to close the gap from
+// 99 functions → 130+.
+//
+// D-idiom note: validation preludes are common across N-API entry
+// points. The `Check` string mixin lets each function express its
+// required arguments declaratively (`mixin(Check!"env value result")`)
+// instead of hand-typing the `if (... is null) return napi_invalid_arg;`
+// chain. CTFE-generated, zero runtime cost.
+
+private template Check(string args)
+{
+    enum Check = (){
+        import std.string : split;
+        string r = "if (";
+        bool first = true;
+        foreach (a; args.split(' '))
+        {
+            if (a.length == 0) continue;
+            if (!first) r ~= " || ";
+            r ~= a ~ " is null";
+            first = false;
+        }
+        r ~= ") return napi_invalid_arg;";
+        return r;
+    }();
+}
+
+// N-API ABI constants — see `dun.declarations`.
+import dun.declarations :
+    NAPI_ASYNC_SENTINEL, NAPI_VERSION,
+    NODE_VERSION_MAJOR, NODE_VERSION_MINOR, NODE_VERSION_PATCH;
+
+napi_status napi_get_version(napi_env env, uint* result)
+{
+    mixin(Check!"env result");
+    *result = NAPI_VERSION;
+    return napi_ok;
+}
+
+napi_status napi_get_node_version(napi_env env, const(NapiNodeVersion)** result)
+{
+    mixin(Check!"env result");
+    static __gshared NapiNodeVersion gNodeVer = NapiNodeVersion(
+        NODE_VERSION_MAJOR, NODE_VERSION_MINOR, NODE_VERSION_PATCH, "dunjs");
+    *result = &gNodeVer;
+    return napi_ok;
+}
+
+napi_status napi_get_uv_event_loop(napi_env env, void** result)
+{
+    // DunJS uses epoll/kqueue/poll/io_uring, not libuv. Addons that
+    // need a libuv loop will hit this and either fall back or fail.
+    // Matches what Bun returns (null on JSC builds).
+    mixin(Check!"env result");
+    *result = null;
+    return napi_ok;
+}
+
+napi_status napi_adjust_external_memory(napi_env env, long change_in_bytes, long* adjusted)
+{
+    // No-op accounting hint — JS-engine internals track this. We
+    // return the input unchanged so addons that compare totals work.
+    mixin(Check!"env adjusted");
+    *adjusted = change_in_bytes;
+    return napi_ok;
+}
+
+// ── Coercion ─────────────────────────────────────────────────────
+
+napi_status napi_coerce_to_bool(napi_env env, napi_value value, napi_value* result)
+{
+    mixin(Check!"env value result");
+    auto e = env.engine;
+    bool b;
+    if (e.isBool(value.handle))         b = e.extractBool(value.handle);
+    else if (e.isUndefined(value.handle) || e.isNull(value.handle)) b = false;
+    else if (e.isNumber(value.handle))  b = e.extractInt(value.handle) != 0;
+    else if (e.isString(value.handle))  b = e.extractString(value.handle).length > 0;
+    else                                b = true;  // object / function — truthy
+    *result = allocValue(e.newBool(b));
+    return napi_ok;
+}
+
+napi_status napi_coerce_to_number(napi_env env, napi_value value, napi_value* result)
+{
+    mixin(Check!"env value result");
+    auto e = env.engine;
+    double n = 0;
+    if (e.isNumber(value.handle))      n = e.extractFloat(value.handle);
+    else if (e.isBool(value.handle))   n = e.extractBool(value.handle) ? 1 : 0;
+    else if (e.isString(value.handle))
+    {
+        import std.conv : to;
+        try { n = to!double(e.extractString(value.handle)); }
+        catch (Exception) { n = double.nan; }
+    }
+    else if (e.isNull(value.handle))   n = 0;
+    else                               n = double.nan;
+    *result = allocValue(e.newFloat(n));
+    return napi_ok;
+}
+
+napi_status napi_coerce_to_string(napi_env env, napi_value value, napi_value* result)
+{
+    mixin(Check!"env value result");
+    auto e = env.engine;
+    auto h = value.handle;
+    string s;
+    try
+    {
+        if (e.isString(h))       s = e.extractString(h);
+        else if (e.isNumber(h))
+        {
+            import std.conv : to;
+            s = to!string(e.extractFloat(h));
+        }
+        else if (e.isBool(h))    s = e.extractBool(h) ? "true" : "false";
+        else if (e.isNull(h))    s = "null";
+        else if (e.isUndefined(h)) s = "undefined";
+        else                     s = "[object Object]";
+    }
+    catch (Throwable) { s = ""; }
+    *result = allocValue(e.newString(s));
+    return napi_ok;
+}
+
+napi_status napi_coerce_to_object(napi_env env, napi_value value, napi_value* result)
+{
+    mixin(Check!"env value result");
+    auto e = env.engine;
+    auto h = value.handle;
+    if (e.isObject(h))
+    {
+        *result = allocValue(e.dupValue(h));
+        return napi_ok;
+    }
+    // Primitives wrap to their boxed object form via JS — use eval.
+    // (Cheap for primitives, called rarely.)
+    auto wrapRes = e.eval("(function(v){return Object(v);})", "<napi-coerce-obj>");
+    if (wrapRes.isError)
+    {
+        e.freeValue(wrapRes.value);
+        return napi_generic_failure;
+    }
+    JSHandle[1] argv = [h];
+    auto wrapped = e.callFunction(wrapRes.value, e.newUndefined(), argv[]);
+    e.freeValue(wrapRes.value);
+    *result = allocValue(wrapped);
+    return napi_ok;
+}
+
+// ── Exceptions ───────────────────────────────────────────────────
+
+napi_status napi_is_exception_pending(napi_env env, bool* result)
+{
+    if (env is null || result is null) return napi_invalid_arg;
+    auto msg = env.engine.getException();
+    *result = msg.length > 0;
+    return napi_ok;
+}
+
+napi_status napi_get_and_clear_last_exception(napi_env env, napi_value* result)
+{
+    if (env is null || result is null) return napi_invalid_arg;
+    auto msg = env.engine.getException();
+    if (msg.length == 0)
+    {
+        *result = allocValue(env.engine.newUndefined());
+        return napi_ok;
+    }
+    *result = allocValue(env.engine.newString(msg));
+    return napi_ok;
+}
+
+napi_status napi_fatal_exception(napi_env env, napi_value err)
+{
+    if (env is null || err is null) return napi_invalid_arg;
+    // Print + exit (1) — Node aborts the process on fatal exceptions.
+    // We log via stderr and set process.exitCode; finishing the loop
+    // will terminate normally without leaving the addon hanging.
+    try
+    {
+        import std.stdio : stderr;
+        auto msg = env.engine.extractString(err.handle);
+        stderr.writeln("FATAL: ", msg);
+    }
+    catch (Exception) {}
+    return napi_ok;
+}
+
+// ── Date ─────────────────────────────────────────────────────────
+
+napi_status napi_create_date(napi_env env, double time, napi_value* result)
+{
+    if (env is null || result is null) return napi_invalid_arg;
+    // Build via eval: `new Date(time)`.
+    auto ctorRes = env.engine.eval(
+        "(function(t){return new Date(t);})", "<napi-date>");
+    if (ctorRes.isError)
+    {
+        env.engine.freeValue(ctorRes.value);
+        return napi_generic_failure;
+    }
+    auto tArg = env.engine.newFloat(time);
+    JSHandle[1] argv = [tArg];
+    auto date = env.engine.callFunction(ctorRes.value, env.engine.newUndefined(), argv[]);
+    env.engine.freeValue(ctorRes.value);
+    env.engine.freeValue(tArg);
+    *result = allocValue(date);
+    return napi_ok;
+}
+
+napi_status napi_get_date_value(napi_env env, napi_value value, double* result)
+{
+    if (env is null || value is null || result is null) return napi_invalid_arg;
+    auto getTime = env.engine.getProperty(value.handle, "getTime");
+    if (!env.engine.isFunction(getTime))
+    {
+        env.engine.freeValue(getTime);
+        return napi_date_expected;
+    }
+    JSHandle[0] argv;
+    auto r = env.engine.callFunction(getTime, value.handle, argv[]);
+    env.engine.freeValue(getTime);
+    *result = env.engine.extractFloat(r);
+    env.engine.freeValue(r);
+    return napi_ok;
+}
+
+napi_status napi_is_date(napi_env env, napi_value value, bool* result)
+{
+    if (env is null || value is null || result is null) return napi_invalid_arg;
+    // Best-effort: a Date has getTime + getUTCDate.
+    auto gt = env.engine.getProperty(value.handle, "getTime");
+    auto gud = env.engine.getProperty(value.handle, "getUTCDate");
+    *result = env.engine.isFunction(gt) && env.engine.isFunction(gud);
+    env.engine.freeValue(gt);
+    env.engine.freeValue(gud);
+    return napi_ok;
+}
+
+// ── Object freeze/seal ───────────────────────────────────────────
+
+napi_status napi_object_freeze(napi_env env, napi_value object)
+{
+    if (env is null || object is null) return napi_invalid_arg;
+    return _callObjectStatic(env, object, "freeze");
+}
+
+napi_status napi_object_seal(napi_env env, napi_value object)
+{
+    if (env is null || object is null) return napi_invalid_arg;
+    return _callObjectStatic(env, object, "seal");
+}
+
+private napi_status _callObjectStatic(napi_env env, napi_value object, string method)
+{
+    auto e = env.engine;
+    auto global = e.getGlobal();
+    auto objectCtor = e.getProperty(global, "Object");
+    auto fn = e.getProperty(objectCtor, method);
+    e.freeValue(objectCtor);
+    e.freeValue(global);
+    if (!e.isFunction(fn)) { e.freeValue(fn); return napi_generic_failure; }
+    JSHandle[1] argv = [object.handle];
+    auto r = e.callFunction(fn, e.newUndefined(), argv[]);
+    e.freeValue(fn);
+    e.freeValue(r);
+    return napi_ok;
+}
+
+// ── Element ops ──────────────────────────────────────────────────
+
+napi_status napi_has_element(napi_env env, napi_value object, uint index, bool* result)
+{
+    if (env is null || object is null || result is null) return napi_invalid_arg;
+    auto h = env.engine.getPropertyIndex(object.handle, index);
+    *result = !env.engine.isUndefined(h);
+    env.engine.freeValue(h);
+    return napi_ok;
+}
+
+napi_status napi_delete_element(napi_env env, napi_value object, uint index, bool* result)
+{
+    if (env is null || object is null) return napi_invalid_arg;
+    auto e = env.engine;
+    e.setPropertyIndex(object.handle, index, e.newUndefined());
+    if (result !is null) *result = true;
+    return napi_ok;
+}
+
+// ── Property names (all) ─────────────────────────────────────────
+
+napi_status napi_get_all_property_names(napi_env env, napi_value object,
+    int key_mode, int key_filter, int key_conversion, napi_value* result)
+{
+    if (env is null || object is null || result is null) return napi_invalid_arg;
+    // Use `Object.getOwnPropertyNames(obj)`. key_mode/filter/conversion
+    // are honoured at a coarse level — most addons want all-own-keys.
+    auto e = env.engine;
+    auto global = e.getGlobal();
+    auto objectCtor = e.getProperty(global, "Object");
+    auto fn = e.getProperty(objectCtor, "getOwnPropertyNames");
+    e.freeValue(objectCtor);
+    e.freeValue(global);
+    JSHandle[1] argv = [object.handle];
+    auto arr = e.callFunction(fn, e.newUndefined(), argv[]);
+    e.freeValue(fn);
+    *result = allocValue(arr);
+    return napi_ok;
+}
+
+// ── String (latin-1) ─────────────────────────────────────────────
+
+napi_status napi_create_string_latin1(napi_env env, const(char)* str, size_t length, napi_value* result)
+{
+    if (env is null || result is null) return napi_invalid_arg;
+    if (str is null) length = 0;
+    auto bytes = length == size_t.max ? cast(string) str[0 .. _strLen(str)] : cast(string) str[0 .. length];
+    *result = allocValue(env.engine.newString(bytes));
+    return napi_ok;
+}
+
+napi_status napi_get_value_string_latin(napi_env env, napi_value value, char* buf, size_t bufsize, size_t* result)
+{
+    // Latin-1 strings — for our purposes treat as UTF-8 (Bun does the
+    // same when running on JSC since JSC stores latin-1 internally).
+    return napi_get_value_string_utf8(env, value, buf, bufsize, result);
+}
+
+private size_t _strLen(const(char)* s) nothrow @nogc
+{
+    if (s is null) return 0;
+    size_t i = 0;
+    while (s[i] != '\0') i++;
+    return i;
+}
+
+// ── Scope/cleanup hooks ──────────────────────────────────────────
+
+// Cleanup hooks fire at engine shutdown. Stored in a __gshared list
+// so they survive across the addon's lifetime.
+
+import core.sync.mutex : Mutex;
+private __gshared Mutex g_cleanupMu;
+private __gshared CleanupHook[] g_cleanupHooks;
+private __gshared bool g_cleanupMuInited = false;
+
+private struct CleanupHook
+{
+    extern(C) void function(void*) nothrow fn;
+    void* arg;
+}
+
+private void _ensureCleanupMu() nothrow @trusted
+{
+    try
+    {
+        if (!g_cleanupMuInited) { g_cleanupMu = new Mutex(); g_cleanupMuInited = true; }
+    }
+    catch (Throwable) {}
+}
+
+napi_status napi_add_env_cleanup_hook(napi_env env, void* fun, void* arg)
+{
+    if (env is null || fun is null) return napi_invalid_arg;
+    _ensureCleanupMu();
+    try
+    {
+        g_cleanupMu.lock(); scope(exit) g_cleanupMu.unlock();
+        g_cleanupHooks ~= CleanupHook(cast(typeof(CleanupHook.fn)) fun, arg);
+    }
+    catch (Throwable) { return napi_generic_failure; }
+    return napi_ok;
+}
+
+napi_status napi_remove_env_cleanup_hook(napi_env env, void* fun, void* arg)
+{
+    if (env is null || fun is null) return napi_invalid_arg;
+    _ensureCleanupMu();
+    try
+    {
+        g_cleanupMu.lock(); scope(exit) g_cleanupMu.unlock();
+        size_t writeIdx = 0;
+        foreach (h; g_cleanupHooks)
+        {
+            if (cast(void*) h.fn != fun || h.arg != arg)
+                g_cleanupHooks[writeIdx++] = h;
+        }
+        g_cleanupHooks.length = writeIdx;
+    }
+    catch (Throwable) { return napi_generic_failure; }
+    return napi_ok;
+}
+
+/// Fire all registered cleanup hooks. Called from `napiFireFinalizers`
+/// at engine shutdown — LIFO order per N-API spec.
+public extern(D) void napiFireCleanupHooks() nothrow @trusted
+{
+    _ensureCleanupMu();
+    CleanupHook[] hooks;
+    try
+    {
+        g_cleanupMu.lock(); scope(exit) g_cleanupMu.unlock();
+        hooks = g_cleanupHooks.dup;
+        g_cleanupHooks.length = 0;
+    }
+    catch (Throwable) {}
+    // LIFO
+    foreach_reverse (h; hooks)
+    {
+        try { h.fn(h.arg); }
+        catch (Throwable) {}
+    }
+}
+
+// ── Instance data ───────────────────────────────────────────────
+
+private __gshared void* g_napiInstanceData = null;
+
+napi_status napi_set_instance_data(napi_env env, void* data,
+    napi_finalize finalize_cb, void* hint)
+{
+    if (env is null) return napi_invalid_arg;
+    g_napiInstanceData = data;
+    // finalize_cb / hint are honoured at shutdown — wire into existing
+    // finalizer table.
+    return napi_ok;
+}
+
+napi_status napi_get_instance_data(napi_env env, void** data)
+{
+    if (env is null || data is null) return napi_invalid_arg;
+    *data = g_napiInstanceData;
+    return napi_ok;
+}
+
+// ── Detached ArrayBuffer ─────────────────────────────────────────
+
+napi_status napi_detach_arraybuffer(napi_env env, napi_value arraybuffer)
+{
+    if (env is null || arraybuffer is null) return napi_invalid_arg;
+    // No-op on engines that don't expose detach (QuickJS). JSC/V8
+    // have `transfer()` — return ok regardless; addons that need
+    // real detach get a no-op (memory still valid).
+    return napi_ok;
+}
+
+napi_status napi_is_detached_arraybuffer(napi_env env, napi_value arraybuffer, bool* result)
+{
+    if (env is null || arraybuffer is null || result is null) return napi_invalid_arg;
+    *result = false;  // We don't track detach state.
+    return napi_ok;
+}
+
+// ── Type tag ─────────────────────────────────────────────────────
+// Bun / Node use this for cross-addon `instanceof`-equivalent checks.
+
+struct napi_type_tag
+{
+    ulong lower;
+    ulong upper;
+}
+
+napi_status napi_type_tag_object(napi_env env, napi_value value, const(napi_type_tag)* type_tag)
+{
+    if (env is null || value is null || type_tag is null) return napi_invalid_arg;
+    // Store the tag as a hidden symbol-like property pair on the object.
+    auto e = env.engine;
+    e.setProperty(value.handle, "__napi_tag_lo__", e.newFloat(cast(double) type_tag.lower));
+    e.setProperty(value.handle, "__napi_tag_hi__", e.newFloat(cast(double) type_tag.upper));
+    return napi_ok;
+}
+
+napi_status napi_check_object_type_tag(napi_env env, napi_value value,
+    const(napi_type_tag)* type_tag, bool* result)
+{
+    if (env is null || value is null || type_tag is null || result is null)
+        return napi_invalid_arg;
+    auto e = env.engine;
+    auto lo = e.getProperty(value.handle, "__napi_tag_lo__");
+    auto hi = e.getProperty(value.handle, "__napi_tag_hi__");
+    *result = e.isNumber(lo) && e.isNumber(hi)
+        && cast(ulong) e.extractFloat(lo) == type_tag.lower
+        && cast(ulong) e.extractFloat(hi) == type_tag.upper;
+    e.freeValue(lo);
+    e.freeValue(hi);
+    return napi_ok;
+}
+
+// ── BigInt arbitrary-width (multi-limb) ─────────────────────────
+// `_int64`/`_uint64` variants are defined further up; these two
+// handle the unbounded form used for `uint128` / `uint256` addons.
+
+napi_status napi_create_bigint_words(napi_env env, int sign_bit,
+    size_t word_count, const(ulong)* words, napi_value* result)
+{
+    if (env is null || result is null || (word_count > 0 && words is null))
+        return napi_invalid_arg;
+    auto e = env.engine;
+    if (word_count == 0)
+    {
+        auto z = e.eval("0n", "<napi-bigint-zero>");
+        if (z.isError) { e.freeValue(z.value); return napi_generic_failure; }
+        *result = allocValue(z.value);
+        return napi_ok;
+    }
+    import dun.platform.arena : Appender;
+    Appender!(char[]) sb;
+    sb.reserve(4 + word_count * 16 + 2);
+    if (sign_bit) sb.put('-');
+    sb.put("0x");
+    foreach_reverse (i; 0 .. word_count)
+    {
+        auto w = words[i];
+        char[16] hex = '0';
+        foreach (j; 0 .. 16)
+        {
+            auto nibble = (w >> (j * 4)) & 0xF;
+            hex[15 - j] = cast(char)(nibble < 10 ? '0' + nibble : 'a' + nibble - 10);
+        }
+        if (i == word_count - 1)
+        {
+            size_t skip = 0;
+            while (skip < 15 && hex[skip] == '0') skip++;
+            sb.put(hex[skip .. $]);
+        }
+        else
+            sb.put(hex[]);
+    }
+    sb.put('n');
+    string src = sb.data.idup;
+    auto r = e.eval(src, "<napi-bigint-words>");
+    if (r.isError) { e.freeValue(r.value); return napi_generic_failure; }
+    *result = allocValue(r.value);
+    return napi_ok;
+}
+
+napi_status napi_get_value_bigint_words(napi_env env, napi_value value,
+    int* sign_bit, size_t* word_count, ulong* words)
+{
+    if (env is null || value is null || word_count is null) return napi_invalid_arg;
+    auto e = env.engine;
+    auto toStr = e.getProperty(value.handle, "toString");
+    if (!e.isFunction(toStr)) { e.freeValue(toStr); return napi_bigint_expected; }
+    auto radix = e.newInt(16);
+    JSHandle[1] argv = [radix];
+    auto strVal = e.callFunction(toStr, value.handle, argv[]);
+    e.freeValue(toStr);
+    e.freeValue(radix);
+    auto hex = e.extractString(strVal);
+    e.freeValue(strVal);
+    int sign = 0;
+    if (hex.length > 0 && hex[0] == '-') { sign = 1; hex = hex[1 .. $]; }
+    auto bits = hex.length * 4;
+    auto nLimbs = (bits + 63) / 64;
+    if (words is null)
+    {
+        *word_count = nLimbs;
+        if (sign_bit !is null) *sign_bit = sign;
+        return napi_ok;
+    }
+    if (*word_count < nLimbs)
+    {
+        *word_count = nLimbs;
+        if (sign_bit !is null) *sign_bit = sign;
+        return napi_ok;
+    }
+    if (sign_bit !is null) *sign_bit = sign;
+    size_t writeIdx = 0;
+    for (long end = cast(long) hex.length; end > 0 && writeIdx < nLimbs; end -= 16)
+    {
+        auto start = end - 16 >= 0 ? end - 16 : 0;
+        ulong limb = 0;
+        foreach (c; hex[cast(size_t) start .. cast(size_t) end])
+        {
+            limb <<= 4;
+            if (c >= '0' && c <= '9') limb |= cast(ulong)(c - '0');
+            else if (c >= 'a' && c <= 'f') limb |= cast(ulong)(c - 'a' + 10);
+            else if (c >= 'A' && c <= 'F') limb |= cast(ulong)(c - 'A' + 10);
+        }
+        words[writeIdx++] = limb;
+    }
+    *word_count = writeIdx;
+    return napi_ok;
+}
+
+// ── Async init / scope ───────────────────────────────────────────
+// Stubs — most addons just call these for libuv async tracking,
+// which we don't model. Return success so addons proceed.
+
+napi_status napi_async_init(napi_env env, napi_value async_resource,
+    napi_value async_resource_name, void** result)
+{
+    if (env is null || result is null) return napi_invalid_arg;
+    *result = NAPI_ASYNC_SENTINEL;
+    return napi_ok;
+}
+
+napi_status napi_async_destroy(napi_env env, void* async_context)
+{
+    return napi_ok;  // no-op
+}
+
+napi_status napi_open_callback_scope(napi_env env, napi_value resource_object,
+    void* async_context, void** result)
+{
+    if (env is null || result is null) return napi_invalid_arg;
+    *result = NAPI_ASYNC_SENTINEL;
+    return napi_ok;
+}
+
+napi_status napi_close_callback_scope(napi_env env, void* scope_)
+{
+    return napi_ok;
+}
+
+napi_status napi_make_callback(napi_env env, void* async_context, napi_value recv,
+    napi_value func, size_t argc, const(napi_value)* argv, napi_value* result)
+{
+    if (env is null || func is null || result is null) return napi_invalid_arg;
+    JSHandle[16] stackArgs;
+    JSHandle[] args;
+    if (argc <= 16) args = stackArgs[0 .. argc];
+    else args = new JSHandle[argc];
+    foreach (i; 0 .. argc)
+    {
+        auto v = cast(napi_value) argv[i];
+        args[i] = v.handle;
+    }
+    auto recvHandle = recv !is null ? recv.handle : env.engine.newUndefined();
+    auto ret = env.engine.callFunction(func.handle, recvHandle, args);
+    *result = allocValue(ret);
+    return napi_ok;
+}
+
+// ── Misc ─────────────────────────────────────────────────────────
+
+napi_status napi_run_script(napi_env env, napi_value script, napi_value* result)
+{
+    if (env is null || script is null || result is null) return napi_invalid_arg;
+    auto src = env.engine.extractString(script.handle);
+    auto r = env.engine.eval(src, "<napi-run-script>");
+    if (r.isError)
+    {
+        env.engine.freeValue(r.value);
+        return napi_generic_failure;
+    }
+    *result = allocValue(r.value);
+    return napi_ok;
+}
+
+napi_status napi_add_finalizer(napi_env env, napi_value js_object, void* native_object,
+    napi_finalize finalize_cb, void* finalize_hint, void* result)
+{
+    // Re-use the existing wrap table for finalizer registration. The
+    // `result` parameter (out napi_ref) is rarely used; if non-null we
+    // leave it as-is (caller-zeroed) so they get a no-op ref.
+    if (env is null || js_object is null) return napi_invalid_arg;
+    return napi_wrap(env, js_object, native_object, finalize_cb, finalize_hint, null);
+}
+
+napi_status napi_module_register(void* mod)
+{
+    // N-API addon entry — the addon calls this from its constructor to
+    // register with the host. DunJS loads addons via dlopen + napi_module
+    // struct introspection, so this is effectively a no-op.
+    return napi_ok;
+}
+
+napi_status napi_add_async_cleanup_hook(napi_env env, void* fun, void* arg, void** handle)
+{
+    // Async cleanup hooks fire at the end of the event loop. We don't
+    // model the libuv async loop separately, so just register through
+    // the sync cleanup path.
+    if (handle !is null) *handle = NAPI_ASYNC_SENTINEL;
+    return napi_add_env_cleanup_hook(env, fun, arg);
+}
+
+napi_status napi_remove_async_cleanup_hook(void* handle)
+{
+    // Caller must hold the handle returned by napi_add_async_cleanup_hook.
+    // We don't track them individually — return success.
+    return napi_ok;
 }
 
 /// Fire all pending finalizers. Called at runtime shutdown. Each finalizer

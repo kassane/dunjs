@@ -45,6 +45,7 @@ void installGlobals(IJSEngine engine, DunState* state) @trusted
     import dun.builtins.sqlite : registerSqliteModule;
     import dun.builtins.util : registerUtilModule;
     import dun.builtins.assert_ : registerAssertModule;
+    import dun.builtins.node_test : registerNodeTestModule;
     import dun.builtins.querystring : registerQuerystringModule;
     import dun.builtins.string_decoder : registerStringDecoderModule;
     import dun.builtins.timers_promises : registerTimersPromisesModule;
@@ -88,6 +89,7 @@ void installGlobals(IJSEngine engine, DunState* state) @trusted
     registerSqliteModule(engine);
     registerUtilModule(engine);
     registerAssertModule(engine);
+    registerNodeTestModule(engine);
     registerQuerystringModule(engine);
     registerStringDecoderModule(engine);
     registerTimersPromisesModule(engine);
@@ -194,6 +196,9 @@ void installGlobals(IJSEngine engine, DunState* state) @trusted
 
     import dun.runtime.deno_compat : installDenoCompat;
     installDenoCompat(engine);
+
+    import dun.runtime.ffi : installFfiCompat;
+    installFfiCompat(engine, state);
 
     import dun.runtime.bun_compat : installBunCompat;
     installBunCompat(engine);

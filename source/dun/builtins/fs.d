@@ -21,7 +21,17 @@ version(Posix)
     private extern(C) nothrow @nogc
     {
         int truncate(const(char)* path, long length);
+        int ftruncate(int fd, long length);
         int fdatasync(int fd);
+    }
+
+    // POSIX 2008 fd-based time setter — used by jsFutimesSync.
+    // Times are seconds-since-epoch; we pass UTIME_NOW omitted to
+    // set both atime and mtime explicitly.
+    private extern(C) nothrow @nogc
+    {
+        import core.sys.posix.time : timespec;
+        int futimens(int fd, const(timespec)* times);
     }
 }
 else version(Windows)
@@ -214,6 +224,8 @@ void registerFsModule(IJSEngine engine) @trusted
     engine.setProperty(obj, "fstatSync", engine.newFunction(&jsFstatSync, "fstatSync", 1));
     engine.setProperty(obj, "fsyncSync", engine.newFunction(&jsFsyncSync, "fsyncSync", 1));
     engine.setProperty(obj, "fdatasyncSync", engine.newFunction(&jsFdatasyncSync, "fdatasyncSync", 1));
+    engine.setProperty(obj, "ftruncateSync", engine.newFunction(&jsFtruncateSync, "ftruncateSync", 2));
+    engine.setProperty(obj, "futimesSync", engine.newFunction(&jsFutimesSync, "futimesSync", 3));
     engine.setProperty(obj, "createReadStream", engine.newFunction(&jsCreateReadStream, "createReadStream", 1));
     engine.setProperty(obj, "createWriteStream", engine.newFunction(&jsCreateWriteStream, "createWriteStream", 1));
     engine.setProperty(obj, "watch", engine.newFunction(&jsWatch, "watch", 2));
@@ -1429,6 +1441,56 @@ JSHandle jsTruncateSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @tru
     catch (Exception e) { return throwSystemError(engine, "truncate", path, e); }
 }
 
+// ── ftruncateSync / futimesSync (fd-based) ──────────────────────
+
+JSHandle jsFtruncateSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
+{
+    assert(ctx !is null, "Null ctx in jsFtruncateSync");
+    auto state = cast(DunState*) ctx;
+    assert(state !is null, "Null DunState in jsFtruncateSync");
+    auto engine = state.engine;
+    if (args.length < 1) return engine.throwTypeError("ftruncateSync requires a file descriptor");
+    auto fd = engine.extractInt(args[0]);
+    long len = 0;
+    if (args.length >= 2) len = cast(long) engine.extractFloat(args[1]);
+    version (Posix)
+    {
+        if (ftruncate(fd, len) != 0)
+            return engine.throwTypeError("EIO: " ~ errnoMsg() ~ ", ftruncate");
+    }
+    else version (Windows)
+    {
+        if (_chsize(fd, len) != 0)
+            return engine.throwTypeError("EIO: ftruncate failed");
+    }
+    return engine.newUndefined();
+}
+
+JSHandle jsFutimesSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
+{
+    assert(ctx !is null, "Null ctx in jsFutimesSync");
+    auto state = cast(DunState*) ctx;
+    assert(state !is null, "Null DunState in jsFutimesSync");
+    auto engine = state.engine;
+    if (args.length < 3)
+        return engine.throwTypeError("futimesSync requires fd, atime, mtime");
+    auto fd = engine.extractInt(args[0]);
+    auto atime = cast(long) engine.extractFloat(args[1]);
+    auto mtime = cast(long) engine.extractFloat(args[2]);
+    version (Posix)
+    {
+        import core.sys.posix.time : timespec;
+        timespec[2] ts;
+        ts[0].tv_sec = atime; ts[0].tv_nsec = 0;
+        ts[1].tv_sec = mtime; ts[1].tv_nsec = 0;
+        if (futimens(fd, ts.ptr) != 0)
+            return engine.throwTypeError("EIO: " ~ errnoMsg() ~ ", futimes");
+        return engine.newUndefined();
+    }
+    else
+        return engine.throwTypeError("futimesSync not supported on this platform");
+}
+
 // ── chownSync ───────────────────────────────────────────────────
 
 JSHandle jsChownSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
@@ -2534,8 +2596,6 @@ string fsWatchSource() pure @safe nothrow
     }
   };
 
-  if (!fs.ftruncateSync) fs.ftruncateSync = function(fd, len) { throw new Error('fs.ftruncateSync requires fd-based API (not yet implemented)'); };
-  if (!fs.futimesSync) fs.futimesSync = function(fd, atime, mtime) { throw new Error('fs.futimesSync requires fd-based API (not yet implemented)'); };
   if (!fs.lutimesSync) fs.lutimesSync = function(path, atime, mtime) { fs.utimesSync(path, atime, mtime); };
 
   globalThis.__dun_cjs_fs__ = fs;

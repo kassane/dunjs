@@ -1,12 +1,7 @@
-/// Built-in ambient TypeScript declarations injected by --typecheck.
-/// Mirrors the runtime globals registered by `dun.runtime.globals`:
-/// Deno.* (30+ APIs), Bun.*, Node-style require / process / Buffer,
-/// and the common web globals. Without this, `tsc --typecheck` flags
-/// every reference to `Deno`, `Bun`, `require`, etc. as "Cannot find
-/// name". The declarations are deliberately loose (`any` for the
-/// open-ended object shapes) — DunJS exposes more surface than is
-/// worth re-typing, and --typecheck's job is to catch *user* type
-/// errors, not validate the runtime API.
+/// Ambient `.d.ts` injected by --typecheck so tsc accepts our
+/// runtime globals (Deno.*, Bun.*, require, process, Buffer, web
+/// APIs). Loose-typed on purpose — we're catching user errors,
+/// not validating the host surface.
 module dun.ts.globals_dts;
 
 /// Returns the synthetic .d.ts contents. Stored as a string so the

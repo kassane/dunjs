@@ -1,8 +1,6 @@
-/// Source rewriter for `\p{...}` / `\P{...}` regex escapes on V8.
-/// V8's prebuilt ships without ICU, so regex literals using these
-/// escapes throw at parse time before any runtime polyfill can run.
-/// We substitute pre-baked character classes at module load. JSC and
-/// QuickJS handle the escapes natively and skip this module.
+/// Source-level rewriter for `\p{…}` / `\P{…}` regex escapes — V8's
+/// prebuilt has no ICU, so substitute pre-baked char classes at load.
+/// JSC/QuickJS handle natively.
 module dun.runtime.unicode_props;
 
 import std.algorithm : canFind;

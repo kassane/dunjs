@@ -357,6 +357,37 @@ JSHandle jsNativeTextEncoderEncodeInto(void* ctx, JSHandle thisVal, scope JSHand
     return result;
 }
 
+// Cached `function(ab){ return new Uint8Array(ab); }` per-engine.
+// Lifted out of `jsNativeTextDecoderDecode` so the per-call eval
+// only fires once. Stored as a `__gshared JSHandle[void*]` keyed
+// on the engine pointer; lazy-init on first decode of an
+// ArrayBuffer.
+private __gshared JSHandle[void*] _cachedU8WrapMap;
+import core.sync.mutex : Mutex;
+private __gshared Mutex _cachedU8WrapMu;
+private __gshared bool _cachedU8WrapMuInit = false;
+
+private JSHandle _getCachedU8Wrap(IJSEngine engine) @trusted
+{
+    if (!_cachedU8WrapMuInit)
+    {
+        try { _cachedU8WrapMu = new Mutex(); _cachedU8WrapMuInit = true; }
+        catch (Throwable) { return JSHandle.init; }
+    }
+    auto key = cast(void*) engine;
+    try
+    {
+        _cachedU8WrapMu.lock(); scope(exit) _cachedU8WrapMu.unlock();
+        if (auto p = key in _cachedU8WrapMap) return *p;
+        auto r = engine.eval(
+            "(function(ab){return new Uint8Array(ab);})", "<td-u8-wrap>");
+        if (r.isError) { engine.freeValue(r.value); return JSHandle.init; }
+        _cachedU8WrapMap[key] = r.value;
+        return r.value;
+    }
+    catch (Throwable) { return JSHandle.init; }
+}
+
 JSHandle jsNativeTextDecoderDecode(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in TextDecoder.decode");
@@ -376,6 +407,36 @@ JSHandle jsNativeTextDecoderDecode(void* ctx, JSHandle thisVal, scope JSHandle[]
 
     if (engine.isObject(args[0]))
     {
+        // Per spec, TextDecoder.decode accepts ArrayBuffer too — wrap
+        // it as a Uint8Array view and re-extract bytes. The wrapper
+        // function is cached per-engine in `_cachedU8Wrap` to avoid
+        // a per-decode eval (hot path).
+        auto byteLenVal = engine.getProperty(args[0], "byteLength");
+        if (engine.isNumber(byteLenVal))
+        {
+            int byteLen = engine.extractInt(byteLenVal);
+            engine.freeValue(byteLenVal);
+            if (byteLen == 0) return engine.newString("");
+            auto wrapFn = _getCachedU8Wrap(engine);
+            if (wrapFn.opaque[0] !is null || wrapFn.opaque[1] !is null)
+            {
+                JSHandle[1] wrapArgs = [args[0]];
+                auto u8 = engine.callFunction(wrapFn, engine.newUndefined(), wrapArgs[]);
+                auto wrappedBytes = engine.getTypedArrayBytes(u8);
+                if (wrappedBytes !is null && wrappedBytes.length > 0)
+                {
+                    auto result = engine.newString(cast(const(char)[]) wrappedBytes);
+                    engine.freeValue(u8);
+                    return result;
+                }
+                engine.freeValue(u8);
+            }
+        }
+        else
+        {
+            engine.freeValue(byteLenVal);
+        }
+
         auto lenVal = engine.getProperty(args[0], "length");
         if (engine.isNumber(lenVal))
         {

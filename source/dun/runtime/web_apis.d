@@ -428,6 +428,124 @@ private string webAPIsSource() pure nothrow @safe
     ~ "};"
 
     // ═══════════════════════════════════
+    // EventSource — WHATWG Server-Sent Events (HTML §9.2).
+    // Spec: https://html.spec.whatwg.org/multipage/server-sent-events.html
+    // Layers on top of fetch(): streams the body line-by-line and
+    // dispatches `message` (or named) events per the SSE format.
+    // ═══════════════════════════════════
+    ~ "if(typeof globalThis.EventSource==='undefined'){"
+    ~ "var EventSource=globalThis.EventSource=function EventSource(url,init){"
+    ~ "EventTarget.call(this);"
+    ~ "this.url=String(url);"
+    ~ "this.withCredentials=!!(init&&init.withCredentials);"
+    ~ "this.readyState=0;" /* CONNECTING */
+    ~ "this.onopen=null;this.onmessage=null;this.onerror=null;"
+    ~ "this._lastEventId='';this._reconnectMs=3000;this._aborted=false;"
+    ~ "var self=this;"
+    ~ "this._connect=function(){"
+    ~ "if(self._aborted)return;"
+    ~ "var headers={'Accept':'text/event-stream','Cache-Control':'no-cache'};"
+    ~ "if(self._lastEventId)headers['Last-Event-ID']=self._lastEventId;"
+    ~ "fetch(self.url,{headers:headers,credentials:self.withCredentials?'include':'same-origin'})"
+    ~ ".then(async function(res){"
+    ~ "if(self._aborted)return;"
+    ~ "if(!res.ok||!res.body){self._fail();return;}"
+    ~ "self.readyState=1;" /* OPEN */
+    ~ "var openEv={type:'open'};"
+    ~ "if(self.onopen)self.onopen(openEv);"
+    ~ "self.dispatchEvent(openEv);"
+    ~ "var reader=res.body.getReader();var dec=new TextDecoder();var buf='';var eventType='message',data='',eventId='';"
+    ~ "while(true){"
+    ~ "var r=await reader.read();if(r.done)break;"
+    ~ "buf+=dec.decode(r.value,{stream:true});"
+    ~ "var lines=buf.split(/\\r\\n|\\r|\\n/);buf=lines.pop()||'';"
+    ~ "for(var i=0;i<lines.length;i++){"
+    ~ "var ln=lines[i];"
+    ~ "if(ln===''){" /* dispatch */
+    ~ "if(data){"
+    ~ "if(eventId)self._lastEventId=eventId;"
+    ~ "var ev={type:eventType,data:data.replace(/\\n$/,''),lastEventId:self._lastEventId,origin:new URL(self.url).origin};"
+    ~ "if(eventType==='message'&&self.onmessage)self.onmessage(ev);"
+    ~ "self.dispatchEvent(ev);"
+    ~ "}"
+    ~ "eventType='message';data='';eventId='';continue;"
+    ~ "}"
+    ~ "if(ln.charAt(0)===':')continue;" /* comment */
+    ~ "var colonIdx=ln.indexOf(':');var field,value;"
+    ~ "if(colonIdx===-1){field=ln;value='';}"
+    ~ "else{field=ln.slice(0,colonIdx);value=ln.slice(colonIdx+1).replace(/^ /,'');}"
+    ~ "if(field==='event')eventType=value;"
+    ~ "else if(field==='data')data+=value+'\\n';"
+    ~ "else if(field==='id')eventId=value;"
+    ~ "else if(field==='retry'){var rt=parseInt(value,10);if(!isNaN(rt))self._reconnectMs=rt;}"
+    ~ "}"
+    ~ "}"
+    ~ "self._fail();"
+    ~ "}).catch(function(){self._fail();});"
+    ~ "};"
+    ~ "this._fail=function(){"
+    ~ "if(self._aborted)return;"
+    ~ "self.readyState=0;"
+    ~ "var ev={type:'error'};if(self.onerror)self.onerror(ev);self.dispatchEvent(ev);"
+    ~ "setTimeout(function(){self._connect();},self._reconnectMs);"
+    ~ "};"
+    ~ "this.close=function(){self._aborted=true;self.readyState=2;};"
+    ~ "this._connect();"
+    ~ "};"
+    ~ "EventSource.prototype=Object.create(EventTarget.prototype);"
+    ~ "EventSource.prototype.constructor=EventSource;"
+    ~ "EventSource.CONNECTING=0;EventSource.OPEN=1;EventSource.CLOSED=2;"
+    ~ "}"
+
+    // ═══════════════════════════════════
+    // URLPattern — WHATWG URL Pattern API.
+    // Spec: https://urlpattern.spec.whatwg.org/
+    // Minimal impl: supports pattern strings like "/users/:id" and
+    // structured init objects ({ pathname, hostname, search }).
+    // Returns { groups, input } for matched components on .exec().
+    // ═══════════════════════════════════
+    ~ "if(typeof globalThis.URLPattern==='undefined'){"
+    ~ "globalThis.URLPattern=function URLPattern(init,baseURL){"
+    ~ "if(typeof init==='string'){this.pathname=init;}"
+    ~ "else if(init&&typeof init==='object'){"
+    ~ "this.protocol=init.protocol||'*';this.username=init.username||'*';this.password=init.password||'*';"
+    ~ "this.hostname=init.hostname||'*';this.port=init.port||'*';this.pathname=init.pathname||'*';"
+    ~ "this.search=init.search||'*';this.hash=init.hash||'*';"
+    ~ "}"
+    ~ "var self=this;"
+    ~ "this._compile=function(pat){"
+    ~ "if(pat==='*')return{regex:/.*/,keys:[]};"
+    ~ "var keys=[],re='';"
+    ~ "for(var i=0;i<pat.length;i++){"
+    ~ "var c=pat[i];"
+    ~ "if(c===':'){"
+    ~ "var end=i+1;while(end<pat.length&&/[A-Za-z0-9_]/.test(pat[end]))end++;"
+    ~ "keys.push(pat.slice(i+1,end));re+='([^/]+)';i=end-1;"
+    ~ "}"
+    ~ "else if(c==='*')re+='(.*)';"
+    ~ "else if('.+^${}()|[]\\\\'.indexOf(c)!==-1)re+='\\\\'+c;"
+    ~ "else re+=c;"
+    ~ "}"
+    ~ "return{regex:new RegExp('^'+re+'$'),keys:keys};"
+    ~ "};"
+    ~ "var pathParts=this._compile(this.pathname||'*');"
+    ~ "this._pathRegex=pathParts.regex;this._pathKeys=pathParts.keys;"
+    ~ "this.exec=function(input){"
+    ~ "var pathname=input;"
+    ~ "if(typeof input==='string'&&input.indexOf('://')!==-1){"
+    ~ "try{var u=new URL(input);pathname=u.pathname;}catch(e){return null;}"
+    ~ "}"
+    ~ "else if(input&&typeof input==='object'){pathname=input.pathname||'';}"
+    ~ "var m=self._pathRegex.exec(pathname);"
+    ~ "if(!m)return null;"
+    ~ "var groups={};for(var i=0;i<self._pathKeys.length;i++)groups[self._pathKeys[i]]=m[i+1];"
+    ~ "return{pathname:{input:pathname,groups:groups},input:input};"
+    ~ "};"
+    ~ "this.test=function(input){return self.exec(input)!==null;};"
+    ~ "};"
+    ~ "}"
+
+    // ═══════════════════════════════════
     // ReadableStream (simplified Web Streams)
     // ═══════════════════════════════════
     ~ "if(typeof globalThis.ReadableStream==='undefined'){"
@@ -526,6 +644,54 @@ private string webAPIsSource() pure nothrow @safe
     ~ "this.format=format;"
     ~ "this.readable=new ReadableStream({});"
     ~ "this.writable=new WritableStream({});"
+    ~ "};"
+    ~ "}"
+
+    // ═══════════════════════════════════
+    // QueuingStrategy subclasses — required by ReadableStream byob
+    // mode and TransformStream constructors. Both are 1-property
+    // value classes per WHATWG Streams §7.{1,2}.
+    // ═══════════════════════════════════
+    ~ "if(typeof globalThis.ByteLengthQueuingStrategy==='undefined'){"
+    ~ "globalThis.ByteLengthQueuingStrategy=function ByteLengthQueuingStrategy(init){"
+    ~ "this.highWaterMark=init&&init.highWaterMark;"
+    ~ "this.size=function(chunk){return chunk&&chunk.byteLength||0;};"
+    ~ "};"
+    ~ "}"
+    ~ "if(typeof globalThis.CountQueuingStrategy==='undefined'){"
+    ~ "globalThis.CountQueuingStrategy=function CountQueuingStrategy(init){"
+    ~ "this.highWaterMark=init&&init.highWaterMark;"
+    ~ "this.size=function(){return 1;};"
+    ~ "};"
+    ~ "}"
+
+    // ═══════════════════════════════════
+    // TextEncoderStream / TextDecoderStream — transform streams
+    // backed by the existing TextEncoder/Decoder.
+    // ═══════════════════════════════════
+    ~ "if(typeof globalThis.TextEncoderStream==='undefined'){"
+    ~ "globalThis.TextEncoderStream=function TextEncoderStream(){"
+    ~ "var enc=new TextEncoder();"
+    ~ "var ts=new TransformStream({"
+    ~ "transform:function(chunk,controller){controller.enqueue(enc.encode(chunk));}"
+    ~ "});"
+    ~ "this.encoding=enc.encoding;"
+    ~ "this.readable=ts.readable;"
+    ~ "this.writable=ts.writable;"
+    ~ "};"
+    ~ "}"
+    ~ "if(typeof globalThis.TextDecoderStream==='undefined'){"
+    ~ "globalThis.TextDecoderStream=function TextDecoderStream(label,options){"
+    ~ "var dec=new TextDecoder(label,options);"
+    ~ "var ts=new TransformStream({"
+    ~ "transform:function(chunk,controller){var s=dec.decode(chunk,{stream:true});if(s)controller.enqueue(s);},"
+    ~ "flush:function(controller){var s=dec.decode();if(s)controller.enqueue(s);}"
+    ~ "});"
+    ~ "this.encoding=dec.encoding;"
+    ~ "this.fatal=dec.fatal;"
+    ~ "this.ignoreBOM=dec.ignoreBOM;"
+    ~ "this.readable=ts.readable;"
+    ~ "this.writable=ts.writable;"
     ~ "};"
     ~ "}"
 

@@ -1,0 +1,9 @@
+ok — basic equality
+ok — deep equality
+ok — group
+ok — sees before hook
+ok — throws assertion error on mismatch
+# tests 5
+# pass 5
+# fail 0
+# skip 0

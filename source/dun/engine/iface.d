@@ -11,10 +11,8 @@ static assert(JSHandle.sizeof >= 2 * (void*).sizeof,
 static assert(JSHandle.sizeof <= 24,
     "JSHandle unexpectedly large -- review layout");
 
-/// Result of evaluating JS source. `@mustuse` (DIP 1038) forces every
-/// caller to either inspect `isError` or explicitly `cast(void)` —
-/// catching at compile time the bugs where init/eval code's failure
-/// gets silently swallowed.
+/// `@mustuse` forces every `engine.eval` caller to inspect `isError`
+/// (DIP 1038) — catches dropped init/eval failures at compile time.
 import core.attribute : mustuse;
 @mustuse
 struct JSResult
@@ -24,16 +22,12 @@ struct JSResult
     string errorMessage;
 }
 
-private size_t MiB(size_t n) @safe pure nothrow @nogc
-{
-    return n * 1024 * 1024;
-}
-
-enum DEFAULT_MEMORY_LIMIT = MiB(2048);
-enum DEFAULT_MAX_STACK = MiB(8);
-enum TEST_MEMORY_LIMIT = MiB(64);
-enum TEST_MAX_STACK = MiB(4);
-enum NATIVE_CALL_STACK_ARGS = 16;
+// Engine limits — defined in `dun.declarations`, re-exported here
+// so existing engine-layer imports keep working unchanged.
+public import dun.declarations :
+    DEFAULT_MEMORY_LIMIT, DEFAULT_MAX_STACK,
+    TEST_MEMORY_LIMIT, TEST_MAX_STACK,
+    NATIVE_CALL_STACK_ARGS;
 
 struct EngineConfig
 {
@@ -88,46 +82,22 @@ interface IJSEngine
     void setProperty(JSHandle obj, scope const(char)[] name, JSHandle val);
     JSHandle getGlobal();
 
-    /// Bind a long-lived function value as a property of `obj` without
-    /// transferring ownership of `fn`. Use this for "method binding" of
-    /// cached function handles (e.g. `_cachedUpdateFn`) that are stored
-    /// in `__gshared` slots and must outlive every call site that copies
-    /// them onto per-call objects.
-    ///
-    /// Backends:
-    /// - QuickJS: `JS_SetPropertyStr` consumes the value, so we
-    ///   internally `JS_DupValue` first — caller's `fn` handle stays
-    ///   valid afterwards.
-    /// - JSC: `JSObjectSetProperty` does not consume — the property
-    ///   table inside the JS object roots `fn` for us — no extra
-    ///   `JSValueProtect` needed. (Avoiding the per-call protect is
-    ///   what keeps hot loops like `crypto.createHash().update().digest()`
-    ///   from leaking one entry on JSC's protect table per call.)
+    /// Set `obj.name = fn` without consuming `fn` — backends that
+    /// would normally consume (QuickJS) dup internally. Use for
+    /// cached __gshared method handles that outlive their call sites.
     void bindMethod(JSHandle obj, scope const(char)[] name, JSHandle fn);
 
-    /// Equivalent of `Object.setPrototypeOf(obj, proto)`. Used by Buffer to
-    /// hot-path return a `new Uint8Array` with the Buffer prototype glued
-    /// on, eliminating a JS-level factory call per Buffer.from / .alloc /
-    /// .concat (the previous design returned `new Proxy(plainObj)` via a
-    /// ~5-line cached eval'd JS function).
+    /// `Object.setPrototypeOf(obj, proto)`. Hot-path replacement for
+    /// the JS-level factory we used to build Buffers with.
     void setPrototype(JSHandle obj, JSHandle proto);
 
-    /// One-shot fast path for the Buffer.from / .alloc / .concat hot path:
-    /// `new Uint8Array(data)` + `setPrototypeOf(u8, proto)` collapsed into
-    /// a single backend call. On V8 this saves three withContext entries
-    /// (Isolate::Scope + HandleScope + Context::Scope) per Buffer creation,
-    /// closing a large chunk of the gap vs Node's pure-C++ Buffer impl.
-    ///
-    /// `data` may be null when `zeroed` is true and length > 0 — the
-    /// backend will allocate a zeroed-out ArrayBuffer (semantically
-    /// equivalent to `Buffer.alloc(len)`).
+    /// Fused `new Uint8Array(data) + setPrototypeOf(_, proto)` —
+    /// one backend call per Buffer.from/alloc/concat. `data` may be
+    /// null when `zeroed` and `len > 0` (Buffer.alloc semantics).
     JSHandle newBufferWithProto(scope const(ubyte)[] data, JSHandle proto, bool zeroed);
 
-    /// Fused `Buffer.from(jsString, "utf8")` hot path — saves the
-    /// JS-string→D-string copy that `extractString + newBufferWithProto`
-    /// otherwise pays on every call. V8 implements this directly via
-    /// `v8::String::WriteUtf8V2` into a fresh ArrayBuffer. QuickJS / JSC
-    /// fall back to the two-step path.
+    /// Fused `Buffer.from(jsString, "utf8")` — V8 writes UTF-8 directly;
+    /// QuickJS/JSC fall back to the two-step path.
     JSHandle newBufferFromUtf8String(JSHandle jsStr, JSHandle proto);
 
     // --- Reference management ---
@@ -138,11 +108,8 @@ interface IJSEngine
     JSHandle newUint8Array(scope const(ubyte)[] data);
     JSHandle newUint8ArrayZeroed(size_t length);
 
-    /// Raw bytes of a Uint8Array / Buffer / typed-array view. Slice
-    /// is engine-owned and tied to `val`'s lifetime — `.dup` if you
-    /// need it past the JSHandle (e.g. async dispatch). `return scope`
-    /// makes DIP1000 propagate the constraint to callers: the result
-    /// inherits `val`'s scope and cannot outlive it without copying.
+    /// Engine-owned slice tied to `val`'s lifetime — `.dup` if you
+    /// need it past the JSHandle. `return scope` is DIP1000-checked.
     ubyte[] getTypedArrayBytes(return scope JSHandle val) @trusted;
 
     // --- Indexed property access (O(1) for arrays) ---
@@ -230,12 +197,9 @@ IJSEngine createEngine()
     }
 }
 
-/// Eval a closed-world inline JS string and assert it succeeds.
-/// Use for build-time-constant init code where a parse/eval failure
-/// is a programmer bug, not a user-data issue (Worker installer,
-/// `__filename`/`__dirname` setup, polyfills). The `@mustuse` on
-/// `JSResult` (DIP 1038) catches accidentally-dropped results at
-/// compile time; this is the canonical drop-only consumer.
+/// Eval closed-world inline JS and assert success — the canonical
+/// drop-only consumer for `@mustuse JSResult` (build-time init code
+/// where eval failure is a programmer bug, not user data).
 void mustEval(IJSEngine engine, scope const(char)[] source,
     string filename, string what) @trusted
 {

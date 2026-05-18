@@ -2,8 +2,19 @@ module dun.builtins.os;
 
 import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
 import dun.runtime.globals : DunState;
+import dun.security.permissions : Permission, checkPerm;
 
 private enum HOSTNAME_BUF_SIZE = 256;
+
+// Throw a TypeError with a precise --allow-sys hint. Resource name
+// matches the os.* method so users can scope a single one with
+// `--allow-sys=cpus`.
+private JSHandle throwSysPerm(IJSEngine engine, string resource) @trusted
+{
+    return engine.throwTypeError(
+        "os." ~ resource ~ "() requires --allow-sys" ~
+        (resource.length > 0 ? "=" ~ resource : ""));
+}
 
 void registerOsModule(IJSEngine engine) @trusted
 {
@@ -153,6 +164,9 @@ JSHandle jsOsType(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 JSHandle jsOsHostname(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     auto engine = getEngine(ctx);
+    auto state = cast(DunState*) ctx;
+    if (!checkPerm(state, Permission.sys, "hostname"))
+        return throwSysPerm(engine, "hostname");
     try
     {
         import std.process : environment;
@@ -207,6 +221,9 @@ JSHandle jsOsTmpdir(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 JSHandle jsOsCpus(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     auto engine = getEngine(ctx);
+    auto state = cast(DunState*) ctx;
+    if (!checkPerm(state, Permission.sys, "cpus"))
+        return throwSysPerm(engine, "cpus");
     auto arr = engine.newArray();
     try
     {
@@ -350,6 +367,8 @@ JSHandle jsOsNetworkInterfaces(void* ctx, JSHandle thisVal, scope JSHandle[] arg
     assert(ctx !is null, "Null ctx in jsOsNetworkInterfaces");
     auto state = cast(DunState*) ctx;
     assert(state.engine !is null, "Null engine in jsOsNetworkInterfaces");
+    if (!checkPerm(state, Permission.sys, "networkInterfaces"))
+        return throwSysPerm(state.engine, "networkInterfaces");
     // Stub: return empty object (ifaddrs not available in D runtime)
     return state.engine.newObject();
 }
@@ -357,6 +376,9 @@ JSHandle jsOsNetworkInterfaces(void* ctx, JSHandle thisVal, scope JSHandle[] arg
 JSHandle jsOsUserInfo(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     auto engine = getEngine(ctx);
+    auto state = cast(DunState*) ctx;
+    if (!checkPerm(state, Permission.sys, "userInfo"))
+        return throwSysPerm(engine, "userInfo");
     auto obj = engine.newObject();
     version (Posix)
     {
@@ -412,6 +434,9 @@ JSHandle jsOsUserInfo(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trust
 JSHandle jsOsLoadavg(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     auto engine = getEngine(ctx);
+    auto state = cast(DunState*) ctx;
+    if (!checkPerm(state, Permission.sys, "loadavg"))
+        return throwSysPerm(engine, "loadavg");
     auto arr = engine.newArray();
     version (linux)
     {

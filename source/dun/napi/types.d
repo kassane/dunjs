@@ -81,6 +81,44 @@ struct napi_module
     void*[4] nm_priv;
 }
 
+// Property descriptor (`napi_define_properties` family). Layout
+// must match Node.js' `js_native_api_types.h` byte-for-byte —
+// `static assert`s below catch any future drift.
+alias napi_property_attributes = int;
+enum : napi_property_attributes
+{
+    napi_default            = 0,
+    napi_writable           = 1 << 0,
+    napi_enumerable         = 1 << 1,
+    napi_configurable       = 1 << 2,
+    napi_static             = 1 << 10,
+    napi_default_method     = napi_writable | napi_configurable,
+    napi_default_jsproperty = napi_writable | napi_enumerable | napi_configurable,
+}
+
+/// Node version triple returned by `napi_get_node_version`. The
+/// release name is a static C string so addons can read it without
+/// the host owning the allocation.
+struct NapiNodeVersion
+{
+    uint major;
+    uint minor;
+    uint patch;
+    const(char)* release;
+}
+
+struct napi_property_descriptor
+{
+    const(char)* utf8name;
+    napi_value name;
+    napi_callback method;
+    napi_callback getter;
+    napi_callback setter;
+    napi_value value;
+    napi_property_attributes attributes;
+    void* data;
+}
+
 alias napi_finalize = extern(C) void function(napi_env env, void* data, void* hint) nothrow;
 
 // --- Async work (`napi_create_async_work` family) ---
@@ -160,3 +198,10 @@ static assert((napi_async_work).sizeof == (void*).sizeof,
     "napi_async_work must be pointer-sized");
 static assert((napi_threadsafe_function).sizeof == (void*).sizeof,
     "napi_threadsafe_function must be pointer-sized");
+// napi_property_descriptor must match Node.js' layout (4 pointers
+// of callbacks + utf8name + name value + value + attributes int +
+// data pointer). Total on 64-bit: 8*7 + 4 (+4 pad) + 8 = 72 bytes.
+static assert(napi_property_descriptor.sizeof == 8 * (void*).sizeof,
+    "napi_property_descriptor layout drift -- check against Node N-API header");
+static assert(napi_property_attributes.sizeof == int.sizeof,
+    "napi_property_attributes must be a 4-byte int per N-API spec");

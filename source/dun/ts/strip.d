@@ -20,11 +20,9 @@ private enum size_t PAREN_STACK_RESERVE  = 16;
 private enum size_t CLASS_STACK_RESERVE  = 8;
 private enum size_t USING_STACK_RESERVE  = 4;
 
-/// Strip TypeScript type annotations, replacing them with whitespace
-/// to preserve source positions. Erasable subset only (no enum/namespace).
-///
-/// If generateMap is true, also generates a V3 source map (identity mapping)
-/// and returns it via the sourceMap out parameter.
+/// Replace TS types with whitespace (preserves source positions).
+/// Erasable subset only — no enum/namespace runtime. Emits a V3
+/// identity sourcemap when `generateMap` is true.
 string stripTypes(const(char)[] source, bool generateMap, out string sourceMap) @safe
 {
     auto stripped = stripTypes(source);
@@ -1074,17 +1072,10 @@ private const(char)[] readIdent(const(char)[] buf, size_t start) @safe pure noth
     return buf[start .. end];
 }
 
-/// Rewrite a TS `enum` declaration in-place to JS that produces an
-/// equivalent runtime object.
-///
-/// Input:  `[export] [const] enum Name { Member1, Member2 = 5, Member3 }`
-/// Output: a similarly-sized block that ends in `};` so the closing
-///         brace lines up with the original `}`. Numeric reverse
-///         lookups (`Color[0] === 'Red'`) are populated for numeric
-///         entries; string enums get only forward lookups.
-///
-/// Returns the position just past the closing brace, or 0 if the
-/// declaration couldn't be parsed (caller should fall through).
+/// Rewrite `enum Name { … }` to an equivalent JS object in place.
+/// Numeric members get reverse lookups (`Color[0] === 'Red'`);
+/// string members get forward only. Returns position past the
+/// closing brace, or 0 if the declaration was unparseable.
 private size_t rewriteEnum(char[] buf, size_t blockStart, size_t enumKwStart,
                             size_t afterEnumKw, out string decl) @trusted pure nothrow
 {
@@ -1245,15 +1236,9 @@ private bool isAllDigits(string s) @safe pure nothrow @nogc
     return true;
 }
 
-/// Rewrite `[export] namespace|module Name { body }` in-place. The
-/// original block is blanked (newlines preserved); the body is
-/// transformed into the equivalent JS IIFE and appended to the file
-/// prologue via the `decl` out-parameter (caller passes through to the
-/// enumDecls list, which is emitted ahead of the source body).
-///
-/// Inside the body, `export const X = ...`, `export function f() {}`,
-/// `export class C {}`, `export let X`, `export var X` are rewritten
-/// so the binding also lands on the namespace object as a property.
+/// Rewrite `namespace|module Name { body }` to an IIFE emitted
+/// via `decl`. Inside the body, `export {const,let,var,function,class}`
+/// also attach to the namespace object as properties.
 private size_t rewriteNamespace(char[] buf, size_t blockStart,
     size_t nsKwStart, out string decl) @trusted
 {
@@ -1447,16 +1432,10 @@ private size_t rewriteNamespace(char[] buf, size_t blockStart,
     return braceEnd;
 }
 
-/// Scan a TS constructor with parameter properties. Erases the access
-/// modifier keywords in-place (so the JS parser sees a valid parameter
-/// list) and returns:
-///   - the position just past the constructor body's opening `{`
-///   - `injectAt` set to the byte offset just inside `{` where the
-///     `this.x=x;...` injection should land
-///   - `injectText` set to the injection
-///
-/// Returns 0 if the constructor doesn't look like the parameter-property
-/// pattern (no modifiers found, or we couldn't find the parens / body).
+/// Erase `constructor(public/private/protected x)` modifiers in place
+/// + emit `this.x=x;…` injection. Returns position past the body's
+/// opening `{` with `injectAt`/`injectText` set, or 0 if not a
+/// parameter-property constructor.
 private size_t scanConstructorParamProps(char[] buf, size_t kwStart, size_t kwEnd,
     out size_t injectAt, out string injectText) @trusted pure nothrow
 {
@@ -1774,14 +1753,9 @@ size_t skipBlockComment(const(char)[] buf, size_t i) @safe pure nothrow @nogc
 // Declaration / type scanning
 // ---------------------------------------------------------------------------
 
-/// Find end of a declaration: either ';' or matching '}' for a block.
-/// Find the end of a single statement starting at `start`, returning
-/// the byte just past the terminator (`;` or ASI-inserted newline).
-/// `findDeclEnd` only looks for `;` so it walks past an entire
-/// no-semicolon declaration; this variant also stops at a top-level
-/// (depth 0 paren/brace/bracket) newline that's followed by a non-
-/// continuation byte -- mirrors ECMA-262 ASI rules well enough for
-/// the using-rewrite trailing-semi top-up.
+/// Find end of a single statement — terminator `;` OR an ASI-inserted
+/// newline at depth 0. Used by the `using`-rewrite trailing-semi
+/// top-up to walk past no-semicolon declarations.
 size_t findStmtEnd(const(char)[] buf, size_t start) @safe pure nothrow @nogc
 {
     size_t i = start;

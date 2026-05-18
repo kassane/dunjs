@@ -49,6 +49,13 @@ version (EngineQuickJS)
                 isBareBuiltin(name))
                 name = "dun:" ~ name;
 
+            // Strict-mode submodules — `assert/strict` and
+            // `assert/strict.js` collapse to the parent module since
+            // our assert already exposes both `default` and `strict`
+            // bindings. Node treats both as the same module.
+            if (name == "dun:assert/strict" || name == "dun:assert/strict.js")
+                name = "dun:assert";
+
             // Builtins: return canonical name so QuickJS finds the pre-registered C module
             if (name.startsWith("dun:"))
                 return js_strdup(ctx, name.toStringz);
@@ -241,6 +248,34 @@ version (EngineQuickJS)
                     JS_NewStringLen(ctx, dirStr.ptr, dirStr.length));
                 JS_SetPropertyStr(ctx, meta, "main",
                     JS_NewBool(ctx, false));
+
+                // `import.meta.resolve(spec)` — Node ESM spec. Closes
+                // over the module's dirname so relative specifiers
+                // resolve the same way `import` does. Closed-world
+                // template — failure here is a build-time bug.
+                import std.string : replace;
+                auto safeDir = dirStr.replace(`\`, `\\`).replace(`'`, `\'`);
+                auto resolveSrc =
+                    `(function(){var __d='` ~ safeDir ~ `';` ~
+                    `return function resolve(spec){` ~
+                    `if(typeof spec!=='string')throw new TypeError('import.meta.resolve: spec must be a string');` ~
+                    `if(spec.indexOf('://')!==-1)return spec;` ~
+                    `if(spec[0]==='/')return 'file://'+spec;` ~
+                    `if(spec[0]==='.'){` ~
+                    `var parts=(__d+'/'+spec).split('/'),out=[];` ~
+                    `for(var i=0;i<parts.length;i++){if(parts[i]==='..')out.pop();` ~
+                    `else if(parts[i]&&parts[i]!=='.')out.push(parts[i]);}` ~
+                    `return 'file:///'+out.join('/');}` ~
+                    `try{if(typeof require!=='undefined'&&require.resolve)` ~
+                    `return 'file://'+require.resolve(spec);}catch(e){}` ~
+                    `return spec;};})()` ~ '\0';
+                auto resolveFn = JS_Eval(ctx, resolveSrc.ptr, resolveSrc.length - 1,
+                    "<import-meta-resolve>".ptr, JS_EVAL_TYPE_GLOBAL);
+                if (JS_IsException(resolveFn) == 0)
+                    JS_SetPropertyStr(ctx, meta, "resolve", resolveFn);
+                else
+                    JS_FreeValue(ctx, resolveFn);
+
                 JS_FreeValue(ctx, meta);
             }
         }
@@ -253,17 +288,9 @@ version (EngineQuickJS)
     }
 }
 
-/// Extract identifiers that appear to be named CJS exports.
-///
-/// Recognized patterns:
-///   - `module.exports.NAME =`
-///   - `exports.NAME =`
-///   - `module.exports = { NAME: ..., ... }`
-///   - `Object.defineProperty(exports, "NAME", ...)`
-///
-/// Heuristic — does no AST work, so it can miss exports built via
-/// computed property names or weird control flow. Good enough for the
-/// vast majority of npm packages.
+/// Scrape named CJS exports (`module.exports.X = …`, `exports.X = …`,
+/// `module.exports = { X: … }`, `Object.defineProperty(exports, "X", …)`).
+/// Regex-style heuristic — misses computed-name / dynamic exports.
 private string[] extractCjsExports(string source) @safe pure
 {
     import std.algorithm : canFind;
@@ -506,7 +533,7 @@ private bool isBareBuiltin(string name) @safe pure nothrow @nogc
         "stream", "zlib", "child_process", "worker_threads", "cluster",
         "vm", "assert", "querystring", "string_decoder", "readline",
         "perf_hooks", "async_hooks", "timers/promises", "fs/promises",
-        "ws", "sqlite", "tty", "module",
+        "ws", "sqlite", "tty", "module", "test",
     ];
     foreach (b; builtins)
         if (name == b)

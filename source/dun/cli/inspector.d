@@ -431,10 +431,8 @@ void handleCDPMessage(string msg) @trusted
     catch (Throwable) {}
 }
 
-/// Forward a `console.{log,info,warn,error,debug}` call from JS to a
-/// connected DevTools session via `Runtime.consoleAPICalled` event.
-/// Called from the runtime's console.* implementations; no-op if no
-/// client is attached.
+/// Forward a `console.*` call to attached DevTools via
+/// `Runtime.consoleAPICalled`. No-op if no client.
 public void emitConsoleAPICalled(string level, string text) nothrow @trusted
 {
     if (gClientFd < 0) return;

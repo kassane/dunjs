@@ -8,11 +8,8 @@ import dun.runtime.globals : DunState;
 // expected by `v8.getHeapStatistics().heap_size_limit`.
 private enum DEFAULT_HEAP_LIMIT_BYTES = 2L * 1024 * 1024 * 1024;  // 2 GiB
 
-/// `node:v8` compatibility surface. Currently a small slice: enough for
-/// `v8.writeHeapSnapshot()`, `v8.getHeapStatistics()`, and the
-/// serializer constants that npm packages probe at load time. We don't
-/// expose the real heap walker; the snapshot we write is a valid (but
-/// minimal) v8 heap-snapshot JSON so DevTools-style tools open it.
+/// `node:v8` compat — `writeHeapSnapshot` + `getHeapStatistics` +
+/// serializer constants. Snapshot is a minimal-but-valid v8 JSON.
 void registerV8Module(IJSEngine engine) @trusted
 {
     assert(engine !is null, "Null engine in registerV8Module");
@@ -106,10 +103,8 @@ version (EngineQuickJS)
     }
 }
 
-/// Write a minimal but valid v8 heap-snapshot file. We don't actually
-/// walk the GC; the contents capture engine name, GC stats from
-/// `core.memory.GC`, and a single synthetic root node so tools that
-/// just load + count nodes don't choke.
+/// Synthetic v8 heap-snapshot — engine name + `core.memory.GC` stats
+/// + one root node. Doesn't walk the JS heap.
 private JSHandle jsWriteHeapSnapshot(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in v8.writeHeapSnapshot");

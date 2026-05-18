@@ -435,6 +435,79 @@ private string denoServeAndKvSource() pure nothrow @safe
     "  return { unref: function() { id.unref && id.unref(); } };" ~
     "};" ~
 
+    /* Deno.Command — modern subprocess API. Wraps node:child_process
+       so the surface matches Deno's:
+         new Deno.Command(cmd, { args, stdin, stdout, stderr, env, cwd });
+         await .output() -> { code, success, stdout, stderr, signal }
+         .outputSync() -> same, sync
+         .spawn() -> { pid, output, stdin, stdout, stderr, status, kill }
+       stdout/stderr default to "piped". This shim covers the common
+       `await new Deno.Command("ls").output()` usage; advanced features
+       like signal-based termination + streaming pipes are best-effort. */
+    "Deno.Command = function Command(cmd, opts) {" ~
+    "  opts = opts || {};" ~
+    "  this._cmd = cmd; this._opts = opts;" ~
+    "  var cp = require('child_process');" ~
+    "  var self = this;" ~
+    "  this.output = function() {" ~
+    "    return new Promise(function(resolve, reject) {" ~
+    "      try {" ~
+    "        var r = cp.spawnSync(cmd, opts.args || [], {" ~
+    "          cwd: opts.cwd, env: opts.env," ~
+    "        });" ~
+    "        var enc = new TextEncoder();" ~
+    "        var stdoutBytes = r.stdout instanceof Uint8Array ? r.stdout : enc.encode(String(r.stdout || ''));" ~
+    "        var stderrBytes = r.stderr instanceof Uint8Array ? r.stderr : enc.encode(String(r.stderr || ''));" ~
+    "        resolve({" ~
+    "          code: r.status == null ? 0 : r.status," ~
+    "          success: (r.status == null ? 0 : r.status) === 0," ~
+    "          signal: r.signal || null," ~
+    "          stdout: stdoutBytes," ~
+    "          stderr: stderrBytes" ~
+    "        });" ~
+    "      } catch (e) { reject(e); }" ~
+    "    });" ~
+    "  };" ~
+    "  this.outputSync = function() {" ~
+    "    var r = cp.spawnSync(cmd, opts.args || [], { cwd: opts.cwd, env: opts.env });" ~
+    "    var enc = new TextEncoder();" ~
+    "    var stdoutBytes = r.stdout instanceof Uint8Array ? r.stdout : enc.encode(String(r.stdout || ''));" ~
+    "    var stderrBytes = r.stderr instanceof Uint8Array ? r.stderr : enc.encode(String(r.stderr || ''));" ~
+    "    return {" ~
+    "      code: r.status == null ? 0 : r.status," ~
+    "      success: (r.status == null ? 0 : r.status) === 0," ~
+    "      signal: r.signal || null," ~
+    "      stdout: stdoutBytes," ~
+    "      stderr: stderrBytes" ~
+    "    };" ~
+    "  };" ~
+    "  this.spawn = function() {" ~
+    "    var child = cp.spawn(cmd, opts.args || [], { cwd: opts.cwd, env: opts.env });" ~
+    "    var stdoutChunks = [], stderrChunks = [];" ~
+    "    child.stdout && child.stdout.on('data', function(c) { stdoutChunks.push(c); });" ~
+    "    child.stderr && child.stderr.on('data', function(c) { stderrChunks.push(c); });" ~
+    "    var statusPromise = new Promise(function(resolve) {" ~
+    "      child.on('exit', function(code, signal) {" ~
+    "        resolve({ code: code == null ? 0 : code, success: code === 0, signal: signal || null });" ~
+    "      });" ~
+    "    });" ~
+    "    return {" ~
+    "      pid: child.pid," ~
+    "      stdout: child.stdout," ~
+    "      stderr: child.stderr," ~
+    "      stdin: child.stdin," ~
+    "      status: statusPromise," ~
+    "      kill: function(sig) { child.kill(sig); }," ~
+    "      output: function() { return statusPromise.then(function(s) {" ~
+    "        return Object.assign({" ~
+    "          stdout: globalThis.Buffer ? globalThis.Buffer.concat(stdoutChunks) : new Uint8Array()," ~
+    "          stderr: globalThis.Buffer ? globalThis.Buffer.concat(stderrChunks) : new Uint8Array()" ~
+    "        }, s);" ~
+    "      }); }" ~
+    "    };" ~
+    "  };" ~
+    "};" ~
+
     "})();";
 }
 

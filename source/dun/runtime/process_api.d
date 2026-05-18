@@ -384,6 +384,8 @@ void installProcess(IJSEngine engine) @trusted
 
     // process.memoryUsage()
     engine.setProperty(process, "memoryUsage", engine.newFunction(&jsMemoryUsage, "memoryUsage", 0));
+    // Node 22+ `process.availableMemory()` — reads /proc/meminfo MemAvailable on Linux.
+    engine.setProperty(process, "availableMemory", engine.newFunction(&jsAvailableMemory, "availableMemory", 0));
 
     // process.cpuUsage()
     engine.setProperty(process, "cpuUsage", engine.newFunction(&jsCpuUsage, "cpuUsage", 0));
@@ -741,11 +743,8 @@ JSHandle jsHrtime(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
     catch (Exception) { return engine.newArray(); }
 }
 
-/// `performance.now()` -- high-resolution monotonic time in milliseconds
-/// as a JS number (double). Uses MonoTime for sub-millisecond
-/// precision; some engines (JSC, V8) ship a native performance.now
-/// that rounds to integer milliseconds, breaking sub-ms benchmark
-/// measurements.
+/// `performance.now()` via MonoTime — sub-ms precision. Overrides
+/// JSC/V8 natives that round to integer ms (kills benchmarks).
 public JSHandle jsPerformanceNow(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in performance.now");
@@ -829,6 +828,40 @@ JSHandle jsMemoryUsage(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trus
     engine.setProperty(obj, "external", engine.newFloat(0));
     engine.setProperty(obj, "arrayBuffers", engine.newFloat(0));
     return obj;
+}
+
+JSHandle jsAvailableMemory(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
+{
+    assert(ctx !is null, "Null ctx in process.availableMemory");
+    auto state = cast(DunState*) ctx;
+    assert(state.engine !is null, "Null engine in process.availableMemory");
+    auto engine = state.engine;
+    double avail = 0;
+    version (linux)
+    {
+        try
+        {
+            import std.file : readText;
+            import std.string : splitLines, startsWith, split;
+            import std.conv : to;
+            // /proc/meminfo line "MemAvailable:    1234 kB" — most
+            // accurate cross-process "free memory" estimate on Linux
+            // since 3.14 (accounts for reclaimable cache).
+            auto info = readText("/proc/meminfo");
+            foreach (line; info.splitLines)
+            {
+                if (line.startsWith("MemAvailable:"))
+                {
+                    auto parts = line.split();
+                    if (parts.length >= 2)
+                        avail = to!double(parts[1]) * 1024.0;  // kB → bytes
+                    break;
+                }
+            }
+        }
+        catch (Exception) {}
+    }
+    return engine.newFloat(avail);
 }
 
 JSHandle jsCpuUsage(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
