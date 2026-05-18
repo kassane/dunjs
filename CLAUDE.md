@@ -563,6 +563,27 @@ backend override. We currently annotate:
 Callers that need the slice past the JSHandle's lifetime (e.g. shipping
 into an `asyncSubmit` worker) must `.dup`. Compiler-checked.
 
+DIP1038 (`@mustuse` from `core.attribute`) annotates struct returns
+whose value must never be silently dropped. We currently annotate:
+
+- `JSResult` — every `engine.eval(...)` / `engine.evalModule(...)`
+  caller must either check `isError` or hand the value to a consumer.
+- `AsyncResult` — every `asyncSubmitSafe` work delegate must build
+  a result via `AsyncResult.ok(...)` / `AsyncResult.fail(...)` and
+  return it (vs. silently discarding the constructed value).
+
+For closed-world inline JS init code where a parse failure is a
+build-time bug rather than user data, use the canonical drop-only
+consumer:
+
+```d
+mustEval(engine, source, filename, what);  // asserts !isError, frees value
+```
+
+Defined in `dun.engine.iface`. Used by `worker_api.installWorkerAPI`
+(Worker constructor installer) and `workers.worker._runWorker`
+(`__filename`/`__dirname` setup).
+
 ## Phased Roadmap
 
 See [CHANGELOG.md](CHANGELOG.md) — historical record of every

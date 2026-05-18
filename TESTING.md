@@ -203,13 +203,16 @@ DunJS ships parity tests that probe major-runtime surfaces and compare output
 against the gold reference (tsc / Deno / Bun) byte-for-byte. Run via:
 
 ```sh
-bash tests/benchmarks/ts_parity/run.sh         # TS strip vs tsc + node
-./dun run tests/benchmarks/deno_deploy_compat.js  # Deno.serve / Deno Deploy
-./dun run tests/benchmarks/bun_bundler_compat.js  # Bun.build
+bash tests/benchmarks/ts_parity/run.sh             # TS strip vs tsc + node
+bash tests/benchmarks/spec_compliance/compare.sh   # ES + TS spec grid
+./dun run tests/benchmarks/deno_deploy_compat.js   # Deno.serve / Deno Deploy
+./dun run tests/benchmarks/bun_bundler_compat.js   # Bun.build
 ```
 
 | Suite | Probes | DunJS (×3 backends) | Gold |
 |-------|--------|---------------------|------|
+| `spec_compliance/ecmascript.js` (98 checks) | ES2015..ES2025 — TDZ, arrow, destructuring, classes, Symbol, Map/Set, Promise, async/await, optional chaining, BigInt, top-level await, weak refs, Array.findLast, Object.groupBy, `RegExp /v` set ops | **98/98** | Bun / Node / Deno 98/98 |
+| `spec_compliance/typescript.ts` (35 checks) | erasable + permissive TS strip (param-prop, enum, namespace) | **35/35** | Bun / Deno 35/35; Node FAIL (erasable subset rejects param-prop / enum / namespace) |
 | `ts_parity` (12 fixtures) | class fields, enums, namespaces, decorators, JSX, `using`, generics, regex in TS, template literal types, type-only imports | **12/12** | `tsc + node` 12/12 |
 | `deno_deploy_compat` (12 checks) | `Deno.serve` signature, `onListen`, ephemeral port, Response with string/Uint8Array/ReadableStream body, `shutdown()`, `finished`, request + response header round-trip, method/URL routing | **12/12** | Deno 2.7 12/12 |
 | `bun_bundler_compat` (13 checks) | `Bun.build` relative-import inlining, bare-spec external, `define` constants, `minify`, `naming.entry`, `target=node/browser`, `outputs[i].arrayBuffer()`, unresolved-import signalling | **13/13** | Bun 1.3 13/13 |

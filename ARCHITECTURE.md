@@ -310,6 +310,8 @@ V8 receives return value via FunctionCallbackInfo::GetReturnValue()
 4. Custom allocator enforces memory limits
 5. `dupValue()` must be called when storing a handle beyond its original scope
 6. **TIGER_STYLE assertions**: Every `@trusted` block and FFI callback gets precondition asserts (null ctx/engine/state checks, double-init guards, `static assert` for type layout and enum member counts). ~290 assertions across 25 files -- fail fast at point of corruption, not downstream
+7. **DIP1038 `@mustuse`**: `JSResult` (`engine.eval`/`evalModule`) and `AsyncResult` (`asyncSubmitSafe` worker results) must never be silently discarded. Use `mustEval(engine, source, filename, what)` for closed-world inline JS where a parse failure is a build-time bug
+8. **DIP1000 `return scope`**: Slices into engine-owned memory (`getTypedArrayBytes`, `extractBytes`) carry `return scope` on both the virtual declaration and every backend override (DIP1000 doesn't infer `scope` for virtuals) -- callers needing the bytes past the JSHandle's lifetime must `.dup`
 
 ## Permission Enforcement Flow
 
