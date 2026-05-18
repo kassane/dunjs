@@ -8,6 +8,9 @@ module dun.ts.jsx;
 // `dun.platform.arena`, not `std.array` directly.
 import dun.platform.arena : Appender;
 import std.algorithm : canFind;
+// Shared string/template skippers live in the lexer module so jsx.d
+// and strip.d use a single implementation (no redundancy).
+import dun.ts.parser.lexer : skipStringLit, skipTemplateLit;
 
 /// Transform JSX expressions in `source` to React.createElement calls.
 /// `source` is the file content; the function is a no-op for files
@@ -53,7 +56,7 @@ string transformJsx(string source) @safe
         }
         if (c == '`')
         {
-            auto end = skipTemplate(source, i);
+            auto end = skipTemplateLit(source, i);
             out_.put(source[i .. end]);
             i = end;
             continue;
@@ -110,46 +113,8 @@ string transformJsx(string source) @safe
 
 // -- internals --
 
-private size_t skipStringLit(string s, size_t start) @safe pure nothrow @nogc
-{
-    char q = s[start];
-    size_t i = start + 1;
-    while (i < s.length)
-    {
-        if (s[i] == '\\' && i + 1 < s.length) { i += 2; continue; }
-        if (s[i] == q) return i + 1;
-        i++;
-    }
-    return s.length;
-}
-
-private size_t skipTemplate(string s, size_t start) @safe pure nothrow @nogc
-{
-    size_t i = start + 1;
-    while (i < s.length)
-    {
-        if (s[i] == '\\' && i + 1 < s.length) { i += 2; continue; }
-        if (s[i] == '`') return i + 1;
-        // ${ ... } interpolation contents are skipped naively; nested
-        // template inside is unusual and we don't try to be perfect.
-        if (s[i] == '$' && i + 1 < s.length && s[i + 1] == '{')
-        {
-            int depth = 1;
-            i += 2;
-            while (i < s.length && depth > 0)
-            {
-                if (s[i] == '{') depth++;
-                else if (s[i] == '}') depth--;
-                else if (s[i] == '\'' || s[i] == '"') i = skipStringLit(s, i) - 1;
-                else if (s[i] == '`') i = skipTemplate(s, i) - 1;
-                i++;
-            }
-            continue;
-        }
-        i++;
-    }
-    return s.length;
-}
+// `skipStringLit` / `skipTemplateLit` imported from
+// dun.ts.parser.lexer (single implementation across the TS layer).
 
 private size_t skipRegex(string s, size_t start) @safe pure nothrow @nogc
 {
@@ -324,7 +289,7 @@ private string parseJsxElement(string s, size_t start, out size_t end) @safe
                     if (ch == '{') depth++;
                     else if (ch == '}') { depth--; if (depth == 0) break; }
                     else if (ch == '\'' || ch == '"') exprEnd = skipStringLit(s, exprEnd) - 1;
-                    else if (ch == '`') exprEnd = skipTemplate(s, exprEnd) - 1;
+                    else if (ch == '`') exprEnd = skipTemplateLit(s, exprEnd) - 1;
                     exprEnd++;
                 }
                 if (exprEnd >= s.length) return "";
@@ -371,7 +336,7 @@ private string parseJsxElement(string s, size_t start, out size_t end) @safe
                     if (ch == '{') depth++;
                     else if (ch == '}') { depth--; if (depth == 0) break; }
                     else if (ch == '\'' || ch == '"') p = skipStringLit(s, p) - 1;
-                    else if (ch == '`') p = skipTemplate(s, p) - 1;
+                    else if (ch == '`') p = skipTemplateLit(s, p) - 1;
                     p++;
                 }
                 if (p >= s.length) return "";
@@ -479,7 +444,7 @@ private void parseChildren(string s, ref size_t p, ref Appender!(char[]) out_) @
                 if (ch == '{') depth++;
                 else if (ch == '}') { depth--; if (depth == 0) break; }
                 else if (ch == '\'' || ch == '"') p = skipStringLit(s, p) - 1;
-                else if (ch == '`') p = skipTemplate(s, p) - 1;
+                else if (ch == '`') p = skipTemplateLit(s, p) - 1;
                 else if (ch == '<' && p + 1 < s.length
                     && (isIdentStart(s[p + 1]) || s[p + 1] == '>'))
                 {

@@ -1,9 +1,10 @@
 module dun.ts.parser;
 
-// AST parser port from oven-sh/bun's `src/js_parser/` (Zig, MIT).
-// Currently lexer-only; see TS-PARSER-PORT.md for the project plan.
-// Bun parses TS/JS in a single pass with a tokenizer matching the
-// `T.t_*` enum in lexer.d; the parser layer (when ported) sits on top.
+// Lexer port from oven-sh/bun's `src/js_parser/` (Zig, MIT). The
+// scanner pipeline (strip.d + jsx.d) consumes this for regex/divide
+// disambiguation and shared string/template skipping. A full AST
+// port is intentionally not pursued -- see `CLAUDE.md ## Won't-fix
+// design constraints`.
 public import dun.ts.parser.lexer;
 
 /// Tokenize the entire source into a GC-allocated array. Random-access
@@ -53,6 +54,19 @@ unittest
         "tsadvanced.ts",
         "workerdemo.ts",
         "reactapp.tsx",
+        // ts_parity/ conformance fixtures (added 2026-05-17).
+        "01_class_fields.ts",
+        "02_enum_namespace.ts",
+        "03_generics.ts",
+        "04_destructure_types.ts",
+        "05_modifiers.ts",
+        "06_regex_in_ts.ts",
+        "07_typeonly_imports.ts",
+        "08_template_types.ts",
+        "09_async_iter.ts",
+        "10_decorators.ts",
+        "11_using.ts",
+        "12_jsx.tsx",
     ];
     static foreach (name; fixtures)
     {{

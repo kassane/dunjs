@@ -377,8 +377,8 @@ napi_status napi_create_external(napi_env env, void* data, napi_finalize finaliz
 // ───────────────────────────────────────────────────────────────────────
 // Enough of the surface to load representative addons. Each function
 // either dispatches to IJSEngine (engine-agnostic) or returns a sane
-// default that won't crash the addon. See BLOCKERS.md for the
-// driving target list (sharp, better-sqlite3, bcrypt, node-canvas).
+// default that won't crash the addon. Target list (sharp,
+// better-sqlite3, bcrypt, node-canvas) drove the API selection.
 
 // --- Numbers (signed/unsigned widths) ---
 

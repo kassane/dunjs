@@ -69,7 +69,7 @@ int main(string[] args)
 
 private:
 
-enum VERSION = "0.3.0";
+public enum VERSION = "0.4.0";
 
 int runScript(T)(T config)
 {
@@ -942,7 +942,7 @@ int runInit(T)(T config)
     write(buildPath(dir, "dun.json"),
         "{\n"
         ~ "  \"name\": \"" ~ name ~ "\",\n"
-        ~ "  \"version\": \"0.3.0\",\n"
+        ~ "  \"version\": \"0.1.0\",\n"
         ~ "  \"main\": \"main.ts\",\n"
         ~ "  \"tasks\": {\n"
         ~ "    \"start\": \"dun run main.ts\",\n"
@@ -1863,6 +1863,15 @@ string runTypecheck(string source, string filename, out int rc) @trusted
     import std.json : JSONValue;
     auto esrc  = JSONValue(source).toString();    // includes surrounding quotes
     auto efile = JSONValue(filename).toString();
+    // Ambient declarations for the runtime globals DunJS injects
+    // (Deno.*, Bun.*, require, process, Buffer, dun:* / node:* module
+    // identifiers). Without these, `tsc --typecheck` reports
+    // TS2304 "Cannot find name" on every reference to a runtime
+    // global in user code.
+    import dun.ts.globals_dts : dunGlobalsDts;
+    auto edts = JSONValue(dunGlobalsDts()).toString();
+    enum string DUN_AMBIENT_FILENAME = "/dun:ambient.d.ts";
+    auto eAmbient = JSONValue(DUN_AMBIENT_FILENAME).toString();
 
     // Build a minimal CompilerHost that proxies tsc's filesystem
     // reads through Node-style fs (which DunJS implements). We point
@@ -1882,9 +1891,22 @@ string runTypecheck(string source, string filename, out int rc) @trusted
         ~ `  const path = require('path');`
         ~ `  const src = ` ~ esrc ~ `;`
         ~ `  const filename = ` ~ efile ~ `;`
+        ~ `  const dunAmbientSrc = ` ~ edts ~ `;`
+        ~ `  const dunAmbientName = ` ~ eAmbient ~ `;`
         ~ `  let opts = {`
         ~ `    target: ts.ScriptTarget.ES2022,`
-        ~ `    module: ts.ModuleKind.CommonJS,`
+        // ESNext rather than CommonJS so top-level await in scripts
+        // typechecks (DunJS treats every file as ESM-capable; the
+        // module loader picks CJS vs ESM at run time).
+        ~ `    module: ts.ModuleKind.ESNext,`
+        // moduleDetection: force -- treat every input as an ES module
+        // so top-level await is permitted without requiring the user
+        // to add a stray `export {}`.
+        ~ `    moduleDetection: ts.ModuleDetectionKind.Force,`
+        // Classic React.createElement emit (matches dun.ts.jsx's
+        // transform). Without this tsc reports TS17004 on every JSX
+        // node in .tsx files.
+        ~ `    jsx: ts.JsxEmit.React,`
         ~ `    strict: false,`
         ~ `    allowJs: true,`
         ~ `    esModuleInterop: true,`
@@ -1911,17 +1933,22 @@ string runTypecheck(string source, string filename, out int rc) @trusted
         ~ `    if (name === filename) {`
         ~ `      return ts.createSourceFile(name, src, lang || ts.ScriptTarget.ES2022, true);`
         ~ `    }`
+        ~ `    if (name === dunAmbientName) {`
+        ~ `      return ts.createSourceFile(name, dunAmbientSrc, lang || ts.ScriptTarget.ES2022, true);`
+        ~ `    }`
         ~ `    return origGet.call(host, name, lang, onErr, shouldCreate);`
         ~ `  };`
         ~ `  host.fileExists = function(name) {`
         ~ `    if (name === filename) return true;`
+        ~ `    if (name === dunAmbientName) return true;`
         ~ `    try { fs.accessSync(name); return true; } catch { return false; }`
         ~ `  };`
         ~ `  host.readFile = function(name) {`
         ~ `    if (name === filename) return src;`
+        ~ `    if (name === dunAmbientName) return dunAmbientSrc;`
         ~ `    try { return fs.readFileSync(name, 'utf8'); } catch { return undefined; }`
         ~ `  };`
-        ~ `  const program = ts.createProgram([filename], opts, host);`
+        ~ `  const program = ts.createProgram([dunAmbientName, filename], opts, host);`
         ~ `  const diags = ts.getPreEmitDiagnostics(program)`
         ~ `    .filter(d => d.category === ts.DiagnosticCategory.Error);`
         ~ `  if (diags.length > 0) {`

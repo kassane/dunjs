@@ -504,7 +504,7 @@ npm compat: **145/145** pass across all 6 runtimes.
 | D TMP (V8) | V8TypeChecks dispatch table | Function pointer table mirrors C++ isV8Type<Tag> |
 | D TMP (JSC) | JSCTypeChecks + getType() | Single-dispatch via JSValueGetType(), mirrors kJSType* |
 | C++ FFI (direct) | extern(C++, "v8") | Only for static-method classes (no vtable) |
-| V8 source | kassane/libv8 (V8 14.9.207.4) | Pre-built monolith, LDC --link-internally for CREL relocations |
+| V8 source | kassane/libv8 (V8 15.0.91) | Pre-built monolith, LDC --link-internally for CREL relocations |
 | V8 headers | Vendored from Node.js | Eliminate libv8-dev compile dependency |
 | Event loop | epoll/kqueue/poll | D stdlib syscalls, zero deps, cross-platform |
 | Build system | DUB (JSON) | Standard D tooling, configurations per engine |

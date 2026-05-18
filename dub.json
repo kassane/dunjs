@@ -271,7 +271,8 @@
 	"targetPath": "build",
 	"stringImportPaths": [
 		"source",
-		"tests/benchmarks/ts_compat"
+		"tests/benchmarks/ts_compat",
+		"tests/benchmarks/ts_parity"
 	],
 	"name": "dunjs",
 	"sourcePaths": [
@@ -313,7 +314,7 @@
 	"toolchainRequirements": {
 		"frontend": ">=2.112.0"
 	},
-	"version": "0.3.0",
+	"version": "0.4.0",
 	"description": "A secure JavaScript runtime written in D",
 	"dependencies": {},
 	"targetType": "executable",

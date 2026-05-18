@@ -1,0 +1,5 @@
+open A
+open B
+use A,B
+close B
+close A

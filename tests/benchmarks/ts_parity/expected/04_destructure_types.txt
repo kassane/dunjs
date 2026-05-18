@@ -1,0 +1,6 @@
+Alice/default
+Bob/admin
+7
+rocket-X
+42
+Rex (Lab): woof
