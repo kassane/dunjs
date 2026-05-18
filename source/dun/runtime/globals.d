@@ -197,6 +197,9 @@ void installGlobals(IJSEngine engine, DunState* state) @trusted
     import dun.runtime.deno_compat : installDenoCompat;
     installDenoCompat(engine);
 
+    import dun.runtime.ffi : installFfiCompat;
+    installFfiCompat(engine, state);
+
     import dun.runtime.bun_compat : installBunCompat;
     installBunCompat(engine);
 
