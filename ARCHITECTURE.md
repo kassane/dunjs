@@ -462,7 +462,7 @@ that require linking against V8's C++ objects -- these MUST go through the C shi
 | Language | C++ | Rust | Zig | **D** |
 | JS Engine | V8 | V8 | JSC | **Pluggable: QuickJS-NG / JSC / V8** |
 | TypeScript | `--experimental-strip-types` (erasable subset) | Built-in check+strip | Built-in transpile | **Stripping + persistent cache + `--typecheck`** |
-| Engine FFI | Native C++ | rusty_v8 (Rust bindings) | Zig extern(C++) | **extern(C) for all; C shim for V8 only** |
+| Engine FFI | Native C++ | rusty_v8 (Rust bindings) | C/C++ wrappers + Zig `extern fn ... callconv(.c)` | **extern(C) for all; C shim for V8 only** |
 | Type-level safety | Manual | Borrow checker | Manual | **@safe / @trusted / DIP1000 `return scope` / DIP1038 `@mustuse`** |
 | TMP Bridge | N/A | N/A | N/A | **C++ TMP ↔ D TMP (V8 + JSC)** |
 | Event Loop | libuv | Tokio | io_uring | **epoll / kqueue / poll / io_uring** |
