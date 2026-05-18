@@ -179,17 +179,24 @@ See [TESTING.md](TESTING.md) for the full suite breakdown.
 
 ## Comparison
 
-| | Node.js | Deno | Bun | DunJS |
-|--|---------|------|-----|-------|
+| | Node.js 22 | Deno 2.7 | Bun 1.3 | DunJS |
+|--|------------|----------|---------|-------|
 | Language | C++ | Rust | Zig | D |
-| Engine | V8 | V8 | JSC | Pluggable (3) |
-| TypeScript | Via tsc | Built-in | Built-in | Type stripping |
+| Engine | V8 | V8 | JSC | Pluggable: **QuickJS-NG / JSC / V8** |
+| TypeScript | `--experimental-strip-types` (erasable subset) | Built-in | Built-in | Type stripping + persistent cache + `--typecheck` |
 | Permissions | None | Default-deny | None | Default-deny |
 | npm | Native | `npm:` specifier | Native | `dun install` |
 | TLS | OpenSSL | rustls | BoringSSL | OpenSSL |
-| Deno compat | No | -- | None | 30+ APIs |
-| Startup | ~30ms | ~30ms | ~8ms | **~3.5ms** |
-| Binary | ~90MB | ~120MB | ~100MB | **4.6MB** |
+| Deno compat | No | -- | None | 30+ `Deno.*` APIs |
+| ES2025 spec | 98/98 | 98/98 | 98/98 | **98/98 / 98/98 / 98/98** (QJS / JSC / V8) |
+| TS strip parity | FAIL (rejects param-prop / enum / namespace) | 35/35 | 35/35 | **35/35 / 35/35 / 35/35** |
+| Cold start | 27 ms | 42 ms | 11 ms | **27 ms / 27 ms / 22 ms** |
+| Binary | 119 MB | 119 MB | 89 MB | **9.8 MB / 60 MB / 56 MB** |
+
+Cold start: `time runtime -e ';'`, best of 15 on this host. Binary
+size: stripped release executables — DunJS QJS statically links
+QuickJS-NG (the small interpreter); DunJS JSC and DunJS V8 embed
+the full WebKit / V8 engine libraries.
 
 ### Performance
 
