@@ -294,7 +294,26 @@ private string denoServeAndKvSource() pure nothrow @safe
     "        if (resp.headers && typeof resp.headers.forEach === 'function')" ~
     "          resp.headers.forEach(function(v, k) { headers[k] = v; });" ~
     "        res.writeHead(status, headers);" ~
-    "        if (typeof resp.text === 'function') {" ~
+    /* Body dispatch matches Deno Deploy semantics: Response.body
+       can be a ReadableStream (real Deno reads it lazily), and
+       arrayBuffer / blob / formData should round-trip without
+       string-decoding. Order of checks matters -- stream first
+       so we don't accidentally drain a Response via .text(). */
+    "        if (resp.body && typeof resp.body.getReader === 'function') {" ~
+    "          var reader = resp.body.getReader();" ~
+    "          (function pump() {" ~
+    "            reader.read().then(function(r) {" ~
+    "              if (r.done) { res.end(); return; }" ~
+    "              if (r.value) {" ~
+    "                if (r.value instanceof Uint8Array) res.write(globalThis.Buffer.from(r.value));" ~
+    "                else res.write(String(r.value));" ~
+    "              }" ~
+    "              pump();" ~
+    "            }, function(e) { res.end(String(e)); });" ~
+    "          })();" ~
+    "        } else if (typeof resp.arrayBuffer === 'function' && resp.headers && resp.headers.get && /^(application\\/octet-stream|image\\/|audio\\/|video\\/|application\\/pdf)/.test(resp.headers.get('content-type') || '')) {" ~
+    "          resp.arrayBuffer().then(function(ab) { res.end(globalThis.Buffer.from(ab)); }, function(e) { res.end(String(e)); });" ~
+    "        } else if (typeof resp.text === 'function') {" ~
     "          resp.text().then(function(t) { res.end(t); }, function(e) { res.end(String(e)); });" ~
     "        } else if (typeof resp === 'string') {" ~
     "          res.end(resp);" ~

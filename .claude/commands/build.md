@@ -50,7 +50,7 @@ dub test -c unittest                 # QuickJS (118)
 dub test -c unittest-jsc             # JSC (47)
 dub test -c unittest-v8              # V8 (118)
 
-# Integration tests (127 fixtures, requires built binary)
+# Integration tests (129 fixtures, requires built binary)
 dub build -c quickjs
 bash tests/integration/run.sh
 
@@ -71,7 +71,7 @@ dub build -c v8  && BACKEND=v8  bash tests/integration/run.sh
 ./build/dun "--DRT-gcopt=parallel:4 minPoolSize:32" run --allow-all tests/benchmarks/feature_bench.js
 ```
 
-Backend test scores: **QuickJS 127/127, JSC 127/127, V8 127/127** (full parity, Workers on all backends).
+Backend test scores: **QuickJS 129/129, JSC 129/129, V8 129/129** (full parity, Workers on all backends).
 
 ### 4. Docker
 
@@ -93,7 +93,7 @@ docker run --rm -e DUN_BACKEND=v8 dunjs:multi run script.js
 The GitHub Actions workflow (`.github/workflows/ci.yml`) runs:
 1. **Build matrix**: QuickJS (Linux/macOS/Windows), JSC (Linux/macOS), V8 (Linux compile-check)
 2. **Unit tests**: `dub test -c unittest` on Linux/macOS/Windows
-3. **Integration tests**: Run 127 fixtures against expected output on Linux/macOS/Windows
+3. **Integration tests**: Run 129 fixtures against expected output on Linux/macOS/Windows
 
 ## DUB Configurations
 
