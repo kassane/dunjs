@@ -530,6 +530,54 @@ private string webAPIsSource() pure nothrow @safe
     ~ "}"
 
     // ═══════════════════════════════════
+    // QueuingStrategy subclasses — required by ReadableStream byob
+    // mode and TransformStream constructors. Both are 1-property
+    // value classes per WHATWG Streams §7.{1,2}.
+    // ═══════════════════════════════════
+    ~ "if(typeof globalThis.ByteLengthQueuingStrategy==='undefined'){"
+    ~ "globalThis.ByteLengthQueuingStrategy=function ByteLengthQueuingStrategy(init){"
+    ~ "this.highWaterMark=init&&init.highWaterMark;"
+    ~ "this.size=function(chunk){return chunk&&chunk.byteLength||0;};"
+    ~ "};"
+    ~ "}"
+    ~ "if(typeof globalThis.CountQueuingStrategy==='undefined'){"
+    ~ "globalThis.CountQueuingStrategy=function CountQueuingStrategy(init){"
+    ~ "this.highWaterMark=init&&init.highWaterMark;"
+    ~ "this.size=function(){return 1;};"
+    ~ "};"
+    ~ "}"
+
+    // ═══════════════════════════════════
+    // TextEncoderStream / TextDecoderStream — transform streams
+    // backed by the existing TextEncoder/Decoder.
+    // ═══════════════════════════════════
+    ~ "if(typeof globalThis.TextEncoderStream==='undefined'){"
+    ~ "globalThis.TextEncoderStream=function TextEncoderStream(){"
+    ~ "var enc=new TextEncoder();"
+    ~ "var ts=new TransformStream({"
+    ~ "transform:function(chunk,controller){controller.enqueue(enc.encode(chunk));}"
+    ~ "});"
+    ~ "this.encoding=enc.encoding;"
+    ~ "this.readable=ts.readable;"
+    ~ "this.writable=ts.writable;"
+    ~ "};"
+    ~ "}"
+    ~ "if(typeof globalThis.TextDecoderStream==='undefined'){"
+    ~ "globalThis.TextDecoderStream=function TextDecoderStream(label,options){"
+    ~ "var dec=new TextDecoder(label,options);"
+    ~ "var ts=new TransformStream({"
+    ~ "transform:function(chunk,controller){var s=dec.decode(chunk,{stream:true});if(s)controller.enqueue(s);},"
+    ~ "flush:function(controller){var s=dec.decode();if(s)controller.enqueue(s);}"
+    ~ "});"
+    ~ "this.encoding=dec.encoding;"
+    ~ "this.fatal=dec.fatal;"
+    ~ "this.ignoreBOM=dec.ignoreBOM;"
+    ~ "this.readable=ts.readable;"
+    ~ "this.writable=ts.writable;"
+    ~ "};"
+    ~ "}"
+
+    // ═══════════════════════════════════
     // crypto.getRandomValues()
     // ═══════════════════════════════════
     ~ "if(typeof globalThis.crypto==='undefined')globalThis.crypto={};"

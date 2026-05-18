@@ -436,6 +436,31 @@ class QuickJSEngine : IJSEngine
                     JS_NewStringLen(ctx, dirStr.ptr, dirStr.length));
                 JS_SetPropertyStr(ctx, meta, "main",
                     JS_NewBool(ctx, true));
+
+                // `import.meta.resolve(spec)` — Node ESM spec.
+                import std.string : replace;
+                auto safeDir = dirStr.replace(`\`, `\\`).replace(`'`, `\'`);
+                auto resolveSrc =
+                    `(function(){var __d='` ~ safeDir ~ `';` ~
+                    `return function resolve(spec){` ~
+                    `if(typeof spec!=='string')throw new TypeError('import.meta.resolve: spec must be a string');` ~
+                    `if(spec.indexOf('://')!==-1)return spec;` ~
+                    `if(spec[0]==='/')return 'file://'+spec;` ~
+                    `if(spec[0]==='.'){` ~
+                    `var parts=(__d+'/'+spec).split('/'),out=[];` ~
+                    `for(var i=0;i<parts.length;i++){if(parts[i]==='..')out.pop();` ~
+                    `else if(parts[i]&&parts[i]!=='.')out.push(parts[i]);}` ~
+                    `return 'file:///'+out.join('/');}` ~
+                    `try{if(typeof require!=='undefined'&&require.resolve)` ~
+                    `return 'file://'+require.resolve(spec);}catch(e){}` ~
+                    `return spec;};})()` ~ '\0';
+                auto resolveFn = JS_Eval(ctx, resolveSrc.ptr, resolveSrc.length - 1,
+                    "<import-meta-resolve>".ptr, 0 /* JS_EVAL_TYPE_GLOBAL */);
+                if (JS_IsException(resolveFn) == 0)
+                    JS_SetPropertyStr(ctx, meta, "resolve", resolveFn);
+                else
+                    JS_FreeValue(ctx, resolveFn);
+
                 JS_FreeValue(ctx, meta);
             }
         }

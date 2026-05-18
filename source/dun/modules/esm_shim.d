@@ -223,7 +223,12 @@ string transpileESM(string source, string filename) @safe pure
     Appender!(char[]) output;
     output.reserve(source.length + 256);
 
-    // Inject import.meta polyfill if used
+    // Inject import.meta polyfill if used. `resolve()` is closure-bound
+    // to the importing module's directory so relative specifiers resolve
+    // the same way `import` itself would (matches Node ESM spec). For
+    // bare specifiers we fall back to constructing a `file://` URL
+    // against the importing dir + node_modules walk via require.resolve
+    // when available — full Node semantics live in the C-level loader.
     if (usesImportMeta)
     {
         output ~= "var __import_meta__={";
@@ -236,7 +241,21 @@ string transpileESM(string source, string filename) @safe pure
             output ~= escapeJsString(absPath);
             output ~= "',dirname:'";
             output ~= escapeJsString(dirOfPath(absPath));
-            output ~= "',";
+            output ~= "',resolve:function(spec){";
+            output ~= "if(typeof spec!=='string')throw new TypeError('import.meta.resolve: spec must be a string');";
+            output ~= "if(spec.indexOf('://')!==-1)return spec;";
+            output ~= "var dir='" ~ escapeJsString(dirOfPath(absPath)) ~ "';";
+            output ~= "if(spec[0]==='/')return 'file://'+spec;";
+            output ~= "if(spec[0]==='.'){";
+            output ~= "var parts=(dir+'/'+spec).split('/'),out=[];";
+            output ~= "for(var i=0;i<parts.length;i++){if(parts[i]==='..')out.pop();else if(parts[i]&&parts[i]!=='.')out.push(parts[i]);}";
+            output ~= "return 'file:///'+out.join('/');}";
+            // Bare specifier: try `require.resolve` if we're in CJS-interop
+            // mode, else assume it resolves to the bare name (Node returns
+            // a `node:` URL for builtins).
+            output ~= "try{if(typeof require!=='undefined'&&require.resolve)return 'file://'+require.resolve(spec);}catch(e){}";
+            output ~= "return spec;";
+            output ~= "},";
         }
         output ~= "main:false};\n";
     }
