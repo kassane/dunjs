@@ -417,11 +417,12 @@ Key shim patterns:
 ## Testing
 
 See [TESTING.md](TESTING.md) — unit tests (118 quickjs+v8 / 47 jsc),
-integration sweep (127/127 across 3 backends), 145 npm-compat checks,
+integration sweep (129/129 across 3 backends), 145 npm-compat checks,
 98/98 ECMAScript spec, 35/35 TypeScript spec, 81/81 react-compat,
-231/231 safe-features, 45/45 security audit, sanitizer testing,
-stress benchmarks, HTTP bench, Docker matrix, cross-runtime
-comparison grids. The quick recipe:
+231/231 safe-features, 45/45 security audit, 12/12 ts_parity vs
+`tsc`, 12/12 deno_deploy_compat vs Deno 2.7, 13/13
+bun_bundler_compat vs Bun 1.3, sanitizer testing, stress benchmarks,
+HTTP bench, Docker matrix. The quick recipe:
 
 ```sh
 dub test -c unittest                   # unit tests

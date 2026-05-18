@@ -23,7 +23,7 @@ dub test -c unittest    # All unit tests
 | V8 TMP bridge | `source/dun/engine/v8/cppbindings.d` | compile-time | V8TypeName coverage, tag->name mapping |
 | JSC TMP bridge | `source/dun/engine/jsc/cppbindings.d` | compile-time | JSCTypeName coverage, kJSType* alignment |
 
-### Integration Tests (127 tests, 145 npm-compat checks)
+### Integration Tests (129 tests, 145 npm-compat checks)
 
 ```sh
 # Run against a specific backend
@@ -80,7 +80,7 @@ dub build -c v8  && BACKEND=v8  ./tests/integration/run.sh
 | Production gaps 4 | `production_gaps4` | 144 checks: process, Buffer, stream, EventEmitter, path, crypto, fs, Error, util, npm patterns |
 | Production readiness | `production_readiness` | 122 checks: all critical Node.js APIs for production server workloads |
 
-Backend test scores: **QuickJS 127/127**, **JSC 127/127**, **V8 127/127** — **0 failures** across all 3 backends.
+Backend test scores: **QuickJS 129/129**, **JSC 129/129**, **V8 129/129** — **0 failures** across all 3 backends.
 
 Test pattern: fixtures in `tests/integration/fixtures/*.{js,mjs,ts}`, expected stdout in `tests/integration/expected/*.txt`.
 
@@ -91,7 +91,7 @@ dub build -c quickjs -b asan                          # ASan build via DUB
 ASAN_OPTIONS=detect_leaks=0 bash tests/integration/run.sh  # Run with ASan
 ```
 
-All 127 integration tests pass under AddressSanitizer with zero memory errors.
+All 129 integration tests pass under AddressSanitizer with zero memory errors.
 
 ### Stress Benchmarks
 
@@ -196,6 +196,28 @@ docker run --rm -e DUN_BACKEND=v8 dunjs:multi run script.js  # v8
 ```
 
 Base image: `debian:bookworm-slim` (glibc, compatible with JSC/V8 prebuilt libs).
+
+### Cross-Runtime Compliance Suites
+
+DunJS ships parity tests that probe major-runtime surfaces and compare output
+against the gold reference (tsc / Deno / Bun) byte-for-byte. Run via:
+
+```sh
+bash tests/benchmarks/ts_parity/run.sh         # TS strip vs tsc + node
+./dun run tests/benchmarks/deno_deploy_compat.js  # Deno.serve / Deno Deploy
+./dun run tests/benchmarks/bun_bundler_compat.js  # Bun.build
+```
+
+| Suite | Probes | DunJS (×3 backends) | Gold |
+|-------|--------|---------------------|------|
+| `ts_parity` (12 fixtures) | class fields, enums, namespaces, decorators, JSX, `using`, generics, regex in TS, template literal types, type-only imports | **12/12** | `tsc + node` 12/12 |
+| `deno_deploy_compat` (12 checks) | `Deno.serve` signature, `onListen`, ephemeral port, Response with string/Uint8Array/ReadableStream body, `shutdown()`, `finished`, request + response header round-trip, method/URL routing | **12/12** | Deno 2.7 12/12 |
+| `bun_bundler_compat` (13 checks) | `Bun.build` relative-import inlining, bare-spec external, `define` constants, `minify`, `naming.entry`, `target=node/browser`, `outputs[i].arrayBuffer()`, unresolved-import signalling | **13/13** | Bun 1.3 13/13 |
+
+DunJS matches Bun more thoroughly than Bun matches itself on the bundler suite
+(both score 13/13). Node `--experimental-strip-types` scores 3/12 on `ts_parity`
+because its erasable-only mode rejects enums, decorators, namespaces, `using`,
+and generic arrow functions.
 
 ### TypeScript Support
 

@@ -181,3 +181,11 @@ design constraints`.
 | 26g | Lexer throughput micro-bench | `tests/bench_lexer.d`: lexer 184 MB/s vs byte-scan 1012 MB/s (5.5x cost for keyword lookup + regex disambig + position emit; ≈0.1 ms per 20 KB file) | **Done** |
 | 26h | child_process leak fix | `jsSpawn` was leaking 6 batches of `newString` per child (`pushAgnosticPending` dupes args; caller owns originals); ASan-clean after fix | **Done** |
 | 26i | Version bump to 0.4.0 | All gaps in BLOCKERS.md and TS-PARSER-PORT.md addressed; both files retired (history preserved in this CHANGELOG and git); V8 vendor 14.9 → 15.0.91 doc sync | **Done** |
+| 27a | CI workflow audit | `.github/workflows/ci.yml` 363→155 lines; dropped PR-spam reporter on Windows failures; reduced perms to `contents: read`; pinned LDC 1.42.0 in cache keys; `paths-ignore` for `**.md`/`docs/**`; `timeout-minutes` per job; concurrency keyed on PR number | **Done** |
+| 27b | http.writeHead custom headers | Hardcoded 13-name allowlist silently dropped every custom response header (`x-csrf-token`, `x-request-id`, etc.); JS-side flatten now iterates ALL keys | **Done** |
+| 27c | fetch request headers | The `headers` init was `getProperty`'d then immediately `freeValue`'d — extraction missing entirely; every custom request header dropped. JS-side flatten handles plain object / Array / Headers instance | **Done** |
+| 27d | Response(Uint8Array).arrayBuffer/text | Was String()-ing the body before TextEncoder-encoding; `[72,105,33]` → 9 bytes of `"72,105,33"`. Now type-checks typed-array / ArrayBuffer bodies before fallback; text() UTF-8-decodes typed arrays per Fetch spec | **Done** |
+| 27e | Deno.serve body dispatch | ReadableStream body chunks streamed via `res.write` (was buffered to string); binary content-type Uint8Array routed through `arrayBuffer()` | **Done** |
+| 27f | Bun.build options | `target` / `define` / `external` / `minify` (whitespace) / `naming.entry` / `outputs[i].arrayBuffer()`; unresolved imports surface in `logs[]` with `success: false` | **Done** |
+| 27g | deno_deploy_compat suite | `tests/benchmarks/deno_deploy_compat.js` — 12 checks; DunJS 12/12 on QJS/JSC/V8 = Deno 2.7 12/12 | **Done** |
+| 27h | bun_bundler_compat suite | `tests/benchmarks/bun_bundler_compat.js` — 13 checks; DunJS 13/13 on QJS/JSC/V8 = Bun 1.3 13/13 | **Done** |
