@@ -1115,40 +1115,55 @@ JSHandle jsResWriteHead(void* ctx, JSHandle thisVal, scope JSHandle[] args) @tru
         engine.setProperty(thisVal, "statusMessage", engine.newString(statusMessage(conn.statusCode)));
     }
 
-    // Process headers object (second argument)
+    // Process headers object (second argument).
+    //
+    // ALL keys of the headers object must be forwarded; the previous
+    // hardcoded allowlist of 13 well-known names silently dropped
+    // every custom header (X-CSRF-Token, X-Request-Id, application-
+    // specific names...). Use a JS-side flatten to emit a string
+    // array `[k1, v1, k2, v2, ...]` so D can iterate without needing
+    // getOwnPropertyNames on IJSEngine.
     if (args.length >= 2 && engine.isObject(args[1]))
     {
         try
         {
-            static immutable hdrs = [
-                "Content-Type", "Content-Length", "Connection",
-                "Cache-Control", "Location", "Server",
-                "Set-Cookie", "Access-Control-Allow-Origin",
-                "Transfer-Encoding", "X-Powered-By",
-                "content-type", "content-length", "connection",
-            ];
-            foreach (name; hdrs)
+            // Compile the flatten helper once per engine.
+            auto flatRes = engine.eval(
+                "(h => { const out = []; if (!h) return out; "
+                ~ "for (const k of Object.keys(h)) { "
+                ~ "  const v = h[k]; "
+                ~ "  if (Array.isArray(v)) for (const vi of v) out.push(k, String(vi)); "
+                ~ "  else if (v != null) out.push(k, String(v)); "
+                ~ "} return out; "
+                ~ "})",
+                "<http-writehead-flatten>");
+            if (!flatRes.isError && engine.isFunction(flatRes.value))
             {
-                auto val = engine.getProperty(args[1], name);
-                if (!engine.isUndefined(val) && !engine.isNull(val))
+                JSHandle[1] callArgs = [args[1]];
+                auto undef = engine.newUndefined();
+                auto flat = engine.callFunction(flatRes.value, undef, callArgs[]);
+                engine.freeValue(undef);
+                if (engine.isArray(flat))
                 {
-                    if (engine.isArray(val))
+                    auto n = engine.getArrayLength(flat);
+                    for (int i = 0; i + 1 < n; i += 2)
                     {
-                        int alen = engine.getArrayLength(val);
-                        string[] vals;
-                        vals.reserve(alen);
-                        foreach (ai; 0 .. alen)
+                        auto k = engine.getPropertyIndex(flat, cast(uint) i);
+                        auto v = engine.getPropertyIndex(flat, cast(uint)(i + 1));
+                        if (engine.isString(k) && engine.isString(v))
                         {
-                            auto elem = engine.getPropertyIndex(val, cast(uint) ai);
-                            vals ~= sanitizeHeaderValue(engine.extractString(elem));
-                            engine.freeValue(elem);
+                            auto kn = engine.extractString(k);
+                            auto vn = sanitizeHeaderValue(engine.extractString(v));
+                            auto existing = kn in conn.respHeaders;
+                            if (existing) (*existing) ~= vn;
+                            else conn.respHeaders[kn] = [vn];
                         }
-                        conn.respHeaders[name] = vals;
+                        engine.freeValue(k);
+                        engine.freeValue(v);
                     }
-                    else
-                        conn.respHeaders[name] = [sanitizeHeaderValue(engine.extractString(val))];
                 }
-                engine.freeValue(val);
+                engine.freeValue(flat);
+                engine.freeValue(flatRes.value);
             }
         }
         catch (Exception) {}

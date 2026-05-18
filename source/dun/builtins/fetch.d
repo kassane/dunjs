@@ -64,7 +64,48 @@ private JSHandle jsFetch(void* ctx, JSHandle thisVal, scope JSHandle[] args) @tr
         }
         engine.freeValue(bVal);
 
+        // Headers init may be a plain object, an Array<[k,v]>, or a
+        // Headers instance. Flatten to a flat ["k1", "v1", "k2", "v2",
+        // ...] string array via a JS helper — one engine.call instead
+        // of an FFI-heavy forEach trampoline — and then iterate
+        // pair-wise on the D side. The flat-array shape avoids the
+        // need for getOwnPropertyNames (which isn't on IJSEngine).
         auto hVal = engine.getProperty(opts, "headers");
+        if (engine.isObject(hVal))
+        {
+            auto flatRes = engine.eval(
+                "(h => { const out = []; if (!h) return out; "
+                ~ "const push = (k, v) => { out.push(String(k).toLowerCase(), String(v)); }; "
+                ~ "if (h instanceof Headers || typeof h.forEach === 'function') { "
+                ~ "  h.forEach((v, k) => push(k, v)); return out; "
+                ~ "} "
+                ~ "if (Array.isArray(h)) { for (const [k, v] of h) push(k, v); return out; } "
+                ~ "for (const k of Object.keys(h)) push(k, h[k]); return out; "
+                ~ "})",
+                "<fetch-headers-flatten>");
+            if (!flatRes.isError && engine.isFunction(flatRes.value))
+            {
+                JSHandle[1] callArgs = [hVal];
+                auto undef = engine.newUndefined();
+                auto flat = engine.callFunction(flatRes.value, undef, callArgs[]);
+                engine.freeValue(undef);
+                if (engine.isArray(flat))
+                {
+                    auto n = engine.getArrayLength(flat);
+                    for (int i = 0; i + 1 < n; i += 2)
+                    {
+                        auto k = engine.getPropertyIndex(flat, cast(uint) i);
+                        auto v = engine.getPropertyIndex(flat, cast(uint)(i + 1));
+                        if (engine.isString(k) && engine.isString(v))
+                            reqHeaders[engine.extractString(k)] = engine.extractString(v);
+                        engine.freeValue(k);
+                        engine.freeValue(v);
+                    }
+                }
+                engine.freeValue(flat);
+                engine.freeValue(flatRes.value);
+            }
+        }
         engine.freeValue(hVal);
     }
 

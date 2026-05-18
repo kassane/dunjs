@@ -309,10 +309,15 @@ private string webAPIsSource() pure nothrow @safe
     ~ "};"
     ~ "Response.prototype.clone=function(){return new Response(this._body,{status:this.status,statusText:this.statusText,headers:this.headers});};"
     /* If _body is a ReadableStream (e.g. from Bun.spawn's stdout or
-       Request body), drain it to text. Otherwise toString it. */
+       Request body), drain it to text. Typed-array bodies are
+       UTF-8-decoded (real Fetch spec); only true primitive / object
+       bodies fall to String(). */
     ~ "Response.prototype.text=function(){"
     ~   "this.bodyUsed=true;"
     ~   "var b=this._body;"
+    ~   "if(b instanceof Uint8Array)return Promise.resolve(new TextDecoder().decode(b));"
+    ~   "if(b instanceof ArrayBuffer)return Promise.resolve(new TextDecoder().decode(new Uint8Array(b)));"
+    ~   "if(b&&b.buffer instanceof ArrayBuffer&&typeof b.byteLength==='number')return Promise.resolve(new TextDecoder().decode(new Uint8Array(b.buffer,b.byteOffset||0,b.byteLength)));"
     ~   "if(b&&typeof b.getReader==='function'){"
     ~     "var reader=b.getReader();var dec=new TextDecoder();var out='';"
     ~     "return new Promise(function(resolve,reject){"
@@ -333,11 +338,16 @@ private string webAPIsSource() pure nothrow @safe
     ~ "};"
     ~ "Response.prototype.json=function(){return this.text().then(JSON.parse);};"
     /* Same idea: drain a ReadableStream to ArrayBuffer if present;
-       otherwise fall back to the toString-encode path. */
+       otherwise return raw bytes for typed-array bodies (must come
+       BEFORE the toString-encode fallback so `new Response(new
+       Uint8Array([72,105,33]))` doesn't get stringified to "72,105,33"
+       and then UTF-8-encoded to 9 bytes). */
     ~ "Response.prototype.arrayBuffer=function(){"
     ~   "this.bodyUsed=true;"
     ~   "var b=this._body;"
     ~   "if(b instanceof ArrayBuffer)return Promise.resolve(b);"
+    ~   "if(b instanceof Uint8Array||(b&&b.buffer instanceof ArrayBuffer&&typeof b.byteLength==='number'))"
+    ~     "return Promise.resolve(b.buffer.slice(b.byteOffset||0,(b.byteOffset||0)+b.byteLength));"
     ~   "if(b&&typeof b.getReader==='function'){"
     ~     "var reader=b.getReader();var chunks=[];var total=0;"
     ~     "return new Promise(function(resolve,reject){"

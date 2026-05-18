@@ -647,45 +647,128 @@ private string bunCompatSource() pure nothrow @safe
     /* Bun.build — minimal bundler. Reads entrypoints, follows local
        imports, concatenates into a single output file (or returns the
        JS source as a string when outdir is omitted). Cross-module
-       deduplication via a Set keyed by absolute path. */
+       deduplication via a Set keyed by absolute path.
+
+       Supported opts: entrypoints, outdir, target ('node'|'bun'|
+       'browser'), define ({ 'KEY': 'value-as-source-literal' }),
+       external (string[] -- skip these specifiers), minify (bool
+       or { whitespace, syntax, identifiers }), naming, root.
+       Returns Bun's BuildOutput shape: { success, outputs[], logs[] }. */
     "Bun.build = function(opts) {" ~
     "  var fs = require('fs');" ~
     "  var path = require('path');" ~
     "  if (!opts || !opts.entrypoints || !opts.entrypoints.length) {" ~
     "    return Promise.reject(new TypeError('Bun.build requires opts.entrypoints'));" ~
     "  }" ~
+    "  var target = opts.target || 'bun';" ~
+    "  var define = opts.define || {};" ~
+    "  var external = new Set(opts.external || []);" ~
+    "  var minify = opts.minify === true ? { whitespace: true, syntax: false, identifiers: false }" ~
+    "             : (typeof opts.minify === 'object' && opts.minify) ? opts.minify : null;" ~
     "  var seen = new Set();" ~
     "  var out = [];" ~
+    "  var logs = [];" ~
+    /* Apply opts.define before bundling so compile-time constants
+       collapse (e.g. process.env.NODE_ENV -> 'production' lets dead
+       branches drop). define keys can be dotted paths -- escape the
+       dots for the regex but match the dotted identifier literally. */
+    "  function applyDefine(src) {" ~
+    "    for (var k in define) {" ~
+    "      if (!Object.prototype.hasOwnProperty.call(define, k)) continue;" ~
+    "      var pat = k.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&');" ~
+    "      src = src.replace(new RegExp('\\\\b' + pat + '\\\\b', 'g'), define[k]);" ~
+    "    }" ~
+    "    return src;" ~
+    "  }" ~
+    // Cheap minify: strip block/line comments outside strings,
+    // collapse runs of whitespace. No identifier renaming (needs AST).
+    // The JS-side stripComments tracks string context so it doesn t
+    // eat // inside string literals (D apostrophe avoided in this
+    // comment; this is a D-level note, not part of the JS payload).
+    "  function stripComments(src) {" ~
+    "    var o = '', i = 0, n = src.length;" ~
+    "    while (i < n) {" ~
+    "      var c = src[i];" ~
+    "      if (c === '\"' || c === \"'\" || c === '`') {" ~
+    "        var q = c; o += c; i++;" ~
+    "        while (i < n) {" ~
+    "          if (src[i] === '\\\\') { o += src[i] + src[i+1]; i += 2; continue; }" ~
+    "          o += src[i];" ~
+    "          if (src[i] === q) { i++; break; }" ~
+    "          i++;" ~
+    "        }" ~
+    "        continue;" ~
+    "      }" ~
+    "      if (c === '/' && src[i+1] === '/') {" ~
+    "        while (i < n && src[i] !== '\\n') i++;" ~
+    "        continue;" ~
+    "      }" ~
+    "      if (c === '/' && src[i+1] === '*') {" ~
+    "        i += 2;" ~
+    "        while (i+1 < n && !(src[i] === '*' && src[i+1] === '/')) i++;" ~
+    "        i += 2;" ~
+    "        continue;" ~
+    "      }" ~
+    "      o += c; i++;" ~
+    "    }" ~
+    "    return o;" ~
+    "  }" ~
+    "  function applyMinify(src) {" ~
+    "    if (!minify) return src;" ~
+    "    if (minify.whitespace !== false) {" ~
+    "      src = stripComments(src);" ~
+    "      src = src.replace(/[ \\t]+/g, ' ').replace(/\\n+/g, '\\n').replace(/\\s+;/g, ';');" ~
+    "    }" ~
+    "    return src.trim();" ~
+    "  }" ~
     "  function emitModule(absPath) {" ~
     "    if (seen.has(absPath)) return;" ~
     "    seen.add(absPath);" ~
     "    var src;" ~
     "    try { src = fs.readFileSync(absPath, 'utf8'); }" ~
-    "    catch (e) { return; }" ~
+    "    catch (e) { logs.push({ level: 'error', message: 'read failed: ' + absPath }); return; }" ~
     "    var dir = path.dirname(absPath);" ~
-    "    /* Inline relative imports first. */" ~
-    "    var importRe = /(?:^|\\n)\\s*import\\s+(?:[^'\"\\n]+\\s+from\\s+)?['\"](\\.\\/[^'\"]+|\\.\\.\\/[^'\"]+)['\"];?/g;" ~
+    "    /* Relative imports get inlined; bare specifiers stay (unless
+       'external' explicitly lists them, in which case they remain
+       as runtime require/import). */" ~
+    "    var importRe = /(?:^|\\n)\\s*import\\s+(?:[^'\"\\n]+\\s+from\\s+)?['\"]([^'\"]+)['\"];?/g;" ~
     "    var m;" ~
     "    while ((m = importRe.exec(src)) !== null) {" ~
-    "      var ref = path.resolve(dir, m[1]);" ~
-    "      var candidates = [ref, ref+'.js', ref+'.mjs', ref+'.ts', ref+'.tsx'];" ~
-    "      for (var i = 0; i < candidates.length; i++) {" ~
-    "        try { fs.accessSync(candidates[i]); emitModule(candidates[i]); break; } catch(_){}" ~
+    "      var spec = m[1];" ~
+    "      var isRel = spec.charAt(0) === '.';" ~
+    "      if (!isRel) {" ~
+    "        if (!external.has(spec)) logs.push({ level: 'warn', message: 'bare specifier kept as runtime require: ' + spec });" ~
+    "        continue;" ~
     "      }" ~
+    "      var ref = path.resolve(dir, spec);" ~
+    "      var candidates = [ref, ref+'.js', ref+'.mjs', ref+'.ts', ref+'.tsx', path.join(ref, 'index.js')];" ~
+    "      var resolved = null;" ~
+    "      for (var i = 0; i < candidates.length; i++) {" ~
+    "        try { fs.accessSync(candidates[i]); resolved = candidates[i]; break; } catch(_){}" ~
+    "      }" ~
+    "      if (resolved) emitModule(resolved);" ~
+    "      else logs.push({ level: 'error', message: 'unresolved: ' + spec + ' from ' + absPath });" ~
     "    }" ~
     "    /* Strip the import lines from the source so the concatenated
        output doesn't re-execute imports — bundled deps run inline. */" ~
     "    var stripped = src.replace(importRe, '');" ~
-    "    out.push('// ===== ' + absPath + ' =====');" ~
+    "    stripped = applyDefine(stripped);" ~
+    "    stripped = applyMinify(stripped);" ~
+    "    if (!minify) out.push('// ===== ' + absPath + ' =====');" ~
     "    out.push(stripped);" ~
     "  }" ~
     "  for (var k = 0; k < opts.entrypoints.length; k++) {" ~
     "    emitModule(path.resolve(opts.entrypoints[k]));" ~
     "  }" ~
-    "  var bundled = out.join('\\n');" ~
+    "  var bundled = out.join(minify ? ';' : '\\n');" ~
+    "  /* Banner per target so consumers can grep the build target. */" ~
+    "  var banner = minify ? '' : '/* Bun.build target=' + target + ' */\\n';" ~
+    "  bundled = banner + bundled;" ~
+    "  var outName = (opts.naming && opts.naming.entry) || 'bundle.js';" ~
     "  var artifacts = [{" ~
-    "    path: opts.outdir ? path.join(opts.outdir, 'bundle.js') : '<inline>'," ~
+    "    path: opts.outdir ? path.join(opts.outdir, outName) : '<inline>'," ~
     "    text: function() { return Promise.resolve(bundled); }," ~
+    "    arrayBuffer: function() { return Promise.resolve(new TextEncoder().encode(bundled).buffer); }," ~
     "    kind: 'entry-point'," ~
     "    loader: 'js'," ~
     "    hash: null," ~
@@ -694,9 +777,9 @@ private string bunCompatSource() pure nothrow @safe
     "  }];" ~
     "  if (opts.outdir) {" ~
     "    try { fs.mkdirSync(opts.outdir, { recursive: true }); } catch (_) {}" ~
-    "    fs.writeFileSync(path.join(opts.outdir, 'bundle.js'), bundled);" ~
+    "    fs.writeFileSync(path.join(opts.outdir, outName), bundled);" ~
     "  }" ~
-    "  return Promise.resolve({ success: true, outputs: artifacts, logs: [] });" ~
+    "  return Promise.resolve({ success: logs.filter(function(l){return l.level==='error';}).length === 0, outputs: artifacts, logs: logs });" ~
     "};" ~
 
     /* Bun.FileSystemRouter — given a directory and a style, builds
