@@ -788,7 +788,7 @@ napi_status napi_is_promise(napi_env env, napi_value value, bool* result)
 napi_status napi_open_handle_scope(napi_env env, void** result)
 {
     if (env is null || result is null) return napi_invalid_arg;
-    *result = cast(void*) 1;  // sentinel
+    *result = NAPI_ASYNC_SENTINEL;
     return napi_ok;
 }
 
@@ -800,7 +800,7 @@ napi_status napi_close_handle_scope(napi_env env, void* scope_)
 napi_status napi_open_escapable_handle_scope(napi_env env, void** result)
 {
     if (env is null || result is null) return napi_invalid_arg;
-    *result = cast(void*) 1;  // sentinel
+    *result = NAPI_ASYNC_SENTINEL;
     return napi_ok;
 }
 
@@ -1723,17 +1723,35 @@ private template Check(string args)
     }();
 }
 
+// N-API spec: async-init / callback-scope returns an opaque
+// non-null handle. We don't model libuv resource scopes, so use
+// a named sentinel that never gets dereferenced.
+private enum void* NAPI_ASYNC_SENTINEL = cast(void*) 1;
+
+// N-API version we implement (Node 22 baseline = v9). Bump in
+// lockstep with the underlying Node ABI when we add v10 features.
+private enum uint NAPI_VERSION = 9;
+
+// Node version triple advertised to addons via napi_get_node_version.
+// Major / minor / patch are picked so feature-detect code that
+// compares against `>= 22` works; the `release` string is a static
+// C literal so addons can read it past return without ownership.
+private enum uint NODE_VERSION_MAJOR = 22;
+private enum uint NODE_VERSION_MINOR = 0;
+private enum uint NODE_VERSION_PATCH = 0;
+
 napi_status napi_get_version(napi_env env, uint* result)
 {
     mixin(Check!"env result");
-    *result = 9;  // We implement N-API v9 (Node 22 baseline).
+    *result = NAPI_VERSION;
     return napi_ok;
 }
 
 napi_status napi_get_node_version(napi_env env, const(NapiNodeVersion)** result)
 {
     mixin(Check!"env result");
-    static __gshared NapiNodeVersion gNodeVer = NapiNodeVersion(22, 0, 0, "dunjs");
+    static __gshared NapiNodeVersion gNodeVer = NapiNodeVersion(
+        NODE_VERSION_MAJOR, NODE_VERSION_MINOR, NODE_VERSION_PATCH, "dunjs");
     *result = &gNodeVer;
     return napi_ok;
 }
@@ -2285,7 +2303,7 @@ napi_status napi_async_init(napi_env env, napi_value async_resource,
     napi_value async_resource_name, void** result)
 {
     if (env is null || result is null) return napi_invalid_arg;
-    *result = cast(void*) 1;  // non-null sentinel
+    *result = NAPI_ASYNC_SENTINEL;
     return napi_ok;
 }
 
@@ -2298,7 +2316,7 @@ napi_status napi_open_callback_scope(napi_env env, napi_value resource_object,
     void* async_context, void** result)
 {
     if (env is null || result is null) return napi_invalid_arg;
-    *result = cast(void*) 1;
+    *result = NAPI_ASYNC_SENTINEL;
     return napi_ok;
 }
 
@@ -2365,7 +2383,7 @@ napi_status napi_add_async_cleanup_hook(napi_env env, void* fun, void* arg, void
     // Async cleanup hooks fire at the end of the event loop. We don't
     // model the libuv async loop separately, so just register through
     // the sync cleanup path.
-    if (handle !is null) *handle = cast(void*) 1;
+    if (handle !is null) *handle = NAPI_ASYNC_SENTINEL;
     return napi_add_env_cleanup_hook(env, fun, arg);
 }
 

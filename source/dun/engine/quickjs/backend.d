@@ -455,7 +455,7 @@ class QuickJSEngine : IJSEngine
                     `return 'file://'+require.resolve(spec);}catch(e){}` ~
                     `return spec;};})()` ~ '\0';
                 auto resolveFn = JS_Eval(ctx, resolveSrc.ptr, resolveSrc.length - 1,
-                    "<import-meta-resolve>".ptr, 0 /* JS_EVAL_TYPE_GLOBAL */);
+                    "<import-meta-resolve>".ptr, JS_EVAL_TYPE_GLOBAL);
                 if (JS_IsException(resolveFn) == 0)
                     JS_SetPropertyStr(ctx, meta, "resolve", resolveFn);
                 else

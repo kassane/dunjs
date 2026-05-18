@@ -8,6 +8,16 @@ import dun.security.permissions : Permission;
 // fixed signature table. Covers the common patterns used by real
 // addons (sqlite open/close, libcurl easy_*, libpng read, etc.).
 // Arbitrary signatures need libffi; we don't link it (yet).
+//
+// Audit notes (per project rules):
+// * FFI extern(C) decls below are `@nogc nothrow` — no Druntime
+//   allocation across the C boundary.
+// * The dispatch path is `@trusted` only where raw `cast(Fn*)` is
+//   required; helpers are split off so the `@trusted` scope stays
+//   narrow.
+// * `@mustuse JSResult` (DIP 1038) is consumed via `r.isError` /
+//   `r.value` everywhere it appears.
+// * TIGER_STYLE asserts at every callback entry.
 
 version (Posix)
 {
@@ -18,8 +28,21 @@ version (Posix)
         int dlclose(void* handle);
         const(char)* dlerror();
     }
-    private enum RTLD_LAZY = 1, RTLD_NOW = 2;
+    // POSIX dlfcn.h flags — `RTLD_NOW` resolves all symbols up-front
+    // so a missing dep fails at `dlopen()` time, not at the first
+    // `dlsym()` call. Mirrors what Deno + Bun pass to libffi.
+    private enum int RTLD_LAZY = 1;
+    private enum int RTLD_NOW  = 2;
 }
+
+// Stack-buffer capacity for argument arrays. Matches the existing
+// `JSHandle[16]` trampoline buffer in each backend — keeps small-arg
+// FFI calls off the GC.
+private enum size_t MAX_FFI_STACK_ARGS = 16;
+
+// Sentinel returned by `napi_async_init` / `napi_open_callback_scope`
+// in our shim — non-null but never dereferenced.
+private enum void* FFI_NONNULL_SENTINEL = cast(void*) 1;
 
 void installFfiCompat(IJSEngine engine, DunState* state) @trusted
 {
@@ -222,6 +245,20 @@ private struct FfiSlot
 private __gshared FfiSlot[size_t] g_ffiSlots;
 private __gshared size_t g_ffiSlotCounter = 0;
 
+// Explicit mutex for the FFI slot table — `synchronized` without an
+// explicit object synchronizes on a hidden per-module Monitor that
+// can deadlock against user code or D runtime calls under iteration
+// pressure. The pattern matches `g_napiWrapMu` in `dun.napi.napi`.
+import core.sync.mutex : Mutex;
+private __gshared Mutex g_ffiMu;
+private __gshared bool g_ffiMuInit = false;
+private void _ensureFfiMu() nothrow @trusted
+{
+    if (g_ffiMuInit) return;
+    try { g_ffiMu = new Mutex(); g_ffiMuInit = true; }
+    catch (Throwable) {}
+}
+
 private JSHandle _makeWrapper(IJSEngine engine, DunState* state, void* fnptr, string sig) @trusted
 {
     // Only register if signature is in the curated set; else return
@@ -229,12 +266,15 @@ private JSHandle _makeWrapper(IJSEngine engine, DunState* state, void* fnptr, st
     if (!_signatureSupported(sig))
         return JSHandle.init;  // both pointers null
 
+    _ensureFfiMu();
     size_t id;
-    synchronized
+    try
     {
+        g_ffiMu.lock(); scope(exit) g_ffiMu.unlock();
         id = ++g_ffiSlotCounter;
         g_ffiSlots[id] = FfiSlot(fnptr, sig);
     }
+    catch (Throwable) { return JSHandle.init; }
 
     // Build a JS-level closure: `function(...args){ return
     // __dun_ffi_call__("<id-hex>", ...args); }`. This avoids the
@@ -299,14 +339,17 @@ private JSHandle jsFfiDispatchById(void* ctx, JSHandle thisVal, scope JSHandle[]
     import std.string : toStringz;
     size_t id = cast(size_t) strtoul(idHex.toStringz, null, 16);
 
+    _ensureFfiMu();
     FfiSlot slot;
-    synchronized
+    bool found = false;
+    try
     {
-        if (auto p = id in g_ffiSlots)
-            slot = *p;
-        else
-            return engine.throwTypeError("FFI dispatch: invalid slot");
+        g_ffiMu.lock(); scope(exit) g_ffiMu.unlock();
+        if (auto p = id in g_ffiSlots) { slot = *p; found = true; }
     }
+    catch (Throwable) { return engine.throwTypeError("FFI dispatch: lock failed"); }
+    if (!found)
+        return engine.throwTypeError("FFI dispatch: invalid slot");
 
     return _dispatchSignature(engine, slot, args[1 .. $]);
 }
@@ -412,7 +455,9 @@ private const(char)* _arg2cstr(IJSEngine engine, scope JSHandle[] args, size_t i
 
 private JSHandle jsDlopenClose(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
+    assert(ctx !is null, "Null ctx in dlopen.close");
     auto state = cast(DunState*) ctx;
+    assert(state !is null && state.engine !is null, "Invalid DunState in dlopen.close");
     auto engine = state.engine;
     auto h = engine.getProperty(thisVal, "__handle__");
     if (engine.isString(h))
@@ -430,7 +475,9 @@ private JSHandle jsDlopenClose(void* ctx, JSHandle thisVal, scope JSHandle[] arg
 
 private JSHandle jsUnsafePointer(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
+    assert(ctx !is null, "Null ctx in Deno.UnsafePointer");
     auto state = cast(DunState*) ctx;
+    assert(state !is null && state.engine !is null, "Invalid DunState in Deno.UnsafePointer");
     auto engine = state.engine;
     if (args.length < 1) return engine.newFloat(0);
     if (engine.isNumber(args[0])) return engine.dupValue(args[0]);
