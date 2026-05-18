@@ -38,6 +38,12 @@ private string bunCompatSource() pure nothrow @safe
     "Object.defineProperty(Bun, 'env', { get: function() { return process.env; } });" ~
     "Object.defineProperty(Bun, 'argv', { get: function() { return process.argv; } });" ~
 
+    /* Bun.main — absolute path to the entry script (argv[1] when run via dun run). */
+    "Object.defineProperty(Bun, 'main', { get: function() {" ~
+    "  if (typeof process === 'undefined' || !process.argv) return '';" ~
+    "  return process.argv[1] || '';" ~
+    "} });" ~
+
     /* Bun.sleep — Promise<void> that resolves after `ms`. */
     "Bun.sleep = function(ms) {" ~
     "  return new Promise(function(r) { setTimeout(r, ms); });" ~
