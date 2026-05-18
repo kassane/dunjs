@@ -376,6 +376,39 @@ JSHandle jsNativeTextDecoderDecode(void* ctx, JSHandle thisVal, scope JSHandle[]
 
     if (engine.isObject(args[0]))
     {
+        // Per spec, TextDecoder.decode accepts ArrayBuffer too — wrap
+        // it as a Uint8Array view and re-extract bytes.
+        auto byteLenVal = engine.getProperty(args[0], "byteLength");
+        if (engine.isNumber(byteLenVal))
+        {
+            int byteLen = engine.extractInt(byteLenVal);
+            engine.freeValue(byteLenVal);
+            if (byteLen == 0) return engine.newString("");
+            // Wrap as Uint8Array via JS-level cast.
+            auto wrapped = engine.eval(
+                "(function(ab){return new Uint8Array(ab);})", "<td-wrap>");
+            if (!wrapped.isError)
+            {
+                JSHandle[1] wrapArgs = [args[0]];
+                auto u8 = engine.callFunction(wrapped.value, engine.newUndefined(), wrapArgs[]);
+                engine.freeValue(wrapped.value);
+                auto wrappedBytes = engine.getTypedArrayBytes(u8);
+                if (wrappedBytes !is null && wrappedBytes.length > 0)
+                {
+                    auto result = engine.newString(cast(const(char)[]) wrappedBytes);
+                    engine.freeValue(u8);
+                    return result;
+                }
+                engine.freeValue(u8);
+            }
+            else
+                engine.freeValue(wrapped.value);
+        }
+        else
+        {
+            engine.freeValue(byteLenVal);
+        }
+
         auto lenVal = engine.getProperty(args[0], "length");
         if (engine.isNumber(lenVal))
         {

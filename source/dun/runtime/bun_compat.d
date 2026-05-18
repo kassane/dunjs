@@ -948,6 +948,150 @@ private string bunCompatSource() pure nothrow @safe
     "  return s.length;" ~
     "};" ~
 
+    /* Bun.readableStreamTo* — drain a ReadableStream into the named
+       form. All four follow the same shape: getReader().read() loop,
+       concat chunks at the end. The Buffer versions need Buffer
+       available (always true on DunJS since global Buffer is wired
+       in via dun:buffer). */
+    "Bun.readableStreamToArrayBuffer = async function(stream) {" ~
+    "  var reader = stream.getReader();" ~
+    "  var chunks = [], total = 0;" ~
+    "  while (true) {" ~
+    "    var r = await reader.read();" ~
+    "    if (r.done) break;" ~
+    "    var chunk = r.value instanceof Uint8Array ? r.value : new TextEncoder().encode(String(r.value));" ~
+    "    chunks.push(chunk); total += chunk.byteLength;" ~
+    "  }" ~
+    "  var out = new Uint8Array(total), off = 0;" ~
+    "  for (var i = 0; i < chunks.length; i++) { out.set(chunks[i], off); off += chunks[i].byteLength; }" ~
+    "  return out.buffer;" ~
+    "};" ~
+    "Bun.readableStreamToBytes = async function(stream) {" ~
+    "  return new Uint8Array(await Bun.readableStreamToArrayBuffer(stream));" ~
+    "};" ~
+    "Bun.readableStreamToText = async function(stream) {" ~
+    "  var ab = await Bun.readableStreamToArrayBuffer(stream);" ~
+    /* TextDecoder accepts BufferSource per spec, but engines vary on
+       ArrayBuffer-vs-view handling; wrap to be safe. */
+    "  return new TextDecoder().decode(new Uint8Array(ab));" ~
+    "};" ~
+    "Bun.readableStreamToJSON = async function(stream) {" ~
+    "  return JSON.parse(await Bun.readableStreamToText(stream));" ~
+    "};" ~
+    "Bun.readableStreamToBlob = async function(stream) {" ~
+    "  var ab = await Bun.readableStreamToArrayBuffer(stream);" ~
+    "  return new Blob([ab]);" ~
+    "};" ~
+    "Bun.readableStreamToFormData = async function(stream, boundary) {" ~
+    "  var txt = await Bun.readableStreamToText(stream);" ~
+    "  var fd = new FormData();" ~
+    "  /* minimal multipart parse — splits on boundary, extracts name + body */" ~
+    "  if (!boundary) return fd;" ~
+    "  var parts = txt.split('--' + boundary);" ~
+    "  for (var i = 1; i < parts.length - 1; i++) {" ~
+    "    var p = parts[i];" ~
+    "    var m = /name=\"([^\"]+)\"/.exec(p);" ~
+    "    if (!m) continue;" ~
+    "    var bodyStart = p.indexOf('\\r\\n\\r\\n');" ~
+    "    if (bodyStart === -1) continue;" ~
+    "    fd.append(m[1], p.slice(bodyStart + 4).replace(/\\r\\n$/, ''));" ~
+    "  }" ~
+    "  return fd;" ~
+    "};" ~
+    "Bun.readableStreamToArray = async function(stream) {" ~
+    "  var reader = stream.getReader();" ~
+    "  var arr = [];" ~
+    "  while (true) { var r = await reader.read(); if (r.done) break; arr.push(r.value); }" ~
+    "  return arr;" ~
+    "};" ~
+
+    /* Bun.Glob — minimal glob-pattern matcher. Real Bun has a Rust
+       impl with full POSIX glob semantics; this JS shim covers the
+       common patterns: * (any chars except /), ** (any chars including
+       /), ? (single char), [abc] (char class), {a,b} (alternation). */
+    "Bun.Glob = function Glob(pattern) {" ~
+    "  if (!(this instanceof Glob)) return new Glob(pattern);" ~
+    "  this.pattern = pattern;" ~
+    "  /* Translate glob → regex once at construction. */" ~
+    "  var re = '';" ~
+    "  var inClass = false;" ~
+    "  for (var i = 0; i < pattern.length; i++) {" ~
+    "    var c = pattern[i];" ~
+    "    if (inClass) {" ~
+    "      if (c === ']') { inClass = false; re += ']'; } else re += c;" ~
+    "      continue;" ~
+    "    }" ~
+    "    if (c === '*' && pattern[i+1] === '*') { re += '.*'; i++; }" ~
+    "    else if (c === '*') re += '[^/]*';" ~
+    "    else if (c === '?') re += '[^/]';" ~
+    "    else if (c === '[') { inClass = true; re += '['; }" ~
+    "    else if (c === '{') {" ~
+    "      /* alternation — find matching brace, split on commas */" ~
+    "      var end = pattern.indexOf('}', i);" ~
+    "      if (end === -1) { re += '\\\\{'; continue; }" ~
+    "      var alts = pattern.slice(i+1, end).split(',');" ~
+    "      re += '(' + alts.map(function(a) { return a.replace(/[.+^${}()|[\\]\\\\]/g, '\\\\$&'); }).join('|') + ')';" ~
+    "      i = end;" ~
+    "    }" ~
+    "    else if ('.+^${}()|\\\\'.indexOf(c) !== -1) re += '\\\\' + c;" ~
+    "    else re += c;" ~
+    "  }" ~
+    "  this._regex = new RegExp('^' + re + '$');" ~
+    "};" ~
+    "Bun.Glob.prototype.match = function(input) {" ~
+    "  return this._regex.test(input);" ~
+    "};" ~
+    "Bun.Glob.prototype.scan = function(opts) {" ~
+    "  /* Async iterator over matching files in `opts.cwd` (or '.'). */" ~
+    "  var self = this;" ~
+    "  var fs = require('fs');" ~
+    "  var path = require('path');" ~
+    "  var root = (opts && opts.cwd) || '.';" ~
+    "  var results = [];" ~
+    "  function walk(dir, prefix) {" ~
+    "    var entries;" ~
+    "    try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch (e) { return; }" ~
+    "    for (var i = 0; i < entries.length; i++) {" ~
+    "      var e = entries[i];" ~
+    "      var rel = prefix ? prefix + '/' + e.name : e.name;" ~
+    "      if (e.isDirectory()) walk(path.join(dir, e.name), rel);" ~
+    "      else if (self.match(rel)) results.push(rel);" ~
+    "    }" ~
+    "  }" ~
+    "  walk(root, '');" ~
+    "  return (async function*() { for (var i = 0; i < results.length; i++) yield results[i]; })();" ~
+    "};" ~
+    "Bun.Glob.prototype.scanSync = function(opts) {" ~
+    "  /* Sync variant returning an array directly. */" ~
+    "  var self = this;" ~
+    "  var fs = require('fs');" ~
+    "  var path = require('path');" ~
+    "  var root = (opts && opts.cwd) || '.';" ~
+    "  var results = [];" ~
+    "  function walk(dir, prefix) {" ~
+    "    var entries;" ~
+    "    try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch (e) { return; }" ~
+    "    for (var i = 0; i < entries.length; i++) {" ~
+    "      var e = entries[i];" ~
+    "      var rel = prefix ? prefix + '/' + e.name : e.name;" ~
+    "      if (e.isDirectory()) walk(path.join(dir, e.name), rel);" ~
+    "      else if (self.match(rel)) results.push(rel);" ~
+    "    }" ~
+    "  }" ~
+    "  walk(root, '');" ~
+    "  return results;" ~
+    "};" ~
+
+    /* Bun.dns — wrap node:dns. Real Bun has resolver tuning and
+       per-instance caching; this shim is enough for code that just
+       calls `Bun.dns.lookup(host)`. */
+    "Bun.dns = {" ~
+    "  lookup: function(host, opts) {" ~
+    "    var dns = require('dns').promises || require('dns');" ~
+    "    return dns.lookup ? dns.lookup(host, opts) : Promise.reject(new Error('dns.lookup unavailable'));" ~
+    "  }" ~
+    "};" ~
+
     "globalThis.Bun = Bun;" ~
     "})();";
 }
