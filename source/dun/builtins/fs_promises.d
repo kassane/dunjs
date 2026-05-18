@@ -153,6 +153,8 @@ int parseFsOpenFlags(string flags) nothrow @trusted
 
 JSHandle jsFspReadFile(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
+    import dun.builtins.fs : extractEncoding, createBufferFromBytes;
+
     assert(ctx !is null, "Null ctx in fs.promises.readFile");
     auto state = cast(DunState*) ctx;
     assert(state.engine !is null, "Null engine in fs.promises.readFile");
@@ -162,16 +164,29 @@ JSHandle jsFspReadFile(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trus
     if (!checkPerm(state, Permission.read, path))
         return throwPermError(engine, "read", path);
 
+    // Node semantics: no encoding → return a Buffer of raw bytes;
+    // explicit encoding (e.g. "utf8") → return a string. Previously
+    // we always called readText (UTF-8 validating), which threw
+    // `Invalid UTF-8 sequence` on binary files.
+    string encoding = extractEncoding(engine, args);
+    bool wantString = encoding.length > 0;
+
     auto ph = engine.newPromise();
     engine.dupValue(ph.resolve);
     engine.dupValue(ph.reject);
 
-    asyncSubmitSafe(engine, ph.resolve, ph.reject, () @trusted nothrow {
-        string content;
+    auto work = () @trusted nothrow {
         try
         {
-            import std.file : readText;
-            content = readText(path);
+            import std.file : read, readText;
+            if (wantString)
+                return AsyncResult.ok(readText(path));
+            // Read raw bytes -- D strings are byte-array-compatible
+            // (immutable(char)[]), so we cast the byte slice without
+            // UTF-8 validation. The result transform wraps it in a
+            // Buffer on the JS side.
+            auto raw = cast(string) cast(immutable(ubyte)[]) read(path);
+            return AsyncResult.ok(raw);
         }
         catch (Exception e)
         {
@@ -179,8 +194,13 @@ JSHandle jsFspReadFile(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trus
             try { msg = e.msg; } catch (Exception) { msg = "read error"; }
             return AsyncResult.fail(msg);
         }
-        return AsyncResult.ok(content);
-    });
+    };
+
+    ResultTransform bytesTransform = (IJSEngine e, string s) @trusted
+        => createBufferFromBytes(e, cast(const(ubyte)[]) s);
+
+    asyncSubmitSafe(engine, ph.resolve, ph.reject, work,
+        wantString ? null : bytesTransform);
 
     return ph.promise;
 }
@@ -193,9 +213,25 @@ JSHandle jsFspWriteFile(void* ctx, JSHandle thisVal, scope JSHandle[] args) @tru
     auto engine = state.engine;
     if (args.length < 2) return engine.throwTypeError("writeFile requires path and data");
     auto path = engine.extractString(args[0]);
-    auto data = engine.extractString(args[1]);
     if (!checkPerm(state, Permission.write, path))
         return throwPermError(engine, "write", path);
+
+    // Binary path: Buffer / Uint8Array / ArrayBuffer-backed view write
+    // raw bytes; only fall back to extractString for genuine strings.
+    // Without the typed-array branch, every byte >= 0x80 became the
+    // 3-byte UTF-8 replacement char, silently corrupting binary writes.
+    // Slice is dup'd before async dispatch since the engine handle
+    // doesn't survive into the worker thread.
+    ubyte[] dataBytes;
+    string dataStr;
+    bool hasBytes = false;
+    if (engine.isObject(args[1]))
+    {
+        auto bytes = engine.getTypedArrayBytes(args[1]);
+        if (bytes !is null) { dataBytes = bytes.dup; hasBytes = true; }
+    }
+    if (!hasBytes)
+        dataStr = engine.extractString(args[1]);
 
     auto ph = engine.newPromise();
     engine.dupValue(ph.resolve);
@@ -205,7 +241,8 @@ JSHandle jsFspWriteFile(void* ctx, JSHandle thisVal, scope JSHandle[] args) @tru
         try
         {
             import std.file : write;
-            write(path, data);
+            if (hasBytes) write(path, dataBytes);
+            else write(path, dataStr);
             return AsyncResult.ok("");
         }
         catch (Exception e)
@@ -227,9 +264,20 @@ JSHandle jsFspAppendFile(void* ctx, JSHandle thisVal, scope JSHandle[] args) @tr
     auto engine = state.engine;
     if (args.length < 2) return engine.throwTypeError("appendFile requires path and data");
     auto path = engine.extractString(args[0]);
-    auto data = engine.extractString(args[1]);
     if (!checkPerm(state, Permission.write, path))
         return throwPermError(engine, "write", path);
+
+    // Same Buffer / Uint8Array binary path as writeFile.
+    ubyte[] dataBytes;
+    string dataStr;
+    bool hasBytes = false;
+    if (engine.isObject(args[1]))
+    {
+        auto bytes = engine.getTypedArrayBytes(args[1]);
+        if (bytes !is null) { dataBytes = bytes.dup; hasBytes = true; }
+    }
+    if (!hasBytes)
+        dataStr = engine.extractString(args[1]);
 
     auto ph = engine.newPromise();
     engine.dupValue(ph.resolve);
@@ -239,7 +287,8 @@ JSHandle jsFspAppendFile(void* ctx, JSHandle thisVal, scope JSHandle[] args) @tr
         try
         {
             import std.file : append;
-            append(path, data);
+            if (hasBytes) append(path, dataBytes);
+            else append(path, dataStr);
             return AsyncResult.ok("");
         }
         catch (Exception e)

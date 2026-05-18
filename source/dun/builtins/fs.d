@@ -124,6 +124,16 @@ private ubyte[] safeReadFileBytes(string path, out string errMsg) @trusted nothr
 /// File write using C stdio — portable across all platforms.
 private bool safeWriteFile(string path, string data, out string errMsg) @trusted nothrow
 {
+    return safeWriteFileBytes(path, cast(const(ubyte)[]) data, errMsg);
+}
+
+/// Raw-byte write — used when the caller passes a Buffer / Uint8Array
+/// / ArrayBuffer view so binary data round-trips losslessly. The
+/// string overload above delegates here, so there's one open/write/
+/// close codepath instead of two.
+private bool safeWriteFileBytes(string path, const(ubyte)[] data,
+    out string errMsg) @trusted nothrow
+{
     import core.stdc.stdio : FILE, fopen, fwrite, fclose;
     import core.stdc.errno : errno;
     import core.stdc.string : strerror;
@@ -619,7 +629,7 @@ package string errnoMsg() @trusted nothrow
     catch (Exception) { return "I/O error"; }
 }
 
-string extractEncoding(IJSEngine engine, scope JSHandle[] args) @trusted
+public string extractEncoding(IJSEngine engine, scope JSHandle[] args) @trusted
 {
     if (args.length < 2) return null;
     if (engine.isString(args[1]))
@@ -648,7 +658,7 @@ void ensureBufFromCached(IJSEngine engine) @trusted
     _bufFromCached = true;
 }
 
-JSHandle createBufferFromBytes(IJSEngine engine, const(ubyte)[] data) @trusted
+public JSHandle createBufferFromBytes(IJSEngine engine, const(ubyte)[] data) @trusted
 {
     assert(engine !is null, "Null engine in createBufferFromBytes");
     ensureBufFromCached(engine);
@@ -703,10 +713,28 @@ JSHandle jsWriteFileSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @tr
     auto engine = state.engine;
     if (args.length < 2) return engine.throwTypeError("writeFileSync requires path and data");
     auto path = engine.extractString(args[0]);
-    auto data = engine.extractString(args[1]);
     if (!checkPerm(state, Permission.write, path))
         return throwPermError(engine, "write", path);
+
     string errMsg;
+    bool ok;
+    // Binary path: Buffer / Uint8Array / ArrayBuffer view -- write raw
+    // bytes. Without this, `writeFileSync(p, randomBytes(N))` went
+    // through `extractString()` which UTF-8-encodes the bytes; any
+    // byte >= 0x80 became 0xEF 0xBF 0xBD (U+FFFD replacement char),
+    // silently corrupting binary writes by ~50%.
+    if (engine.isObject(args[1]))
+    {
+        auto bytes = engine.getTypedArrayBytes(args[1]);
+        if (bytes !is null)
+        {
+            ok = safeWriteFileBytes(path, bytes, errMsg);
+            if (!ok)
+                return throwNodeError(engine, "EIO", errMsg, "open", path);
+            return engine.newUndefined();
+        }
+    }
+    auto data = engine.extractString(args[1]);
     if (!safeWriteFile(path, data, errMsg))
         return throwNodeError(engine, "EIO", errMsg, "open", path);
     return engine.newUndefined();
@@ -991,9 +1019,22 @@ JSHandle jsWriteFileAsync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @t
     auto engine = state.engine;
     if (args.length < 2) return engine.throwTypeError("writeFile requires path and data");
     auto path = engine.extractString(args[0]);
-    auto data = engine.extractString(args[1]);
     if (!checkPerm(state, Permission.write, path))
         return throwPermError(engine, "write", path);
+
+    // Same binary path as writeFileSync. The captured `data` is a
+    // ubyte[] slice owned by the engine -- we dup it before async
+    // dispatch since the engine handle goes out of scope.
+    ubyte[] dataBytes;
+    string dataStr;
+    bool hasBytes = false;
+    if (engine.isObject(args[1]))
+    {
+        auto bytes = engine.getTypedArrayBytes(args[1]);
+        if (bytes !is null) { dataBytes = bytes.dup; hasBytes = true; }
+    }
+    if (!hasBytes)
+        dataStr = engine.extractString(args[1]);
 
     auto ph = engine.newPromise();
     engine.dupValue(ph.resolve);
@@ -1003,7 +1044,8 @@ JSHandle jsWriteFileAsync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @t
         try
         {
             import std.file : write;
-            write(path, data);
+            if (hasBytes) write(path, dataBytes);
+            else write(path, dataStr);
             return AsyncResult.ok("ok");
         }
         catch (Exception e)
@@ -1025,12 +1067,25 @@ JSHandle jsAppendFileSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @t
     auto engine = state.engine;
     if (args.length < 2) return engine.throwTypeError("appendFileSync requires path and data");
     auto path = engine.extractString(args[0]);
-    auto data = engine.extractString(args[1]);
     if (!checkPerm(state, Permission.write, path))
         return throwPermError(engine, "write", path);
+
+    // Same Buffer / typed-array path as writeFileSync. std.file.append
+    // takes `const(void)[]` and writes raw bytes, so we just pass the
+    // byte slice directly when the caller hands us a TypedArray.
     try
     {
         import std.file : append;
+        if (engine.isObject(args[1]))
+        {
+            auto bytes = engine.getTypedArrayBytes(args[1]);
+            if (bytes !is null)
+            {
+                append(path, bytes);
+                return engine.newUndefined();
+            }
+        }
+        auto data = engine.extractString(args[1]);
         append(path, data);
         return engine.newUndefined();
     }

@@ -20,12 +20,12 @@ async function main() {
   console.log('PASS: writeFile completed');
 
   // 5. readFile
-  const content = await fsp.readFile(tmpFile);
+  const content = await fsp.readFile(tmpFile, 'utf8');
   console.log('PASS: readFile: ' + (content === 'hello async'));
 
   // 6. appendFile
   await fsp.appendFile(tmpFile, ' world');
-  const content2 = await fsp.readFile(tmpFile);
+  const content2 = await fsp.readFile(tmpFile, 'utf8');
   console.log('PASS: appendFile: ' + (content2 === 'hello async world'));
 
   // 7. stat
@@ -36,7 +36,7 @@ async function main() {
   // 8. copyFile
   const copyPath = tmpDir + '/copy.txt';
   await fsp.copyFile(tmpFile, copyPath);
-  const copyContent = await fsp.readFile(copyPath);
+  const copyContent = await fsp.readFile(copyPath, 'utf8');
   console.log('PASS: copyFile: ' + (copyContent === 'hello async world'));
 
   // 9. readdir
@@ -76,7 +76,7 @@ async function main() {
 
   // 16. truncate
   await fsp.truncate(tmpFile, 5);
-  const truncContent = await fsp.readFile(tmpFile);
+  const truncContent = await fsp.readFile(tmpFile, 'utf8');
   console.log('PASS: truncate: ' + (truncContent === 'hello'));
 
   // 17. unlink
@@ -92,7 +92,7 @@ async function main() {
   const deepDir = '/tmp/dun_fsp_deep_' + Date.now() + '/a/b/c';
   await fsp.mkdir(deepDir, { recursive: true });
   await fsp.writeFile(deepDir + '/file.txt', 'deep');
-  const deepContent = await fsp.readFile(deepDir + '/file.txt');
+  const deepContent = await fsp.readFile(deepDir + '/file.txt', 'utf8');
   console.log('PASS: mkdir recursive: ' + (deepContent === 'deep'));
   const baseDeep = '/tmp/dun_fsp_deep_' + deepDir.split('dun_fsp_deep_')[1].split('/')[0];
   await fsp.rm(baseDeep, { recursive: true });
@@ -105,7 +105,7 @@ async function main() {
   const symlinkPath = symlinkDir + '/link.txt';
   await fsp.writeFile(symlinkTarget, 'symlink content');
   await fsp.symlink(symlinkTarget, symlinkPath);
-  const symlinkContent = await fsp.readFile(symlinkPath);
+  const symlinkContent = await fsp.readFile(symlinkPath, 'utf8');
   console.log('PASS: symlink: ' + (symlinkContent === 'symlink content'));
   const symlinkStat = await fsp.lstat(symlinkPath);
   console.log('PASS: symlink isSymbolicLink: ' + symlinkStat.isSymbolicLink());
@@ -148,8 +148,10 @@ async function main() {
   const fhw = await fsp.open(writeFile, 'w');
   await fhw.writeFile('written via fh');
   await fhw.close();
+  // Node: readFile() with no encoding returns a Buffer (not a string).
+  // Decode explicitly via .toString() OR pass an encoding option.
   const writtenContent = await fsp.readFile(writeFile);
-  console.log('PASS: FileHandle writeFile: ' + (writtenContent === 'written via fh'));
+  console.log('PASS: FileHandle writeFile: ' + (writtenContent.toString() === 'written via fh'));
 
   // cleanup
   await fsp.rm(openDir, { recursive: true, force: true });
