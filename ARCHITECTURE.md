@@ -385,28 +385,32 @@ optimization on JSC and V8 backends.
 
 | Engine | API Style | D FFI | Shim | Callback Registration |
 |--------|-----------|-------|------|----------------------|
-| QuickJS | C API | extern(C) direct | None | `JS_NewCFunction(ctx, &fn, name, argc)` |
-| JSC | C API | extern(C) direct | None | `JSObjectMakeFunctionWithCallback(ctx, name, &fn)` |
-| V8 | C++ only | extern(C) via shim | vendor/v8shim/ (~300 LOC) | `dun_v8_new_function(ctx, &fn, name, data)` -> FunctionTemplate |
+| QuickJS | C API | extern(C) direct (498 LOC bindings) | None | `JS_NewCFunction(ctx, &fn, name, argc)` |
+| JSC | C API + TMP bridge | extern(C) direct (289 LOC bindings) + 180 LOC `cppbindings.d` | None | `JSObjectMakeFunctionWithCallback(ctx, name, &fn)` |
+| V8 | C++ only | extern(C) via shim (112 LOC bindings) | `vendor/v8shim/` (~1118 LOC total: 868 cpp + 129 header + 121 templates) | `dun_v8_new_function(ctx, &fn, name, data)` → FunctionTemplate trampoline |
 
 ### V8 C++ Shim Details
 
-V8 has no stable C API. The shim (`vendor/v8shim/v8shim.cpp`) exposes ~38 functions,
-refactored via `withContext<F>` to eliminate scope guard boilerplate:
+V8 has no stable C API. The shim (`vendor/v8shim/`, 868 LOC C++
++ 121 LOC templates + 129 LOC header) exposes **54** `dun_v8_*`
+functions, refactored via `withContext<F>` to eliminate scope
+guard boilerplate:
 
 | Category | Functions | TMP Pattern |
 |----------|-----------|-------------|
-| Lifecycle | `isolate_new`, `isolate_dispose`, `context_new`, `context_free` | -- |
-| Eval | `eval` (with Script::Compile + Run) | `withContext<F>` |
-| Values | `new_undefined/null/bool/int/number/string/object/array/function` | `withContext<F>` |
+| Lifecycle | `isolate_new/dispose`, `context_new/free`, `version` | -- |
+| Eval | `eval` (Script::Compile + Run) | `withContext<F>` |
+| Values | `new_undefined/null/bool/int/uint/number/string/object/array/function/promise` | `withContext<F>` |
 | Extract | `value_to_string/int/number/bool`, `free_string` | `withContext<F>` |
-| Types | `value_is_undefined/null/bool/int/number/string/object/function/array` | `valueIsType<Tag>` -> `isV8Type<Tag>` |
-| Props | `get_property`, `set_property`, `global` | `withContext<F>` |
+| Types | `value_is_undefined/null/bool/int/number/string/object/function/array` + batched `value_get_type` (single FFI call returns the tag) | `valueIsType<Tag>` → `isV8Type<Tag>` |
+| Props | `get/set_property`, `get/set_property_index` (O(1) numeric keys), `set_prototype`, `global` | `withContext<F>` |
 | Refs | `value_ref`, `value_unref` (ref-counted `v8::Global<Value>`) | -- |
-| Errors | `get_exception`, `throw_error/type_error/range_error` | `withContext<F>` |
+| Errors | `get_exception`, `throw_error/type_error/range_error/value` | `withContext<F>` |
 | Calls | `call` (invoke JS function from native) | `withContext<F>` |
 | Microtasks | `has_pending_microtasks`, `drain_microtasks` | -- |
-| Data | `set_context_data`, `get_context_data` | -- |
+| GC | `collect_garbage` | -- |
+| Buffers | `buffer_from_utf` (fused Buffer.from-utf8 hot path), `typed_array_data` | `withContext<F>` |
+| Data | `set/get_context_data` | -- |
 | Limits | `set_memory_limit`, `set_stack_limit` | -- |
 
 ### V8 14.x External::New Compatibility
@@ -453,41 +457,53 @@ that require linking against V8's C++ objects -- these MUST go through the C shi
 
 ## Comparison with Other Runtimes
 
-| Aspect | Node.js | Deno | Bun | **DunJS** |
-|--------|---------|------|-----|-----------|
+| Aspect | Node.js 22 | Deno 2.7 | Bun 1.3 | **DunJS** |
+|--------|------------|----------|---------|-----------|
 | Language | C++ | Rust | Zig | **D** |
-| JS Engine | V8 | V8 | JSC | **Pluggable (QuickJS, JSC, V8)** |
-| TypeScript | Via tsc/swc | Built-in check+strip | Built-in transpile | **Type stripping** |
-| Engine FFI | Native C++ | rusty_v8 (Rust bindings) | Zig extern(C++) | **extern(C) + C shim** |
-| TMP Bridge | N/A | N/A | N/A | **C++ TMP <-> D TMP** |
-| Event Loop | libuv | Tokio | io_uring | **epoll/kqueue/poll/io_uring** |
+| JS Engine | V8 | V8 | JSC | **Pluggable: QuickJS-NG / JSC / V8** |
+| TypeScript | `--experimental-strip-types` (erasable subset) | Built-in check+strip | Built-in transpile | **Stripping + persistent cache + `--typecheck`** |
+| Engine FFI | Native C++ | rusty_v8 (Rust bindings) | Zig extern(C++) | **extern(C) for all; C shim for V8 only** |
+| Type-level safety | Manual | Borrow checker | Manual | **@safe / @trusted / DIP1000 `return scope` / DIP1038 `@mustuse`** |
+| TMP Bridge | N/A | N/A | N/A | **C++ TMP ↔ D TMP (V8 + JSC)** |
+| Event Loop | libuv | Tokio | io_uring | **epoll / kqueue / poll / io_uring** |
 | Workers | Yes (V8) | Yes (V8) | Yes (JSC) | **Yes (all 3 backends)** |
 | Permission | None | Deny-all | None | **Deny-all** |
-| Module Prefix | `node:` | `node:` | `bun:` | **`dun:`** |
-| Memory Safety | Manual | Borrow checker | Manual | **@safe/@trusted** |
-| Build System | gyp -> cmake | cargo | zig build | **DUB + build.d** |
+| Module Prefix | `node:` | `node:` | `bun:` | **`dun:` (+ `node:` compat)** |
+| Build System | gyp → cmake | cargo | zig build | **DUB + `build.d`** |
+| ES2025 spec | 98/98 | 98/98 | 98/98 | **98/98 / 98/98 / 98/98** (QJS / JSC / V8) |
+| Cold start | 27 ms | 42 ms | 11 ms | **27 / 27 / 22 ms** |
+| Binary | 119 MB | 119 MB | 89 MB | **9.8 / 60 / 56 MB** |
+
+Cold start: `time runtime -e ';'`, best of 15. Binary: stripped
+release executables — DunJS QJS statically links QuickJS-NG
+(small interpreter); JSC and V8 backends embed the full WebKit /
+V8 engine libraries. Triple values are always QJS / JSC / V8.
 
 ### Performance Benchmarks
 
-Feature benchmarks (25 tests, release builds, ops/sec):
+Feature benchmarks (`tests/benchmarks/feature_bench.js`, 25 tests,
+release builds, ops/sec — median of 3 runs):
 
 | Runtime | Total Throughput | Relative |
 |---------|-----------------|----------|
-| Bun 1.3.11 | 422M | 1.00x |
-| DunJS JSC | 371M | 0.88x |
-| Node.js v22 | 112M | 0.26x |
-| Deno 2.7.14 | 109M | 0.26x |
-| DunJS V8 | 105M | 0.25x |
+| Bun 1.3.14 | 491M | 1.00x |
+| **DunJS JSC** | **488M** | **0.99x** |
+| Node.js 22.22.2 | 172M | 0.35x |
+| Deno 2.7.14 | 169M | 0.34x |
+| DunJS V8 | 160M | 0.33x |
+| DunJS QuickJS | 22M | 0.05x (interpreter-only) |
 
-Framework benchmarks (39 tests, release builds, ops/sec):
+Framework benchmarks (`tests/benchmarks/framework_bench.js`, 39
+tests, release builds, ops/sec — median of 3 runs):
 
 | Runtime | Total Throughput | Relative |
 |---------|-----------------|----------|
-| Bun 1.3.11 | 266M | 1.00x |
-| DunJS JSC | 242M | 0.91x |
-| Node.js v22 | 129M | 0.49x |
-| DunJS V8 | 127M | 0.48x |
-| Deno 2.7.14 | 126M | 0.47x |
+| Bun 1.3.14 | 339M | 1.00x |
+| DunJS JSC | 277M | 0.82x |
+| Node.js 22.22.2 | 180M | 0.53x |
+| DunJS V8 | 172M | 0.51x |
+| Deno 2.7.14 | 154M | 0.45x |
+| DunJS QuickJS | 17M | 0.05x |
 
 npm compat: **145/145** pass across all 6 runtimes.
 
