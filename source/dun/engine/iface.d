@@ -131,6 +131,10 @@ interface IJSEngine
     // --- Typed arrays ---
     JSHandle newUint8Array(scope const(ubyte)[] data);
     JSHandle newUint8ArrayZeroed(size_t length);
+
+    /// Raw bytes of a Uint8Array / Buffer / typed-array view. Slice
+    /// is engine-owned and tied to `val`'s lifetime — `.dup` if you
+    /// need it past the JSHandle (e.g. async dispatch).
     ubyte[] getTypedArrayBytes(JSHandle val) @trusted;
 
     // --- Indexed property access (O(1) for arrays) ---

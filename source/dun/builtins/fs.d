@@ -127,10 +127,8 @@ private bool safeWriteFile(string path, string data, out string errMsg) @trusted
     return safeWriteFileBytes(path, cast(const(ubyte)[]) data, errMsg);
 }
 
-/// Raw-byte write — used when the caller passes a Buffer / Uint8Array
-/// / ArrayBuffer view so binary data round-trips losslessly. The
-/// string overload above delegates here, so there's one open/write/
-/// close codepath instead of two.
+/// Raw-byte file write. The string `safeWriteFile` delegates here so
+/// binary and text share one open/write/close codepath.
 private bool safeWriteFileBytes(string path, const(ubyte)[] data,
     out string errMsg) @trusted nothrow
 {
