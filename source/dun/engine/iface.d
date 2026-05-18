@@ -11,6 +11,12 @@ static assert(JSHandle.sizeof >= 2 * (void*).sizeof,
 static assert(JSHandle.sizeof <= 24,
     "JSHandle unexpectedly large -- review layout");
 
+/// Result of evaluating JS source. `@mustuse` (DIP 1038) forces every
+/// caller to either inspect `isError` or explicitly `cast(void)` —
+/// catching at compile time the bugs where init/eval code's failure
+/// gets silently swallowed.
+import core.attribute : mustuse;
+@mustuse
 struct JSResult
 {
     JSHandle value;
@@ -222,4 +228,18 @@ IJSEngine createEngine()
         import dun.engine.quickjs.backend : QuickJSEngine;
         return new QuickJSEngine();
     }
+}
+
+/// Eval a closed-world inline JS string and assert it succeeds.
+/// Use for build-time-constant init code where a parse/eval failure
+/// is a programmer bug, not a user-data issue (Worker installer,
+/// `__filename`/`__dirname` setup, polyfills). The `@mustuse` on
+/// `JSResult` (DIP 1038) catches accidentally-dropped results at
+/// compile time; this is the canonical drop-only consumer.
+void mustEval(IJSEngine engine, scope const(char)[] source,
+    string filename, string what) @trusted
+{
+    auto r = engine.eval(source, filename);
+    assert(!r.isError, what ~ " failed: " ~ r.errorMessage);
+    engine.freeValue(r.value);
 }

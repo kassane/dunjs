@@ -1,6 +1,6 @@
 module dun.runtime.worker_api;
 
-import dun.engine.iface : IJSEngine, JSHandle;
+import dun.engine.iface : IJSEngine, JSHandle, mustEval;
 import dun.runtime.globals : DunState;
 import core.atomic : atomicLoad, atomicStore, atomicFetchAdd, cas, MemoryOrder;
 
@@ -58,15 +58,15 @@ void installWorkerAPI(IJSEngine engine, DunState* state) @trusted
     engine.setProperty(global, "__int32ArrayCreate",
         engine.newFunction(&_int32ArrayCtor, "__int32ArrayCreate", 1));
 
-    engine.eval(
-        // Worker(specifier, options?) -- Node-compatible:
-        //   options.eval === true     => specifier is inline source
-        //                                (written to a temp file)
-        //   options.workerData        => available as `workerData` in
-        //                                the worker via require('worker_threads')
-        //   options.name (ignored)
-        // The returned object is augmented with .on(event, cb) which
-        // dispatches via the existing onmessage/onerror/onexit hooks.
+    // Worker(specifier, options?) -- Node-compatible:
+    //   options.eval === true     => specifier is inline source
+    //                                (written to a temp file)
+    //   options.workerData        => available as `workerData` in
+    //                                the worker via require('worker_threads')
+    //   options.name (ignored)
+    // The returned object is augmented with .on(event, cb) which
+    // dispatches via the existing onmessage/onerror/onexit hooks.
+    mustEval(engine,
         `globalThis.Worker = function Worker(p, opts) {`
         ~ `  if (opts && opts.eval) {`
         ~ `    const fs = globalThis.__dun_cjs_fs__;`
@@ -126,7 +126,7 @@ void installWorkerAPI(IJSEngine engine, DunState* state) @trusted
         ~ `globalThis.Int32Array.prototype = __NativeInt32Array.prototype;`
         ~ `if(__NativeInt32Array.from)globalThis.Int32Array.from=__NativeInt32Array.from.bind(__NativeInt32Array);`
         ~ `if(__NativeInt32Array.of)globalThis.Int32Array.of=__NativeInt32Array.of.bind(__NativeInt32Array);`,
-        "<worker-init>");
+        "<worker-init>", "Worker installer eval");
 
     auto atomics = engine.newObject();
     engine.setProperty(atomics, "load",            engine.newFunction(&_atomicsLoad,  "load",  2));
