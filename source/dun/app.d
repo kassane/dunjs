@@ -69,7 +69,7 @@ int main(string[] args)
 
 private:
 
-enum VERSION = "0.3.0";
+public enum VERSION = "0.4.0";
 
 int runScript(T)(T config)
 {
@@ -942,7 +942,7 @@ int runInit(T)(T config)
     write(buildPath(dir, "dun.json"),
         "{\n"
         ~ "  \"name\": \"" ~ name ~ "\",\n"
-        ~ "  \"version\": \"0.3.0\",\n"
+        ~ "  \"version\": \"0.1.0\",\n"
         ~ "  \"main\": \"main.ts\",\n"
         ~ "  \"tasks\": {\n"
         ~ "    \"start\": \"dun run main.ts\",\n"

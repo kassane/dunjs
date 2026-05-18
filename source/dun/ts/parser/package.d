@@ -1,9 +1,10 @@
 module dun.ts.parser;
 
-// AST parser port from oven-sh/bun's `src/js_parser/` (Zig, MIT).
-// Currently lexer-only; see TS-PARSER-PORT.md for the project plan.
-// Bun parses TS/JS in a single pass with a tokenizer matching the
-// `T.t_*` enum in lexer.d; the parser layer (when ported) sits on top.
+// Lexer port from oven-sh/bun's `src/js_parser/` (Zig, MIT). The
+// scanner pipeline (strip.d + jsx.d) consumes this for regex/divide
+// disambiguation and shared string/template skipping. A full AST
+// port is intentionally not pursued -- see `CLAUDE.md ## Won't-fix
+// design constraints`.
 public import dun.ts.parser.lexer;
 
 /// Tokenize the entire source into a GC-allocated array. Random-access

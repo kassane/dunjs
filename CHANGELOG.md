@@ -1,7 +1,9 @@
 # DunJS Changelog
 
 Historical record of phased deliveries. Newest at the bottom.
-See [BLOCKERS.md](BLOCKERS.md) for the current open / closed gap status.
+Production blockers list is empty as of v0.4.0; design-level
+won't-fix items moved into [CLAUDE.md](CLAUDE.md) `## Won't-fix
+design constraints`.
 
 ## Phased Roadmap
 
@@ -170,3 +172,12 @@ See [BLOCKERS.md](BLOCKERS.md) for the current open / closed gap status.
 | 25c | Resolver $DUN_HOME fallback | `require()` falls back to `$DUN_HOME/node_modules` after project tree walk fails | **Done** |
 | 25d | Auto-install typescript | `DUN_AUTO_INSTALL_TSC=1` for default tsc path (--typecheck always auto-installs); both target $DUN_HOME | **Done** |
 | 25e | RegExp /v set ops | `expandVSetOps()` source rewriter resolves `[A--B]` / `[A&&B]` to /u-equivalent range class; ECMAScript spec now 98/98 on QJS+V8 (was 97/98) | **Done** |
+| 26a | TS lexer: private identifiers | `T.private_identifier` for ES2022 `#x` class-private fields/methods; fixes lexer corpus failure on `class C { #x = 0 }` and `this.#x` references | **Done** |
+| 26b | TS lexer: nested template balancing | Per-substitution brace counter `templateBraces[16]` (`MAX_TEMPLATE_NESTING` enum) so `` `${ {x:1, y:2} }` `` correctly closes object literal before template terminator | **Done** |
+| 26c | TS skip-helpers consolidated | `skipStringLit` + `skipTemplateLit` live in `dun.ts.parser.lexer` as the single source of truth; `strip.d` + `jsx.d` re-export instead of duplicating bodies | **Done** |
+| 26d | --typecheck ambient .d.ts | `dun.ts.globals_dts` injects `Deno.*` / `Bun.*` / `require` / `process` / `Buffer` / `React` / `JSX` / dun: / node: / bare-name specifier declarations into the typecheck CompilerHost; `ts_compat` --typecheck errors collapsed (denoapis: 7+→0, nodeapis: many→0, reactapp: 60→1) | **Done** |
+| 26e | --typecheck top-level await + JSX | Driver opts: `module: ESNext`, `moduleDetection: Force`, `jsx: React`; TS1375/TS1378/TS17004 all clear for scripts that previously needed explicit `export {}` | **Done** |
+| 26f | Cross-runtime conformance harness | `tests/benchmarks/ts_parity/` (12 fixtures + runner) compares output against tsc+node/Bun/Deno/Node-ts; DunJS 12/12 across QJS/JSC/V8 (matches tsc gold) | **Done** |
+| 26g | Lexer throughput micro-bench | `tests/bench_lexer.d`: lexer 184 MB/s vs byte-scan 1012 MB/s (5.5x cost for keyword lookup + regex disambig + position emit; ≈0.1 ms per 20 KB file) | **Done** |
+| 26h | child_process leak fix | `jsSpawn` was leaking 6 batches of `newString` per child (`pushAgnosticPending` dupes args; caller owns originals); ASan-clean after fix | **Done** |
+| 26i | Version bump to 0.4.0 | All gaps in BLOCKERS.md and TS-PARSER-PORT.md addressed; both files retired (history preserved in this CHANGELOG and git); V8 vendor 14.9 → 15.0.91 doc sync | **Done** |

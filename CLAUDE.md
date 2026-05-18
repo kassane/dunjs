@@ -411,7 +411,7 @@ Key shim patterns:
 - **isV8Type<Tag>**: `if constexpr` dispatch to V8 `IsXxx()` methods (9 types)
 - **FunctionTemplate trampoline**: D callback -> `DunV8FunctionData*` in `v8::External` -> `v8FunctionTrampoline` -> D function pointer
 - **V8 14.x compat**: `DUN_EXTERNAL_NEW(iso, ptr)` / `DUN_EXTERNAL_VALUE(ext)` macros for `ExternalPointerTypeTag` parameter (V8 14+ requires 3-arg `External::New`)
-- **Headers from kassane/libv8**: V8 14.9.207.4 headers + monolith from `github.com/kassane/libv8/releases`
+- **Headers from kassane/libv8**: V8 15.0.91 headers + monolith from `github.com/kassane/libv8/releases`
 - **CREL relocations**: V8 14.9 monolith uses LLVM 19+ CREL format; requires LDC's internal linker (`--link-internally`, LLVM 21 based) on Linux — GNU ld 2.42 and lld-18 cannot process CREL
 
 ## Testing
@@ -527,5 +527,34 @@ Benchmark impact (25 benchmarks, feature_bench.js):
 ## Phased Roadmap
 
 See [CHANGELOG.md](CHANGELOG.md) — historical record of every
-phased delivery (140+ phases across 24 major releases). For
-current open vs. closed production gaps, see [BLOCKERS.md](BLOCKERS.md).
+phased delivery (150+ phases across 26 major releases). The
+production-blockers list is empty as of v0.4.0; every blocker
+has either landed or has a documented design-level rationale
+below.
+
+## Won't-fix design constraints
+
+- **Native `.node` addons that bypass N-API.** Things that
+  `dlopen('node')` and call into V8 / libuv internals can't be
+  supported by any non-Node runtime. Addons that stay within
+  the N-API surface work — DunJS ships 91 N-API functions plus
+  real `napi_wrap` / `napi_create_external` with a side-table
+  for the `(data, hint, finalize_cb)` triple. Tested with sharp
+  + similar real addons.
+
+- **Host-specific API tests on the wrong host.** Some entries
+  in `tests/benchmarks/ts_compat/` exercise APIs that don't
+  exist on every runtime (e.g. `Bun.hash.xxh32` isn't on
+  Bun 1.3 either, and Deno/Node lack `Bun.*` entirely). These
+  files are useful as cross-runtime delta indicators, not as
+  conformance gates.
+
+- **Full Bun parser port** (TS AST + printer + lowering).
+  Researched and rejected in v0.3.x: 3-5 person-months to
+  replace a working scanner with one that produces the same
+  observable output (DunJS now matches `tsc + node` on
+  `tests/benchmarks/ts_parity/` 12/12 across all 3 backends).
+  Re-evaluate only if DunJS gets a bundler / source maps /
+  AST-based linter — none are on the roadmap. The lexer-only
+  lift in `source/dun/ts/parser/lexer.d` is the right amount
+  of port for the scanner pipeline.

@@ -301,8 +301,12 @@ DTS";
 
 unittest
 {
+    // Sanity-check that the .d.ts blob has the expected shape. The
+    // actual size shifts as we add declarations; the floor below is
+    // 1 KB (anything smaller means the heredoc lost most of its body).
+    enum size_t MIN_DTS_SIZE = 1024;
     auto dts = dunGlobalsDts();
-    assert(dts.length > 1000, "dts should be non-trivial");
+    assert(dts.length > MIN_DTS_SIZE, "dts should be non-trivial");
     import std.algorithm : canFind;
     // Cover the main names referenced by ts_compat fixtures.
     assert(canFind(dts, "declare const Deno:"));

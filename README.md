@@ -136,7 +136,7 @@ for 24 hours. `dun install` checks packages before download. See [SECURITY.md](S
 |---------|-------|-------|
 | QuickJS-NG | 127/127 | Default. Interpreter, ES2023, smallest binary (4.6MB) |
 | JavaScriptCore | 127/127 | JIT. Same engine as Safari/Bun |
-| V8 | 127/127 | JIT. Same engine as Chrome/Node.js (V8 14.9). Via C++ shim |
+| V8 | 127/127 | JIT. Same engine as Chrome/Node.js (V8 15.0). Via C++ shim |
 
 All 24 built-in modules, Workers, SharedArrayBuffer, Atomics, fetch, Deno compat, and web globals work identically on every backend.
 
@@ -228,13 +228,10 @@ npm compat: **145/145** pass across all 6 runtimes.
 - [ARCHITECTURE.md](ARCHITECTURE.md) — 7-layer design, engine
   abstraction, FFI strategies, RAII patterns
 - [CLAUDE.md](CLAUDE.md) — development guide (build commands,
-  code style, key patterns, GC tuning)
+  code style, key patterns, GC tuning, won't-fix design
+  constraints)
 - [TESTING.md](TESTING.md) — full test inventory + how to run
-- [BLOCKERS.md](BLOCKERS.md) — production-readiness status
-  (closed gaps, documented limits, won't-fix)
 - [CHANGELOG.md](CHANGELOG.md) — phased delivery history
-- [TS-PARSER-PORT.md](TS-PARSER-PORT.md) — research outcome
-  on porting Bun's Zig parser to D
 
 ## License
 

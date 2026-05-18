@@ -5,9 +5,10 @@ module dun.ts.parser.lexer;
 // Ported from oven-sh/bun's `src/js_parser/lexer.zig` and
 // `src/js_parser/lexer_tables.zig`. Same token set + same name
 // convention (`t_*`) so the upstream parser code can be ported
-// alongside without renaming. MIT licensed both ends. See
-// TS-PARSER-PORT.md for the project plan; this is the lexer-only
-// lift it recommended.
+// alongside without renaming. MIT licensed both ends. The
+// scanner-only port lift is intentional: see
+// `CLAUDE.md ## Won't-fix design constraints` for why the full
+// Bun parser port is NO-GO.
 //
 // Scope (phases 1 + 2 + 3 landed):
 //   * Single-line + block comments + shebang
@@ -287,7 +288,7 @@ struct Lexer
         // reference in real code lexes as a syntax_error.
         if (c == '#' && pos + 1 < source.length
             && (isIdentStart(source[pos + 1])
-                || cast(ubyte) source[pos + 1] >= 0x80))
+                || cast(ubyte) source[pos + 1] >= UTF8_HIGH_BIT))
         {
             advance();  // skip '#'
             while (pos < source.length && isIdentCont(source[pos]))
@@ -695,16 +696,17 @@ private:
     }
     // Identifier classification. We don't ship the full Unicode
     // ID_Start / ID_Continue tables (~3000 ranges, 60 KB); instead we
-    // accept any byte >= 0x80 as part of an identifier. That covers
-    // every valid ID_Start/ID_Continue code point in UTF-8 (their
-    // leading bytes are all >= 0xC2) plus all UTF-8 continuation
+    // accept any byte >= UTF8_HIGH_BIT as part of an identifier. That
+    // covers every valid ID_Start/ID_Continue code point in UTF-8
+    // (their leading bytes are all >= 0xC2) plus all UTF-8 continuation
     // bytes. The trade-off: we'd also accept some non-identifier
     // code points (e.g. emoji). For a strip-mode tokenizer that's
     // fine -- the engine is the final arbiter of identifier validity.
+    enum ubyte UTF8_HIGH_BIT = 0x80;
     static bool isIdentStart(char c) @safe pure nothrow @nogc
     {
         return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
-            || c == '_' || c == '$' || cast(ubyte) c >= 0x80;
+            || c == '_' || c == '$' || cast(ubyte) c >= UTF8_HIGH_BIT;
     }
     static bool isIdentCont(char c) @safe pure nothrow @nogc
     {
@@ -770,6 +772,70 @@ size_t skipRegexLit(const(char)[] buf, size_t pos) @safe pure nothrow @nogc
     // with the lexer's identifier classification.
     while (pos < buf.length && Lexer.isIdentCont(buf[pos])) pos++;
     return pos;
+}
+
+/// Skip past a `"..."` or `'...'` string literal starting at the quote
+/// at `buf[i]`. Returns the byte index just past the closing quote.
+/// Handles `\` escapes generically (`\n`, `\t`, `\"`, `\\`, etc. -- we
+/// don't decode, just skip the escape pair).
+///
+/// Shared by `dun.ts.strip` and `dun.ts.jsx`: both had their own copy
+/// before this; the lexer is the natural home now that it owns the
+/// rest of the tokenization helpers.
+size_t skipStringLit(const(char)[] buf, size_t i) @safe pure nothrow @nogc
+{
+    if (i >= buf.length) return i;
+    immutable quote = buf[i];
+    i++;
+    while (i < buf.length)
+    {
+        if (buf[i] == '\\') { i += 2; continue; }
+        if (buf[i] == quote) return i + 1;
+        i++;
+    }
+    return i;
+}
+
+/// Skip past a `` `...` `` template literal starting at the backtick
+/// at `buf[i]`. Tracks `${...}` interpolation brace depth and recurses
+/// into nested templates / strings so the returned index points just
+/// past the matching outer backtick.
+size_t skipTemplateLit(const(char)[] buf, size_t i) @safe pure nothrow @nogc
+{
+    if (i >= buf.length) return i;
+    i++;  // skip opening `
+    while (i < buf.length)
+    {
+        if (buf[i] == '\\') { i += 2; continue; }
+        if (buf[i] == '`') return i + 1;
+        if (buf[i] == '$' && i + 1 < buf.length && buf[i + 1] == '{')
+        {
+            i += 2;
+            int depth = 1;
+            while (i < buf.length && depth > 0)
+            {
+                if (buf[i] == '{')      depth++;
+                else if (buf[i] == '}') depth--;
+                else if (buf[i] == '`') i = skipTemplateLit(buf, i) - 1;
+                else if (buf[i] == '\'' || buf[i] == '"')
+                                        i = skipStringLit(buf, i) - 1;
+                i++;
+            }
+            continue;
+        }
+        i++;
+    }
+    return i;
+}
+
+unittest
+{
+    assert(skipStringLit(`"abc"def`, 0) == 5);
+    assert(skipStringLit(`'a\'b'rest`, 0) == 6);
+    assert(skipTemplateLit("`hello`x", 0) == 7);
+    assert(skipTemplateLit("`a${ {x:1} }b`tail", 0) == 14);
+    // Nested template inside interpolation.
+    assert(skipTemplateLit("`a${`x`}b`y", 0) == 10);
 }
 
 /// Whether a `/` at `prevChar`'s following position starts a regex

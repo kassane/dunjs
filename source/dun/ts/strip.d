@@ -1745,63 +1745,9 @@ bool isStmtStartMultiline(const(char)[] buf, size_t i) @safe pure nothrow @nogc
 // String / comment skipping
 // ---------------------------------------------------------------------------
 
-size_t skipStringLit(const(char)[] buf, size_t i) @safe pure nothrow @nogc
-{
-    if (i >= buf.length)
-        return i;
-    immutable quote = buf[i];
-    i++;
-    while (i < buf.length)
-    {
-        if (buf[i] == '\\')
-        {
-            i += 2;
-            continue;
-        }
-        if (buf[i] == quote)
-            return i + 1;
-        i++;
-    }
-    return i;
-}
-
-size_t skipTemplateLit(const(char)[] buf, size_t i) @safe pure nothrow @nogc
-{
-    if (i >= buf.length)
-        return i;
-    i++; // skip `
-    while (i < buf.length)
-    {
-        if (buf[i] == '\\')
-        {
-            i += 2;
-            continue;
-        }
-        if (buf[i] == '`')
-            return i + 1;
-        if (buf[i] == '$' && i + 1 < buf.length && buf[i + 1] == '{')
-        {
-            // Skip ${...} — track brace depth
-            i += 2;
-            int depth = 1;
-            while (i < buf.length && depth > 0)
-            {
-                if (buf[i] == '{')
-                    depth++;
-                else if (buf[i] == '}')
-                    depth--;
-                else if (buf[i] == '`')
-                    i = skipTemplateLit(buf, i) - 1;
-                else if ((buf[i] == '\'' || buf[i] == '"'))
-                    i = skipStringLit(buf, i) - 1;
-                i++;
-            }
-            continue;
-        }
-        i++;
-    }
-    return i;
-}
+// `skipStringLit` / `skipTemplateLit` live in dun.ts.parser.lexer so
+// the same implementation serves strip.d, jsx.d, and the lexer itself.
+public import dun.ts.parser.lexer : skipStringLit, skipTemplateLit;
 
 size_t skipToEOL(const(char)[] buf, size_t i) @safe pure nothrow @nogc
 {

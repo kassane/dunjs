@@ -118,5 +118,6 @@ Uses the C++ TMP <-> D TMP bridge pattern:
   patterns, GC tuning)
 - `TESTING.md` -- test inventory, integration sweep recipe,
   cross-runtime comparison grids
-- `BLOCKERS.md` -- production-readiness status
 - `CHANGELOG.md` -- phased delivery history
+- `CLAUDE.md ## Won't-fix design constraints` -- documented
+  no-go items (native .node addons, full Bun parser port)
