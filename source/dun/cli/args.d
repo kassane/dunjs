@@ -25,6 +25,10 @@ enum Command
 static assert(__traits(allMembers, Command).length == 14,
     "Command enum member count changed -- update parseArgs and main dispatch");
 
+/// Default `--max-concurrency` cap for `dun test --concurrent`.
+/// Matches Bun's documented default (`bun test --max-concurrency 20`).
+enum DEFAULT_TEST_MAX_CONCURRENCY = 20;
+
 /// Parsed CLI configuration.
 struct CliConfig
 {
@@ -52,8 +56,8 @@ struct CliConfig
     // `testMaxConcurrency` in parallel.
     bool testConcurrent;
     // `dun test --max-concurrency=N` — caps the parallel batch size.
-    // Default 20 matches Bun.
-    int testMaxConcurrency = 20;
+    // Default matches Bun.
+    int testMaxConcurrency = DEFAULT_TEST_MAX_CONCURRENCY;
     string initName;
     string[] fmtFiles;
     // `dun fmt --quotes=single|double` — when non-empty, rewrites

@@ -16,9 +16,21 @@
 module dun.cli.lint;
 
 import std.file : exists, isFile, isDir, dirEntries, SpanMode, readText;
-import std.path : extension, baseName;
+import std.path : extension;
 import std.stdio : writeln, writefln;
+import std.algorithm : canFind;
 import dun.ts.parser.lexer : Lexer, Token, T;
+
+/// Directory names skipped during recursive `dun lint <dir>` walks.
+private immutable string[] kIgnoredDirComponents = [
+    "/node_modules/", "/.dun/", "/dist/", "/build/"
+];
+
+/// Extensions that `dun lint` will tokenize. Everything else in a
+/// directory walk is skipped silently.
+private immutable string[] kLintableExtensions = [
+    ".js", ".ts", ".mjs", ".cjs", ".jsx", ".tsx", ".mts", ".cts"
+];
 
 /* `std.stdio.stderr` access trips a @safe inference issue when used
    from a top-level module function. Wrap the underlying impl in a
@@ -42,8 +54,9 @@ private struct Diagnostic
 private bool isLintable(string path) @safe
 {
     auto ext = path.extension;
-    return ext == ".js" || ext == ".ts" || ext == ".mjs" || ext == ".cjs"
-        || ext == ".jsx" || ext == ".tsx" || ext == ".mts" || ext == ".cts";
+    foreach (e; kLintableExtensions)
+        if (ext == e) return true;
+    return false;
 }
 
 /// Walk `paths` (file or directory) and run all rules. Returns exit
@@ -77,12 +90,10 @@ int runLint(string[] paths) @safe
             foreach (entry; dirEntries(p, SpanMode.depth))
             {
                 if (!entry.isFile) continue;
-                /* skip common ignored trees */
-                import std.algorithm : canFind;
-                if (entry.name.canFind("/node_modules/")) continue;
-                if (entry.name.canFind("/.dun/")) continue;
-                if (entry.name.canFind("/dist/")) continue;
-                if (entry.name.canFind("/build/")) continue;
+                bool skip = false;
+                foreach (ignored; kIgnoredDirComponents)
+                    if (entry.name.canFind(ignored)) { skip = true; break; }
+                if (skip) continue;
                 if (!isLintable(entry.name)) continue;
                 filesScanned++;
                 lintFile(entry.name, diags);

@@ -700,11 +700,14 @@ int runSingleTest(T)(T config, string filePath) @trusted
         ~ `globalThis.assertNotEquals=function(a,b){`
         ~ `if(a===b)throw new Error("Expected values to differ, got "+JSON.stringify(a));};`;
 
+    import std.conv : to;
+    import dun.cli.args : DEFAULT_TEST_MAX_CONCURRENCY;
     string postamble =
         `setTimeout(async function(){`
         ~ `var filter=typeof __dunTestFilter!=="undefined"?__dunTestFilter:"";`
         ~ `var defaultConcurrent=typeof __dunConcurrent!=="undefined"&&__dunConcurrent;`
-        ~ `var maxC=typeof __dunMaxConcurrency!=="undefined"?__dunMaxConcurrency:20;`
+        ~ `var maxC=typeof __dunMaxConcurrency!=="undefined"?__dunMaxConcurrency:`
+        ~ to!string(DEFAULT_TEST_MAX_CONCURRENCY) ~ `;`
         ~ `var runOne=async function(t){`
         ~ `try{var r=t.fn();if(r&&typeof r.then==="function")await r;`
         ~ `console.log("  ok:",t.name);`
@@ -734,7 +737,6 @@ int runSingleTest(T)(T config, string filePath) @trusted
         concurrentDecl ~= `var __dunConcurrent=true;`;
     if (config.testMaxConcurrency > 0)
     {
-        import std.conv : to;
         concurrentDecl ~= `var __dunMaxConcurrency=`
             ~ to!string(config.testMaxConcurrency) ~ `;`;
     }
