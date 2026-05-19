@@ -144,9 +144,9 @@ for 24 hours. `dun install` checks packages before download. See [SECURITY.md](S
 
 | Backend | Tests | Notes |
 |---------|-------|-------|
-| QuickJS-NG | 145/145 | Default. Interpreter, ES2025, smallest binary (9.8MB) |
+| QuickJS-NG | 146/146 | Default. Interpreter, ES2025, smallest binary (9.8MB) |
 | JavaScriptCore | 140/140 (1 SKIP) | JIT. Same engine as Safari/Bun. Skips `bun_v7_additions` pending io_uring fd-accumulation investigation |
-| V8 | 145/145 | JIT. Same engine as Chrome/Node.js (V8 15.0). Via C++ shim |
+| V8 | 146/146 | JIT. Same engine as Chrome/Node.js (V8 15.0). Via C++ shim |
 
 All 24 built-in modules, Workers, SharedArrayBuffer, Atomics, fetch, Deno compat, and web globals work identically on every backend.
 
@@ -176,7 +176,7 @@ BACKEND=jsc DUN=./dun-jsc bash tests/integration/run.sh
 BACKEND=v8  DUN=./dun-v8  bash tests/integration/run.sh
 ```
 
-145/145 integration on QJS / V8, 144/144 + 1 SKIP on JSC, plus 145 npm-compat checks,
+146/146 integration on QJS / V8, 145/145 + 1 SKIP on JSC, plus 145 npm-compat checks,
 98/98 ECMAScript spec audit (all 3 backends — /v set-op gap on
 QJS / V8 closed via source rewriter), 81/81 react-compat,
 231/231 safe-features, 45/45 security audit, 35/35 TypeScript
@@ -245,7 +245,7 @@ HTTP stress (wrk, 128 connections, req/sec — higher is better):
 
 DunJS JSC is within 1% of Bun on `feature_bench.js` JS compute.
 DunJS V8 beats Node.js on all HTTP endpoints.
-npm compat: **145/145** pass across all 6 runtimes.
+npm compat: **146/146** pass across all 6 runtimes.
 
 ## Can DunJS replace Node / Deno / Bun?
 
@@ -254,7 +254,7 @@ Partially. Honest assessment:
 **Where it works today** (CLI tools, build scripts, microservices,
 test harnesses, learning projects):
 
-- 145/145 integration sweep on QJS / V8 (144/144 + 1 SKIP on JSC); 145/145 npm-compat,
+- 146/146 integration sweep on QJS / V8 (145/145 + 1 SKIP on JSC); 146/146 npm-compat,
   98/98 ES2025 spec, 12/12 `deno_deploy_compat` vs Deno 2.7,
   13/13 `bun_bundler_compat` vs Bun 1.3, 38/38 v0.6.0 web API
   audit.
@@ -278,7 +278,7 @@ test harnesses, learning projects):
 
 **Where it can't yet**:
 
-- **Maturity.** v1.0 stable as of this release — 145/145
+- **Maturity.** v1.0 stable as of this release — 146/146
   integration sweep on QJS / V8, ThreadSanitizer clean (modulo
   intentional daemon worker threads), 147 JSC handle leaks
   plugged, 4 lockfree-converted hot paths. But no production

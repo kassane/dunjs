@@ -44,7 +44,7 @@ struct PermissionRegistry
     {
         if (perm !in scopedAllowList)
             scopedAllowList[perm] = [];
-        scopedAllowList[perm] ~= scopes;
+        scopedAllowList[perm] ~= canonicalizeScopes(perm, scopes);
     }
 
     /// Deny a scoped permission (overrides allow).
@@ -52,25 +52,81 @@ struct PermissionRegistry
     {
         if (perm !in scopedDenyList)
             scopedDenyList[perm] = [];
-        scopedDenyList[perm] ~= scopes;
+        scopedDenyList[perm] ~= canonicalizeScopes(perm, scopes);
+    }
+
+    /// Normalize relative path scopes (`./foo`) to absolute so they
+    /// match canonicalized resources in `check()`. Non-path perms
+    /// (net/env/sys) pass through unchanged. Closes the same
+    /// path-traversal class as the per-resource canonicalization
+    /// in `check()`.
+    private static string[] canonicalizeScopes(Permission perm, string[] scopes) @safe
+    {
+        final switch (perm) with (Permission)
+        {
+            case read: case write: case run: case ffi:
+                string[] out_;
+                out_.reserve(scopes.length);
+                foreach (s; scopes)
+                {
+                    if (s.length == 0) { out_ ~= s; continue; }
+                    try
+                    {
+                        import dun.platform.paths : canonicalizePath;
+                        auto c = canonicalizePath(s);
+                        out_ ~= c.length > 0 ? c : s;
+                    }
+                    catch (Exception) { out_ ~= s; }
+                }
+                return out_;
+            case net: case env: case sys: case hrtime: case all:
+                return scopes;
+        }
     }
 
     /// Check if a permission is granted for the given resource.
     bool check(Permission perm, string resource = "") @safe
     {
+        /* CVE-class fix: canonicalize the path BEFORE scope matching
+           so `/tmp/safe/../../etc/hostname` doesn't match a scope of
+           `/tmp/safe`. Without this, the raw `startsWith` check in
+           `isSubpathOf` passes (because the literal prefix matches)
+           even though the resolved path escapes the scope. Mirrors
+           the fix Node shipped for CVE-2023-32004. `env`/`sys`/`net`
+           use exact matching, so they're unaffected — only path-based
+           perms (read/write/run/ffi) need normalization. */
+        string normResource = resource;
+        if (resource.length > 0)
+        {
+            final switch (perm) with (Permission)
+            {
+                case read: case write: case run: case ffi:
+                    import dun.platform.paths : canonicalizePath;
+                    try
+                    {
+                        auto canon = canonicalizePath(resource);
+                        if (canon.length > 0) normResource = canon;
+                    }
+                    catch (Exception) {}
+                    break;
+                case net: case env: case sys: case hrtime: case all:
+                    break;
+            }
+        }
+
         // --allow-all grants everything
         if (auto s = Permission.all in globalPerms)
         {
             if (*s == PermissionState.granted)
             {
                 // But still check deny list
-                if (!isDenied(perm, resource))
+                if (!isDenied(perm, normResource))
                     return true;
             }
         }
 
         // Check deny list first (deny overrides allow)
-        if (isDenied(perm, resource))
+        if (isDenied(perm, normResource))
             return false;
 
         // Check global grant
@@ -85,7 +141,7 @@ struct PermissionRegistry
         {
             foreach (scope_; *scopes)
             {
-                if (matchesScopeForPerm(perm, resource, scope_))
+                if (matchesScopeForPerm(perm, normResource, scope_))
                     return true;
             }
         }
