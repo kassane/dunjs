@@ -79,6 +79,14 @@ struct CliConfig
     // `dun lint --fix` — auto-apply safe rewrites in-place
     // (eqeqeq → strict equality, no-debugger removes the statement).
     bool lintFix;
+    // `dun lint --quiet` — suppress warnings; only errors are
+    // reported. Useful for CI gates that want to track regressions
+    // without drowning in stylistic warnings.
+    bool lintQuiet;
+    // `dun lint --max-warnings=N` — exit 1 when warning count
+    // exceeds N. Default `-1` means "no cap" (warnings never fail).
+    // ESLint parity.
+    int lintMaxWarnings = -1;
     bool inspect;
     bool inspectBrk;
     ushort inspectPort = 9229;
@@ -373,6 +381,25 @@ CliConfig parseArgs(string[] args) @safe
             if (args[i] == "--fix")
             {
                 config.lintFix = true;
+                i++;
+            }
+            else if (args[i] == "--quiet")
+            {
+                config.lintQuiet = true;
+                i++;
+            }
+            else if (args[i].startsWith("--max-warnings="))
+            {
+                try
+                    config.lintMaxWarnings =
+                        to!int(args[i]["--max-warnings=".length .. $]);
+                catch (Exception)
+                {
+                    config.errorMessage = "invalid --max-warnings value";
+                    return config;
+                }
+                if (config.lintMaxWarnings < -1)
+                    config.lintMaxWarnings = -1;
                 i++;
             }
             else if (!args[i].startsWith("-"))
