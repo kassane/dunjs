@@ -76,6 +76,9 @@ struct CliConfig
     // `dun lint` — paths (files or directories) to scan. Defaults to "."
     // when empty.
     string[] lintPaths;
+    // `dun lint --fix` — auto-apply safe rewrites in-place
+    // (eqeqeq → strict equality, no-debugger removes the statement).
+    bool lintFix;
     bool inspect;
     bool inspectBrk;
     ushort inspectPort = 9229;
@@ -367,7 +370,12 @@ CliConfig parseArgs(string[] args) @safe
         i++;
         while (i < args.length)
         {
-            if (!args[i].startsWith("-"))
+            if (args[i] == "--fix")
+            {
+                config.lintFix = true;
+                i++;
+            }
+            else if (!args[i].startsWith("-"))
             {
                 config.lintPaths ~= args[i];
                 i++;

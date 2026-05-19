@@ -61,7 +61,7 @@ int main(string[] args)
         case Command.lint:
         {
             import dun.cli.lint : runLint;
-            return runLint(config.lintPaths);
+            return runLint(config.lintPaths, config.lintFix);
         }
         case Command.version_:
             printVersion();
@@ -74,7 +74,7 @@ int main(string[] args)
 
 private:
 
-public enum VERSION = "0.7.0";
+public enum VERSION = "0.8.0";
 
 int runScript(T)(T config)
 {
@@ -535,7 +535,8 @@ void printUsage()
         ~ "  audit            Scan node_modules/ for known CVEs\n"
         ~ "  init [name]      Initialize a new project\n"
         ~ "  fmt [files]      Format JavaScript/TypeScript files\n"
-        ~ "  bundle <entry>   Bundle JS/TS modules (--outdir DIR)\n"
+        ~ "  lint [paths]     Lint .js/.ts (eqeqeq / no-eval / no-debugger; --fix auto-applies)\n"
+        ~ "  bundle <entry>   Bundle JS/TS modules (--outdir DIR; --sourcemap[=inline|external])\n"
         ~ "  clean            Remove cache and build artifacts\n"
         ~ "  version          Print version\n"
         ~ "  help             Show this help\n\n"
