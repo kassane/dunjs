@@ -58,6 +58,11 @@ int main(string[] args)
             return runClean(config);
         case Command.bundle:
             return runBundle(config);
+        case Command.lint:
+        {
+            import dun.cli.lint : runLint;
+            return runLint(config.lintPaths);
+        }
         case Command.version_:
             printVersion();
             return 0;
@@ -69,7 +74,7 @@ int main(string[] args)
 
 private:
 
-public enum VERSION = "0.4.0";
+public enum VERSION = "0.7.0";
 
 int runScript(T)(T config)
 {
@@ -674,12 +679,19 @@ int runSingleTest(T)(T config, string filePath) @trusted
         source = expandVSetOps(source);
     }
 
-    // Inject test harness preamble
+    // Inject test harness preamble. `test.concurrent(...)` and
+    // `test.serial(...)` mirror Bun's API; the `--concurrent` CLI flag
+    // flips the default for plain `test(...)` calls (each test becomes
+    // concurrent unless explicitly tagged `.serial`). `--max-concurrency=N`
+    // caps the in-flight batch.
     string harness =
         `var __dunTests=[];var __dunTestFail=0;`
-        ~ `Deno.test=function(a,b){`
-        ~ `if(typeof a==="string")__dunTests.push({name:a,fn:b});`
-        ~ `else __dunTests.push({name:a.name,fn:a.fn||b});};`
+        ~ `function __dunPush(name,fn,mode){`
+        ~ `if(typeof name==="object"&&name){__dunTests.push({name:name.name,fn:name.fn||fn,mode:mode});return;}`
+        ~ `__dunTests.push({name:name,fn:fn,mode:mode});}`
+        ~ `Deno.test=function(a,b){__dunPush(a,b,"default");};`
+        ~ `Deno.test.concurrent=function(a,b){__dunPush(a,b,"concurrent");};`
+        ~ `Deno.test.serial=function(a,b){__dunPush(a,b,"serial");};`
         ~ `globalThis.test=Deno.test;`
         ~ `globalThis.assertEquals=function(a,b){`
         ~ `if(a!==b)throw new Error("Expected "+JSON.stringify(b)+", got "+JSON.stringify(a));};`
@@ -688,15 +700,30 @@ int runSingleTest(T)(T config, string filePath) @trusted
         ~ `globalThis.assertNotEquals=function(a,b){`
         ~ `if(a===b)throw new Error("Expected values to differ, got "+JSON.stringify(a));};`;
 
+    import std.conv : to;
+    import dun.cli.args : DEFAULT_TEST_MAX_CONCURRENCY;
     string postamble =
         `setTimeout(async function(){`
         ~ `var filter=typeof __dunTestFilter!=="undefined"?__dunTestFilter:"";`
+        ~ `var defaultConcurrent=typeof __dunConcurrent!=="undefined"&&__dunConcurrent;`
+        ~ `var maxC=typeof __dunMaxConcurrency!=="undefined"?__dunMaxConcurrency:`
+        ~ to!string(DEFAULT_TEST_MAX_CONCURRENCY) ~ `;`
+        ~ `var runOne=async function(t){`
+        ~ `try{var r=t.fn();if(r&&typeof r.then==="function")await r;`
+        ~ `console.log("  ok:",t.name);`
+        ~ `}catch(e){__dunTestFail++;console.log("  FAIL:",t.name);console.log("    Error:",e.message);}};`
+        ~ `var queue=[];var serials=[];`
         ~ `for(var i=0;i<__dunTests.length;i++){`
         ~ `var t=__dunTests[i];`
         ~ `if(filter&&t.name.indexOf(filter)===-1)continue;`
-        ~ `try{var r=t.fn();if(r&&typeof r.then==="function")await r;`
-        ~ `console.log("  ok:",t.name);`
-        ~ `}catch(e){__dunTestFail++;console.log("  FAIL:",t.name);console.log("    Error:",e.message);}}`
+        ~ `var isConcurrent=(t.mode==="concurrent")||(defaultConcurrent&&t.mode!=="serial");`
+        ~ `if(isConcurrent)queue.push(t);else serials.push(t);}`
+        ~ `/* serials always run sequentially first to preserve setup ordering */`
+        ~ `for(var s=0;s<serials.length;s++)await runOne(serials[s]);`
+        ~ `/* batched parallel execution of the concurrent set */`
+        ~ `for(var b=0;b<queue.length;b+=maxC){`
+        ~ `var slice=queue.slice(b,b+maxC);`
+        ~ `await Promise.all(slice.map(runOne));}`
         ~ `if(__dunTestFail>0)process.exitCode=1;},0);`;
 
     string filterDecl = "";
@@ -704,6 +731,14 @@ int runSingleTest(T)(T config, string filePath) @trusted
     {
         import std.array : replace;
         filterDecl = `var __dunTestFilter="` ~ config.testFilter.replace(`"`, `\"`) ~ `";`;
+    }
+    string concurrentDecl = "";
+    if (config.testConcurrent)
+        concurrentDecl ~= `var __dunConcurrent=true;`;
+    if (config.testMaxConcurrency > 0)
+    {
+        concurrentDecl ~= `var __dunMaxConcurrency=`
+            ~ to!string(config.testMaxConcurrency) ~ `;`;
     }
 
     auto engine = createEngine();
@@ -725,7 +760,7 @@ int runSingleTest(T)(T config, string filePath) @trusted
     }
 
     // Run harness setup
-    auto initRes = engine.eval(harness ~ filterDecl, "<test-harness>");
+    auto initRes = engine.eval(harness ~ filterDecl ~ concurrentDecl, "<test-harness>");
     if (!initRes.isError) engine.freeValue(initRes.value);
 
     // Run test file
@@ -1057,9 +1092,15 @@ int runBundle(T)(T config)
         entriesJs ~= "\"" ~ e.replace(`\`, `\\`).replace(`"`, `\"`) ~ "\"";
     }
     entriesJs ~= "]";
+    string sourcemapJs = "";
+    if (config.bundleSourcemap.length > 0)
+        sourcemapJs = ", sourcemap: \""
+            ~ config.bundleSourcemap.replace(`"`, `\"`) ~ "\"";
+    string minifyJs = config.bundleMinify ? ", minify: true" : "";
     string src =
         "Bun.build({ entrypoints: " ~ entriesJs ~
-        ", outdir: \"" ~ outDir.replace(`\`, `\\`).replace(`"`, `\"`) ~ "\"" ~
+        ", outdir: \"" ~ outDir.replace(`\`, `\\`).replace(`"`, `\"`) ~ "\""
+        ~ sourcemapJs ~ minifyJs ~
         " }).then(function(r) {" ~
         "  if (!r.success) { console.error('bundle failed'); process.exit(1); }" ~
         "  console.log('bundle ok →', r.outputs[0].path, '(' + r.outputs[0].size + ' bytes)');" ~

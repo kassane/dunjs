@@ -2,6 +2,11 @@ module dun.loop.iopoller;
 
 private enum MAX_FD_WATCHES = 64;
 
+/// IORING_OP_POLL_REMOVE ignores the SQE.fd field — the kernel
+/// matches the request to cancel by SQE.addr (the original ADD's
+/// user_data). We pass `-1` to make the "no fd" intent explicit.
+private enum int POLL_REMOVE_FD = -1;
+
 struct IOEvent
 {
     int fd;
@@ -61,12 +66,41 @@ struct IOPoller
     {
         version (linux)
         {
-            // Try io_uring first; fall back to epoll on older kernels or containers
-            uringFd = uringSetup(64, &sqRingPtr, &sqRingMapSize,
-                &cqRingPtr, &cqRingMapSize, &sqesPtr, &sqesMapSize,
-                &sqHead, &sqTail, &sqRingMask, &sqArray,
-                &cqHead, &cqTail, &cqRingMask, &cqes, &singleMmap);
-            if (uringFd >= 0)
+            /* io_uring vs epoll. Bun walks the same path and chose
+               epoll exclusively — their `bun.zig` `is_missing_io_uring`
+               helper exists only to skip native I/O ops on older
+               kernels; their event loop is epoll-only on Linux
+               (`src/io/posix_event_loop.zig` / `lib.rs`). The single
+               io_uring mention in their tree is a TODO marker in
+               package install.
+
+               We follow Bun's lead for the JSC backend specifically —
+               io_uring's POLL_ADD lifecycle interacts poorly with
+               JSC's concurrent GC under repeated server-restart
+               workloads (gdb confirms `dun.loop.iopoller.uringPoll`
+               hangs after ~9 `Deno.serve+shutdown` cycles). QJS / V8
+               keep io_uring because they don't trigger the
+               interaction. The runtime override `DUN_DISABLE_URING=1`
+               forces epoll on every backend (matches Bun behavior). */
+            bool forceEpoll = false;
+            try
+            {
+                import core.sys.posix.stdlib : getenv;
+                auto e = getenv("DUN_DISABLE_URING");
+                if (e !is null && *e != 0) forceEpoll = true;
+            }
+            catch (Exception) {}
+            version (EngineJSC) forceEpoll = true;
+
+            if (!forceEpoll)
+            {
+                // Try io_uring first; fall back to epoll on older kernels.
+                uringFd = uringSetup(64, &sqRingPtr, &sqRingMapSize,
+                    &cqRingPtr, &cqRingMapSize, &sqesPtr, &sqesMapSize,
+                    &sqHead, &sqTail, &sqRingMask, &sqArray,
+                    &cqHead, &cqTail, &cqRingMask, &cqes, &singleMmap);
+            }
+            if (!forceEpoll && uringFd >= 0)
             {
                 useUring = true;
             }
@@ -172,8 +206,14 @@ struct IOPoller
         {
             if (useUring)
             {
-                // Remove pending poll, re-add with new events
-                uringRemove(uringFd, fd, sqHead, sqTail, sqRingMask, sqArray, sqesPtr);
+                // Remove pending poll, re-add with new events. Use the
+                // tracked fdWatch entry's events to compute the ADD's
+                // user_data so POLL_REMOVE matches in the kernel.
+                auto w = uringLookupFd(fdWatches, fd);
+                if (w.fd == fd)
+                    uringRemove(uringFd, fd,
+                        uringUserData(fd, fdWatchEvents(w)),
+                        sqHead, sqTail, sqRingMask, sqArray, sqesPtr);
                 uringWatch(uringFd, fd, forRead, forWrite,
                     sqHead, sqTail, sqRingMask, sqArray, sqesPtr);
                 uringTrackFd(fdWatches, fd, forRead, forWrite);
@@ -208,7 +248,14 @@ struct IOPoller
         {
             if (useUring)
             {
-                uringRemove(uringFd, fd, sqHead, sqTail, sqRingMask, sqArray, sqesPtr);
+                // Look up the original watch BEFORE untracking — we need
+                // its events to compute the original ADD's user_data so
+                // POLL_REMOVE matches in the kernel.
+                auto w = uringLookupFd(fdWatches, fd);
+                if (w.fd == fd)
+                    uringRemove(uringFd, fd,
+                        uringUserData(fd, fdWatchEvents(w)),
+                        sqHead, sqTail, sqRingMask, sqArray, sqesPtr);
                 uringUntrackFd(fdWatches, fd);
                 if (watchCount > 0) watchCount--;
                 return;
@@ -469,13 +516,44 @@ version (linux)
             uringUserData(fd, ev), sqHead, sqTail, sqMask, sqArray, sqes);
     }
 
-    private void uringRemove(int ringFd, int fd,
+    private void uringRemove(int ringFd, int fd, ulong targetUserData,
         uint* sqHead, uint* sqTail, uint sqMask, uint* sqArray, IORingSQE* sqes) @trusted nothrow
     {
-        // POLL_REMOVE user_data must match the original ADD's user_data.
-        // We don't track it precisely; send 0 which cancels by fd via kernel matching.
-        uringSubmitSQE(ringFd, IORING_OP_POLL_REMOVE, fd, 0, 0,
-            sqHead, sqTail, sqMask, sqArray, sqes);
+        // POLL_REMOVE per the io_uring man page: the kernel cancels
+        // the ADD whose user_data matches SQE.addr (NOT
+        // SQE.user_data — the kernel looks them up by addr). The
+        // pre-fix path passed 0 in both fields, which doesn't match
+        // the (fd, events)-encoded user_data we put on POLL_ADD; on
+        // newer kernels the cancellation silently no-ops, leaving
+        // stale ADD registrations behind. Bisected via gdb after
+        // tests/integration/fixtures/deno_deploy_compat case 7
+        // showed Deno.serve hangs after the v0.7.0 install grew.
+        import core.atomic : atomicLoad, atomicStore, MemoryOrder;
+        uint tail = atomicLoad!(MemoryOrder.acq)(*cast(shared uint*) sqTail);
+        uint head = atomicLoad!(MemoryOrder.acq)(*cast(shared uint*) sqHead);
+        if ((tail - head) > sqMask) return;
+
+        uint idx = tail & sqMask;
+        sqes[idx] = IORingSQE.init;
+        sqes[idx].opcode     = IORING_OP_POLL_REMOVE;
+        sqes[idx].fd         = POLL_REMOVE_FD;
+        sqes[idx].addr       = targetUserData;
+        sqes[idx].user_data  = 0;
+        sqArray[idx]         = idx;
+        atomicStore!(MemoryOrder.rel)(*cast(shared uint*) sqTail, tail + 1);
+
+        syscall(SYS_io_uring_enter, cast(long) ringFd, 1L, 0L,
+                cast(long) IORING_ENTER_GETEVENTS, null, 0L);
+    }
+
+    /// Reconstruct the events bitmask we passed to the original
+    /// POLL_ADD so its user_data can be computed for POLL_REMOVE.
+    private uint fdWatchEvents(const ref FdWatch w) @safe pure nothrow @nogc
+    {
+        uint ev = 0;
+        if (w.readable) ev |= POLL_IN | POLL_HUP | POLL_ERR;
+        if (w.writable) ev |= POLL_OUT;
+        return ev;
     }
 
     private void uringTrackFd(ref FdWatch[MAX_FD_WATCHES] watches, int fd,

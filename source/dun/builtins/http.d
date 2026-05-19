@@ -520,12 +520,18 @@ JSHandle makeHttpServerObj(IJSEngine engine, int id) @trusted
     ensureHttpFnsCached(engine);
     auto obj = engine.newObject();
     engine.setProperty(obj, "__hid", engine.newInt(id));
-    engine.setProperty(obj, "listen", engine.dupValue(_httpSrvListen));
-    engine.setProperty(obj, "close", engine.dupValue(_httpSrvClose));
-    engine.setProperty(obj, "on", engine.dupValue(_httpSrvOn));
-    engine.setProperty(obj, "once", engine.dupValue(_httpSrvOn));
-    engine.setProperty(obj, "emit", engine.dupValue(_httpResEmit));
-    engine.setProperty(obj, "address", engine.dupValue(_httpSrvAddress));
+    /* Use bindMethod for the cached __gshared function handles —
+       it doesn't dup, which avoids the JSC `dupValue + setProperty`
+       leak (JSC's setProperty doesn't consume `val`, so each
+       dupValue here orphaned one JSValueProtect per server). 6
+       leaks per server × 9 servers used to push JSC into a state
+       where the 10th accept never fired. */
+    engine.bindMethod(obj, "listen",  _httpSrvListen);
+    engine.bindMethod(obj, "close",   _httpSrvClose);
+    engine.bindMethod(obj, "on",      _httpSrvOn);
+    engine.bindMethod(obj, "once",    _httpSrvOn);
+    engine.bindMethod(obj, "emit",    _httpResEmit);
+    engine.bindMethod(obj, "address", _httpSrvAddress);
     engine.setProperty(obj, "listening", engine.newBool(false));
     engine.setProperty(obj, "_events", engine.newObject());
     engine.setProperty(obj, "maxConnections", engine.newInt(0));
@@ -831,7 +837,9 @@ JSHandle makeReqObj(IJSEngine engine, int connId) @trusted
     engine.setProperty(obj, "connection", engine.dupValue(sock));
     engine.setProperty(obj, "socket", sock);
     ensureHttpFnsCached(engine);
-    engine.setProperty(obj, "on", engine.dupValue(_httpReqOn));
+    /* bindMethod for cached __gshared handle — see makeResponseObj
+       for the JSC leak rationale. */
+    engine.bindMethod(obj, "on", _httpReqOn);
     return obj;
 }
 
@@ -912,17 +920,23 @@ JSHandle makeResObj(IJSEngine engine, int connId) @trusted
     engine.setProperty(obj, "writableFinished", engine.newBool(false));
     engine.setProperty(obj, "socket", engine.newObject());
     ensureHttpFnsCached(engine);
-    engine.setProperty(obj, "setHeader", engine.dupValue(_httpResSetHeader));
-    engine.setProperty(obj, "getHeader", engine.dupValue(_httpResGetHeader));
-    engine.setProperty(obj, "getHeaders", engine.dupValue(_httpResGetHeaders));
-    engine.setProperty(obj, "hasHeader", engine.dupValue(_httpResHasHeader));
-    engine.setProperty(obj, "removeHeader", engine.dupValue(_httpResRemoveHeader));
-    engine.setProperty(obj, "writeHead", engine.dupValue(_httpResWriteHead));
-    engine.setProperty(obj, "write", engine.dupValue(_httpResWrite));
-    engine.setProperty(obj, "end", engine.dupValue(_httpResEnd));
-    engine.setProperty(obj, "on", engine.dupValue(_httpResOn));
-    engine.setProperty(obj, "once", engine.dupValue(_httpResOn));
-    engine.setProperty(obj, "emit", engine.dupValue(_httpResEmit));
+    /* bindMethod for cached __gshared method handles — JSC's
+       setProperty doesn't consume `val`, so the previous
+       dupValue + setProperty pattern leaked one JSValueProtect per
+       attached method per response object. 11 leaks per response ×
+       N requests was the dominant accumulation that bounded JSC
+       to ~9 sequential `Deno.serve+fetch+shutdown` cycles. */
+    engine.bindMethod(obj, "setHeader",    _httpResSetHeader);
+    engine.bindMethod(obj, "getHeader",    _httpResGetHeader);
+    engine.bindMethod(obj, "getHeaders",   _httpResGetHeaders);
+    engine.bindMethod(obj, "hasHeader",    _httpResHasHeader);
+    engine.bindMethod(obj, "removeHeader", _httpResRemoveHeader);
+    engine.bindMethod(obj, "writeHead",    _httpResWriteHead);
+    engine.bindMethod(obj, "write",        _httpResWrite);
+    engine.bindMethod(obj, "end",          _httpResEnd);
+    engine.bindMethod(obj, "on",           _httpResOn);
+    engine.bindMethod(obj, "once",         _httpResOn);
+    engine.bindMethod(obj, "emit",         _httpResEmit);
     return obj;
 }
 
