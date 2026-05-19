@@ -371,9 +371,12 @@ JSHandle makeServerObject(IJSEngine engine, int id) @trusted
     ensureNetFnsCached(engine);
     auto obj = engine.newObject();
     engine.setProperty(obj, "__id", engine.newInt(id));
-    engine.setProperty(obj, "listen", engine.dupValue(_srvListen));
-    engine.setProperty(obj, "close", engine.dupValue(_srvClose));
-    engine.setProperty(obj, "on", engine.dupValue(_srvOn));
+    /* bindMethod for cached __gshared handles — avoids the JSC
+       dupValue+setProperty leak. See http.d / ws.d for the
+       /debug-native-callback rationale. */
+    engine.bindMethod(obj, "listen", _srvListen);
+    engine.bindMethod(obj, "close",  _srvClose);
+    engine.bindMethod(obj, "on",     _srvOn);
     return obj;
 }
 
@@ -383,10 +386,12 @@ JSHandle makeSocketObject(IJSEngine engine, int id) @trusted
     ensureNetFnsCached(engine);
     auto obj = engine.newObject();
     engine.setProperty(obj, "__id", engine.newInt(id));
-    engine.setProperty(obj, "on", engine.dupValue(_sockOn));
-    engine.setProperty(obj, "write", engine.dupValue(_sockWrite));
-    engine.setProperty(obj, "end", engine.dupValue(_sockEnd));
-    engine.setProperty(obj, "destroy", engine.dupValue(_sockDestroy));
+    /* bindMethod — cached socket method handles attached without
+       the JSC dupValue+setProperty leak. Per-socket hot path. */
+    engine.bindMethod(obj, "on",      _sockOn);
+    engine.bindMethod(obj, "write",   _sockWrite);
+    engine.bindMethod(obj, "end",     _sockEnd);
+    engine.bindMethod(obj, "destroy", _sockDestroy);
 
     if (id >= 0 && id < cast(int) sockets.length)
     {

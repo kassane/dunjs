@@ -494,9 +494,9 @@ package JSHandle buildStatObject(IJSEngine engine, ref SafeStatResult r) @truste
     engine.setProperty(obj, "birthtimeMs", engine.newFloat(r.ctimeMs));
     engine.setProperty(obj, "birthtime", makeDate(engine, r.ctimeMs));
     ensureStatFnsCached(engine);
-    engine.setProperty(obj, "isFile", engine.dupValue(_cachedIsFileFn));
-    engine.setProperty(obj, "isDirectory", engine.dupValue(_cachedIsDirFn));
-    engine.setProperty(obj, "isSymbolicLink", engine.dupValue(_cachedIsSymlinkFn));
+    engine.bindMethod(obj, "isFile", _cachedIsFileFn);
+    engine.bindMethod(obj, "isDirectory", _cachedIsDirFn);
+    engine.bindMethod(obj, "isSymbolicLink", _cachedIsSymlinkFn);
     return obj;
 }
 

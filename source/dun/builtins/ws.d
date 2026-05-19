@@ -363,9 +363,13 @@ JSHandle makeWsServerObj(IJSEngine engine, int id) @trusted
     auto obj = engine.newObject();
     ensureWsFnsCached(engine);
     engine.setProperty(obj, "__wsid", engine.newInt(id));
-    engine.setProperty(obj, "on", engine.dupValue(_wsSrvOn));
-    engine.setProperty(obj, "close", engine.dupValue(_wsSrvClose));
-    engine.setProperty(obj, "listen", engine.dupValue(_wsSrvListen));
+    /* bindMethod avoids the JSC dupValue+setProperty leak (JSC's
+       setProperty doesn't consume `val`, so each dupValue here
+       leaked a JSValueProtect per server). Matches the http.d
+       fix from /debug-native-callback. */
+    engine.bindMethod(obj, "on",     _wsSrvOn);
+    engine.bindMethod(obj, "close",  _wsSrvClose);
+    engine.bindMethod(obj, "listen", _wsSrvListen);
     return obj;
 }
 
@@ -623,9 +627,12 @@ JSHandle makeWsClientObj(IJSEngine engine, int cid) @trusted
     ensureWsFnsCached(engine);
     auto obj = engine.newObject();
     engine.setProperty(obj, "__wcid", engine.newInt(cid));
-    engine.setProperty(obj, "on", engine.dupValue(_wsClientOn));
-    engine.setProperty(obj, "send", engine.dupValue(_wsClientSend));
-    engine.setProperty(obj, "close", engine.dupValue(_wsClientClose));
+    /* bindMethod for cached __gshared method handles — avoids
+       the JSC dupValue+setProperty leak on every WebSocket
+       client (per-connection hot path). */
+    engine.bindMethod(obj, "on",    _wsClientOn);
+    engine.bindMethod(obj, "send",  _wsClientSend);
+    engine.bindMethod(obj, "close", _wsClientClose);
     engine.setProperty(obj, "readyState", engine.newInt(0));
     return obj;
 }
@@ -758,9 +765,12 @@ JSHandle makeWsServerConnObj(IJSEngine engine, int cid) @trusted
     ensureWsFnsCached(engine);
     auto obj = engine.newObject();
     engine.setProperty(obj, "__wcid", engine.newInt(cid));
-    engine.setProperty(obj, "on", engine.dupValue(_wsClientOn));
-    engine.setProperty(obj, "send", engine.dupValue(_wsClientSend));
-    engine.setProperty(obj, "close", engine.dupValue(_wsClientClose));
+    /* bindMethod — see makeWsClientObj above for the JSC leak
+       rationale. Server-side connections share the same client
+       function handles. */
+    engine.bindMethod(obj, "on",    _wsClientOn);
+    engine.bindMethod(obj, "send",  _wsClientSend);
+    engine.bindMethod(obj, "close", _wsClientClose);
     return obj;
 }
 

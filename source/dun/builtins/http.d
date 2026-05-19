@@ -250,23 +250,23 @@ void ensureHttpFnsCached(IJSEngine engine) @trusted
     engine.freeValue(resEmitResult.value);
 
     auto global = engine.getGlobal();
-    engine.setProperty(global, "__httpSetHeader", engine.dupValue(_httpResSetHeader));
-    engine.setProperty(global, "__httpWriteHead", engine.dupValue(_httpResWriteHead));
-    engine.setProperty(global, "__httpWrite", engine.dupValue(_httpResWrite));
-    engine.setProperty(global, "__httpEnd", engine.dupValue(_httpResEnd));
-    engine.setProperty(global, "__httpReqOn", engine.dupValue(_httpReqOn));
-    engine.setProperty(global, "__httpGetHeader", engine.dupValue(_httpResGetHeader));
-    engine.setProperty(global, "__httpGetHeaders", engine.dupValue(_httpResGetHeaders));
-    engine.setProperty(global, "__httpHasHeader", engine.dupValue(_httpResHasHeader));
-    engine.setProperty(global, "__httpRemoveHeader", engine.dupValue(_httpResRemoveHeader));
+    engine.bindMethod(global, "__httpSetHeader", _httpResSetHeader);
+    engine.bindMethod(global, "__httpWriteHead", _httpResWriteHead);
+    engine.bindMethod(global, "__httpWrite", _httpResWrite);
+    engine.bindMethod(global, "__httpEnd", _httpResEnd);
+    engine.bindMethod(global, "__httpReqOn", _httpReqOn);
+    engine.bindMethod(global, "__httpGetHeader", _httpResGetHeader);
+    engine.bindMethod(global, "__httpGetHeaders", _httpResGetHeaders);
+    engine.bindMethod(global, "__httpHasHeader", _httpResHasHeader);
+    engine.bindMethod(global, "__httpRemoveHeader", _httpResRemoveHeader);
 
     // Native function to lazily retrieve headers for a connection
     auto getHdrsFn = engine.newFunction(&jsGetConnHeaders, "__httpGetHeaders", 1);
     engine.setProperty(global, "__httpGetHeaders", getHdrsFn);
 
     // Store res.on/emit on globalThis for use in dispatch function
-    engine.setProperty(global, "__httpResOn", engine.dupValue(_httpResOn));
-    engine.setProperty(global, "__httpResEmit", engine.dupValue(_httpResEmit));
+    engine.bindMethod(global, "__httpResOn", _httpResOn);
+    engine.bindMethod(global, "__httpResEmit", _httpResEmit);
     engine.freeValue(global);
 
     import dun.engine.iface : JSResult;
@@ -695,6 +695,22 @@ JSHandle jsHttpServerClose(void* ctx, JSHandle thisVal, scope JSHandle[] args) @
             _activeServerCount--;
             engine.setProperty(thisVal, "listening", engine.newBool(false));
 
+            // Release the user's request callback. Without this each
+            // shutdown leaked one JSValueProtect on the closure
+            // (createServer + setRequestListener dupValue'd it; only
+            // setRequestListener replacement freed the old one).
+            // After 7–10 sequential Deno.serve+shutdown cycles the
+            // accumulated handler closures + their captured locals
+            // were enough to push JSC's GC into the event-loop
+            // deadlock state the /debug-native-callback skill
+            // documents as "JSValueProtect / JSValueUnprotect:
+            // Reference-counting underflow or leaked protection".
+            if (srv.cbSet)
+            {
+                engine.freeValue(srv.requestCb);
+                srv.cbSet = false;
+            }
+
             // Close all active connections belonging to this server
             foreach (ci, ref conn; httpConns)
             {
@@ -834,8 +850,27 @@ JSHandle makeReqObj(IJSEngine engine, int connId) @trusted
     auto sock = engine.newObject();
     engine.setProperty(sock, "remoteAddress", engine.newString("127.0.0.1"));
     engine.setProperty(sock, "remotePort", engine.newInt(0));
-    engine.setProperty(obj, "connection", engine.dupValue(sock));
-    engine.setProperty(obj, "socket", sock);
+    /* Node's `req.connection` is an alias for `req.socket` — both
+       point at the same object. QJS's setProperty consumes the
+       value; JSC's does not. Branch-by-backend so both backends
+       end up with exactly one outer protect dropped via freeValue
+       and the two property-table refs (which the engine reclaims
+       when `obj` becomes unreachable). */
+    version (EngineQuickJS)
+    {
+        // QJS: dup the second setProperty so it has its own ref to
+        // consume; the first consumes the original from newObject.
+        engine.setProperty(obj, "connection", sock);          // consumes
+        engine.setProperty(obj, "socket", engine.dupValue(sock));  // consumes the dup
+    }
+    else
+    {
+        // JSC / V8: setProperty doesn't consume; share the original
+        // ref and drop it once.
+        engine.setProperty(obj, "connection", sock);
+        engine.setProperty(obj, "socket", sock);
+        engine.freeValue(sock);
+    }
     ensureHttpFnsCached(engine);
     /* bindMethod for cached __gshared handle — see makeResponseObj
        for the JSC leak rationale. */

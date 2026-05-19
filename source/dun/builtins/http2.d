@@ -2235,9 +2235,9 @@ JSHandle jsHttp2Connect(void* ctx, JSHandle thisVal, scope JSHandle[] args) @tru
         auto obj = engine.newObject();
         engine.setProperty(obj, "__h2_csid", engine.newInt(sessionId));
         engine.setProperty(obj, "__h2_url", engine.newString(url));
-        engine.setProperty(obj, "request", engine.dupValue(_h2ClientReq));
-        engine.setProperty(obj, "close", engine.dupValue(_h2ClientClose));
-        engine.setProperty(obj, "on", engine.dupValue(_h2ClientSessionOn));
+        engine.bindMethod(obj, "request", _h2ClientReq);
+        engine.bindMethod(obj, "close", _h2ClientClose);
+        engine.bindMethod(obj, "on", _h2ClientSessionOn);
         return obj;
     }
     else
@@ -2246,9 +2246,9 @@ JSHandle jsHttp2Connect(void* ctx, JSHandle thisVal, scope JSHandle[] args) @tru
         auto obj = engine.newObject();
         engine.setProperty(obj, "__h2_csid", engine.newInt(-1));
         engine.setProperty(obj, "__h2_url", engine.newString(url));
-        engine.setProperty(obj, "request", engine.dupValue(_h2ClientReq));
-        engine.setProperty(obj, "close", engine.dupValue(_h2ClientClose));
-        engine.setProperty(obj, "on", engine.dupValue(_h2ClientSessionOn));
+        engine.bindMethod(obj, "request", _h2ClientReq);
+        engine.bindMethod(obj, "close", _h2ClientClose);
+        engine.bindMethod(obj, "on", _h2ClientSessionOn);
         return obj;
     }
 }
@@ -2303,9 +2303,9 @@ JSHandle jsH2ClientRequest(void* ctx, JSHandle thisVal, scope JSHandle[] args) @
     {
         // Fallback: return a stub stream object for non-connected sessions
         auto streamObj = engine.newObject();
-        engine.setProperty(streamObj, "on", engine.dupValue(_h2StreamOn));
-        engine.setProperty(streamObj, "end", engine.dupValue(_h2StreamEnd));
-        engine.setProperty(streamObj, "write", engine.dupValue(_h2StreamWrite));
+        engine.bindMethod(streamObj, "on", _h2StreamOn);
+        engine.bindMethod(streamObj, "end", _h2StreamEnd);
+        engine.bindMethod(streamObj, "write", _h2StreamWrite);
         return streamObj;
     }
 
@@ -2359,9 +2359,9 @@ JSHandle jsH2ClientRequest(void* ctx, JSHandle thisVal, scope JSHandle[] args) @
     catch (Throwable)
     {
         auto streamObj = engine.newObject();
-        engine.setProperty(streamObj, "on", engine.dupValue(_h2StreamOn));
-        engine.setProperty(streamObj, "end", engine.dupValue(_h2StreamEnd));
-        engine.setProperty(streamObj, "write", engine.dupValue(_h2StreamWrite));
+        engine.bindMethod(streamObj, "on", _h2StreamOn);
+        engine.bindMethod(streamObj, "end", _h2StreamEnd);
+        engine.bindMethod(streamObj, "write", _h2StreamWrite);
         return streamObj;
     }
 
@@ -2373,9 +2373,9 @@ JSHandle jsH2ClientRequest(void* ctx, JSHandle thisVal, scope JSHandle[] args) @
     auto streamObj = engine.newObject();
     engine.setProperty(streamObj, "__h2_csid", engine.newInt(sessionId));
     engine.setProperty(streamObj, "__h2_stream_id", engine.newInt(cast(int) streamId));
-    engine.setProperty(streamObj, "on", engine.dupValue(_h2StreamOn));
-    engine.setProperty(streamObj, "end", engine.dupValue(_h2StreamEnd));
-    engine.setProperty(streamObj, "write", engine.dupValue(_h2StreamWrite));
+    engine.bindMethod(streamObj, "on", _h2StreamOn);
+    engine.bindMethod(streamObj, "end", _h2StreamEnd);
+    engine.bindMethod(streamObj, "write", _h2StreamWrite);
     return streamObj;
 }
 
@@ -2517,9 +2517,9 @@ JSHandle makeH2ServerObj(IJSEngine engine, int id) @trusted
     ensureH2FnsCached(engine);
     auto obj = engine.newObject();
     engine.setProperty(obj, "__h2sid", engine.newInt(id));
-    engine.setProperty(obj, "listen", engine.dupValue(_h2SrvListen));
-    engine.setProperty(obj, "close", engine.dupValue(_h2SrvClose));
-    engine.setProperty(obj, "on", engine.dupValue(_h2SrvOn));
+    engine.bindMethod(obj, "listen", _h2SrvListen);
+    engine.bindMethod(obj, "close", _h2SrvClose);
+    engine.bindMethod(obj, "on", _h2SrvOn);
     return obj;
 }
 
@@ -2676,10 +2676,10 @@ JSHandle makeH2ResponseObj(IJSEngine engine, ref H2Connection conn, uint streamI
     ensureH2FnsCached(engine);
     auto obj = engine.newObject();
     engine.setProperty(obj, "__h2_stream_id", engine.newInt(cast(int) streamId));
-    engine.setProperty(obj, "writeHead", engine.dupValue(_h2ResWriteHead));
-    engine.setProperty(obj, "write", engine.dupValue(_h2ResWrite));
-    engine.setProperty(obj, "end", engine.dupValue(_h2ResEnd));
-    engine.setProperty(obj, "setHeader", engine.dupValue(_h2ResSetHeader));
+    engine.bindMethod(obj, "writeHead", _h2ResWriteHead);
+    engine.bindMethod(obj, "write", _h2ResWrite);
+    engine.bindMethod(obj, "end", _h2ResEnd);
+    engine.bindMethod(obj, "setHeader", _h2ResSetHeader);
     return obj;
 }
 
