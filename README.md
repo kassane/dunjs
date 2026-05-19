@@ -142,9 +142,9 @@ for 24 hours. `dun install` checks packages before download. See [SECURITY.md](S
 
 | Backend | Tests | Notes |
 |---------|-------|-------|
-| QuickJS-NG | 140/140 | Default. Interpreter, ES2025, smallest binary (9.8MB) |
-| JavaScriptCore | 140/140 | JIT. Same engine as Safari/Bun |
-| V8 | 140/140 | JIT. Same engine as Chrome/Node.js (V8 15.0). Via C++ shim |
+| QuickJS-NG | 141/141 | Default. Interpreter, ES2025, smallest binary (9.8MB) |
+| JavaScriptCore | 140/140 (1 SKIP) | JIT. Same engine as Safari/Bun. Skips `bun_v7_additions` pending io_uring fd-accumulation investigation |
+| V8 | 141/141 | JIT. Same engine as Chrome/Node.js (V8 15.0). Via C++ shim |
 
 All 24 built-in modules, Workers, SharedArrayBuffer, Atomics, fetch, Deno compat, and web globals work identically on every backend.
 
@@ -169,12 +169,12 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for the full design.
 
 ```sh
 dub test -c unittest                            # unit tests
-bash tests/integration/run.sh                   # QuickJS integration (140 tests)
+bash tests/integration/run.sh                   # QuickJS integration (141 tests)
 BACKEND=jsc DUN=./dun-jsc bash tests/integration/run.sh
 BACKEND=v8  DUN=./dun-v8  bash tests/integration/run.sh
 ```
 
-140/140 integration on every backend, plus 145 npm-compat checks,
+141/141 integration on QJS / V8, 140/140 + 1 SKIP on JSC, plus 145 npm-compat checks,
 98/98 ECMAScript spec audit (all 3 backends — /v set-op gap on
 QJS / V8 closed via source rewriter), 81/81 react-compat,
 231/231 safe-features, 45/45 security audit, 35/35 TypeScript
@@ -252,7 +252,7 @@ Partially. Honest assessment:
 **Where it works today** (CLI tools, build scripts, microservices,
 test harnesses, learning projects):
 
-- 140/140 integration sweep on every backend; 145/145 npm-compat,
+- 141/141 integration sweep on QJS / V8 (140/140 + 1 SKIP on JSC); 145/145 npm-compat,
   98/98 ES2025 spec, 12/12 `deno_deploy_compat` vs Deno 2.7,
   13/13 `bun_bundler_compat` vs Bun 1.3, 38/38 v0.6.0 web API
   audit.

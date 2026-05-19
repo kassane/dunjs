@@ -18,6 +18,14 @@ void installBunCompat(IJSEngine engine) @trusted
         }
         catch (Exception) {}
     }
+    /* v0.7.0 extras (deepMatch / concatArrayBuffers /
+       arrayBufferToString / randomUUIDv7 / nanoseconds /
+       gcAggressionLevel / shrink / generateHeapSnapshot).
+       Installed on QuickJS + V8; skipped on JSC pending the
+       fd-accumulation investigation — see bun_extras_v7.d
+       module-level comment for the gdb backtrace. */
+    import dun.runtime.bun_extras_v7 : installBunExtrasV7;
+    installBunExtrasV7(engine);
 }
 
 private string bunCompatSource() pure nothrow @safe
