@@ -201,6 +201,12 @@ private void collectDiagnostics(string path, string source, ref Diagnostic[] dia
     auto lex = Lexer(source);
     bool prevWasIdent = false;
     const(char)[] prevIdentText;
+    /* no-empty-block: previous-token kind, used to detect `{}`. The
+       brace pair must be back-to-back (no tokens between them). */
+    T prevKind = T.eof;
+    uint prevOpenBraceStart = 0;
+    uint prevOpenBraceLine = 0;
+    uint prevOpenBraceCol = 0;
 
     for (;;)
     {
@@ -245,6 +251,32 @@ private void collectDiagnostics(string path, string source, ref Diagnostic[] dia
                 diags ~= Diagnostic(path, tok.line, tok.col, "warn",
                     "no-eval", "avoid `new Function()` / `Function()` (dynamic eval)");
         }
+
+        /* no-var — flag `var` declarations in favor of `let` / `const`.
+           Auto-fix to `let` (the safer default; `const` requires
+           reassignment analysis which the `prefer-const` rule below
+           does separately). `var` is `T.t_var` from the lexer. */
+        if (tok.kind == T.t_var)
+            diags ~= Diagnostic(path, tok.line, tok.col, "warn",
+                "no-var", "use `let` or `const` instead of `var`",
+                true, tok.start, tok.length, "let");
+
+        /* no-empty-block — flag `{}` (an empty block statement or
+           object literal). Heuristic: if we just saw `{` and the
+           current token is `}`, emit. Not auto-fixable (could be an
+           intentional placeholder); reporting is the value. */
+        if (prevKind == T.open_brace && tok.kind == T.close_brace)
+            diags ~= Diagnostic(path, prevOpenBraceLine, prevOpenBraceCol,
+                "warn", "no-empty-block",
+                "empty block statement / object literal");
+
+        if (tok.kind == T.open_brace)
+        {
+            prevOpenBraceStart = tok.start;
+            prevOpenBraceLine = tok.line;
+            prevOpenBraceCol = tok.col;
+        }
+        prevKind = tok.kind;
 
         /* track previous identifier for the no-eval lookahead.
            `prev = .` would mask member-call eval and Function — for

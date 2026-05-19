@@ -6,7 +6,7 @@ DunJS is a 7-layer JavaScript/TypeScript runtime with a **pluggable engine archi
 (IJSEngine interface), a cross-platform I/O poller (epoll/kqueue/poll), and a Deno-inspired permission system.
 
 Three backends are fully functional: QuickJS-NG (default), JavaScriptCore, and V8.
-All 142 integration tests pass on QuickJS / V8 (141/141 + 1 SKIP on JSC; full parity across all 3 backends for the shared 141).
+All 143 integration tests pass on QuickJS / V8 (142/142 + 1 SKIP on JSC; full parity across all 3 backends for the shared 142).
 All built-in modules (see CLAUDE.md for the canonical list — 30+ including fs, path,
 crypto, net, http, http2, http3, buffer, events, url, os, fetch, child_process, stream,
 zlib, dns, ws, sqlite, util, assert, querystring, string_decoder, timers/promises, vm,
@@ -606,4 +606,4 @@ tests/benchmarks/http_bench/
 HTTP server optimizations: TCP_NODELAY, buffered single-write response, CTFE pre-computed
 status lines, connection slot pooling, fd→connId hashmap (O(1) lookup), JS-level dispatch
 for reduced FFI overhead, lazy header loading, MSG_NOSIGNAL, EOF detection with RAII cleanup.
-**QuickJS 142/142, JSC 141/141 + 1 SKIP, V8 142/142** (full parity on the shared 140; v7 Bun.* additions deferred on JSC).
+**QuickJS 143/143, JSC 142/142 + 1 SKIP, V8 143/143** (full parity on the shared 142; v7 Bun.* additions deferred on JSC).
