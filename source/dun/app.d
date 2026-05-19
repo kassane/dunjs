@@ -74,7 +74,7 @@ int main(string[] args)
 
 private:
 
-public enum VERSION = "0.4.0";
+public enum VERSION = "0.7.0";
 
 int runScript(T)(T config)
 {

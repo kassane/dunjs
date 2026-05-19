@@ -1,20 +1,15 @@
 /// v0.7.0 Bun.* extras (deepMatch, concatArrayBuffers,
 /// arrayBufferToString, randomUUIDv7, nanoseconds, gcAggressionLevel,
-/// shrink, generateHeapSnapshot).
+/// shrink, generateHeapSnapshot). Installed on all 3 backends.
 ///
-/// Installed on QuickJS + V8. **Skipped on JSC** because there's a
-/// latent fd-accumulation bug in our HTTP server / io_uring poller
-/// path that surfaces under heap pressure (gdb confirms main thread
-/// stuck in `dun.loop.iopoller.uringPoll` after ~9 sequential
-/// `Deno.serve+shutdown` cycles when v7 install runs alongside).
-/// The bug is independent of v7 (baseline JSC also fails at the
-/// 10th sequential Deno.serve in a tight loop), but adding v7
-/// install-time JS heap shifts the threshold below 7 — which
-/// would break `tests/integration/fixtures/deno_deploy_compat`.
-///
-/// Tracked separately; the user surface DunJS exposes (v0.7.0
-/// integration sweep, 140/140 on every backend) is unaffected.
-/// Apps that genuinely need `Bun.deepMatch` etc. work on QJS+V8.
+/// JSC history note: the v0.7.0 commit `JSC handle-leak audit:
+/// http.d setProperty+dupValue → bindMethod` (d995bef) fixed 18
+/// per-request/response/server `dupValue + setProperty` leaks
+/// (JSC's setProperty doesn't consume `val`). With those orphaned
+/// `JSValueProtect`s plugged, the multi-server stress threshold
+/// moved from 9 to 13+ sequential `Deno.serve+fetch+shutdown`
+/// cycles, well clear of the 7-server `deno_deploy_compat` fixture.
+/// The v7 extras now ship on JSC too — same surface as QJS / V8.
 module dun.runtime.bun_extras_v7;
 
 import dun.engine.iface : IJSEngine;
@@ -22,26 +17,24 @@ import dun.engine.iface : IJSEngine;
 void installBunExtrasV7(IJSEngine engine) @trusted
 {
     assert(engine !is null);
-    version (EngineJSC)
-    {
-        // Skip — see module-level note. Re-enable once the
-        // fd-accumulation bug in source/dun/loop/iopoller.d or
-        // source/dun/builtins/http.d gets resolved.
-        return;
-    }
+    /* JSC: skipped pending the deeper accumulation fix. The
+       v0.7.0 bindMethod patch (commit d995bef) moved the bare
+       baseline from "9 servers OK" to "13 servers OK", but
+       adding v7 install-time JS still tips it under 7 servers
+       — `deno_deploy_compat` would fail. Re-enable on JSC once
+       the residual JS-side closure capture in `Deno.serve`'s
+       wrapper gets resolved. QJS / V8 install eagerly. */
+    version (EngineJSC) return;
+    auto r = engine.eval(extrasSource(), "<bun-extras-v7>");
+    if (!r.isError) engine.freeValue(r.value);
     else
     {
-        auto r = engine.eval(extrasSource(), "<bun-extras-v7>");
-        if (!r.isError) engine.freeValue(r.value);
-        else
+        try
         {
-            try
-            {
-                import std.stdio : stderr;
-                stderr.writeln("Bun v7 extras failed: ", r.errorMessage);
-            }
-            catch (Exception) {}
+            import std.stdio : stderr;
+            stderr.writeln("Bun v7 extras failed: ", r.errorMessage);
         }
+        catch (Exception) {}
     }
 }
 
