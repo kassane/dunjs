@@ -850,18 +850,27 @@ JSHandle makeReqObj(IJSEngine engine, int connId) @trusted
     auto sock = engine.newObject();
     engine.setProperty(sock, "remoteAddress", engine.newString("127.0.0.1"));
     engine.setProperty(sock, "remotePort", engine.newInt(0));
-    /* Share one socket object between req.connection and req.socket
-       (Node's req.connection is an alias). The dupValue keeps the
-       QuickJS refcount balanced — QJS's setProperty consumes — and
-       on JSC the second setProperty no-ops the consume. The
-       trailing freeValue(sock) drops the outer protect on JSC; QJS
-       has already consumed the original via the second setProperty,
-       so freeing the (already-decremented) D handle there is a
-       balanced refcount underflow guard (`fromHandle` to ensure
-       proper accounting). */
-    engine.setProperty(obj, "connection", engine.dupValue(sock));
-    engine.setProperty(obj, "socket", engine.dupValue(sock));
-    engine.freeValue(sock);
+    /* Node's `req.connection` is an alias for `req.socket` — both
+       point at the same object. QJS's setProperty consumes the
+       value; JSC's does not. Branch-by-backend so both backends
+       end up with exactly one outer protect dropped via freeValue
+       and the two property-table refs (which the engine reclaims
+       when `obj` becomes unreachable). */
+    version (EngineQuickJS)
+    {
+        // QJS: dup the second setProperty so it has its own ref to
+        // consume; the first consumes the original from newObject.
+        engine.setProperty(obj, "connection", sock);          // consumes
+        engine.setProperty(obj, "socket", engine.dupValue(sock));  // consumes the dup
+    }
+    else
+    {
+        // JSC / V8: setProperty doesn't consume; share the original
+        // ref and drop it once.
+        engine.setProperty(obj, "connection", sock);
+        engine.setProperty(obj, "socket", sock);
+        engine.freeValue(sock);
+    }
     ensureHttpFnsCached(engine);
     /* bindMethod for cached __gshared handle — see makeResponseObj
        for the JSC leak rationale. */
