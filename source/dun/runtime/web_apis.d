@@ -701,6 +701,290 @@ private string webAPIsSource() pure nothrow @safe
     ~ "if(typeof globalThis.crypto==='undefined')globalThis.crypto={};"
 
     // ═══════════════════════════════════
+    // Event subclasses — MessageEvent, ErrorEvent, PromiseRejectionEvent,
+    // CloseEvent. All extend Event with their named data fields.
+    // ═══════════════════════════════════
+    ~ "if(typeof globalThis.MessageEvent==='undefined'){"
+    ~ "globalThis.MessageEvent=function MessageEvent(type,init){"
+    ~ "Event.call(this,type,init);init=init||{};"
+    ~ "this.data=init.data;this.origin=init.origin||'';this.lastEventId=init.lastEventId||'';"
+    ~ "this.source=init.source||null;this.ports=init.ports||[];"
+    ~ "};"
+    ~ "MessageEvent.prototype=Object.create(Event.prototype);"
+    ~ "MessageEvent.prototype.constructor=MessageEvent;"
+    ~ "}"
+    ~ "if(typeof globalThis.ErrorEvent==='undefined'){"
+    ~ "globalThis.ErrorEvent=function ErrorEvent(type,init){"
+    ~ "Event.call(this,type,init);init=init||{};"
+    ~ "this.message=init.message||'';this.filename=init.filename||'';"
+    ~ "this.lineno=init.lineno||0;this.colno=init.colno||0;this.error=init.error||null;"
+    ~ "};"
+    ~ "ErrorEvent.prototype=Object.create(Event.prototype);"
+    ~ "ErrorEvent.prototype.constructor=ErrorEvent;"
+    ~ "}"
+    ~ "if(typeof globalThis.PromiseRejectionEvent==='undefined'){"
+    ~ "globalThis.PromiseRejectionEvent=function PromiseRejectionEvent(type,init){"
+    ~ "Event.call(this,type,init);init=init||{};"
+    ~ "this.promise=init.promise;this.reason=init.reason;"
+    ~ "};"
+    ~ "PromiseRejectionEvent.prototype=Object.create(Event.prototype);"
+    ~ "PromiseRejectionEvent.prototype.constructor=PromiseRejectionEvent;"
+    ~ "}"
+    ~ "if(typeof globalThis.CloseEvent==='undefined'){"
+    ~ "globalThis.CloseEvent=function CloseEvent(type,init){"
+    ~ "Event.call(this,type,init);init=init||{};"
+    ~ "this.wasClean=!!init.wasClean;this.code=init.code||1005;this.reason=init.reason||'';"
+    ~ "};"
+    ~ "CloseEvent.prototype=Object.create(Event.prototype);"
+    ~ "CloseEvent.prototype.constructor=CloseEvent;"
+    ~ "}"
+
+    // ═══════════════════════════════════
+    // Web Storage — localStorage / sessionStorage / Storage class.
+    // In-memory only (no disk persistence yet — Node/Bun behave the
+    // same in non-DOM contexts).
+    // ═══════════════════════════════════
+    ~ "if(typeof globalThis.Storage==='undefined'){"
+    ~ "globalThis.Storage=function Storage(){this._d={};};"
+    ~ "Storage.prototype.getItem=function(k){return this._d.hasOwnProperty(k)?this._d[k]:null;};"
+    ~ "Storage.prototype.setItem=function(k,v){this._d[String(k)]=String(v);};"
+    ~ "Storage.prototype.removeItem=function(k){delete this._d[k];};"
+    ~ "Storage.prototype.clear=function(){this._d={};};"
+    ~ "Storage.prototype.key=function(i){return Object.keys(this._d)[i]||null;};"
+    ~ "Object.defineProperty(Storage.prototype,'length',{get:function(){return Object.keys(this._d).length;}});"
+    ~ "globalThis.localStorage=new Storage();"
+    ~ "globalThis.sessionStorage=new Storage();"
+    ~ "}"
+
+    // ═══════════════════════════════════
+    // Cache API — caches / CacheStorage / Cache. In-memory only;
+    // matches the Service Worker Cache Storage spec surface but
+    // doesn't share entries across processes.
+    // ═══════════════════════════════════
+    ~ "if(typeof globalThis.CacheStorage==='undefined'){"
+    ~ "globalThis.Cache=function Cache(){this._d=new Map();};"
+    ~ "Cache.prototype.match=async function(req){"
+    ~ "var key=typeof req==='string'?req:(req&&req.url)||String(req);"
+    ~ "return this._d.get(key);"
+    ~ "};"
+    ~ "Cache.prototype.put=async function(req,res){"
+    ~ "var key=typeof req==='string'?req:(req&&req.url)||String(req);"
+    ~ "this._d.set(key,res);"
+    ~ "};"
+    ~ "Cache.prototype.add=async function(req){"
+    ~ "var res=await fetch(req);await this.put(req,res);"
+    ~ "};"
+    ~ "Cache.prototype.addAll=async function(reqs){"
+    ~ "for(var i=0;i<reqs.length;i++)await this.add(reqs[i]);"
+    ~ "};"
+    ~ "Cache.prototype.delete=async function(req){"
+    ~ "var key=typeof req==='string'?req:(req&&req.url)||String(req);"
+    ~ "return this._d.delete(key);"
+    ~ "};"
+    ~ "Cache.prototype.keys=async function(){return Array.from(this._d.keys()).map(function(k){return new Request(k);});};"
+    ~ "Cache.prototype.matchAll=async function(){return Array.from(this._d.values());};"
+    ~ "globalThis.CacheStorage=function CacheStorage(){this._d=new Map();};"
+    ~ "CacheStorage.prototype.open=async function(name){"
+    ~ "if(!this._d.has(name))this._d.set(name,new Cache());"
+    ~ "return this._d.get(name);"
+    ~ "};"
+    ~ "CacheStorage.prototype.has=async function(name){return this._d.has(name);};"
+    ~ "CacheStorage.prototype.delete=async function(name){return this._d.delete(name);};"
+    ~ "CacheStorage.prototype.keys=async function(){return Array.from(this._d.keys());};"
+    ~ "CacheStorage.prototype.match=async function(req){"
+    ~ "for(var c of this._d.values()){var r=await c.match(req);if(r)return r;}"
+    ~ "return undefined;"
+    ~ "};"
+    ~ "globalThis.caches=new CacheStorage();"
+    ~ "}"
+
+    // ═══════════════════════════════════
+    // FileReader — sync + async paths over Blob/File. Minimal impl
+    // sufficient for libraries that read uploads / fs results into
+    // text / dataURL form.
+    // ═══════════════════════════════════
+    ~ "if(typeof globalThis.FileReader==='undefined'){"
+    ~ "globalThis.FileReader=function FileReader(){"
+    ~ "EventTarget.call(this);"
+    ~ "this.readyState=0;this.result=null;this.error=null;"
+    ~ "this.onload=null;this.onloadend=null;this.onloadstart=null;this.onerror=null;this.onabort=null;this.onprogress=null;"
+    ~ "};"
+    ~ "FileReader.prototype=Object.create(EventTarget.prototype);"
+    ~ "FileReader.prototype.constructor=FileReader;"
+    ~ "FileReader.EMPTY=0;FileReader.LOADING=1;FileReader.DONE=2;"
+    ~ "FileReader.prototype._fire=function(name,ev){"
+    ~ "var h=this['on'+name];if(typeof h==='function')h.call(this,ev||{type:name,target:this});"
+    ~ "this.dispatchEvent(ev||{type:name,target:this});"
+    ~ "};"
+    ~ "FileReader.prototype._run=function(blob,mode){"
+    ~ "var self=this;self.readyState=1;self._fire('loadstart');"
+    ~ "Promise.resolve().then(async function(){"
+    ~ "try{"
+    ~ "if(mode==='text'){self.result=await blob.text();}"
+    ~ "else if(mode==='arrayBuffer'){self.result=await blob.arrayBuffer();}"
+    ~ "else if(mode==='dataURL'){"
+    ~ "var buf=new Uint8Array(await blob.arrayBuffer());"
+    ~ "var bin='';for(var i=0;i<buf.length;i++)bin+=String.fromCharCode(buf[i]);"
+    ~ "self.result='data:'+(blob.type||'application/octet-stream')+';base64,'+btoa(bin);"
+    ~ "}"
+    ~ "else if(mode==='binaryString'){"
+    ~ "var buf2=new Uint8Array(await blob.arrayBuffer());"
+    ~ "var b='';for(var j=0;j<buf2.length;j++)b+=String.fromCharCode(buf2[j]);"
+    ~ "self.result=b;"
+    ~ "}"
+    ~ "self.readyState=2;self._fire('load');self._fire('loadend');"
+    ~ "}catch(e){self.error=e;self.readyState=2;self._fire('error');self._fire('loadend');}"
+    ~ "});"
+    ~ "};"
+    ~ "FileReader.prototype.readAsText=function(blob){this._run(blob,'text');};"
+    ~ "FileReader.prototype.readAsArrayBuffer=function(blob){this._run(blob,'arrayBuffer');};"
+    ~ "FileReader.prototype.readAsDataURL=function(blob){this._run(blob,'dataURL');};"
+    ~ "FileReader.prototype.readAsBinaryString=function(blob){this._run(blob,'binaryString');};"
+    ~ "FileReader.prototype.abort=function(){if(this.readyState===1){this.readyState=2;this._fire('abort');this._fire('loadend');}};"
+    ~ "}"
+
+    // ═══════════════════════════════════
+    // DOM geometry — DOMRect / DOMRectReadOnly / DOMPoint /
+    // DOMPointReadOnly / DOMMatrix / DOMMatrixReadOnly / DOMQuad.
+    // Plain value classes per the Geometry Interfaces spec.
+    // ═══════════════════════════════════
+    ~ "if(typeof globalThis.DOMPointReadOnly==='undefined'){"
+    ~ "globalThis.DOMPointReadOnly=function DOMPointReadOnly(x,y,z,w){"
+    ~ "this.x=+x||0;this.y=+y||0;this.z=+z||0;this.w=w==null?1:+w;"
+    ~ "};"
+    ~ "DOMPointReadOnly.fromPoint=function(p){p=p||{};return new DOMPointReadOnly(p.x,p.y,p.z,p.w);};"
+    ~ "globalThis.DOMPoint=function DOMPoint(x,y,z,w){DOMPointReadOnly.call(this,x,y,z,w);};"
+    ~ "DOMPoint.prototype=Object.create(DOMPointReadOnly.prototype);"
+    ~ "DOMPoint.prototype.constructor=DOMPoint;"
+    ~ "DOMPoint.fromPoint=DOMPointReadOnly.fromPoint;"
+    ~ "}"
+    ~ "if(typeof globalThis.DOMRectReadOnly==='undefined'){"
+    ~ "globalThis.DOMRectReadOnly=function DOMRectReadOnly(x,y,w,h){"
+    ~ "this.x=+x||0;this.y=+y||0;this.width=+w||0;this.height=+h||0;"
+    ~ "};"
+    ~ "Object.defineProperty(DOMRectReadOnly.prototype,'top',{get:function(){return this.y;}});"
+    ~ "Object.defineProperty(DOMRectReadOnly.prototype,'left',{get:function(){return this.x;}});"
+    ~ "Object.defineProperty(DOMRectReadOnly.prototype,'right',{get:function(){return this.x+this.width;}});"
+    ~ "Object.defineProperty(DOMRectReadOnly.prototype,'bottom',{get:function(){return this.y+this.height;}});"
+    ~ "DOMRectReadOnly.fromRect=function(r){r=r||{};return new DOMRectReadOnly(r.x,r.y,r.width,r.height);};"
+    ~ "globalThis.DOMRect=function DOMRect(x,y,w,h){DOMRectReadOnly.call(this,x,y,w,h);};"
+    ~ "DOMRect.prototype=Object.create(DOMRectReadOnly.prototype);"
+    ~ "DOMRect.prototype.constructor=DOMRect;"
+    ~ "DOMRect.fromRect=DOMRectReadOnly.fromRect;"
+    ~ "}"
+    ~ "if(typeof globalThis.DOMQuad==='undefined'){"
+    ~ "globalThis.DOMQuad=function DOMQuad(p1,p2,p3,p4){"
+    ~ "this.p1=DOMPoint.fromPoint(p1);this.p2=DOMPoint.fromPoint(p2);"
+    ~ "this.p3=DOMPoint.fromPoint(p3);this.p4=DOMPoint.fromPoint(p4);"
+    ~ "};"
+    ~ "DOMQuad.prototype.getBounds=function(){"
+    ~ "var xs=[this.p1.x,this.p2.x,this.p3.x,this.p4.x];"
+    ~ "var ys=[this.p1.y,this.p2.y,this.p3.y,this.p4.y];"
+    ~ "var minX=Math.min.apply(null,xs),maxX=Math.max.apply(null,xs);"
+    ~ "var minY=Math.min.apply(null,ys),maxY=Math.max.apply(null,ys);"
+    ~ "return new DOMRect(minX,minY,maxX-minX,maxY-minY);"
+    ~ "};"
+    ~ "}"
+    ~ "if(typeof globalThis.DOMMatrixReadOnly==='undefined'){"
+    ~ "globalThis.DOMMatrixReadOnly=function DOMMatrixReadOnly(init){"
+    ~ "if(Array.isArray(init)&&init.length===6){"
+    ~ "this.a=init[0];this.b=init[1];this.c=init[2];this.d=init[3];this.e=init[4];this.f=init[5];this.is2D=true;"
+    ~ "}else{this.a=1;this.b=0;this.c=0;this.d=1;this.e=0;this.f=0;this.is2D=true;}"
+    ~ "this.isIdentity=this.a===1&&this.b===0&&this.c===0&&this.d===1&&this.e===0&&this.f===0;"
+    ~ "};"
+    ~ "globalThis.DOMMatrix=function DOMMatrix(init){DOMMatrixReadOnly.call(this,init);};"
+    ~ "DOMMatrix.prototype=Object.create(DOMMatrixReadOnly.prototype);"
+    ~ "DOMMatrix.prototype.constructor=DOMMatrix;"
+    ~ "}"
+
+    // ═══════════════════════════════════
+    // ImageData — pixel buffer (Canvas API). Constructor accepts
+    // either (w,h) or (Uint8ClampedArray,w[,h]). Used by libraries
+    // that synthesise canvas-bound data without a real DOM.
+    // ═══════════════════════════════════
+    ~ "if(typeof globalThis.ImageData==='undefined'){"
+    ~ "globalThis.ImageData=function ImageData(a,b,c){"
+    ~ "if(a instanceof Uint8ClampedArray){"
+    ~ "this.data=a;this.width=b;this.height=c||(a.length/(4*b));"
+    ~ "}else{"
+    ~ "this.width=a;this.height=b;this.data=new Uint8ClampedArray(a*b*4);"
+    ~ "}"
+    ~ "this.colorSpace='srgb';"
+    ~ "};"
+    ~ "}"
+
+    // ═══════════════════════════════════
+    // CryptoKey / SubtleCrypto types — handed to / from
+    // `crypto.subtle.*`. Plain marker classes for `instanceof` checks.
+    // ═══════════════════════════════════
+    ~ "if(typeof globalThis.CryptoKey==='undefined'){"
+    ~ "globalThis.CryptoKey=function CryptoKey(){};"
+    ~ "}"
+    ~ "if(typeof globalThis.SubtleCrypto==='undefined'){"
+    ~ "globalThis.SubtleCrypto=function SubtleCrypto(){};"
+    ~ "if(typeof crypto!=='undefined'&&crypto.subtle){"
+    ~ "Object.setPrototypeOf(crypto.subtle,SubtleCrypto.prototype);"
+    ~ "}"
+    ~ "}"
+
+    // ═══════════════════════════════════
+    // Stream controller / reader classes — needed for `instanceof`
+    // checks in libraries (e.g. cross-fetch). The instances we hand
+    // out from `getReader()` / `enqueue` are already shape-compatible;
+    // these are the named classes.
+    // ═══════════════════════════════════
+    ~ "if(typeof globalThis.ReadableStreamDefaultReader==='undefined'){"
+    ~ "globalThis.ReadableStreamDefaultReader=function ReadableStreamDefaultReader(){};"
+    ~ "}"
+    ~ "if(typeof globalThis.ReadableStreamBYOBReader==='undefined'){"
+    ~ "globalThis.ReadableStreamBYOBReader=function ReadableStreamBYOBReader(){};"
+    ~ "}"
+    ~ "if(typeof globalThis.ReadableByteStreamController==='undefined'){"
+    ~ "globalThis.ReadableByteStreamController=function ReadableByteStreamController(){};"
+    ~ "}"
+    ~ "if(typeof globalThis.WritableStreamDefaultWriter==='undefined'){"
+    ~ "globalThis.WritableStreamDefaultWriter=function WritableStreamDefaultWriter(){};"
+    ~ "}"
+    ~ "if(typeof globalThis.WritableStreamDefaultController==='undefined'){"
+    ~ "globalThis.WritableStreamDefaultController=function WritableStreamDefaultController(){};"
+    ~ "}"
+    ~ "if(typeof globalThis.TransformStreamDefaultController==='undefined'){"
+    ~ "globalThis.TransformStreamDefaultController=function TransformStreamDefaultController(){};"
+    ~ "}"
+
+    // ═══════════════════════════════════
+    // PerformanceObserver — minimal observer over the `performance`
+    // mark/measure entries. Real spec includes resource-timing,
+    // navigation-timing etc. that we don't model; this covers the
+    // mark/measure subset that monitoring libraries use.
+    // ═══════════════════════════════════
+    ~ "if(typeof globalThis.PerformanceObserver==='undefined'){"
+    ~ "var _perfObservers=[];"
+    ~ "globalThis.PerformanceObserver=function PerformanceObserver(cb){this._cb=cb;this._types=[];};"
+    ~ "PerformanceObserver.prototype.observe=function(opts){"
+    ~ "this._types=opts&&opts.entryTypes?opts.entryTypes:(opts&&opts.type?[opts.type]:[]);"
+    ~ "if(_perfObservers.indexOf(this)===-1)_perfObservers.push(this);"
+    ~ "};"
+    ~ "PerformanceObserver.prototype.disconnect=function(){"
+    ~ "var i=_perfObservers.indexOf(this);if(i!==-1)_perfObservers.splice(i,1);"
+    ~ "};"
+    ~ "PerformanceObserver.prototype.takeRecords=function(){return [];};"
+    ~ "PerformanceObserver.supportedEntryTypes=['mark','measure','resource'];"
+    ~ "/* hook into performance.mark/measure to feed observers */"
+    ~ "if(typeof performance!=='undefined'){"
+    ~ "var _origMark=performance.mark;var _origMeasure=performance.measure;"
+    ~ "if(_origMark)performance.mark=function(name,opts){"
+    ~ "var r=_origMark.apply(this,arguments);"
+    ~ "var entry={name:name,entryType:'mark',startTime:performance.now(),duration:0};"
+    ~ "for(var i=0;i<_perfObservers.length;i++){"
+    ~ "if(_perfObservers[i]._types.indexOf('mark')!==-1){"
+    ~ "try{_perfObservers[i]._cb({getEntries:function(){return [entry];},getEntriesByName:function(n){return n===name?[entry]:[];},getEntriesByType:function(t){return t==='mark'?[entry]:[];}});}catch(e){}"
+    ~ "}}"
+    ~ "return r;"
+    ~ "};"
+    ~ "}}"
+
+    // ═══════════════════════════════════
     // console.time/timeEnd/timeLog/count/countReset/table
     // ═══════════════════════════════════
     ~ "var _timers={},_counters={};"
