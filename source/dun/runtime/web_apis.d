@@ -21,7 +21,329 @@ void installWebAPIs(IJSEngine engine) @trusted
     else
         engine.freeValue(res.value);
 
+    // Extras land via lazy getters — `Object.defineProperty` on
+    // globalThis with a getter that compiles + evaluates the chunk on
+    // first access. Avoids the JSC heap-pressure spike at install
+    // time that triggered the concurrent-GC vs D-event-loop deadlock
+    // on the eager-allocation path. The visible side-effect is
+    // identical: `typeof X === 'function'` still resolves correctly.
+    installLazyExtras(engine);
+
     bindNativeCryptoOnGlobal(engine);
+}
+
+private void installLazyExtras(IJSEngine engine) @trusted
+{
+    import std.array : Appender;
+    Appender!string sb;
+    sb.put("(function(){");
+    foreach (chunk; extrasSources())
+    {
+        // For each chunk, expose every defined global as a getter
+        // that runs the chunk on first read. The chunk itself uses
+        // `if (typeof globalThis.X === 'undefined')` guards, so it's
+        // a no-op on subsequent calls.
+        sb.put("var _ran_");
+        sb.put(sanitizeTag(chunk.tag));
+        sb.put("=false;");
+    }
+    sb.put("var _lazy=function(tag,names,src){");
+    sb.put("var fire=function(){");
+    sb.put("if(globalThis['__ran_'+tag])return;");
+    sb.put("globalThis['__ran_'+tag]=true;");
+    /* Delete every accessor first so the chunk's `if(typeof X==='undefined')`
+       checks see an undefined data property (no getter to re-invoke). */
+    sb.put("for(var i=0;i<names.length;i++)try{delete globalThis[names[i]];}catch(e){}");
+    sb.put("try{(new Function(src))();}catch(e){console.log('lazy chunk '+tag+' err:'+e.message);}");
+    sb.put("};");
+    sb.put("names.forEach(function(n){");
+    sb.put("try{Object.defineProperty(globalThis,n,{configurable:true,enumerable:true,");
+    sb.put("get:function(){fire();return globalThis[n];},");
+    sb.put("set:function(v){try{delete globalThis[n];}catch(e){}globalThis[n]=v;}});");
+    sb.put("}catch(e){console.log('lazy defineProperty '+n+' err:'+e.message);}");
+    sb.put("});};");
+    foreach (chunk; extrasSources())
+    {
+        sb.put("_lazy(\"");
+        sb.put(sanitizeTag(chunk.tag));
+        sb.put("\",[");
+        bool first = true;
+        foreach (n; chunkGlobalNames(chunk.tag))
+        {
+            if (!first) sb.put(",");
+            sb.put("\"");
+            sb.put(n);
+            sb.put("\"");
+            first = false;
+        }
+        sb.put("],");
+        sb.put(escapeJsLit(chunk.src));
+        sb.put(");");
+    }
+    sb.put("})()");
+    auto src = sb.data;
+    auto r = engine.eval(src, "<web-extras-lazy>");
+    if (r.isError)
+    {
+        try { import std.stdio : stderr; stderr.writeln("[web-extras-lazy] ", engine.getException()); }
+        catch (Exception) {}
+    }
+    engine.freeValue(r.value);
+}
+
+private alias sanitizeTag = sanitizeTagSafe;
+
+private string escapeJsLit(string s) pure @safe
+{
+    string r = "\"";
+    foreach (c; s)
+    {
+        if      (c == '\\') r ~= "\\\\";
+        else if (c == '"')  r ~= "\\\"";
+        else if (c == '\n') r ~= "\\n";
+        else if (c == '\r') r ~= "\\r";
+        else if (c == '\t') r ~= "\\t";
+        else                r ~= c;
+    }
+    return r ~ "\"";
+}
+
+private string sanitizeTagSafe(string tag) pure @safe
+{
+    string out_;
+    foreach (c; tag)
+        if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9'))
+            out_ ~= c;
+    return out_;
+}
+
+private string[] chunkGlobalNames(string tag) pure nothrow @safe
+{
+    switch (tag)
+    {
+        case "<web-observers>":
+            return ["IntersectionObserver", "MutationObserver", "ResizeObserver",
+                    "IntersectionObserverEntry", "ResizeObserverEntry", "MutationRecord"];
+        case "<web-transport>":
+            return ["WebTransport", "WebTransportError",
+                    "WebTransportBidirectionalStream", "WebTransportDatagramDuplexStream"];
+        case "<web-rtc>":
+            return ["RTCPeerConnection"];
+        case "<indexeddb>":
+            return ["indexedDB", "IDBDatabase", "IDBTransaction", "IDBObjectStore",
+                    "IDBIndex", "IDBCursor", "IDBCursorWithValue", "IDBRequest",
+                    "IDBOpenDBRequest", "IDBKeyRange", "IDBVersionChangeEvent", "IDBFactory"];
+        case "<notification>":
+            return ["Notification"];
+        case "<cookie-store>":
+            return ["CookieStore", "cookieStore", "CookieChangeEvent"];
+        case "<file-reader-sync>":
+            return ["FileReaderSync"];
+        case "<image-bitmap>":
+            return ["ImageBitmap", "createImageBitmap"];
+        default:
+            return [];
+    }
+}
+
+private struct ExtrasChunk { string src; string tag; }
+
+private ExtrasChunk[] extrasSources() pure nothrow @safe
+{
+    return [
+        ExtrasChunk(observersSource(), "<web-observers>"),
+        ExtrasChunk(webTransportSource(), "<web-transport>"),
+        ExtrasChunk(webRtcSource(), "<web-rtc>"),
+        ExtrasChunk(indexedDBSource(), "<indexeddb>"),
+        ExtrasChunk(notificationSource(), "<notification>"),
+        ExtrasChunk(cookieStoreSource(), "<cookie-store>"),
+        ExtrasChunk(fileReaderSyncSource(), "<file-reader-sync>"),
+        ExtrasChunk(imageBitmapSource(), "<image-bitmap>"),
+    ];
+}
+
+private string observersSource() pure nothrow @safe
+{
+    return `(function(){
+var mk=function(name){
+  var C=function(cb){this._cb=cb;};
+  C.prototype.observe=function(){};
+  C.prototype.unobserve=function(){};
+  C.prototype.disconnect=function(){};
+  C.prototype.takeRecords=function(){return [];};
+  globalThis[name]=C;
+};
+if(typeof globalThis.IntersectionObserver==='undefined')mk('IntersectionObserver');
+if(typeof globalThis.MutationObserver==='undefined')mk('MutationObserver');
+if(typeof globalThis.ResizeObserver==='undefined')mk('ResizeObserver');
+if(typeof globalThis.IntersectionObserverEntry==='undefined')
+  globalThis.IntersectionObserverEntry=function IntersectionObserverEntry(){};
+if(typeof globalThis.ResizeObserverEntry==='undefined')
+  globalThis.ResizeObserverEntry=function ResizeObserverEntry(){};
+if(typeof globalThis.MutationRecord==='undefined')
+  globalThis.MutationRecord=function MutationRecord(){};
+})()`;
+}
+
+private string webTransportSource() pure nothrow @safe
+{
+    return `(function(){
+if(typeof globalThis.WebTransport==='undefined'){
+  globalThis.WebTransport=function WebTransport(url){
+    throw new Error('WebTransport: not yet implemented (use dun:http3 for HTTP/3)');
+  };
+}
+if(typeof globalThis.WebTransportError==='undefined'){
+  globalThis.WebTransportError=function WebTransportError(message,opts){
+    Error.call(this,message);this.message=message||'';
+    this.source=(opts&&opts.source)||'stream';this.streamErrorCode=(opts&&opts.streamErrorCode)||null;
+  };
+  WebTransportError.prototype=Object.create(Error.prototype);
+  WebTransportError.prototype.constructor=WebTransportError;
+  WebTransportError.prototype.name='WebTransportError';
+}
+if(typeof globalThis.WebTransportBidirectionalStream==='undefined')
+  globalThis.WebTransportBidirectionalStream=function WebTransportBidirectionalStream(){};
+if(typeof globalThis.WebTransportDatagramDuplexStream==='undefined')
+  globalThis.WebTransportDatagramDuplexStream=function WebTransportDatagramDuplexStream(){};
+})()`;
+}
+
+private string webRtcSource() pure nothrow @safe
+{
+    return `(function(){
+if(typeof globalThis.RTCPeerConnection==='undefined'){
+  globalThis.RTCPeerConnection=function RTCPeerConnection(){
+    throw new Error('RTCPeerConnection: not yet implemented');
+  };
+}
+})()`;
+}
+
+private string indexedDBSource() pure nothrow @safe
+{
+    return `(function(){
+if(typeof globalThis.indexedDB==='undefined'){
+  globalThis.indexedDB={
+    open:function(name,version){
+      var req={readyState:'pending',result:null,error:null,onsuccess:null,onerror:null,onupgradeneeded:null,onblocked:null};
+      Promise.resolve().then(function(){
+        req.readyState='done';
+        req.error={name:'NotSupportedError',message:'IndexedDB not supported in DunJS'};
+        if(req.onerror)req.onerror({target:req,type:'error'});
+      });
+      return req;
+    },
+    deleteDatabase:function(name){
+      var req={readyState:'pending',result:null,error:null,onsuccess:null,onerror:null};
+      Promise.resolve().then(function(){
+        req.readyState='done';
+        if(req.onsuccess)req.onsuccess({target:req,type:'success'});
+      });
+      return req;
+    },
+    databases:function(){return Promise.resolve([]);},
+    cmp:function(a,b){return a<b?-1:(a>b?1:0);}
+  };
+  ['IDBDatabase','IDBTransaction','IDBObjectStore','IDBIndex','IDBCursor','IDBCursorWithValue','IDBRequest','IDBOpenDBRequest','IDBKeyRange','IDBVersionChangeEvent','IDBFactory'].forEach(function(n){
+    if(typeof globalThis[n]==='undefined')globalThis[n]=function(){};
+  });
+}
+})()`;
+}
+
+private string notificationSource() pure nothrow @safe
+{
+    return `(function(){
+if(typeof globalThis.Notification==='undefined'){
+  globalThis.Notification=function Notification(title,opts){
+    this.title=title;this.body=(opts&&opts.body)||'';this.icon=(opts&&opts.icon)||'';
+    this.onclick=null;this.onclose=null;this.onerror=null;this.onshow=null;
+  };
+  Notification.permission='denied';
+  Notification.requestPermission=function(cb){
+    var p=Promise.resolve('denied');
+    if(typeof cb==='function')p.then(cb);
+    return p;
+  };
+  Notification.maxActions=2;
+  Notification.prototype.close=function(){};
+}
+})()`;
+}
+
+private string cookieStoreSource() pure nothrow @safe
+{
+    return `(function(){
+if(typeof globalThis.CookieStore==='undefined'){
+  globalThis.CookieStore=function CookieStore(){
+    EventTarget.call(this);
+    this._d=new Map();
+  };
+  CookieStore.prototype=Object.create(EventTarget.prototype);
+  CookieStore.prototype.constructor=CookieStore;
+  CookieStore.prototype.get=async function(name){
+    var key=typeof name==='string'?name:(name&&name.name);
+    var v=this._d.get(key);return v?{name:key,value:v}:null;
+  };
+  CookieStore.prototype.getAll=async function(){
+    var out=[];for(var [k,v] of this._d)out.push({name:k,value:v});return out;
+  };
+  CookieStore.prototype.set=async function(arg){
+    var name=typeof arg==='string'?arg:arg.name;
+    var value=typeof arg==='string'?arguments[1]:arg.value;
+    this._d.set(name,value);
+    this.dispatchEvent({type:'change',changed:[{name:name,value:value}],deleted:[]});
+  };
+  CookieStore.prototype.delete=async function(arg){
+    var name=typeof arg==='string'?arg:arg.name;
+    this._d.delete(name);
+    this.dispatchEvent({type:'change',changed:[],deleted:[{name:name}]});
+  };
+  globalThis.cookieStore=new CookieStore();
+  globalThis.CookieChangeEvent=function CookieChangeEvent(type,init){
+    Event.call(this,type,init);init=init||{};
+    this.changed=init.changed||[];this.deleted=init.deleted||[];
+  };
+  CookieChangeEvent.prototype=Object.create(Event.prototype);
+  CookieChangeEvent.prototype.constructor=CookieChangeEvent;
+}
+})()`;
+}
+
+private string fileReaderSyncSource() pure nothrow @safe
+{
+    return `(function(){
+if(typeof globalThis.FileReaderSync==='undefined'){
+  globalThis.FileReaderSync=function FileReaderSync(){};
+  var ts=['readAsText','readAsArrayBuffer','readAsDataURL','readAsBinaryString'];
+  ts.forEach(function(m){
+    FileReaderSync.prototype[m]=function(){
+      throw new Error('FileReaderSync.'+m+': use async FileReader instead');
+    };
+  });
+}
+})()`;
+}
+
+private string imageBitmapSource() pure nothrow @safe
+{
+    return `(function(){
+if(typeof globalThis.ImageBitmap==='undefined'){
+  globalThis.ImageBitmap=function ImageBitmap(){
+    this.width=0;this.height=0;this._closed=false;
+  };
+  ImageBitmap.prototype.close=function(){this._closed=true;};
+}
+if(typeof globalThis.createImageBitmap==='undefined'){
+  globalThis.createImageBitmap=function(src,opts){
+    var b=new ImageBitmap();
+    if(src&&src.width!=null){b.width=src.width;b.height=src.height;}
+    else if(src&&src.byteLength!=null){b.width=src.byteLength;b.height=1;}
+    return Promise.resolve(b);
+  };
+}
+})()`;
 }
 
 private void bindNativeCryptoOnGlobal(IJSEngine engine) @trusted
