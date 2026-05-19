@@ -167,12 +167,14 @@ All runtime globals are **engine-agnostic** (use `IJSEngine` + `NativeCallback`)
 | `console` | stub (globalThis) | `require('console')` — delegates to global `console` |
 | `fetch` | `registerFetchGlobal(engine)` | Global `fetch()` (Posix, HTTPS via OpenSSL) |
 | Web globals | `installWebCompat(engine)` | `atob`, `btoa`, `structuredClone`, `TextEncoder`, `TextDecoder`, native Uint8Array creation |
-| Web APIs | `installWebAPIs(engine)` | `performance`, `EventTarget`, `Event`, `CustomEvent`, `AbortController`, `AbortSignal`, `DOMException`, `navigator`, `Blob`, `File`, `FormData`, `Headers`, `Request`, `Response`, `MessageChannel`, `MessagePort`, `BroadcastChannel`, `ReadableStream`, `WritableStream`, `TransformStream`, `CompressionStream`, `DecompressionStream`, `setImmediate`, `clearImmediate`, `Promise.withResolvers`, `crypto.getRandomValues`, `crypto.randomUUID`, `crypto.subtle`, `console.time/timeEnd/timeLog/count/countReset/table/dir/trace` |
+| Web APIs | `installWebAPIs(engine)` | `performance`, `EventTarget`, `Event`, `CustomEvent`, `AbortController`, `AbortSignal`, `DOMException`, `navigator`, `Blob`, `File`, `FormData`, `Headers`, `Request`, `Response`, `MessageChannel`, `MessagePort`, `BroadcastChannel`, `ReadableStream`, `WritableStream`, `TransformStream`, `CompressionStream`, `DecompressionStream`, `setImmediate`, `clearImmediate`, `Promise.withResolvers`, `crypto.getRandomValues`, `crypto.randomUUID`, `crypto.subtle`, `console.time/timeEnd/timeLog/count/countReset/table/dir/trace`, `MessageEvent`, `ErrorEvent`, `CloseEvent`, `PromiseRejectionEvent`, `localStorage`, `sessionStorage`, `Storage`, `caches`, `CacheStorage`, `Cache`, `FileReader`, `DOMRect`/`Point`/`Matrix`/`Quad` (+ `ReadOnly`), `ImageData`, `CryptoKey`, `SubtleCrypto`, `PerformanceObserver`, `ReadableStreamDefault/BYOBReader`, `ReadableByteStreamController`, `WritableStreamDefaultWriter`/`Controller`, `TransformStreamDefaultController` |
+| Web APIs (lazy) | `installLazyExtras(engine)` | Lazy `Object.defineProperty` getters per global. First-access compiles + evaluates the chunk: `IntersectionObserver`/`MutationObserver`/`ResizeObserver` (+ entries + `MutationRecord`), `WebTransport` (+ `Error`/`BidirectionalStream`/`DatagramDuplexStream`), `RTCPeerConnection`, `indexedDB` (+ 11 IDB classes), `Notification` (+ `requestPermission`), `CookieStore` / `cookieStore` / `CookieChangeEvent`, `FileReaderSync`, `ImageBitmap` / `createImageBitmap`. Dodges JSC concurrent-GC-vs-event-loop-nanosleep deadlock by deferring allocation past install time — same pattern Deno uses in `libs/core/01_core.js` (`propNonEnumerableLazyLoaded`) |
 | `Deno.*` | `installDenoCompat(engine)` | Full Deno compat (30+ APIs: env, fs, permissions, errors) |
 
 All modules work identically across QuickJS, JSC, and V8 backends.
 Workers work identically across QuickJS, JSC, and V8 backends.
 Web APIs (101 checks) pass identically across all 3 backends.
+Full v0.6.0 surface audit: 38/38 web symbols + 25/26 Bun.* across QJS / JSC / V8.
 
 ### Module Resolution (package.json)
 
@@ -417,11 +419,12 @@ Key shim patterns:
 ## Testing
 
 See [TESTING.md](TESTING.md) — unit tests (118 quickjs+v8 / 47 jsc),
-integration sweep (137/137 across 3 backends), 145 npm-compat checks,
+integration sweep (139/139 across 3 backends), 145 npm-compat checks,
 98/98 ECMAScript spec, 35/35 TypeScript spec, 81/81 react-compat,
 231/231 safe-features, 45/45 security audit, 12/12 ts_parity vs
 `tsc`, 12/12 deno_deploy_compat vs Deno 2.7, 13/13
-bun_bundler_compat vs Bun 1.3, sanitizer testing, stress benchmarks,
+bun_bundler_compat vs Bun 1.3, **38/38 v0.6.0 web API audit**,
+**25/26 Bun.* audit**, sanitizer testing, stress benchmarks,
 HTTP bench, Docker matrix. The quick recipe:
 
 ```sh

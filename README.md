@@ -13,8 +13,8 @@ dun run server.ts --allow-net --allow-read
 - **TypeScript without a build step.** Run `.ts` files directly via type stripping.
 - **npm packages work.** `dun install express` fetches from the npm registry. `require()` resolves `node_modules/` the Node.js way.
 - **HTTPS out of the box.** `fetch()` supports TLS 1.2+ via OpenSSL.
-- **Deno compatibility.** 30+ Deno APIs: env, fs (stat, mkdir, remove, rename, copy, readDir), permissions.query, errors, hostname, inspect.
-- **Web standard globals.** `atob`, `btoa`, `TextEncoder`, `TextDecoder`, `structuredClone`.
+- **Deno compatibility.** 30+ Deno APIs: env, fs (stat, mkdir, remove, rename, copy, readDir), permissions.query, errors, hostname, inspect, `Deno.serve`, `Deno.Command`, `Deno.dlopen`.
+- **Web standard globals.** `atob`, `btoa`, `TextEncoder`, `TextDecoder`, `structuredClone`, plus the full v0.6.0 surface: `localStorage`/`sessionStorage`, `caches`, `FileReader`, `DOMRect`/`Point`/`Matrix`/`Quad`, `ImageData`, `PerformanceObserver`, `MessageEvent`/`ErrorEvent`/`CloseEvent`/`PromiseRejectionEvent`, observers, `WebTransport`, `IndexedDB`, `Notification`, `CookieStore`, `ImageBitmap` (38/38 audit on every backend).
 
 ## Install
 
@@ -93,7 +93,7 @@ const { EventEmitter } = require("events");
 | `dun:async_hooks` | AsyncLocalStorage (run, getStore, enterWith, disable) |
 | `dun:worker_threads` | isMainThread, threadId, Worker, parentPort |
 
-Global: `fetch()`, `Worker`, `SharedArrayBuffer`, `Atomics`, `setTimeout`/`setInterval`, `console`, `process`, `Deno.*`, `atob`/`btoa`, `TextEncoder`/`TextDecoder`, `structuredClone`
+Globals: `fetch()`, `Worker`, `SharedArrayBuffer`, `Atomics`, `setTimeout`/`setInterval`/`setImmediate`, `console`, `process`, `Bun.*`, `Deno.*`, `atob`/`btoa`, `TextEncoder`/`TextDecoder`, `structuredClone`, `crypto.subtle`/`getRandomValues`/`randomUUID`, `AbortController`, `EventTarget`/`CustomEvent`, `Blob`/`File`/`FormData`/`Headers`/`Request`/`Response`, `URL`/`URLPattern`/`URLSearchParams`, `MessageChannel`/`BroadcastChannel`, `ReadableStream`/`WritableStream`/`TransformStream` (+ `Default`/`BYOB`/`Byte` controllers), `CompressionStream`/`DecompressionStream`, `TextEncoderStream`/`TextDecoderStream`, `EventSource`, `MessageEvent`/`ErrorEvent`/`CloseEvent`/`PromiseRejectionEvent`, `localStorage`/`sessionStorage`, `caches`/`Cache`/`CacheStorage`, `FileReader`/`FileReaderSync`, `DOMRect`/`DOMPoint`/`DOMMatrix`/`DOMQuad` (+ `ReadOnly` variants), `ImageData`/`ImageBitmap`, `PerformanceObserver`, `IntersectionObserver`/`MutationObserver`/`ResizeObserver`, `WebTransport`/`RTCPeerConnection`, `indexedDB`, `Notification`, `cookieStore`.
 
 ## npm Support
 
@@ -135,9 +135,9 @@ for 24 hours. `dun install` checks packages before download. See [SECURITY.md](S
 
 | Backend | Tests | Notes |
 |---------|-------|-------|
-| QuickJS-NG | 137/137 | Default. Interpreter, ES2025, smallest binary (9.8MB) |
-| JavaScriptCore | 137/137 | JIT. Same engine as Safari/Bun |
-| V8 | 137/137 | JIT. Same engine as Chrome/Node.js (V8 15.0). Via C++ shim |
+| QuickJS-NG | 139/139 | Default. Interpreter, ES2025, smallest binary (9.8MB) |
+| JavaScriptCore | 139/139 | JIT. Same engine as Safari/Bun |
+| V8 | 139/139 | JIT. Same engine as Chrome/Node.js (V8 15.0). Via C++ shim |
 
 All 24 built-in modules, Workers, SharedArrayBuffer, Atomics, fetch, Deno compat, and web globals work identically on every backend.
 
@@ -162,19 +162,20 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for the full design.
 
 ```sh
 dub test -c unittest                            # unit tests
-bash tests/integration/run.sh                   # QuickJS integration (137 tests)
+bash tests/integration/run.sh                   # QuickJS integration (139 tests)
 BACKEND=jsc DUN=./dun-jsc bash tests/integration/run.sh
 BACKEND=v8  DUN=./dun-v8  bash tests/integration/run.sh
 ```
 
-137/137 integration on every backend, plus 145 npm-compat checks,
+139/139 integration on every backend, plus 145 npm-compat checks,
 98/98 ECMAScript spec audit (all 3 backends — /v set-op gap on
 QJS / V8 closed via source rewriter), 81/81 react-compat,
 231/231 safe-features, 45/45 security audit, 35/35 TypeScript
 erasable subset, **12/12 ts_parity vs `tsc`**, **12/12
 deno_deploy_compat vs Deno 2.7**, **13/13 bun_bundler_compat
-vs Bun 1.3**, and cross-runtime grids for real-world apps
-(n8n, gaia, opencode).
+vs Bun 1.3**, **38/38 v0.6.0 web API audit**, **25/26 Bun.*
+audit** (the 1 miss is `Bun.MD4`, not a real upstream API),
+and cross-runtime grids for real-world apps (n8n, gaia, opencode).
 
 See [TESTING.md](TESTING.md) for the full suite breakdown.
 
@@ -236,6 +237,54 @@ HTTP stress (wrk, 128 connections, req/sec — higher is better):
 DunJS JSC is within 1% of Bun on `feature_bench.js` JS compute.
 DunJS V8 beats Node.js on all HTTP endpoints.
 npm compat: **145/145** pass across all 6 runtimes.
+
+## Can DunJS replace Node / Deno / Bun?
+
+Partially. Honest assessment:
+
+**Where it works today** (CLI tools, build scripts, microservices,
+test harnesses, learning projects):
+
+- 139/139 integration sweep on every backend; 145/145 npm-compat,
+  98/98 ES2025 spec, 12/12 `deno_deploy_compat` vs Deno 2.7,
+  13/13 `bun_bundler_compat` vs Bun 1.3, 38/38 v0.6.0 web API
+  audit.
+- Real Node.js module surface: `fs`, `path`, `crypto`, `net`,
+  `http`/`http2`/`http3`, `dgram`, `tls`, `stream`, `zlib`,
+  `events`, `child_process`, `dns`, `ws`, `sqlite`, `perf_hooks`,
+  `worker_threads`, `wasi`, `vm` — all 30+ modules.
+- Real Deno surface (22/23 audit): `Deno.serve`, `Deno.Command`,
+  `Deno.dlopen`, env/fs/permissions APIs.
+- Real Bun surface (25/26 audit): `Bun.serve`/`build`/`file`/
+  `write`/`password`/`hash`/`semver`/`glob`/`color`/`udp`/etc.
+- Real native addons via N-API (91 functions, sharp + similar
+  work).
+- HTTP perf: DunJS V8 beats Node by 41% on `/plaintext`; JSC
+  backend beats Bun on `stress.js` (62s vs 66s, 240/240).
+
+**Where it can't yet**:
+
+- **Maturity.** v0.6.0, no production deployments tracked, no
+  CVE history. Bun and Deno took years to harden under real
+  traffic; DunJS hasn't been hammered at scale yet.
+- **Stub-only web APIs.** `IndexedDB`, `WebTransport`,
+  `RTCPeerConnection`, `Notification`, `CookieStore`,
+  `FileReaderSync`, `ImageBitmap` satisfy `typeof === 'function'`
+  probes but throw on actual use. Good enough for libraries
+  that feature-detect; not good enough to run a real workload
+  that depends on them.
+- **No bundler / source maps / AST-based linter.** Scanner-based
+  TS strip, not a real parser. No `bun build --compile` /
+  `deno compile` standalone executable.
+- **Native `.node` addons that bypass N-API** (call V8 / libuv
+  internals directly) won't work — same constraint Bun and Deno
+  have.
+- **Inspector / Chrome DevTools wire protocol** isn't wired up
+  across all backends.
+
+**Practical rule**: drop-in for a CLI / build script / small
+service / test harness. For a 50-engineer production service
+shipping to millions tomorrow, run alongside Node first.
 
 ## Docs
 

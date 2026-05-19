@@ -23,7 +23,7 @@ dub test -c unittest    # All unit tests
 | V8 TMP bridge | `source/dun/engine/v8/cppbindings.d` | compile-time | V8TypeName coverage, tag->name mapping |
 | JSC TMP bridge | `source/dun/engine/jsc/cppbindings.d` | compile-time | JSCTypeName coverage, kJSType* alignment |
 
-### Integration Tests (137 tests, 145 npm-compat checks)
+### Integration Tests (139 tests, 145 npm-compat checks)
 
 ```sh
 # Run against a specific backend
@@ -44,6 +44,8 @@ dub build -c v8  && BACKEND=v8  ./tests/integration/run.sh
 | New Modules | `child_process_api`, `stream_api`, `zlib_api`, `dns_api`, `ws_api` | execSync/spawnSync, Readable/Writable/Transform/pipeline, deflate/gzip round-trip, DNS lookup/resolve, WebSocket API |
 | Database | `sqlite_api` | open, exec, run, get, all, close, NULL handling, types (20 checks) |
 | Web APIs | `web_apis` | 101 checks: performance, EventTarget/Event, AbortController, Blob, FormData, Headers, Request/Response, MessageChannel, BroadcastChannel, ReadableStream, WritableStream, TransformStream, CompressionStream, DecompressionStream, crypto.getRandomValues, navigator, Promise.withResolvers, require.resolve |
+| Web APIs v3 | `web_apis_v3` | 36 checks: MessageEvent/ErrorEvent/CloseEvent/PromiseRejectionEvent, localStorage/sessionStorage round-trip, Cache/CacheStorage, FileReader async, DOMRect/Point/Matrix/Quad, ImageData, CryptoKey/SubtleCrypto, PerformanceObserver, Bun.* additions (deflate/gzip/SHA256/allocUnsafe/semver/openInEditor) |
+| Web APIs full | `web_apis_full` | 31 checks: IntersectionObserver/MutationObserver/ResizeObserver + entry/record types, WebTransport/WebTransportError (Error subclass), RTCPeerConnection, indexedDB.databases/cmp + IDB classes, Notification.requestPermission + new Notification, CookieStore + cookieStore + CookieChangeEvent, FileReaderSync throws, ImageBitmap/createImageBitmap |
 | Deno compat | `deno_compat` | 22 checks: env, fs, stat, copy, rename, remove, web globals |
 | Security | `perm_deny_read`, `perm_deny_write`, `realworld_security_boundary` | Permission denial enforcement |
 | TypeScript | `typescript`, `realworld_ts_library` | Type annotations, interfaces, as, arrow types |
@@ -80,7 +82,7 @@ dub build -c v8  && BACKEND=v8  ./tests/integration/run.sh
 | Production gaps 4 | `production_gaps4` | 144 checks: process, Buffer, stream, EventEmitter, path, crypto, fs, Error, util, npm patterns |
 | Production readiness | `production_readiness` | 122 checks: all critical Node.js APIs for production server workloads |
 
-Backend test scores: **QuickJS 137/137**, **JSC 137/137**, **V8 137/137** — **0 failures** across all 3 backends.
+Backend test scores: **QuickJS 139/139**, **JSC 139/139**, **V8 139/139** — **0 failures** across all 3 backends.
 
 Test pattern: fixtures in `tests/integration/fixtures/*.{js,mjs,ts}`, expected stdout in `tests/integration/expected/*.txt`.
 
@@ -91,7 +93,7 @@ dub build -c quickjs -b asan                          # ASan build via DUB
 ASAN_OPTIONS=detect_leaks=0 bash tests/integration/run.sh  # Run with ASan
 ```
 
-All 137 integration tests pass under AddressSanitizer with zero memory errors.
+All 139 integration tests pass under AddressSanitizer with zero memory errors.
 
 ### Stress Benchmarks
 
