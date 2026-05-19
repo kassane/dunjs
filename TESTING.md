@@ -84,7 +84,7 @@ dub build -c v8  && BACKEND=v8  ./tests/integration/run.sh
 | Production gaps 4 | `production_gaps4` | 144 checks: process, Buffer, stream, EventEmitter, path, crypto, fs, Error, util, npm patterns |
 | Production readiness | `production_readiness` | 122 checks: all critical Node.js APIs for production server workloads |
 
-Backend test scores: **QuickJS 144/144**, **JSC 143/143 + 1 SKIP** (`bun_v7_additions` — io_uring fd-accumulation pending), **V8 144/144** — **0 failures** across all 3 backends.
+Backend test scores: **QuickJS 145/145**, **JSC 144/144 + 1 SKIP** (`bun_v7_additions` — io_uring fd-accumulation pending), **V8 145/145** — **0 failures** across all 3 backends.
 
 Test pattern: fixtures in `tests/integration/fixtures/*.{js,mjs,ts}`, expected stdout in `tests/integration/expected/*.txt`.
 
@@ -95,7 +95,7 @@ dub build -c quickjs -b asan                          # ASan build via DUB
 ASAN_OPTIONS=detect_leaks=0 bash tests/integration/run.sh  # Run with ASan
 ```
 
-All 144 integration tests pass under AddressSanitizer with zero memory errors (QJS).
+All 145 integration tests pass under AddressSanitizer with zero memory errors (QJS).
 
 ### Stress Benchmarks
 

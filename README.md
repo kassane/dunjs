@@ -54,6 +54,7 @@ dun lint src/                           # Lint a directory tree
 dun bundle entry.ts --outdir ./dist     # Bundle (Bun.build)
 dun bundle entry.ts --sourcemap         # Bundle + sibling .map file (V3)
 dun bundle entry.ts --sourcemap=inline  # Bundle + inline data: URI map
+dun bundle entry.ts --compile=./myapp   # Self-contained executable (Bun/Deno parity)
 dun init my-project                     # Scaffold a new project
 dun fmt                                 # Format JS/TS files
 dun clean                               # Remove cache and node_modules
@@ -142,9 +143,9 @@ for 24 hours. `dun install` checks packages before download. See [SECURITY.md](S
 
 | Backend | Tests | Notes |
 |---------|-------|-------|
-| QuickJS-NG | 144/144 | Default. Interpreter, ES2025, smallest binary (9.8MB) |
+| QuickJS-NG | 145/145 | Default. Interpreter, ES2025, smallest binary (9.8MB) |
 | JavaScriptCore | 140/140 (1 SKIP) | JIT. Same engine as Safari/Bun. Skips `bun_v7_additions` pending io_uring fd-accumulation investigation |
-| V8 | 144/144 | JIT. Same engine as Chrome/Node.js (V8 15.0). Via C++ shim |
+| V8 | 145/145 | JIT. Same engine as Chrome/Node.js (V8 15.0). Via C++ shim |
 
 All 24 built-in modules, Workers, SharedArrayBuffer, Atomics, fetch, Deno compat, and web globals work identically on every backend.
 
@@ -174,7 +175,7 @@ BACKEND=jsc DUN=./dun-jsc bash tests/integration/run.sh
 BACKEND=v8  DUN=./dun-v8  bash tests/integration/run.sh
 ```
 
-144/144 integration on QJS / V8, 143/143 + 1 SKIP on JSC, plus 145 npm-compat checks,
+145/145 integration on QJS / V8, 144/144 + 1 SKIP on JSC, plus 145 npm-compat checks,
 98/98 ECMAScript spec audit (all 3 backends — /v set-op gap on
 QJS / V8 closed via source rewriter), 81/81 react-compat,
 231/231 safe-features, 45/45 security audit, 35/35 TypeScript
@@ -252,7 +253,7 @@ Partially. Honest assessment:
 **Where it works today** (CLI tools, build scripts, microservices,
 test harnesses, learning projects):
 
-- 144/144 integration sweep on QJS / V8 (143/143 + 1 SKIP on JSC); 145/145 npm-compat,
+- 145/145 integration sweep on QJS / V8 (144/144 + 1 SKIP on JSC); 145/145 npm-compat,
   98/98 ES2025 spec, 12/12 `deno_deploy_compat` vs Deno 2.7,
   13/13 `bun_bundler_compat` vs Bun 1.3, 38/38 v0.6.0 web API
   audit.
@@ -285,12 +286,11 @@ test harnesses, learning projects):
   probes but throw on actual use. Good enough for libraries
   that feature-detect; not good enough to run a real workload
   that depends on them.
-- **No `bun build --compile` / `deno compile` standalone
-  executable** — bundling works (`dun bundle`, Source Map V3
-  via `--sourcemap`), but embedding the runtime + bundle in a
-  single binary is a multi-PR project. The minimal linter
-  shipped in v0.7.0 covers the dev-experience floor (6 rules);
-  full ESLint parity (200+ rules) needs a real parser, which
+- **No AST-based linter parity** — the lexer-based linter ships
+  6 rules (`no-debugger` / `eqeqeq` / `no-eval` / `no-var` /
+  `no-empty-block`, with `--fix` / `--quiet` /
+  `--max-warnings=N`). Full ESLint parity (200+ rules) needs a
+  real parser, which
   the project rejects (see Won't-fix in CLAUDE.md).
 - **Native `.node` addons that bypass N-API** (call V8 / libuv
   internals directly) won't work — same constraint Bun and Deno
