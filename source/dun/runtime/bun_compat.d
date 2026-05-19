@@ -938,6 +938,130 @@ private string bunCompatSource() pure nothrow @safe
     "  return -1;" ~
     "};" ~
 
+    /* Bun.deflateSync / inflateSync / gzipSync / gunzipSync — aliases
+       to node:zlib. Use a getter so the `require('zlib')` only fires
+       when the function is actually called (the CJS shim isn't
+       installed at bun-compat init time). */
+    "Bun.deflateSync=function(d,o){return require('zlib').deflateSync(d,o);};" ~
+    "Bun.inflateSync=function(d,o){return require('zlib').inflateSync(d,o);};" ~
+    "Bun.gzipSync=function(d,o){return require('zlib').gzipSync(d,o);};" ~
+    "Bun.gunzipSync=function(d,o){return require('zlib').gunzipSync(d,o);};" ~
+
+    /* Bun.SHA256 / SHA1 / SHA512 / MD5 — class-style hash constructors.
+       Built lazily on first construction so the underlying
+       `require('crypto')` doesn't fire at install time. */
+    "function _mkBunHash(name){" ~
+    "var alg=name.toLowerCase();" ~
+    "var C=function BunHash(){" ~
+    "if(!(this instanceof C))return new C();" ~
+    "this._h=require('crypto').createHash(alg);" ~
+    "};" ~
+    "C.prototype.update=function(d){this._h.update(d);return this;};" ~
+    "C.prototype.digest=function(enc){return this._h.digest(enc||'buffer');};" ~
+    "C.hash=function(input,enc){return require('crypto').createHash(alg).update(input).digest(enc||'buffer');};" ~
+    "Bun[name]=C;" ~
+    "}" ~
+    "['SHA256','SHA1','SHA512','MD5'].forEach(_mkBunHash);" ~
+
+    /* Bun.connect({hostname,port,socket}) / Bun.listen({hostname,port,socket})
+       — TCP sockets wrapped around node:net. The `socket` handlers
+       (`data`/`open`/`close`/`error`) map onto net.Socket events. */
+    "Bun.connect = function(opts) {" ~
+    "  var net = require('net');" ~
+    "  return new Promise(function(resolve, reject) {" ~
+    "    var s = net.createConnection({ host: opts.hostname, port: opts.port }, function() {" ~
+    "      var h = opts.socket || {};" ~
+    "      if (h.open) try { h.open(s); } catch (e) {}" ~
+    "      s.on('data', function(d) { if (h.data) h.data(s, d); });" ~
+    "      s.on('close', function() { if (h.close) h.close(s); });" ~
+    "      s.on('error', function(e) { if (h.error) h.error(s, e); });" ~
+    "      s.write = s.write.bind(s);" ~
+    "      s.end   = s.end.bind(s);" ~
+    "      resolve(s);" ~
+    "    });" ~
+    "    s.once('error', reject);" ~
+    "  });" ~
+    "};" ~
+    "Bun.listen = function(opts) {" ~
+    "  var net = require('net');" ~
+    "  var h = opts.socket || {};" ~
+    "  var srv = net.createServer(function(s) {" ~
+    "    if (h.open) try { h.open(s); } catch (e) {}" ~
+    "    s.on('data', function(d) { if (h.data) h.data(s, d); });" ~
+    "    s.on('close', function() { if (h.close) h.close(s); });" ~
+    "    s.on('error', function(e) { if (h.error) h.error(s, e); });" ~
+    "  });" ~
+    "  srv.listen(opts.port, opts.hostname || '0.0.0.0');" ~
+    "  return { stop: function() { srv.close(); }, hostname: opts.hostname, port: opts.port };" ~
+    "};" ~
+
+    /* Bun.udpSocket({port,socket}) — UDP datagram wrapper around
+       node:dgram. Returns the socket with `.send()` + `.close()`. */
+    "Bun.udpSocket = function(opts) {" ~
+    "  var dgram = require('dgram');" ~
+    "  var sock = dgram.createSocket('udp4');" ~
+    "  var h = opts.socket || {};" ~
+    "  sock.on('message', function(msg, rinfo) { if (h.data) h.data(sock, msg, rinfo); });" ~
+    "  sock.on('error',   function(err)        { if (h.error) h.error(sock, err); });" ~
+    "  if (opts.port) sock.bind(opts.port, opts.hostname);" ~
+    "  return Promise.resolve(sock);" ~
+    "};" ~
+
+
+    /* Bun.allocUnsafe(n) — non-zeroed Buffer; Node's Buffer.allocUnsafe. */
+    "Bun.allocUnsafe = function(size) {" ~
+    "  return globalThis.Buffer.allocUnsafe(size);" ~
+    "};" ~
+
+    /* Bun.semver — minimal subset (satisfies / order / sort). Bun's
+       full API has many more methods; this covers the common
+       npm-package-version-check usage. */
+    "Bun.semver = {" ~
+    "  satisfies: function(version, range) {" ~
+    "    /* very minimal — supports `1.2.3`, `^1.2.3`, `~1.2.3`, `>=1.2.3`, `*` */" ~
+    "    if (!version || !range) return false;" ~
+    "    if (range === '*' || range === '') return true;" ~
+    "    var v = String(version).replace(/^v/, '').split('.').map(Number);" ~
+    "    var op = '';" ~
+    "    var r = String(range).trim();" ~
+    "    if (r[0] === '^') { op = '^'; r = r.slice(1); }" ~
+    "    else if (r[0] === '~') { op = '~'; r = r.slice(1); }" ~
+    "    else if (r.slice(0,2) === '>=') { op = '>='; r = r.slice(2).trim(); }" ~
+    "    else if (r.slice(0,2) === '<=') { op = '<='; r = r.slice(2).trim(); }" ~
+    "    else if (r[0] === '>') { op = '>'; r = r.slice(1).trim(); }" ~
+    "    else if (r[0] === '<') { op = '<'; r = r.slice(1).trim(); }" ~
+    "    var t = r.replace(/^v/, '').split('.').map(Number);" ~
+    "    var cmp = (v[0]-t[0]) || (v[1]-t[1]) || (v[2]-t[2]);" ~
+    "    if (op === '' || op === '=') return cmp === 0;" ~
+    "    if (op === '^') return v[0] === t[0] && (cmp >= 0);" ~
+    "    if (op === '~') return v[0] === t[0] && v[1] === t[1] && (v[2] >= t[2]);" ~
+    "    if (op === '>=') return cmp >= 0;" ~
+    "    if (op === '<=') return cmp <= 0;" ~
+    "    if (op === '>')  return cmp > 0;" ~
+    "    if (op === '<')  return cmp < 0;" ~
+    "    return false;" ~
+    "  }," ~
+    "  order: function(a, b) {" ~
+    "    var pa = String(a).replace(/^v/, '').split('.').map(Number);" ~
+    "    var pb = String(b).replace(/^v/, '').split('.').map(Number);" ~
+    "    return (pa[0]-pb[0]) || (pa[1]-pb[1]) || ((pa[2]||0)-(pb[2]||0));" ~
+    "  }," ~
+    "};" ~
+
+    /* Bun.openInEditor(file) — invoke $EDITOR / $VISUAL on the given
+       path. No-op (returns false) when neither var is set. */
+    "Bun.openInEditor = function(file, opts) {" ~
+    "  opts = opts || {};" ~
+    "  var ed = (typeof process !== 'undefined' && process.env) ?" ~
+    "    (process.env.VISUAL || process.env.EDITOR) : null;" ~
+    "  if (!ed) return false;" ~
+    "  try {" ~
+    "    var cp = require('child_process');" ~
+    "    cp.spawnSync(ed, [file], { stdio: 'inherit' });" ~
+    "    return true;" ~
+    "  } catch (e) { return false; }" ~
+    "};" ~
+
     /* Bun.stringWidth(s) — Node-compatible string-width estimator that
        only counts visible chars (ANSI escapes stripped). */
     "Bun.stringWidth = function(s) {" ~

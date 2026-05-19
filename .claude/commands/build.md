@@ -71,7 +71,7 @@ dub build -c v8  && BACKEND=v8  bash tests/integration/run.sh
 ./build/dun "--DRT-gcopt=parallel:4 minPoolSize:32" run --allow-all tests/benchmarks/feature_bench.js
 ```
 
-Backend test scores: **QuickJS 131/131, JSC 131/131, V8 131/131** (full parity, Workers on all backends).
+Backend test scores: **QuickJS 139/139, JSC 139/139, V8 139/139** (full parity, Workers on all backends).
 
 ### 4. Docker
 
