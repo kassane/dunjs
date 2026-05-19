@@ -192,6 +192,10 @@ WsServerState[] wsServers;
 WsConnState[] wsConns;
 int nextWsServerId;
 int nextWsConnId;
+/// Free-lists for ws slot recycling. Same pattern as net.d
+/// _freeSocketIds — push on connection close, pop on new conn.
+int[] _freeWsServerIds;
+int[] _freeWsConnIds;
 
 // --- Frame encoding/decoding ---
 
@@ -342,13 +346,25 @@ JSHandle jsWsCreateServer(void* ctx, JSHandle thisVal, scope JSHandle[] args) @t
             port = engine.extractInt(portProp);
     }
 
-    int id = nextWsServerId++;
+    int id;
+    if (_freeWsServerIds.length > 0)
+    {
+        id = _freeWsServerIds[$ - 1];
+        _freeWsServerIds = _freeWsServerIds[0 .. $ - 1];
+    }
+    else
+    {
+        id = nextWsServerId++;
+    }
     try
     {
         WsServerState srv;
         srv.engine = engine;
         srv.port = cast(ushort) port;
-        wsServers ~= srv;
+        if (id < cast(int) wsServers.length)
+            wsServers[id] = srv;
+        else
+            wsServers ~= srv;
     }
     catch (Throwable)
     {
@@ -587,7 +603,16 @@ JSHandle jsWsConnect(void* ctx, JSHandle thisVal, scope JSHandle[] args) @truste
             return engine.throwTypeError("WebSocket: connect() failed");
         }
 
-        int cid = nextWsConnId++;
+        int cid;
+        if (_freeWsConnIds.length > 0)
+        {
+            cid = _freeWsConnIds[$ - 1];
+            _freeWsConnIds = _freeWsConnIds[0 .. $ - 1];
+        }
+        else
+        {
+            cid = nextWsConnId++;
+        }
         try
         {
             WsConnState conn;
@@ -595,7 +620,10 @@ JSHandle jsWsConnect(void* ctx, JSHandle thisVal, scope JSHandle[] args) @truste
             conn.fd = fd;
             conn.state = WsState.connecting;
             conn.isMasked = true;
-            wsConns ~= conn;
+            if (cid < cast(int) wsConns.length)
+                wsConns[cid] = conn;
+            else
+                wsConns ~= conn;
         }
         catch (Throwable)
         {
@@ -823,7 +851,16 @@ void acceptWsConnection(int srvId) nothrow @trusted
             int fl = fcntl(fd, F_GETFL, 0);
             fcntl(fd, F_SETFL, fl | O_NONBLOCK);
 
-            int cid = nextWsConnId++;
+            int cid;
+            if (_freeWsConnIds.length > 0)
+            {
+                cid = _freeWsConnIds[$ - 1];
+                _freeWsConnIds = _freeWsConnIds[0 .. $ - 1];
+            }
+            else
+            {
+                cid = nextWsConnId++;
+            }
             try
             {
                 WsConnState conn;
@@ -832,7 +869,10 @@ void acceptWsConnection(int srvId) nothrow @trusted
                 conn.state = WsState.connecting;
                 conn.isMasked = false;
                 conn.serverId = srvId;
-                wsConns ~= conn;
+                if (cid < cast(int) wsConns.length)
+                    wsConns[cid] = conn;
+                else
+                    wsConns ~= conn;
             }
             catch (Throwable)
             {
@@ -1088,6 +1128,18 @@ void closeConn(WsConnState* conn) nothrow @trusted
             conn.fd = -1;
         }
         conn.state = WsState.closed;
+
+        /* Recycle the slot. Find this conn in wsConns[] by pointer
+           identity (conn was passed as `WsConnState*` from the
+           caller, who has a slot id). */
+        foreach (idx, ref c; wsConns)
+        {
+            if (&c is conn)
+            {
+                try { _freeWsConnIds ~= cast(int) idx; } catch (Throwable) {}
+                break;
+            }
+        }
     }
 }
 

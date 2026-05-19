@@ -177,6 +177,14 @@ ServerState[] servers;
 SocketState[] sockets;
 int nextServerId = 0;
 int nextSocketId = 0;
+/// Free-lists for `servers[]` / `sockets[]` slot recycling. Without
+/// these the arrays grow monotonically with every connection — long-
+/// running services hit the slot ID overflow assertion eventually
+/// and short-running services just leak memory. Push on close,
+/// pop on create. Matches the `_freeHashIds` pattern from crypto.d
+/// (per the /debug-native-callback skill's "Slot exhaustion" fix).
+int[] _freeServerIds;
+int[] _freeSocketIds;
 
 JSHandle jsCreateServer(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
@@ -316,13 +324,27 @@ JSHandle jsCreateConnection(void* ctx, JSHandle thisVal, scope JSHandle[] args) 
             return engine.throwTypeError("net.connect: connect() failed");
         }
 
-        int id = nextSocketId++;
+        int id;
+        /* Recycle a freed slot when possible, else extend. */
+        if (_freeSocketIds.length > 0)
+        {
+            id = _freeSocketIds[$ - 1];
+            _freeSocketIds = _freeSocketIds[0 .. $ - 1];
+        }
+        else
+        {
+            id = nextSocketId++;
+        }
         try
         {
             SocketState s;
             s.engine = engine;
             s.fd = fd;
-            sockets ~= s;
+            /* Store in the recycled slot or extend the array. */
+            if (id < cast(int) sockets.length)
+                sockets[id] = s;
+            else
+                sockets ~= s;
         }
         catch (Throwable)
         {
@@ -682,6 +704,10 @@ JSHandle jsSocketEnd(void* ctx, JSHandle thisVal, scope JSHandle[] args) @truste
             catch (Throwable) {}
             sock.eventsSet = false;
         }
+        /* Recycle the slot for the next net.connect() / accepted
+           socket. Per the /debug-native-callback skill's "Slot
+           exhaustion" fix pattern. */
+        try { _freeSocketIds ~= idVal; } catch (Throwable) {}
         return engine.newUndefined();
     }
     else
@@ -776,7 +802,17 @@ void acceptPendingConnections(int srvId) nothrow @trusted
             int flags = fcntl(connFd, F_GETFL, 0);
             fcntl(connFd, F_SETFL, flags | O_NONBLOCK);
 
-            int sid = nextSocketId++;
+            /* Recycle a freed slot when possible, else extend. */
+            int sid;
+            if (_freeSocketIds.length > 0)
+            {
+                sid = _freeSocketIds[$ - 1];
+                _freeSocketIds = _freeSocketIds[0 .. $ - 1];
+            }
+            else
+            {
+                sid = nextSocketId++;
+            }
             try
             {
                 SocketState s;
@@ -796,7 +832,10 @@ void acceptPendingConnections(int srvId) nothrow @trusted
                     s.localAddress = formatIPv4(localIp);
                 }
 
-                sockets ~= s;
+                if (sid < cast(int) sockets.length)
+                    sockets[sid] = s;
+                else
+                    sockets ~= s;
             }
             catch (Throwable)
             {

@@ -8,7 +8,25 @@ import dun.engine.iface : IJSEngine, JSHandle, EngineConfig, createEngine,
 import dun.runtime.globals : DunState;
 import dun.security.permissions : PermissionRegistry, Permission;
 
-enum WorkerStatus { pending, running, done }
+enum WorkerStatus : int { pending = 0, running = 1, done = 2 }
+
+import core.atomic : atomicLoad, atomicStore, MemoryOrder;
+
+/// Lockfree accessors for `WorkerState.status_`. Writes from the
+/// worker thread + reads from the main thread previously raced
+/// (caught by ThreadSanitizer). Mutex acquisition for a single
+/// int read is overkill; `core.atomic` makes it a single
+/// `mov`/`ldr` with the right barriers.
+private WorkerStatus loadStatus(WorkerState wst) @trusted nothrow @nogc
+{
+    return cast(WorkerStatus)
+        atomicLoad!(MemoryOrder.acq)(*cast(shared(int)*) &wst.status_);
+}
+
+private void storeStatus(WorkerState wst, WorkerStatus s) @trusted nothrow @nogc
+{
+    atomicStore!(MemoryOrder.rel)(*cast(shared(int)*) &wst.status_, cast(int) s);
+}
 
 private enum : size_t {
     WORKER_MEMORY_LIMIT = TEST_MEMORY_LIMIT,
@@ -60,7 +78,7 @@ bool hasActiveWorkers() @trusted
     {
         foreach (w; gWorkers)
         {
-            if (w.status_ != WorkerStatus.done || !w.fromWorker.empty())
+            if (loadStatus(w) != WorkerStatus.done || !w.fromWorker.empty())
                 return true;
         }
         return false;
@@ -106,10 +124,10 @@ void spawnWorker(WorkerState wst) @trusted
     auto t = new Thread(delegate void()
     {
         gIsWorkerThread = true;
-        wst.status_ = WorkerStatus.running;
+        storeStatus(wst, WorkerStatus.running);
         try { _runWorker(wst); }
         catch (Throwable) {}
-        wst.status_ = WorkerStatus.done;
+        storeStatus(wst, WorkerStatus.done);
     });
     t.isDaemon = true;
     t.start();
