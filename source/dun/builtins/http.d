@@ -250,23 +250,23 @@ void ensureHttpFnsCached(IJSEngine engine) @trusted
     engine.freeValue(resEmitResult.value);
 
     auto global = engine.getGlobal();
-    engine.setProperty(global, "__httpSetHeader", engine.dupValue(_httpResSetHeader));
-    engine.setProperty(global, "__httpWriteHead", engine.dupValue(_httpResWriteHead));
-    engine.setProperty(global, "__httpWrite", engine.dupValue(_httpResWrite));
-    engine.setProperty(global, "__httpEnd", engine.dupValue(_httpResEnd));
-    engine.setProperty(global, "__httpReqOn", engine.dupValue(_httpReqOn));
-    engine.setProperty(global, "__httpGetHeader", engine.dupValue(_httpResGetHeader));
-    engine.setProperty(global, "__httpGetHeaders", engine.dupValue(_httpResGetHeaders));
-    engine.setProperty(global, "__httpHasHeader", engine.dupValue(_httpResHasHeader));
-    engine.setProperty(global, "__httpRemoveHeader", engine.dupValue(_httpResRemoveHeader));
+    engine.bindMethod(global, "__httpSetHeader", _httpResSetHeader);
+    engine.bindMethod(global, "__httpWriteHead", _httpResWriteHead);
+    engine.bindMethod(global, "__httpWrite", _httpResWrite);
+    engine.bindMethod(global, "__httpEnd", _httpResEnd);
+    engine.bindMethod(global, "__httpReqOn", _httpReqOn);
+    engine.bindMethod(global, "__httpGetHeader", _httpResGetHeader);
+    engine.bindMethod(global, "__httpGetHeaders", _httpResGetHeaders);
+    engine.bindMethod(global, "__httpHasHeader", _httpResHasHeader);
+    engine.bindMethod(global, "__httpRemoveHeader", _httpResRemoveHeader);
 
     // Native function to lazily retrieve headers for a connection
     auto getHdrsFn = engine.newFunction(&jsGetConnHeaders, "__httpGetHeaders", 1);
     engine.setProperty(global, "__httpGetHeaders", getHdrsFn);
 
     // Store res.on/emit on globalThis for use in dispatch function
-    engine.setProperty(global, "__httpResOn", engine.dupValue(_httpResOn));
-    engine.setProperty(global, "__httpResEmit", engine.dupValue(_httpResEmit));
+    engine.bindMethod(global, "__httpResOn", _httpResOn);
+    engine.bindMethod(global, "__httpResEmit", _httpResEmit);
     engine.freeValue(global);
 
     import dun.engine.iface : JSResult;
