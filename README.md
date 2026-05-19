@@ -46,7 +46,14 @@ dun install lodash --audit=block        # Block vulnerable packages
 dun audit                               # Scan node_modules for CVEs
 dun test                                # Run test files (Deno.test API)
 dun test mytest.ts --filter=name        # Filter tests by name
+dun test --concurrent                   # Run tests in parallel (Bun parity)
+dun test --concurrent --max-concurrency=8
 dun bench                               # Run benchmarks (Deno.bench API)
+dun lint                                # Lint .js/.ts files (no-eval / eqeqeq / no-debugger)
+dun lint src/                           # Lint a directory tree
+dun bundle entry.ts --outdir ./dist     # Bundle (Bun.build)
+dun bundle entry.ts --sourcemap         # Bundle + sibling .map file (V3)
+dun bundle entry.ts --sourcemap=inline  # Bundle + inline data: URI map
 dun init my-project                     # Scaffold a new project
 dun fmt                                 # Format JS/TS files
 dun clean                               # Remove cache and node_modules
@@ -135,9 +142,9 @@ for 24 hours. `dun install` checks packages before download. See [SECURITY.md](S
 
 | Backend | Tests | Notes |
 |---------|-------|-------|
-| QuickJS-NG | 139/139 | Default. Interpreter, ES2025, smallest binary (9.8MB) |
-| JavaScriptCore | 139/139 | JIT. Same engine as Safari/Bun |
-| V8 | 139/139 | JIT. Same engine as Chrome/Node.js (V8 15.0). Via C++ shim |
+| QuickJS-NG | 140/140 | Default. Interpreter, ES2025, smallest binary (9.8MB) |
+| JavaScriptCore | 140/140 | JIT. Same engine as Safari/Bun |
+| V8 | 140/140 | JIT. Same engine as Chrome/Node.js (V8 15.0). Via C++ shim |
 
 All 24 built-in modules, Workers, SharedArrayBuffer, Atomics, fetch, Deno compat, and web globals work identically on every backend.
 
@@ -162,12 +169,12 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for the full design.
 
 ```sh
 dub test -c unittest                            # unit tests
-bash tests/integration/run.sh                   # QuickJS integration (139 tests)
+bash tests/integration/run.sh                   # QuickJS integration (140 tests)
 BACKEND=jsc DUN=./dun-jsc bash tests/integration/run.sh
 BACKEND=v8  DUN=./dun-v8  bash tests/integration/run.sh
 ```
 
-139/139 integration on every backend, plus 145 npm-compat checks,
+140/140 integration on every backend, plus 145 npm-compat checks,
 98/98 ECMAScript spec audit (all 3 backends — /v set-op gap on
 QJS / V8 closed via source rewriter), 81/81 react-compat,
 231/231 safe-features, 45/45 security audit, 35/35 TypeScript
@@ -245,7 +252,7 @@ Partially. Honest assessment:
 **Where it works today** (CLI tools, build scripts, microservices,
 test harnesses, learning projects):
 
-- 139/139 integration sweep on every backend; 145/145 npm-compat,
+- 140/140 integration sweep on every backend; 145/145 npm-compat,
   98/98 ES2025 spec, 12/12 `deno_deploy_compat` vs Deno 2.7,
   13/13 `bun_bundler_compat` vs Bun 1.3, 38/38 v0.6.0 web API
   audit.
@@ -261,6 +268,11 @@ test harnesses, learning projects):
   work).
 - HTTP perf: DunJS V8 beats Node by 41% on `/plaintext`; JSC
   backend beats Bun on `stress.js` (62s vs 66s, 240/240).
+- **Dev experience (v0.7.0)**: `dun lint` (lexer-based JS/TS
+  linter, 6 core rules), `dun test --concurrent`
+  (`Promise.all`-batched parallel tests + `--max-concurrency=N`
+  + `test.concurrent()` / `test.serial()` — Bun parity), `dun
+  bundle --sourcemap[=inline|external]` (Source Map V3 emit).
 
 **Where it can't yet**:
 
@@ -273,9 +285,13 @@ test harnesses, learning projects):
   probes but throw on actual use. Good enough for libraries
   that feature-detect; not good enough to run a real workload
   that depends on them.
-- **No bundler / source maps / AST-based linter.** Scanner-based
-  TS strip, not a real parser. No `bun build --compile` /
-  `deno compile` standalone executable.
+- **No `bun build --compile` / `deno compile` standalone
+  executable** — bundling works (`dun bundle`, Source Map V3
+  via `--sourcemap`), but embedding the runtime + bundle in a
+  single binary is a multi-PR project. The minimal linter
+  shipped in v0.7.0 covers the dev-experience floor (6 rules);
+  full ESLint parity (200+ rules) needs a real parser, which
+  the project rejects (see Won't-fix in CLAUDE.md).
 - **Native `.node` addons that bypass N-API** (call V8 / libuv
   internals directly) won't work — same constraint Bun and Deno
   have.

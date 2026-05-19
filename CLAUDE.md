@@ -31,7 +31,13 @@ DFLAGS="--fsanitize=address" dub build -c quickjs  # Alternative ASan via DFLAGS
 ./dun install pkg --audit=block      # Block critical/high CVE packages
 ./dun test                           # Run test files (*.test.{js,ts}, *_test.{js,ts})
 ./dun test mytest.ts --filter=name   # Run specific test with filter
+./dun test --concurrent              # Bun parity — parallelize tests (default 20 in-flight)
+./dun test --concurrent --max-concurrency=8
 ./dun bench                          # Run benchmarks (*.bench.{js,ts})
+./dun lint                           # Lexer-based linter (no-eval, eqeqeq, no-debugger)
+./dun lint src/                      # Lint a directory tree
+./dun bundle entry.ts --sourcemap    # Bundle + emit v3 source map (external .map)
+./dun bundle entry.ts --sourcemap=inline   # Bundle with inline data: URI map
 ./dun init my-project                # Initialize a new project
 ./dun fmt                            # Format JavaScript/TypeScript files
 ./dun clean                          # Remove project-local .dun/ + node_modules/ (NOT $DUN_HOME)
@@ -419,7 +425,7 @@ Key shim patterns:
 ## Testing
 
 See [TESTING.md](TESTING.md) — unit tests (118 quickjs+v8 / 47 jsc),
-integration sweep (139/139 across 3 backends), 145 npm-compat checks,
+integration sweep (140/140 across 3 backends), 145 npm-compat checks,
 98/98 ECMAScript spec, 35/35 TypeScript spec, 81/81 react-compat,
 231/231 safe-features, 45/45 security audit, 12/12 ts_parity vs
 `tsc`, 12/12 deno_deploy_compat vs Deno 2.7, 13/13

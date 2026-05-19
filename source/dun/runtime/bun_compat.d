@@ -22,6 +22,16 @@ void installBunCompat(IJSEngine engine) @trusted
 
 private string bunCompatSource() pure nothrow @safe
 {
+    /* v0.7.0: lazy bootstrap deferred (see bun_extras_v7.d). The
+       sourcemap encoder is inlined into Bun.build's body — this
+       keeps the install-time AST size within JSC's concurrent-GC-
+       vs-event-loop-nanosleep threshold (the same boundary v0.6.0
+       hit with the eager web-extras install). */
+    return bunCompatSourceCore();
+}
+
+private string bunCompatSourceCore() pure nothrow @safe
+{
     // CAUTION: this string is built with `~` joins, no newlines between
     // chunks. Don't use JS `//` line comments — they swallow the rest.
     // Use `/* ... */` block comments only.
@@ -771,6 +781,49 @@ private string bunCompatSource() pure nothrow @safe
     "  var banner = minify ? '' : '/* Bun.build target=' + target + ' */\\n';" ~
     "  bundled = banner + bundled;" ~
     "  var outName = (opts.naming && opts.naming.entry) || 'bundle.js';" ~
+    /* Source Map V3 emit. `sourcemap: 'inline'` embeds a base64 data
+       URI; 'external' / 'linked' writes a sibling .map file. The
+       encoder lives here (inlined) instead of in a separate lazy
+       function because the extra lazy-getter eval pushes JSC past
+       the concurrent-GC heap threshold. Mappings are line-granular:
+       one VLQ segment per output line, sourceIdx derived from the
+       `// ===== path =====` banner comments we emitted earlier. */
+    "  var smOutput = null;" ~
+    "  var sm = opts.sourcemap;" ~
+    "  if (sm && sm !== 'none' && sm !== false) {" ~
+    "    var sources = Array.from(seen);" ~
+    "    var sourcesContent = sources.map(function(p) {" ~
+    "      try { return fs.readFileSync(p, 'utf-8'); } catch (_) { return ''; }" ~
+    "    });" ~
+    "    var b64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';" ~
+    "    var encVlq = function(v) {" ~
+    "      var x = v < 0 ? ((-v) << 1) | 1 : (v << 1), s = '';" ~
+    "      do { var d = x & 0x1f; x >>>= 5; if (x > 0) d |= 0x20; s += b64[d]; } while (x > 0);" ~
+    "      return s;" ~
+    "    };" ~
+    "    var lines = bundled.split('\\n');" ~
+    "    var mappings = '', cur = 0, prevSrc = 0, prevLine = 0, srcLine = 0;" ~
+    "    var bannerRe = /^\\/\\/ ===== (.+) =====$/;" ~
+    "    for (var li = 0; li < lines.length; li++) {" ~
+    "      var m = bannerRe.exec(lines[li]);" ~
+    "      if (m) { var hit = sources.indexOf(m[1]); if (hit >= 0) { cur = hit; srcLine = 0; } }" ~
+    "      mappings += encVlq(0) + encVlq(cur - prevSrc) + encVlq(srcLine - prevLine) + encVlq(0)" ~
+    "                + (li === lines.length - 1 ? '' : ';');" ~
+    "      prevSrc = cur; prevLine = srcLine; srcLine++;" ~
+    "    }" ~
+    "    smOutput = JSON.stringify({ version: 3, file: outName, sources: sources," ~
+    "      sourcesContent: sourcesContent, names: [], mappings: mappings });" ~
+    "    if (sm === 'inline') {" ~
+    "      var bb = new TextEncoder().encode(smOutput);" ~
+    "      var b64str = (typeof Buffer !== 'undefined')" ~
+    "        ? Buffer.from(bb).toString('base64')" ~
+    "        : btoa(String.fromCharCode.apply(null, bb));" ~
+    "      bundled += '\\n//# sourceMappingURL=data:application/json;base64,' + b64str + '\\n';" ~
+    "      smOutput = null;" ~
+    "    } else {" ~
+    "      bundled += '\\n//# sourceMappingURL=' + outName + '.map\\n';" ~
+    "    }" ~
+    "  }" ~
     "  var artifacts = [{" ~
     "    path: opts.outdir ? path.join(opts.outdir, outName) : '<inline>'," ~
     "    text: function() { return Promise.resolve(bundled); }," ~
@@ -781,9 +834,19 @@ private string bunCompatSource() pure nothrow @safe
     "    size: bundled.length," ~
     "    type: 'application/javascript'" ~
     "  }];" ~
+    "  if (smOutput) {" ~
+    "    artifacts.push({" ~
+    "      path: opts.outdir ? path.join(opts.outdir, outName + '.map') : '<inline>.map'," ~
+    "      text: function() { return Promise.resolve(smOutput); }," ~
+    "      arrayBuffer: function() { return Promise.resolve(new TextEncoder().encode(smOutput).buffer); }," ~
+    "      kind: 'sourcemap', loader: 'sourcemap', hash: null," ~
+    "      size: smOutput.length, type: 'application/json'" ~
+    "    });" ~
+    "  }" ~
     "  if (opts.outdir) {" ~
     "    try { fs.mkdirSync(opts.outdir, { recursive: true }); } catch (_) {}" ~
     "    fs.writeFileSync(path.join(opts.outdir, outName), bundled);" ~
+    "    if (smOutput) fs.writeFileSync(path.join(opts.outdir, outName + '.map'), smOutput);" ~
     "  }" ~
     "  return Promise.resolve({ success: logs.filter(function(l){return l.level==='error';}).length === 0, outputs: artifacts, logs: logs });" ~
     "};" ~

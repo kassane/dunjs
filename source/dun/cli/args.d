@@ -17,11 +17,12 @@ enum Command
     fmt,
     clean,
     bundle,
+    lint,
     version_,
     help,
 }
 
-static assert(__traits(allMembers, Command).length == 13,
+static assert(__traits(allMembers, Command).length == 14,
     "Command enum member count changed -- update parseArgs and main dispatch");
 
 /// Parsed CLI configuration.
@@ -45,6 +46,14 @@ struct CliConfig
 
     string[] testFiles;
     string testFilter;
+    // `dun test --concurrent` — Bun parity. When set, every `test(...)`
+    // call without an explicit `.serial` marker behaves as if it were
+    // declared via `test.concurrent(...)`. Batches run up to
+    // `testMaxConcurrency` in parallel.
+    bool testConcurrent;
+    // `dun test --max-concurrency=N` — caps the parallel batch size.
+    // Default 20 matches Bun.
+    int testMaxConcurrency = 20;
     string initName;
     string[] fmtFiles;
     // `dun fmt --quotes=single|double` — when non-empty, rewrites
@@ -57,6 +66,12 @@ struct CliConfig
     string[] bundleEntries;
     string bundleOutDir;
     bool bundleMinify;
+    // `dun bundle --sourcemap[=inline|external|none]` — emit a v3 source
+    // map alongside the bundle (or inline base64 data URI).
+    string bundleSourcemap;
+    // `dun lint` — paths (files or directories) to scan. Defaults to "."
+    // when empty.
+    string[] lintPaths;
     bool inspect;
     bool inspectBrk;
     ushort inspectPort = 9229;
@@ -209,6 +224,23 @@ CliConfig parseArgs(string[] args) @safe
             {
                 config.testFilter = args[i]["--filter=".length .. $];
             }
+            else if (args[i] == "--concurrent")
+            {
+                config.testConcurrent = true;
+            }
+            else if (args[i].startsWith("--max-concurrency="))
+            {
+                try
+                    config.testMaxConcurrency =
+                        to!int(args[i]["--max-concurrency=".length .. $]);
+                catch (Exception)
+                {
+                    config.errorMessage = "invalid --max-concurrency value";
+                    return config;
+                }
+                if (config.testMaxConcurrency < 1)
+                    config.testMaxConcurrency = 1;
+            }
             else if (!args[i].startsWith("-"))
             {
                 config.testFiles ~= args[i];
@@ -302,6 +334,16 @@ CliConfig parseArgs(string[] args) @safe
                 config.bundleMinify = true;
                 i++;
             }
+            else if (args[i] == "--sourcemap")
+            {
+                config.bundleSourcemap = "external";
+                i++;
+            }
+            else if (args[i].startsWith("--sourcemap="))
+            {
+                config.bundleSourcemap = args[i]["--sourcemap=".length .. $];
+                i++;
+            }
             else if (!args[i].startsWith("-"))
             {
                 config.bundleEntries ~= args[i];
@@ -310,6 +352,25 @@ CliConfig parseArgs(string[] args) @safe
             else
             {
                 config.errorMessage = "unknown flag '" ~ args[i] ~ "' for 'bundle'";
+                return config;
+            }
+        }
+        return config;
+    }
+    else if (args[i] == "lint")
+    {
+        config.command = Command.lint;
+        i++;
+        while (i < args.length)
+        {
+            if (!args[i].startsWith("-"))
+            {
+                config.lintPaths ~= args[i];
+                i++;
+            }
+            else
+            {
+                config.errorMessage = "unknown flag '" ~ args[i] ~ "' for 'lint'";
                 return config;
             }
         }
@@ -543,7 +604,7 @@ CliConfig parseArgs(string[] args) @safe
                 case Command.repl: cmdName = "repl"; break;
                 case Command.run: case Command.install: case Command.test_:
                 case Command.bench: case Command.init_: case Command.fmt:
-                case Command.bundle:
+                case Command.bundle: case Command.lint:
                     break;
             }
             if (cmdName.length > 0)

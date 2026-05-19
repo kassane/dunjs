@@ -606,4 +606,4 @@ tests/benchmarks/http_bench/
 HTTP server optimizations: TCP_NODELAY, buffered single-write response, CTFE pre-computed
 status lines, connection slot pooling, fd→connId hashmap (O(1) lookup), JS-level dispatch
 for reduced FFI overhead, lazy header loading, MSG_NOSIGNAL, EOF detection with RAII cleanup.
-**QuickJS 139/139, JSC 139/139, V8 139/139** (all backends at full parity).
+**QuickJS 140/140, JSC 140/140, V8 140/140** (all backends at full parity).
