@@ -66,12 +66,41 @@ struct IOPoller
     {
         version (linux)
         {
-            // Try io_uring first; fall back to epoll on older kernels or containers
-            uringFd = uringSetup(64, &sqRingPtr, &sqRingMapSize,
-                &cqRingPtr, &cqRingMapSize, &sqesPtr, &sqesMapSize,
-                &sqHead, &sqTail, &sqRingMask, &sqArray,
-                &cqHead, &cqTail, &cqRingMask, &cqes, &singleMmap);
-            if (uringFd >= 0)
+            /* io_uring vs epoll. Bun walks the same path and chose
+               epoll exclusively — their `bun.zig` `is_missing_io_uring`
+               helper exists only to skip native I/O ops on older
+               kernels; their event loop is epoll-only on Linux
+               (`src/io/posix_event_loop.zig` / `lib.rs`). The single
+               io_uring mention in their tree is a TODO marker in
+               package install.
+
+               We follow Bun's lead for the JSC backend specifically —
+               io_uring's POLL_ADD lifecycle interacts poorly with
+               JSC's concurrent GC under repeated server-restart
+               workloads (gdb confirms `dun.loop.iopoller.uringPoll`
+               hangs after ~9 `Deno.serve+shutdown` cycles). QJS / V8
+               keep io_uring because they don't trigger the
+               interaction. The runtime override `DUN_DISABLE_URING=1`
+               forces epoll on every backend (matches Bun behavior). */
+            bool forceEpoll = false;
+            try
+            {
+                import core.sys.posix.stdlib : getenv;
+                auto e = getenv("DUN_DISABLE_URING");
+                if (e !is null && *e != 0) forceEpoll = true;
+            }
+            catch (Exception) {}
+            version (EngineJSC) forceEpoll = true;
+
+            if (!forceEpoll)
+            {
+                // Try io_uring first; fall back to epoll on older kernels.
+                uringFd = uringSetup(64, &sqRingPtr, &sqRingMapSize,
+                    &cqRingPtr, &cqRingMapSize, &sqesPtr, &sqesMapSize,
+                    &sqHead, &sqTail, &sqRingMask, &sqArray,
+                    &cqHead, &cqTail, &cqRingMask, &cqes, &singleMmap);
+            }
+            if (!forceEpoll && uringFd >= 0)
             {
                 useUring = true;
             }
