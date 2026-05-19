@@ -1060,10 +1060,10 @@ JSHandle jsCryptoCreateCipheriv(void* ctx, JSHandle thisVal, scope JSHandle[] ar
     auto obj = engine.newObject();
     engine.setProperty(obj, "_algo", engine.newString(algo));
     engine.setProperty(obj, "_evpCtx", engine.newFloat(cast(double) cast(size_t) evpCtx));
-    engine.setProperty(obj, "update", engine.dupValue(_cachedCipherUpdateFn));
-    engine.setProperty(obj, "final", engine.dupValue(_cachedCipherFinalFn));
+    engine.bindMethod(obj, "update", _cachedCipherUpdateFn);
+    engine.bindMethod(obj, "final", _cachedCipherFinalFn);
     if (isGcmCipher(algo))
-        engine.setProperty(obj, "getAuthTag", engine.dupValue(_cachedCipherGetAuthTagFn));
+        engine.bindMethod(obj, "getAuthTag", _cachedCipherGetAuthTagFn);
     return obj;
 }
 
@@ -1263,10 +1263,10 @@ JSHandle jsCryptoCreateDecipheriv(void* ctx, JSHandle thisVal, scope JSHandle[] 
     auto obj = engine.newObject();
     engine.setProperty(obj, "_algo", engine.newString(algo));
     engine.setProperty(obj, "_evpCtx", engine.newFloat(cast(double) cast(size_t) evpCtx));
-    engine.setProperty(obj, "update", engine.dupValue(_cachedDecipherUpdateFn));
-    engine.setProperty(obj, "final", engine.dupValue(_cachedDecipherFinalFn));
+    engine.bindMethod(obj, "update", _cachedDecipherUpdateFn);
+    engine.bindMethod(obj, "final", _cachedDecipherFinalFn);
     if (isGcmCipher(algo))
-        engine.setProperty(obj, "setAuthTag", engine.dupValue(_cachedDecipherSetAuthTagFn));
+        engine.bindMethod(obj, "setAuthTag", _cachedDecipherSetAuthTagFn);
     return obj;
 }
 
@@ -1477,8 +1477,8 @@ JSHandle jsCryptoCreateSign(void* ctx, JSHandle thisVal, scope JSHandle[] args) 
     auto obj = engine.newObject();
     engine.setProperty(obj, "_algo", engine.newString(algo));
     engine.setProperty(obj, "_data", engine.newString(""));
-    engine.setProperty(obj, "update", engine.dupValue(_cachedSignUpdateFn));
-    engine.setProperty(obj, "sign", engine.dupValue(_cachedSignSignFn));
+    engine.bindMethod(obj, "update", _cachedSignUpdateFn);
+    engine.bindMethod(obj, "sign", _cachedSignSignFn);
     return obj;
 }
 
@@ -1563,8 +1563,8 @@ JSHandle jsCryptoCreateVerify(void* ctx, JSHandle thisVal, scope JSHandle[] args
     auto obj = engine.newObject();
     engine.setProperty(obj, "_algo", engine.newString(algo));
     engine.setProperty(obj, "_data", engine.newString(""));
-    engine.setProperty(obj, "update", engine.dupValue(_cachedVerifyUpdateFn));
-    engine.setProperty(obj, "verify", engine.dupValue(_cachedVerifyVerifyFn));
+    engine.bindMethod(obj, "update", _cachedVerifyUpdateFn);
+    engine.bindMethod(obj, "verify", _cachedVerifyVerifyFn);
     return obj;
 }
 
@@ -2098,12 +2098,12 @@ JSHandle jsCryptoCreateDiffieHellman(void* ctx, JSHandle thisVal, scope JSHandle
     auto obj = engine.newObject();
     // Store DH pointer as float (same pattern as cipher _evpCtx)
     engine.setProperty(obj, "_dh", engine.newFloat(cast(double) cast(size_t) dh));
-    engine.setProperty(obj, "generateKeys", engine.dupValue(_cachedDHGenerateKeysFn));
-    engine.setProperty(obj, "getPublicKey", engine.dupValue(_cachedDHGetPublicKeyFn));
-    engine.setProperty(obj, "getPrivateKey", engine.dupValue(_cachedDHGetPrivateKeyFn));
-    engine.setProperty(obj, "computeSecret", engine.dupValue(_cachedDHComputeSecretFn));
-    engine.setProperty(obj, "getPrime", engine.dupValue(_cachedDHGetPrimeFn));
-    engine.setProperty(obj, "getGenerator", engine.dupValue(_cachedDHGetGeneratorFn));
+    engine.bindMethod(obj, "generateKeys", _cachedDHGenerateKeysFn);
+    engine.bindMethod(obj, "getPublicKey", _cachedDHGetPublicKeyFn);
+    engine.bindMethod(obj, "getPrivateKey", _cachedDHGetPrivateKeyFn);
+    engine.bindMethod(obj, "computeSecret", _cachedDHComputeSecretFn);
+    engine.bindMethod(obj, "getPrime", _cachedDHGetPrimeFn);
+    engine.bindMethod(obj, "getGenerator", _cachedDHGetGeneratorFn);
     return obj;
 }
 
@@ -2261,16 +2261,16 @@ void installNativeSubtle(IJSEngine engine, JSHandle cryptoObj) @trusted
     ensureSubtleFnsCached(engine);
 
     auto subtle = engine.newObject();
-    engine.setProperty(subtle, "digest", engine.dupValue(_cachedSubtleDigestFn));
-    engine.setProperty(subtle, "importKey", engine.dupValue(_cachedSubtleImportKeyFn));
-    engine.setProperty(subtle, "sign", engine.dupValue(_cachedSubtleSignFn));
-    engine.setProperty(subtle, "verify", engine.dupValue(_cachedSubtleVerifyFn));
-    engine.setProperty(subtle, "encrypt", engine.dupValue(_cachedSubtleEncryptFn));
-    engine.setProperty(subtle, "decrypt", engine.dupValue(_cachedSubtleDecryptFn));
-    engine.setProperty(subtle, "generateKey", engine.dupValue(_cachedSubtleGenerateKeyFn));
-    engine.setProperty(subtle, "exportKey", engine.dupValue(_cachedSubtleExportKeyFn));
-    engine.setProperty(subtle, "deriveBits", engine.dupValue(_cachedSubtleDeriveBitsFn));
-    engine.setProperty(subtle, "deriveKey", engine.dupValue(_cachedSubtleDeriveKeyFn));
+    engine.bindMethod(subtle, "digest", _cachedSubtleDigestFn);
+    engine.bindMethod(subtle, "importKey", _cachedSubtleImportKeyFn);
+    engine.bindMethod(subtle, "sign", _cachedSubtleSignFn);
+    engine.bindMethod(subtle, "verify", _cachedSubtleVerifyFn);
+    engine.bindMethod(subtle, "encrypt", _cachedSubtleEncryptFn);
+    engine.bindMethod(subtle, "decrypt", _cachedSubtleDecryptFn);
+    engine.bindMethod(subtle, "generateKey", _cachedSubtleGenerateKeyFn);
+    engine.bindMethod(subtle, "exportKey", _cachedSubtleExportKeyFn);
+    engine.bindMethod(subtle, "deriveBits", _cachedSubtleDeriveBitsFn);
+    engine.bindMethod(subtle, "deriveKey", _cachedSubtleDeriveKeyFn);
 
     auto stubNames = ["wrapKey", "unwrapKey"];
     foreach (name; stubNames)
@@ -2299,16 +2299,16 @@ public void installSubtleOnGlobalCrypto(IJSEngine engine) @trusted
     if (!engine.isUndefined(cryptoObj) && !engine.isNull(cryptoObj))
     {
         auto subtle = engine.newObject();
-        engine.setProperty(subtle, "digest", engine.dupValue(_cachedSubtleDigestFn));
-        engine.setProperty(subtle, "importKey", engine.dupValue(_cachedSubtleImportKeyFn));
-        engine.setProperty(subtle, "sign", engine.dupValue(_cachedSubtleSignFn));
-        engine.setProperty(subtle, "verify", engine.dupValue(_cachedSubtleVerifyFn));
-        engine.setProperty(subtle, "encrypt", engine.dupValue(_cachedSubtleEncryptFn));
-        engine.setProperty(subtle, "decrypt", engine.dupValue(_cachedSubtleDecryptFn));
-        engine.setProperty(subtle, "generateKey", engine.dupValue(_cachedSubtleGenerateKeyFn));
-        engine.setProperty(subtle, "exportKey", engine.dupValue(_cachedSubtleExportKeyFn));
-        engine.setProperty(subtle, "deriveBits", engine.dupValue(_cachedSubtleDeriveBitsFn));
-        engine.setProperty(subtle, "deriveKey", engine.dupValue(_cachedSubtleDeriveKeyFn));
+        engine.bindMethod(subtle, "digest", _cachedSubtleDigestFn);
+        engine.bindMethod(subtle, "importKey", _cachedSubtleImportKeyFn);
+        engine.bindMethod(subtle, "sign", _cachedSubtleSignFn);
+        engine.bindMethod(subtle, "verify", _cachedSubtleVerifyFn);
+        engine.bindMethod(subtle, "encrypt", _cachedSubtleEncryptFn);
+        engine.bindMethod(subtle, "decrypt", _cachedSubtleDecryptFn);
+        engine.bindMethod(subtle, "generateKey", _cachedSubtleGenerateKeyFn);
+        engine.bindMethod(subtle, "exportKey", _cachedSubtleExportKeyFn);
+        engine.bindMethod(subtle, "deriveBits", _cachedSubtleDeriveBitsFn);
+        engine.bindMethod(subtle, "deriveKey", _cachedSubtleDeriveKeyFn);
 
         auto stubNames = ["wrapKey", "unwrapKey"];
         foreach (name; stubNames)

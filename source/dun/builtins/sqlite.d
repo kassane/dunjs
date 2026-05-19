@@ -122,11 +122,11 @@ JSHandle jsSqliteOpen(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trust
 
     auto dbObj = engine.newObject();
     engine.setProperty(dbObj, "__dbId__", engine.newInt(id));
-    engine.setProperty(dbObj, "exec", engine.dupValue(_cachedExecFn));
-    engine.setProperty(dbObj, "run", engine.dupValue(_cachedRunFn));
-    engine.setProperty(dbObj, "get", engine.dupValue(_cachedGetFn));
-    engine.setProperty(dbObj, "all", engine.dupValue(_cachedAllFn));
-    engine.setProperty(dbObj, "close", engine.dupValue(_cachedCloseFn));
+    engine.bindMethod(dbObj, "exec", _cachedExecFn);
+    engine.bindMethod(dbObj, "run", _cachedRunFn);
+    engine.bindMethod(dbObj, "get", _cachedGetFn);
+    engine.bindMethod(dbObj, "all", _cachedAllFn);
+    engine.bindMethod(dbObj, "close", _cachedCloseFn);
     engine.setProperty(dbObj, "filename", engine.newString(path));
 
     return dbObj;
