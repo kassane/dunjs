@@ -22,6 +22,33 @@ int main(string[] args)
 
     import dun.cli.args : parseArgs, Command;
 
+    /* `dun bundle --compile=PATH` embedded-bundle check. When the
+       current executable was produced by `--compile`, the trailing
+       24-byte marker / size / version block at the end of the
+       file holds the embedded JS. Detect that on startup and run
+       the embedded bundle instead of dispatching to the CLI.
+       `--allow-*` flags before the script work; everything else
+       is passed through as script argv. */
+    {
+        import dun.cli.embed : readEmbeddedBundle;
+        import std.file : thisExePath;
+        string exe;
+        try exe = thisExePath();
+        catch (Exception) { exe = ""; }
+        if (exe.length > 0)
+        {
+            auto bundle = readEmbeddedBundle(exe);
+            if (bundle.length > 0)
+            {
+                /* Bridge const(ubyte)[] → string via @trusted block;
+                   the cast is safe because the bytes are immutable
+                   (read from disk, never mutated by us). */
+                auto bundleStr = () @trusted { return cast(string) bundle; }();
+                return runEmbeddedBundle(args, bundleStr);
+            }
+        }
+    }
+
     auto config = parseArgs(args);
 
     if (config.errorMessage.length > 0)
@@ -75,7 +102,55 @@ int main(string[] args)
 
 private:
 
-public enum VERSION = "0.8.2";
+public enum VERSION = "0.9.0";
+
+/// Entry point when the running executable was produced by
+/// `dun bundle --compile=PATH`. Sets up a runtime with --allow-all,
+/// passes `args[1..$]` to the script, and evals the embedded bundle.
+/// The bundle ships its own permission decisions (it was built by
+/// the developer who chose to compile it).
+int runEmbeddedBundle(string[] args, string bundle) @trusted
+{
+    import dun.cli.args : CliConfig;
+    import dun.engine.iface : createEngine, EngineConfig, DEFAULT_MEMORY_LIMIT,
+        DEFAULT_MAX_STACK;
+    import dun.runtime.globals : DunState, installGlobals;
+    import dun.security.permissions : Permission;
+
+    CliConfig config;
+    config.permissions.grant(Permission.read);
+    config.permissions.grant(Permission.write);
+    config.permissions.grant(Permission.net);
+    config.permissions.grant(Permission.env);
+    config.permissions.grant(Permission.run);
+    config.permissions.grant(Permission.ffi);
+    config.permissions.grant(Permission.hrtime);
+    if (args.length > 1) config.scriptArgs = args[1 .. $];
+
+    auto engine = createEngine();
+    engine.initialize(EngineConfig(DEFAULT_MEMORY_LIMIT, DEFAULT_MAX_STACK));
+
+    DunState state;
+    state.engine = engine;
+    state.permissions = &config.permissions;
+    state.scriptArgs = ["dun"] ~ (args.length > 1 ? args[1 .. $] : []);
+    state.eventLoop.initialize(engine);
+    installGlobals(engine, &state);
+
+    auto result = engine.eval(bundle, "<embedded>");
+    if (result.isError)
+    {
+        writeStderr("compiled: ");
+        writeStderr(result.errorMessage);
+        writeStderr("\n");
+        engine.shutdown();
+        return 1;
+    }
+    engine.freeValue(result.value);
+    state.eventLoop.run();
+    engine.shutdown();
+    return 0;
+}
 
 int runScript(T)(T config)
 {
@@ -1099,14 +1174,34 @@ int runBundle(T)(T config)
         sourcemapJs = ", sourcemap: \""
             ~ config.bundleSourcemap.replace(`"`, `\"`) ~ "\"";
     string minifyJs = config.bundleMinify ? ", minify: true" : "";
-    string src =
-        "Bun.build({ entrypoints: " ~ entriesJs ~
-        ", outdir: \"" ~ outDir.replace(`\`, `\\`).replace(`"`, `\"`) ~ "\""
-        ~ sourcemapJs ~ minifyJs ~
-        " }).then(function(r) {" ~
-        "  if (!r.success) { console.error('bundle failed'); process.exit(1); }" ~
-        "  console.log('bundle ok →', r.outputs[0].path, '(' + r.outputs[0].size + ' bytes)');" ~
-        "}).catch(function(e) { console.error(String(e)); process.exit(1); });";
+
+    /* --compile path: capture the bundle text in a globalThis slot
+       (no outdir flush — we'll write the executable ourselves). */
+    bool compile = config.bundleCompile.length > 0;
+    string src;
+    if (compile)
+    {
+        src =
+            "Bun.build({ entrypoints: " ~ entriesJs
+            ~ ", target: 'bun'"
+            ~ sourcemapJs ~ minifyJs ~
+            " }).then(function(r) {" ~
+            "  if (!r.success) { console.error('bundle failed'); process.exit(1); }" ~
+            "  return r.outputs[0].text();" ~
+            "}).then(function(t) { globalThis.__dunCompiledBundle__ = t; })" ~
+            ".catch(function(e) { console.error(String(e)); process.exit(1); });";
+    }
+    else
+    {
+        src =
+            "Bun.build({ entrypoints: " ~ entriesJs ~
+            ", outdir: \"" ~ outDir.replace(`\`, `\\`).replace(`"`, `\"`) ~ "\""
+            ~ sourcemapJs ~ minifyJs ~
+            " }).then(function(r) {" ~
+            "  if (!r.success) { console.error('bundle failed'); process.exit(1); }" ~
+            "  console.log('bundle ok →', r.outputs[0].path, '(' + r.outputs[0].size + ' bytes)');" ~
+            "}).catch(function(e) { console.error(String(e)); process.exit(1); });";
+    }
 
     auto result = engine.eval(src, "<bundle>");
     if (result.isError)
@@ -1119,6 +1214,53 @@ int runBundle(T)(T config)
     }
     engine.freeValue(result.value);
     state.eventLoop.run();
+
+    /* --compile: pull the bundle text we captured in
+       globalThis.__dunCompiledBundle__ and embed it into a copy of
+       the current dun runtime binary. */
+    if (compile)
+    {
+        auto globalH = engine.getGlobal();
+        auto bundleH = engine.getProperty(globalH, "__dunCompiledBundle__");
+        engine.freeValue(globalH);
+        if (!engine.isString(bundleH))
+        {
+            engine.freeValue(bundleH);
+            engine.shutdown();
+            writeStderr("compile: no bundle text captured (build may have failed silently)\n");
+            return 1;
+        }
+        auto bundleText = engine.extractString(bundleH);
+        engine.freeValue(bundleH);
+
+        import dun.cli.embed : writeCompiledExe;
+        import std.file : thisExePath;
+        string srcExe;
+        try srcExe = thisExePath();
+        catch (Exception) { srcExe = ""; }
+        if (srcExe.length == 0)
+        {
+            engine.shutdown();
+            writeStderr("compile: could not resolve current binary path\n");
+            return 1;
+        }
+        int rc = writeCompiledExe(srcExe, config.bundleCompile,
+            cast(const(ubyte)[]) bundleText);
+        if (rc == 0)
+        {
+            try
+            {
+                import std.stdio : writeln;
+                import std.file : getSize;
+                writeln("compiled → ", config.bundleCompile,
+                    " (", getSize(config.bundleCompile), " bytes)");
+            }
+            catch (Exception) {}
+        }
+        engine.shutdown();
+        return rc;
+    }
+
     engine.shutdown();
     return 0;
 }

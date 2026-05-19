@@ -73,6 +73,10 @@ struct CliConfig
     // `dun bundle --sourcemap[=inline|external|none]` — emit a v3 source
     // map alongside the bundle (or inline base64 data URI).
     string bundleSourcemap;
+    // `dun bundle --compile=PATH` — bundle + embed into a copy of the
+    // dun runtime binary, producing a self-contained executable at PATH.
+    // Like Bun's `bun build --compile` / Deno's `deno compile`.
+    string bundleCompile;
     // `dun lint` — paths (files or directories) to scan. Defaults to "."
     // when empty.
     string[] lintPaths;
@@ -357,6 +361,11 @@ CliConfig parseArgs(string[] args) @safe
             else if (args[i].startsWith("--sourcemap="))
             {
                 config.bundleSourcemap = args[i]["--sourcemap=".length .. $];
+                i++;
+            }
+            else if (args[i].startsWith("--compile="))
+            {
+                config.bundleCompile = args[i]["--compile=".length .. $];
                 i++;
             }
             else if (!args[i].startsWith("-"))
