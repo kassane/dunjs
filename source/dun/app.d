@@ -61,7 +61,8 @@ int main(string[] args)
         case Command.lint:
         {
             import dun.cli.lint : runLint;
-            return runLint(config.lintPaths, config.lintFix);
+            return runLint(config.lintPaths, config.lintFix,
+                config.lintQuiet, config.lintMaxWarnings);
         }
         case Command.version_:
             printVersion();
@@ -74,7 +75,7 @@ int main(string[] args)
 
 private:
 
-public enum VERSION = "0.8.1";
+public enum VERSION = "0.8.2";
 
 int runScript(T)(T config)
 {

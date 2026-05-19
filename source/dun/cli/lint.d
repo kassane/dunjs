@@ -73,10 +73,13 @@ private bool isLintable(string path) @safe
 }
 
 /// Walk `paths` (file or directory) and run all rules. Returns exit
-/// code (0 = clean, 1 = errors found). When `applyFix == true`,
-/// safe diagnostics get auto-rewritten in place; the file is
-/// re-tokenized and re-reported after the rewrite.
-int runLint(string[] paths, bool applyFix = false) @safe
+/// code (0 = clean, 1 = errors found OR `--max-warnings=N` cap
+/// exceeded). When `applyFix == true`, safe diagnostics get auto-
+/// rewritten in place; the file is re-tokenized and re-reported
+/// after the rewrite. `quiet=true` suppresses warning output (only
+/// errors print); `maxWarnings=-1` disables the warning cap.
+int runLint(string[] paths, bool applyFix = false,
+            bool quiet = false, int maxWarnings = -1) @safe
 {
     if (paths.length == 0)
         paths = ["."];
@@ -121,27 +124,51 @@ int runLint(string[] paths, bool applyFix = false) @safe
         }
     }
 
+    int errors = 0;
+    int warnings = 0;
     foreach (d; diags)
+    {
+        if (d.severity == "error") errors++;
+        else if (d.severity == "warn") warnings++;
+    }
+
+    foreach (d; diags)
+    {
+        if (quiet && d.severity != "error") continue;
         writefln("%s:%d:%d  %s  %s  %s%s",
             d.file, d.line, d.col, d.severity, d.message, d.rule,
             applyFix ? "" : (d.fixable ? "  [fixable]" : ""));
-
-    int errors = 0;
-    foreach (d; diags) if (d.severity == "error") errors++;
+    }
 
     if (applyFix && filesFixed > 0)
         writefln("Applied fixes to %d file%s.", filesFixed, filesFixed == 1 ? "" : "s");
 
     if (diags.length > 0)
-        writefln("\n%s problem%s (%d error%s) in %d file%s.",
-            diags.length, diags.length == 1 ? "" : "s",
-            errors, errors == 1 ? "" : "s",
-            filesScanned, filesScanned == 1 ? "" : "s");
+    {
+        if (quiet)
+            writefln("\n%d error%s in %d file%s.",
+                errors, errors == 1 ? "" : "s",
+                filesScanned, filesScanned == 1 ? "" : "s");
+        else
+            writefln("\n%s problem%s (%d error%s) in %d file%s.",
+                diags.length, diags.length == 1 ? "" : "s",
+                errors, errors == 1 ? "" : "s",
+                filesScanned, filesScanned == 1 ? "" : "s");
+    }
     else
         writefln("Lint clean. %d file%s scanned.",
             filesScanned, filesScanned == 1 ? "" : "s");
 
-    return errors > 0 ? 1 : 0;
+    /* Exit code: errors always fail; --max-warnings=N caps warnings
+       (e.g. `--max-warnings=0` makes any warning a CI failure). */
+    if (errors > 0) return 1;
+    if (maxWarnings >= 0 && warnings > maxWarnings)
+    {
+        writefln("Warning count (%d) exceeds --max-warnings=%d.",
+            warnings, maxWarnings);
+        return 1;
+    }
+    return 0;
 }
 
 /// Re-tokenize `path`, collect all fixable diagnostics, apply them
