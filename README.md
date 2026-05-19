@@ -1,6 +1,7 @@
 # DunJS
 
 A secure, multi-engine JavaScript/TypeScript runtime written in D.
+**v1.0** — stable.
 
 ```sh
 dun run server.ts --allow-net --allow-read
@@ -277,9 +278,12 @@ test harnesses, learning projects):
 
 **Where it can't yet**:
 
-- **Maturity.** v0.6.0, no production deployments tracked, no
-  CVE history. Bun and Deno took years to harden under real
-  traffic; DunJS hasn't been hammered at scale yet.
+- **Maturity.** v1.0 stable as of this release — 145/145
+  integration sweep on QJS / V8, ThreadSanitizer clean (modulo
+  intentional daemon worker threads), 147 JSC handle leaks
+  plugged, 4 lockfree-converted hot paths. But no production
+  deployments tracked yet and no CVE history. Bun and Deno took
+  years to harden under real traffic; DunJS is freshly stable.
 - **Stub-only web APIs.** `IndexedDB`, `WebTransport`,
   `RTCPeerConnection`, `Notification`, `CookieStore`,
   `FileReaderSync`, `ImageBitmap` satisfy `typeof === 'function'`

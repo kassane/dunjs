@@ -113,11 +113,11 @@ echo "$cli_out" | grep -q '^3$' || { echo "FAIL cli_eval"; cli_fails=1; }
 
 # Test: dun version
 cli_out=$("$DUN" version 2>&1 || true)
-echo "$cli_out" | grep -q 'dun 0\.' || { echo "FAIL cli_version"; cli_fails=1; }
+echo "$cli_out" | grep -qE '^dun [0-9]+\.' || { echo "FAIL cli_version"; cli_fails=1; }
 
 # Test: dun --version
 cli_out=$("$DUN" --version 2>&1 || true)
-echo "$cli_out" | grep -q 'dun 0\.' || { echo "FAIL cli_version_flag"; cli_fails=1; }
+echo "$cli_out" | grep -qE '^dun [0-9]+\.' || { echo "FAIL cli_version_flag"; cli_fails=1; }
 
 # Test: dun help shows commands
 cli_out=$("$DUN" help 2>&1 || true)
@@ -137,7 +137,7 @@ rm -f /tmp/dun_cli_args.js
 
 # Test: no args starts REPL
 cli_out=$(echo '.exit' | "$DUN" 2>&1 || true)
-echo "$cli_out" | grep -q 'dun 0\.' || { echo "FAIL cli_no_args_repl"; cli_fails=1; }
+echo "$cli_out" | grep -qE '^dun [0-9]+\.' || { echo "FAIL cli_no_args_repl"; cli_fails=1; }
 
 # Test: dun init creates project
 tmpdir=$(mktemp -d)
