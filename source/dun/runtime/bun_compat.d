@@ -963,6 +963,12 @@ private string bunCompatSource() pure nothrow @safe
     "}" ~
     "['SHA256','SHA1','SHA512','MD5'].forEach(_mkBunHash);" ~
 
+    /* Bun.MD4 — included for completeness even though MD4 is insecure
+       and rarely used. node:crypto exposes it via the legacy provider;
+       if OpenSSL was built without it, instantiation throws. */
+    "_mkBunHash('MD4');" ~
+
+
     /* Bun.connect({hostname,port,socket}) / Bun.listen({hostname,port,socket})
        — TCP sockets wrapped around node:net. The `socket` handlers
        (`data`/`open`/`close`/`error`) map onto net.Socket events. */

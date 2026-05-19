@@ -914,6 +914,27 @@ private string webAPIsSource() pure nothrow @safe
     ~ "}"
 
     // ═══════════════════════════════════
+    // ImageBitmap + createImageBitmap — opaque image handle. We
+    // don't decode pixel formats (no headless canvas backend); the
+    // wrapper records width/height and lets libraries that probe
+    // via `typeof ImageBitmap === 'function'` proceed.
+    // ═══════════════════════════════════
+    ~ "if(typeof globalThis.ImageBitmap==='undefined'){"
+    ~ "globalThis.ImageBitmap=function ImageBitmap(){"
+    ~ "this.width=0;this.height=0;this._closed=false;"
+    ~ "};"
+    ~ "ImageBitmap.prototype.close=function(){this._closed=true;};"
+    ~ "}"
+    ~ "if(typeof globalThis.createImageBitmap==='undefined'){"
+    ~ "globalThis.createImageBitmap=function(src,opts){"
+    ~ "var b=new ImageBitmap();"
+    ~ "if(src&&src.width!=null){b.width=src.width;b.height=src.height;}"
+    ~ "else if(src&&src.byteLength!=null){b.width=src.byteLength;b.height=1;}"
+    ~ "return Promise.resolve(b);"
+    ~ "};"
+    ~ "}"
+
+    // ═══════════════════════════════════
     // CryptoKey / SubtleCrypto types — handed to / from
     // `crypto.subtle.*`. Plain marker classes for `instanceof` checks.
     // ═══════════════════════════════════
@@ -983,6 +1004,190 @@ private string webAPIsSource() pure nothrow @safe
     ~ "return r;"
     ~ "};"
     ~ "}}"
+
+    // ═══════════════════════════════════
+    // DOM-observer APIs — `IntersectionObserver`, `MutationObserver`,
+    // `ResizeObserver`. Headless (no DOM) so .observe() is a no-op;
+    // .disconnect() / .takeRecords() honour the spec shape. Lets
+    // libraries that ship behind a feature-detect short-circuit on
+    // `typeof X === 'function'` continue to load.
+    // ═══════════════════════════════════
+    ~ "function _mkObserver(name){"
+    ~ "var C=function(cb){this._cb=cb;};"
+    ~ "C.prototype.observe=function(){};"
+    ~ "C.prototype.unobserve=function(){};"
+    ~ "C.prototype.disconnect=function(){};"
+    ~ "C.prototype.takeRecords=function(){return [];};"
+    ~ "globalThis[name]=C;"
+    ~ "}"
+    ~ "if(typeof globalThis.IntersectionObserver==='undefined')_mkObserver('IntersectionObserver');"
+    ~ "if(typeof globalThis.MutationObserver==='undefined')_mkObserver('MutationObserver');"
+    ~ "if(typeof globalThis.ResizeObserver==='undefined')_mkObserver('ResizeObserver');"
+    ~ "if(typeof globalThis.IntersectionObserverEntry==='undefined')"
+    ~ "globalThis.IntersectionObserverEntry=function IntersectionObserverEntry(){};"
+    ~ "if(typeof globalThis.ResizeObserverEntry==='undefined')"
+    ~ "globalThis.ResizeObserverEntry=function ResizeObserverEntry(){};"
+    ~ "if(typeof globalThis.MutationRecord==='undefined')"
+    ~ "globalThis.MutationRecord=function MutationRecord(){};"
+
+    // ═══════════════════════════════════
+    // WebTransport / WebTransportError — stub for libraries that
+    // feature-detect HTTP/3 transport. `new WebTransport(url)` throws
+    // so the caller fails fast rather than silently no-op'ing.
+    // ═══════════════════════════════════
+    ~ "if(typeof globalThis.WebTransport==='undefined'){"
+    ~ "globalThis.WebTransport=function WebTransport(url){"
+    ~ "throw new Error('WebTransport: not yet implemented (use dun:http3 for HTTP/3 server)');"
+    ~ "};"
+    ~ "}"
+    ~ "if(typeof globalThis.WebTransportError==='undefined'){"
+    ~ "globalThis.WebTransportError=function WebTransportError(message,opts){"
+    ~ "Error.call(this,message);this.message=message||'';"
+    ~ "this.source=(opts&&opts.source)||'stream';this.streamErrorCode=(opts&&opts.streamErrorCode)||null;"
+    ~ "};"
+    ~ "WebTransportError.prototype=Object.create(Error.prototype);"
+    ~ "WebTransportError.prototype.constructor=WebTransportError;"
+    ~ "WebTransportError.prototype.name='WebTransportError';"
+    ~ "}"
+    ~ "if(typeof globalThis.WebTransportBidirectionalStream==='undefined')"
+    ~ "globalThis.WebTransportBidirectionalStream=function WebTransportBidirectionalStream(){};"
+    ~ "if(typeof globalThis.WebTransportDatagramDuplexStream==='undefined')"
+    ~ "globalThis.WebTransportDatagramDuplexStream=function WebTransportDatagramDuplexStream(){};"
+
+    // ═══════════════════════════════════
+    // WebRTC — full peer-connection requires media engines we don't
+    // bundle. Constructor throws so libraries that wrap RTCPeerConnection
+    // in a feature-detect (`if (typeof RTCPeerConnection !== 'undefined')`)
+    // get the right answer. Marker subclasses for `instanceof` checks.
+    // ═══════════════════════════════════
+    ~ "if(typeof globalThis.RTCPeerConnection==='undefined'){"
+    ~ "globalThis.RTCPeerConnection=function RTCPeerConnection(){"
+    ~ "throw new Error('RTCPeerConnection: not yet implemented');"
+    ~ "};"
+    ~ "}"
+    ~ "['RTCSessionDescription','RTCIceCandidate','RTCDataChannel','RTCRtpSender','RTCRtpReceiver','RTCStatsReport','RTCError','RTCErrorEvent','RTCDataChannelEvent','RTCIceCandidatePairStats','MediaStream','MediaStreamTrack'].forEach(function(n){"
+    ~ "if(typeof globalThis[n]==='undefined')globalThis[n]=function(){};"
+    ~ "});"
+
+    // ═══════════════════════════════════
+    // IndexedDB — full DB engine is a large port; stub the entry
+    // point + spec error classes so feature-detect / typeof checks
+    // work. `indexedDB.open(name)` returns an IDBRequest whose
+    // `onerror` fires with a clear "not supported" reason on the
+    // next microtask (libraries that fall back to localStorage will
+    // do so cleanly).
+    // ═══════════════════════════════════
+    ~ "if(typeof globalThis.indexedDB==='undefined'){"
+    ~ "globalThis.indexedDB={"
+    ~ "open:function(name,version){"
+    ~ "var req={readyState:'pending',result:null,error:null,onsuccess:null,onerror:null,onupgradeneeded:null,onblocked:null};"
+    ~ "Promise.resolve().then(function(){"
+    ~ "req.readyState='done';"
+    ~ "req.error={name:'NotSupportedError',message:'IndexedDB not supported in DunJS'};"
+    ~ "if(req.onerror)req.onerror({target:req,type:'error'});"
+    ~ "});"
+    ~ "return req;"
+    ~ "},"
+    ~ "deleteDatabase:function(name){"
+    ~ "var req={readyState:'pending',result:null,error:null,onsuccess:null,onerror:null};"
+    ~ "Promise.resolve().then(function(){"
+    ~ "req.readyState='done';"
+    ~ "if(req.onsuccess)req.onsuccess({target:req,type:'success'});"
+    ~ "});"
+    ~ "return req;"
+    ~ "},"
+    ~ "databases:function(){return Promise.resolve([]);},"
+    ~ "cmp:function(a,b){return a<b?-1:(a>b?1:0);}"
+    ~ "};"
+    ~ "['IDBDatabase','IDBTransaction','IDBObjectStore','IDBIndex','IDBCursor','IDBCursorWithValue','IDBRequest','IDBOpenDBRequest','IDBKeyRange','IDBVersionChangeEvent','IDBFactory'].forEach(function(n){"
+    ~ "if(typeof globalThis[n]==='undefined')globalThis[n]=function(){};"
+    ~ "});"
+    ~ "}"
+
+    // ═══════════════════════════════════
+    // Notification — desktop notifications stub. `Notification.permission`
+    // returns `'denied'` (no real surface available); `requestPermission`
+    // resolves to `'denied'`. Constructor is no-op so calling code
+    // doesn't crash on `new Notification('hi')`.
+    // ═══════════════════════════════════
+    ~ "if(typeof globalThis.Notification==='undefined'){"
+    ~ "globalThis.Notification=function Notification(title,opts){"
+    ~ "this.title=title;this.body=(opts&&opts.body)||'';this.icon=(opts&&opts.icon)||'';"
+    ~ "this.onclick=null;this.onclose=null;this.onerror=null;this.onshow=null;"
+    ~ "};"
+    ~ "Notification.permission='denied';"
+    ~ "Notification.requestPermission=function(cb){"
+    ~ "var p=Promise.resolve('denied');"
+    ~ "if(typeof cb==='function')p.then(cb);"
+    ~ "return p;"
+    ~ "};"
+    ~ "Notification.maxActions=2;"
+    ~ "Notification.prototype.close=function(){};"
+    ~ "}"
+
+    // ═══════════════════════════════════
+    // CookieStore — in-memory cookie store matching the WHATWG draft.
+    // Each `get`/`set`/`delete` is a Promise-returning method.
+    // Persistence is per-process; sufficient for libraries that
+    // exercise the surface (e.g. CSRF-token cookies in tests).
+    // ═══════════════════════════════════
+    ~ "if(typeof globalThis.CookieStore==='undefined'){"
+    ~ "globalThis.CookieStore=function CookieStore(){"
+    ~ "EventTarget.call(this);"
+    ~ "this._d=new Map();"
+    ~ "};"
+    ~ "CookieStore.prototype=Object.create(EventTarget.prototype);"
+    ~ "CookieStore.prototype.constructor=CookieStore;"
+    ~ "CookieStore.prototype.get=async function(name){"
+    ~ "var key=typeof name==='string'?name:(name&&name.name);"
+    ~ "var v=this._d.get(key);return v?{name:key,value:v}:null;"
+    ~ "};"
+    ~ "CookieStore.prototype.getAll=async function(){"
+    ~ "var out=[];for(var [k,v] of this._d)out.push({name:k,value:v});return out;"
+    ~ "};"
+    ~ "CookieStore.prototype.set=async function(arg){"
+    ~ "var name=typeof arg==='string'?arg:arg.name;"
+    ~ "var value=typeof arg==='string'?arguments[1]:arg.value;"
+    ~ "this._d.set(name,value);"
+    ~ "this.dispatchEvent({type:'change',changed:[{name:name,value:value}],deleted:[]});"
+    ~ "};"
+    ~ "CookieStore.prototype.delete=async function(arg){"
+    ~ "var name=typeof arg==='string'?arg:arg.name;"
+    ~ "this._d.delete(name);"
+    ~ "this.dispatchEvent({type:'change',changed:[],deleted:[{name:name}]});"
+    ~ "};"
+    ~ "globalThis.cookieStore=new CookieStore();"
+    ~ "globalThis.CookieChangeEvent=function CookieChangeEvent(type,init){"
+    ~ "Event.call(this,type,init);init=init||{};"
+    ~ "this.changed=init.changed||[];this.deleted=init.deleted||[];"
+    ~ "};"
+    ~ "CookieChangeEvent.prototype=Object.create(Event.prototype);"
+    ~ "CookieChangeEvent.prototype.constructor=CookieChangeEvent;"
+    ~ "}"
+
+    // ═══════════════════════════════════
+    // FileReaderSync — deprecated sync File API. Available only in
+    // workers per spec; we make it available everywhere so libraries
+    // that probe `typeof FileReaderSync` succeed. Uses the existing
+    // Blob's sync paths.
+    // ═══════════════════════════════════
+    ~ "if(typeof globalThis.FileReaderSync==='undefined'){"
+    ~ "globalThis.FileReaderSync=function FileReaderSync(){};"
+    ~ "FileReaderSync.prototype.readAsText=function(blob){"
+    ~ "/* Spec: synchronous read; we don't have sync Blob.text(), so"
+    ~ "   throw a clear error rather than block. */"
+    ~ "throw new Error('FileReaderSync.readAsText: use async FileReader instead');"
+    ~ "};"
+    ~ "FileReaderSync.prototype.readAsArrayBuffer=function(blob){"
+    ~ "throw new Error('FileReaderSync.readAsArrayBuffer: use async FileReader instead');"
+    ~ "};"
+    ~ "FileReaderSync.prototype.readAsDataURL=function(blob){"
+    ~ "throw new Error('FileReaderSync.readAsDataURL: use async FileReader instead');"
+    ~ "};"
+    ~ "FileReaderSync.prototype.readAsBinaryString=function(blob){"
+    ~ "throw new Error('FileReaderSync.readAsBinaryString: use async FileReader instead');"
+    ~ "};"
+    ~ "}"
 
     // ═══════════════════════════════════
     // console.time/timeEnd/timeLog/count/countReset/table
