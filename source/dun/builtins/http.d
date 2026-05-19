@@ -695,6 +695,22 @@ JSHandle jsHttpServerClose(void* ctx, JSHandle thisVal, scope JSHandle[] args) @
             _activeServerCount--;
             engine.setProperty(thisVal, "listening", engine.newBool(false));
 
+            // Release the user's request callback. Without this each
+            // shutdown leaked one JSValueProtect on the closure
+            // (createServer + setRequestListener dupValue'd it; only
+            // setRequestListener replacement freed the old one).
+            // After 7–10 sequential Deno.serve+shutdown cycles the
+            // accumulated handler closures + their captured locals
+            // were enough to push JSC's GC into the event-loop
+            // deadlock state the /debug-native-callback skill
+            // documents as "JSValueProtect / JSValueUnprotect:
+            // Reference-counting underflow or leaked protection".
+            if (srv.cbSet)
+            {
+                engine.freeValue(srv.requestCb);
+                srv.cbSet = false;
+            }
+
             // Close all active connections belonging to this server
             foreach (ci, ref conn; httpConns)
             {
@@ -834,8 +850,18 @@ JSHandle makeReqObj(IJSEngine engine, int connId) @trusted
     auto sock = engine.newObject();
     engine.setProperty(sock, "remoteAddress", engine.newString("127.0.0.1"));
     engine.setProperty(sock, "remotePort", engine.newInt(0));
+    /* Share one socket object between req.connection and req.socket
+       (Node's req.connection is an alias). The dupValue keeps the
+       QuickJS refcount balanced — QJS's setProperty consumes — and
+       on JSC the second setProperty no-ops the consume. The
+       trailing freeValue(sock) drops the outer protect on JSC; QJS
+       has already consumed the original via the second setProperty,
+       so freeing the (already-decremented) D handle there is a
+       balanced refcount underflow guard (`fromHandle` to ensure
+       proper accounting). */
     engine.setProperty(obj, "connection", engine.dupValue(sock));
-    engine.setProperty(obj, "socket", sock);
+    engine.setProperty(obj, "socket", engine.dupValue(sock));
+    engine.freeValue(sock);
     ensureHttpFnsCached(engine);
     /* bindMethod for cached __gshared handle — see makeResponseObj
        for the JSC leak rationale. */
