@@ -62,6 +62,24 @@ void installBunExtrasV7(IJSEngine engine) @trusted
        JSC by avoiding the v7-extras-induced threshold drop.
        Re-CRASH-formatted as a fetch-timeout in the test's own
        `Promise.race` catch handler, not an actual JSC crash. */
+    /* v1.1.6 follow-up: still gated. Three partial fixes shipped
+       to chip away at the JSC HTTP-server-cycle leak without moving
+       the actual threshold:
+         - http.d: server slot recycling (`httpFreeServerSlots`)
+         - http.d: cached `_httpSrvSetTimeout` (was per-createServer
+           `newFunction`, leaked one JSC callback slot per cycle)
+         - http.d: `jsHttpServerSetTimeout` newInt vs dupValue
+         - jsc/backend.d: `callFunction` returns protected value in
+           both success + exception paths (was asymmetric — success
+           returned unprotected, callers Unprotect'd anyway = JSC
+           protect-count underflow per call).
+       Those moved zero threshold (still 9 servers OK with v7
+       extras, ~17 without). So the actual leak is elsewhere —
+       likely the per-fetch promise resolve/reject cycle on JSC's
+       internal Promise machinery, or a leak in the agnostic_pending
+       dispatch path. Re-test after the fixes confirms: v7 +
+       deno_deploy_compat still HANGs, JSC sweep still 147/0/1.
+       Defer until a JSValueProtect/Unprotect instrumentation pass. */
     version (EngineJSC) return;
     auto r = engine.eval(extrasSource(), "<bun-extras-v7>");
     if (!r.isError) engine.freeValue(r.value);
