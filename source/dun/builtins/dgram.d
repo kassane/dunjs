@@ -4,6 +4,35 @@ import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
 import dun.runtime.globals : DunState;
 import dun.security.permissions : Permission;
 
+// Cached method handles attached via bindMethod on every createSocket
+// call — without these, 13 newFunction calls per Socket creation leak
+// one JSValueProtect slot per method per call on JSC. Same pattern as
+// http.d (v1.1.5) / fs.d streams (v1.1.16).
+__gshared JSHandle _udpBind, _udpSend, _udpClose, _udpAddress;
+__gshared JSHandle _udpSetBroadcast, _udpSetTTL, _udpAddMembership, _udpDropMembership;
+__gshared JSHandle _udpOn, _udpRemoveListeners, _udpRef, _udpUnref;
+__gshared bool _udpFnsCached = false;
+
+private void ensureUdpFnsCached(IJSEngine engine) @trusted
+{
+    if (!_udpFnsCached)
+    {
+        _udpBind            = engine.newFunction(&jsUdpBind, "bind", 2);
+        _udpSend            = engine.newFunction(&jsUdpSend, "send", 4);
+        _udpClose           = engine.newFunction(&jsUdpClose, "close", 0);
+        _udpAddress         = engine.newFunction(&jsUdpAddress, "address", 0);
+        _udpSetBroadcast    = engine.newFunction(&jsUdpSetBroadcast, "setBroadcast", 1);
+        _udpSetTTL          = engine.newFunction(&jsUdpSetTTL, "setTTL", 1);
+        _udpAddMembership   = engine.newFunction(&jsUdpAddMembership, "addMembership", 1);
+        _udpDropMembership  = engine.newFunction(&jsUdpDropMembership, "dropMembership", 1);
+        _udpOn              = engine.newFunction(&jsUdpOn, "on", 2);
+        _udpRemoveListeners = engine.newFunction(&jsUdpRemoveListeners, "removeAllListeners", 0);
+        _udpRef             = engine.newFunction(&jsUdpRef, "ref", 0);
+        _udpUnref           = engine.newFunction(&jsUdpUnref, "unref", 0);
+        _udpFnsCached = true;
+    }
+}
+
 void registerDgramModule(IJSEngine engine) @trusted
 {
     assert(engine !is null, "Null IJSEngine in registerDgramModule");
@@ -177,19 +206,20 @@ JSHandle jsCreateSocket(void* ctx, JSHandle thisVal, scope JSHandle[] args) @tru
         auto socketObj = engine.newObject();
         engine.setProperty(socketObj, "_id", engine.newInt(id));
         engine.setProperty(socketObj, "type", engine.newString(socketType));
-        engine.setProperty(socketObj, "bind", engine.newFunction(&jsUdpBind, "bind", 2));
-        engine.setProperty(socketObj, "send", engine.newFunction(&jsUdpSend, "send", 4));
-        engine.setProperty(socketObj, "close", engine.newFunction(&jsUdpClose, "close", 0));
-        engine.setProperty(socketObj, "address", engine.newFunction(&jsUdpAddress, "address", 0));
-        engine.setProperty(socketObj, "setBroadcast", engine.newFunction(&jsUdpSetBroadcast, "setBroadcast", 1));
-        engine.setProperty(socketObj, "setTTL", engine.newFunction(&jsUdpSetTTL, "setTTL", 1));
-        engine.setProperty(socketObj, "addMembership", engine.newFunction(&jsUdpAddMembership, "addMembership", 1));
-        engine.setProperty(socketObj, "dropMembership", engine.newFunction(&jsUdpDropMembership, "dropMembership", 1));
-        engine.setProperty(socketObj, "on", engine.newFunction(&jsUdpOn, "on", 2));
-        engine.setProperty(socketObj, "once", engine.newFunction(&jsUdpOn, "once", 2));
-        engine.setProperty(socketObj, "removeAllListeners", engine.newFunction(&jsUdpRemoveListeners, "removeAllListeners", 0));
-        engine.setProperty(socketObj, "ref", engine.newFunction(&jsUdpRef, "ref", 0));
-        engine.setProperty(socketObj, "unref", engine.newFunction(&jsUdpUnref, "unref", 0));
+        ensureUdpFnsCached(engine);
+        engine.bindMethod(socketObj, "bind", _udpBind);
+        engine.bindMethod(socketObj, "send", _udpSend);
+        engine.bindMethod(socketObj, "close", _udpClose);
+        engine.bindMethod(socketObj, "address", _udpAddress);
+        engine.bindMethod(socketObj, "setBroadcast", _udpSetBroadcast);
+        engine.bindMethod(socketObj, "setTTL", _udpSetTTL);
+        engine.bindMethod(socketObj, "addMembership", _udpAddMembership);
+        engine.bindMethod(socketObj, "dropMembership", _udpDropMembership);
+        engine.bindMethod(socketObj, "on", _udpOn);
+        engine.bindMethod(socketObj, "once", _udpOn);
+        engine.bindMethod(socketObj, "removeAllListeners", _udpRemoveListeners);
+        engine.bindMethod(socketObj, "ref", _udpRef);
+        engine.bindMethod(socketObj, "unref", _udpUnref);
 
         return socketObj;
     }

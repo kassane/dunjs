@@ -695,6 +695,13 @@ JSHandle jsBufferConcat(void* ctx, JSHandle thisVal, scope JSHandle[] args) @tru
     // Allocate AFTER the size pass so we know the total length, then keep
     // u8 protected (via dupValue) across the memcpy loop because freeValue
     // on the element handles can trigger GC and we hold a raw u8 ref.
+    //
+    // Note: we deliberately do NOT use the fused `newUint8ArrayZeroedWithProto`
+    // here — setting the Buffer prototype BEFORE the typed-array writes
+    // takes V8 off the fast inline-cache path for raw backing-store access
+    // (regression measured at +35% on Buffer.concat in v1.1.16 trial).
+    // Keep the post-memcpy SetPrototype so V8 sees the writes against
+    // a plain Uint8Array shape.
     ensureBufferFnsCached(engine);
     auto u8 = engine.newUint8ArrayZeroed(totalLen);
     auto u8Pinned = engine.dupValue(u8);
