@@ -1132,8 +1132,13 @@ JSHandle jsCipherUpdate(void* ctx, JSHandle thisVal, scope JSHandle[] args) @tru
 
         if (outputEnc == "hex")
         {
-            import std.digest : toHexString, LetterCase;
-            return engine.newString(toHexString!(LetterCase.lower)(outbuf[0 .. outlen]).idup);
+            /* SIMD path: hexEncode does a single GC allocation +
+               16-byte/cycle interleave (LDC). Was `toHexString` from
+               std.digest, which is a serial bit-twiddling loop on a
+               GC-allocated char[]. */
+            import dun.platform.simd : hexEncode;
+            return engine.newString(cast(const(char)[])
+                hexEncode(outbuf[0 .. outlen]));
         }
         else if (outputEnc == "base64")
         {
@@ -1176,9 +1181,14 @@ JSHandle jsCipherFinal(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trus
     {
         ubyte[16] tag;
         EVP_CIPHER_CTX_ctrl(evpCtx, EVP_CTRL_GCM_GET_TAG, 16, tag.ptr);
-        import std.digest : toHexString, LetterCase;
+        /* GCM tag is always 16 bytes — use the CTFE-sized SIMD encoder
+           (`hexEncodeFixed!16`) so the destination lives on the stack,
+           zero GC allocation. `newString` copies the slice into engine
+           storage before this frame unwinds. */
+        import dun.platform.simd : hexEncodeFixed;
+        auto hex = hexEncodeFixed(tag);
         engine.setProperty(thisVal, "_authTag", engine.newString(
-            toHexString!(LetterCase.lower)(tag[]).idup));
+            cast(const(char)[]) hex[]));
     }
 
     EVP_CIPHER_CTX_free(evpCtx);
@@ -1189,8 +1199,9 @@ JSHandle jsCipherFinal(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trus
 
     if (outputEnc == "hex")
     {
-        import std.digest : toHexString, LetterCase;
-        return engine.newString(toHexString!(LetterCase.lower)(outbuf[0 .. outlen]).idup);
+        import dun.platform.simd : hexEncode;
+        return engine.newString(cast(const(char)[])
+            hexEncode(outbuf[0 .. outlen]));
     }
     else if (outputEnc == "base64")
     {
@@ -1320,11 +1331,12 @@ JSHandle jsDecipherUpdate(void* ctx, JSHandle thisVal, scope JSHandle[] args) @t
             return engine.throwTypeError("Decipher update failed");
 
         if (outputEnc == "utf8" || outputEnc == "utf-8")
-            return engine.newString((() @trusted => cast(string) outbuf[0 .. outlen].dup)());
+            return engine.newString(cast(const(char)[]) outbuf[0 .. outlen]);
         else if (outputEnc == "hex")
         {
-            import std.digest : toHexString, LetterCase;
-            return engine.newString(toHexString!(LetterCase.lower)(outbuf[0 .. outlen]).idup);
+            import dun.platform.simd : hexEncode;
+            return engine.newString(cast(const(char)[])
+                hexEncode(outbuf[0 .. outlen]));
         }
         else if (outputEnc == "base64")
         {
@@ -1365,11 +1377,12 @@ JSHandle jsDecipherFinal(void* ctx, JSHandle thisVal, scope JSHandle[] args) @tr
         return engine.throwTypeError("Decipher final failed (bad padding or auth tag)");
 
     if (outputEnc == "utf8" || outputEnc == "utf-8")
-        return engine.newString((() @trusted => cast(string) outbuf[0 .. outlen].dup)());
+        return engine.newString(cast(const(char)[]) outbuf[0 .. outlen]);
     else if (outputEnc == "hex")
     {
-        import std.digest : toHexString, LetterCase;
-        return engine.newString(toHexString!(LetterCase.lower)(outbuf[0 .. outlen]).idup);
+        import dun.platform.simd : hexEncode;
+        return engine.newString(cast(const(char)[])
+            hexEncode(outbuf[0 .. outlen]));
     }
     else if (outputEnc == "base64")
     {
@@ -1713,8 +1726,8 @@ private JSHandle encodeOutput(IJSEngine engine, const(ubyte)[] data, string enco
 {
     if (encoding == "hex")
     {
-        import std.digest : toHexString, LetterCase;
-        return engine.newString(toHexString!(LetterCase.lower)(data).idup);
+        import dun.platform.simd : hexEncode;
+        return engine.newString(cast(const(char)[]) hexEncode(data));
     }
     else if (encoding == "base64")
     {
@@ -1844,7 +1857,6 @@ private ubyte[] computeHashBinary(string algo, const(ubyte)[] data) @trusted
             return outBuf[0 .. outLen].dup;
     }
     // Fallback to std.digest for basic algorithms
-    import std.digest : toHexString, LetterCase;
     switch (algo)
     {
         case "md5": { import std.digest.md : MD5, digest; auto r = digest!MD5(data); return (cast(ubyte[]) r[]).dup; }
@@ -2063,8 +2075,8 @@ private string bnToHex(const(BIGNUM)* bn) @trusted nothrow
     BN_bn2bin(bn, buf.ptr);
     try
     {
-        import std.digest : toHexString, LetterCase;
-        return toHexString!(LetterCase.lower)(buf).idup;
+        import dun.platform.simd : hexEncode;
+        return cast(string) hexEncode(buf);
     }
     catch (Exception) { return ""; }
 }
@@ -2190,8 +2202,8 @@ JSHandle jsDHComputeSecret(void* ctx, JSHandle thisVal, scope JSHandle[] args) @
     if (n < 0)
         return engine.throwTypeError("DH_compute_key failed");
 
-    import std.digest : toHexString, LetterCase;
-    try { return engine.newString(toHexString!(LetterCase.lower)(secret[0 .. n]).idup); }
+    import dun.platform.simd : hexEncode;
+    try { return engine.newString(cast(const(char)[]) hexEncode(secret[0 .. n])); }
     catch (Exception) { return engine.throwTypeError("Failed to encode secret"); }
 }
 

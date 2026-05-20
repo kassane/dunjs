@@ -1233,10 +1233,16 @@ JSHandle jsRealpathSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @tru
             auto result = (() @trusted => realpath(cast(const(char)*)(path ~ "\0").ptr, null))();
             if (result is null)
                 return engine.throwTypeError("ENOENT: no such file or directory, realpath '" ~ path ~ "'");
-            auto resolved = (() @trusted => fromStringz(result).idup)();
+            /* `newString` copies the bytes into engine storage
+               synchronously; freeing the malloc'd C buffer afterwards
+               keeps the resolved path's data valid only during the
+               `newString` call. The previous `.idup` allocated a redundant
+               D string between fromStringz and the free. */
+            auto resolved = engine.newString(
+                (() @trusted => cast(const(char)[]) fromStringz(result))());
             import core.stdc.stdlib : free;
             (() @trusted => free(result))();
-            return engine.newString(resolved);
+            return resolved;
         }
         else
         {

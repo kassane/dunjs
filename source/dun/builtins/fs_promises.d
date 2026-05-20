@@ -614,12 +614,16 @@ JSHandle jsFspReaddir(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trust
                     else if (t == 'd') dtype = 4;  // DT_DIR
                     else if (t == 'l') dtype = 10; // DT_LNK
                 }
+                /* `createDirentObject` calls `engine.newString` on
+                   the name, which copies into engine storage. The
+                   previous `.idup` was a redundant immutable copy
+                   on every directory entry. */
                 e.setPropertyIndex(arr, idx++,
-                    createDirentObject(e, name.idup, dtype));
+                    createDirentObject(e, name, dtype));
             }
             else
             {
-                e.setPropertyIndex(arr, idx++, e.newString(name.idup));
+                e.setPropertyIndex(arr, idx++, e.newString(name));
             }
         }
         foreach (i, c; result)

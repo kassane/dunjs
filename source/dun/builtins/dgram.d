@@ -472,9 +472,13 @@ JSHandle jsUdpAddress(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trust
                 auto addrStr = inet_ntop(AF_INET, &addr.sin_addr, buf.ptr, buf.length);
                 if (addrStr !is null)
                 {
+                    /* `newString` copies bytes into engine storage; the
+                       `.idup` was a redundant GC allocation on the
+                       per-call `address` query. */
                     import core.stdc.string : strlen;
                     engine.setProperty(result, "address",
-                        engine.newString(cast(string) addrStr[0 .. strlen(addrStr)].idup));
+                        engine.newString(
+                            cast(const(char)[]) addrStr[0 .. strlen(addrStr)]));
                 }
                 else
                     engine.setProperty(result, "address", engine.newString("0.0.0.0"));
@@ -496,7 +500,8 @@ JSHandle jsUdpAddress(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trust
                 {
                     import core.stdc.string : strlen;
                     engine.setProperty(result, "address",
-                        engine.newString(cast(string) addrStr[0 .. strlen(addrStr)].idup));
+                        engine.newString(
+                            cast(const(char)[]) addrStr[0 .. strlen(addrStr)]));
                 }
                 else
                     engine.setProperty(result, "address", engine.newString("::"));
