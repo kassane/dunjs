@@ -66,6 +66,13 @@ enum QJS_SRC_MARKER  = "quickjs.h";
 // Prebuilt JSC static libraries from oven-sh/WebKit (same as Bun uses).
 // Falls back to system packages (libjavascriptcoregtk-4.1-dev) if download
 // fails or on unsupported platforms.
+// JSC autobuild commit pin. We had a chance to update to the newer
+// `3167a44fb92c268c83f09b232b38a9f3e7f9655a` (2026-05) on v1.1.11+,
+// but the bench gate caught a -37% regression on `feature_bench.js`
+// (568M → 357M ops/sec) — likely a build-flag delta in that autobuild
+// (less aggressive JIT tier, or sanitizer-enabled, hard to tell from
+// the archive). Pinning back to the known-good commit until the
+// oven-sh/WebKit autobuild lineage stabilizes its release flags.
 enum JSC_WEBKIT_VERSION = "88b2f7a2159c913f7dd0d73c0e88d66138cd67ba";
 enum JSC_PKG_NAMES      = ["javascriptcoregtk-4.1", "javascriptcoregtk-6.0", "javascriptcoregtk-4.0"];
 enum JSC_LIB_MARKER     = "lib/libJavaScriptCore.a";
