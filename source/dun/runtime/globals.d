@@ -61,6 +61,7 @@ void installGlobals(IJSEngine engine, DunState* state) @trusted
     import dun.builtins.perf_hooks : registerPerfHooksModule;
     import dun.builtins.wasi : registerWasiModule;
     import dun.builtins.v8 : registerV8Module;
+    import dun.builtins.yaml : registerYamlModule;
     import dun.modules.require : installRequire;
 
     version (Posix)
@@ -87,6 +88,7 @@ void installGlobals(IJSEngine engine, DunState* state) @trusted
     registerStreamModule(engine);
     registerWsModule(engine);
     registerSqliteModule(engine);
+    registerYamlModule(engine);
     registerUtilModule(engine);
     registerAssertModule(engine);
     registerNodeTestModule(engine);

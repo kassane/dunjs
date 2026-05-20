@@ -89,6 +89,7 @@ const { EventEmitter } = require("events");
 | `dun:events` | EventEmitter (on, once, off, emit, listeners) |
 | `dun:url` | URL, URLSearchParams |
 | `dun:sqlite` | open, exec, run, get, all, close (in-memory + file DBs) |
+| `dun:yaml` | parse, stringify (block + flow style, scalars, comments, multi-line literals — config-file subset) |
 | `dun:child_process` | execSync, spawnSync, exec |
 | `dun:stream` | Readable, Writable, Duplex, Transform, pipeline |
 | `dun:zlib` | deflateSync, inflateSync, gzipSync, gunzipSync |
@@ -144,9 +145,9 @@ for 24 hours. `dun install` checks packages before download. See [SECURITY.md](S
 
 | Backend | Tests | Notes |
 |---------|-------|-------|
-| QuickJS-NG | 148/148 | Default. Interpreter, ES2025, smallest binary (9.8MB) |
+| QuickJS-NG | 149/149 | Default. Interpreter, ES2025, smallest binary (9.8MB) |
 | JavaScriptCore | 147/147 (1 SKIP) | JIT. Same engine as Safari/Bun. Skips `bun_v7_additions` — root-cause traced (per-fetch JS bytecode compile leak); v1.1.7 cached the Response constructor + headers flattener, threshold moved from 9-10 servers to 13-14 with v7 extras enabled. Residual leak in the per-request listener chain |
-| V8 | 148/148 | JIT. Same engine as Chrome/Node.js (V8 15.0). Via C++ shim |
+| V8 | 149/149 | JIT. Same engine as Chrome/Node.js (V8 15.0). Via C++ shim |
 
 All 24 built-in modules, Workers, SharedArrayBuffer, Atomics, fetch, Deno compat, and web globals work identically on every backend.
 
@@ -176,7 +177,7 @@ BACKEND=jsc DUN=./dun-jsc bash tests/integration/run.sh
 BACKEND=v8  DUN=./dun-v8  bash tests/integration/run.sh
 ```
 
-148/148 integration on QJS / V8, 147/147 + 1 SKIP on JSC, plus 145 npm-compat checks,
+149/149 integration on QJS / V8, 148/148 + 1 SKIP on JSC, plus 145 npm-compat checks,
 98/98 ECMAScript spec audit (all 3 backends — /v set-op gap on
 QJS / V8 closed via source rewriter), 81/81 react-compat,
 231/231 safe-features, 45/45 security audit, 35/35 TypeScript

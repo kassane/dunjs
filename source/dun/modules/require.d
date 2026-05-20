@@ -54,13 +54,14 @@ JSHandle jsRequireResolve(void* ctx, JSHandle thisVal, scope JSHandle[] args) @t
 
     // Static immutable so the array lives in rodata, not stack-rebuilt
     // per call. resolve() runs on every `require(...)` call.
-    static immutable string[43] builtins = ["fs", "path", "crypto", "net", "http", "https",
+    static immutable string[44] builtins = ["fs", "path", "crypto", "net", "http", "https",
         "http2", "http3", "os", "buffer", "events", "url", "child_process",
         "stream", "zlib", "dns", "ws", "sqlite", "util", "assert",
         "querystring", "string_decoder", "timers/promises", "tls", "dgram",
         "vm", "cluster", "async_hooks", "worker_threads", "perf_hooks",
         "fs/promises", "readline", "punycode", "diagnostics_channel", "domain",
-        "tty", "constants", "module", "timers", "process", "console", "v8", "wasi"];
+        "tty", "constants", "module", "timers", "process", "console", "v8", "wasi",
+        "yaml"];
     foreach (b; builtins)
         if (specifier == b) return engine.newString(specifier);
 
@@ -162,6 +163,7 @@ JSHandle jsRequire(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
     else if (specifier == "dns") specifier = "dun:dns";
     else if (specifier == "ws") specifier = "dun:ws";
     else if (specifier == "sqlite") specifier = "dun:sqlite";
+    else if (specifier == "yaml") specifier = "dun:yaml";
     else if (specifier == "util") specifier = "dun:util";
     else if (specifier == "assert") specifier = "dun:assert";
     else if (specifier == "test") specifier = "dun:test";
@@ -225,6 +227,7 @@ JSHandle jsRequire(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
         else if (specifier == "dun:dns") propName = "__dun_cjs_dns__";
         else if (specifier == "dun:ws") propName = "__dun_cjs_ws__";
         else if (specifier == "dun:sqlite") propName = "__dun_cjs_sqlite__";
+        else if (specifier == "dun:yaml") propName = "__dun_cjs_yaml__";
         else if (specifier == "dun:util") propName = "__dun_cjs_util__";
         else if (specifier == "dun:assert") propName = "__dun_cjs_assert__";
         else if (specifier == "dun:test") propName = "__dun_cjs_node_test__";
