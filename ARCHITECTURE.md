@@ -6,7 +6,7 @@ DunJS is a 7-layer JavaScript/TypeScript runtime with a **pluggable engine archi
 (IJSEngine interface), a cross-platform I/O poller (epoll/kqueue/poll), and a Deno-inspired permission system.
 
 Three backends are fully functional: QuickJS-NG (default), JavaScriptCore, and V8.
-All 148 integration tests pass on QuickJS / V8 (147/147 + 1 SKIP on JSC; full parity across all 3 backends for the shared 147).
+All 151 integration tests pass on QuickJS / V8 / JSC (sweep stable 3/3 since v1.1.9 JSC handle-pin fix).
 All built-in modules (see CLAUDE.md for the canonical list — 30+ including fs, path,
 crypto, net, http, http2, http3, buffer, events, url, os, fetch, child_process, stream,
 zlib, dns, ws, sqlite, util, assert, querystring, string_decoder, timers/promises, vm,
@@ -486,26 +486,24 @@ release builds, ops/sec — median of 3 runs):
 
 | Runtime | Total Throughput | Relative |
 |---------|-----------------|----------|
-| Bun 1.3.14 | 491M | 1.00x |
-| **DunJS JSC** | **488M** | **0.99x** |
-| Node.js 22.22.2 | 172M | 0.35x |
-| Deno 2.7.14 | 169M | 0.34x |
-| DunJS V8 | 160M | 0.33x |
-| DunJS QuickJS | 22M | 0.05x (interpreter-only) |
+| **DunJS JSC** | **552M** | **1.04x** |
+| Bun 1.3.14 | 533M | 1.00x |
+| Node.js 22.22.2 | 162M | 0.30x |
+| DunJS V8 | 151M | 0.28x |
+| DunJS QuickJS | 20M | 0.04x (interpreter-only) |
 
 Framework benchmarks (`tests/benchmarks/framework_bench.js`, 39
 tests, release builds, ops/sec — median of 3 runs):
 
 | Runtime | Total Throughput | Relative |
 |---------|-----------------|----------|
-| Bun 1.3.14 | 339M | 1.00x |
-| DunJS JSC | 277M | 0.82x |
-| Node.js 22.22.2 | 180M | 0.53x |
-| DunJS V8 | 172M | 0.51x |
-| Deno 2.7.14 | 154M | 0.45x |
-| DunJS QuickJS | 17M | 0.05x |
+| **DunJS JSC** | **292M** | **1.17x** |
+| Bun 1.3.14 | 250M | 1.00x |
+| Node.js 22.22.2 | 169M | 0.68x |
+| DunJS V8 | 163M | 0.65x |
+| DunJS QuickJS | 16M | 0.06x |
 
-npm compat: **146/146** pass across all 6 runtimes (test count unchanged; full parity).
+npm compat: **145/145** pass across all 5 runtimes (Bun, Node, dun-v8, dun-jsc, dun-qjs; full parity).
 
 ## Design Decisions
 
@@ -606,4 +604,4 @@ tests/benchmarks/http_bench/
 HTTP server optimizations: TCP_NODELAY, buffered single-write response, CTFE pre-computed
 status lines, connection slot pooling, fd→connId hashmap (O(1) lookup), JS-level dispatch
 for reduced FFI overhead, lazy header loading, MSG_NOSIGNAL, EOF detection with RAII cleanup.
-**QuickJS 148/148, JSC 147/147 + 1 SKIP, V8 148/148** (full parity on the shared 147; v7 Bun.* additions partially fixed in v1.1.7 — Response builder cached, threshold 9-10 → 13-14 with v7 enabled, gate kept for deno_deploy_compat headroom).
+**QuickJS 151/151, JSC 151/151, V8 151/151** (sweep stable 3/3 since v1.1.9 JSC cached-handle double-dup fix; `bun_v7_additions` SKIP resolved — `deno_deploy_compat` no longer flakes under sweep heap-load).

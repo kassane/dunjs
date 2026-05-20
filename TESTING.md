@@ -23,7 +23,7 @@ dub test -c unittest    # All unit tests
 | V8 TMP bridge | `source/dun/engine/v8/cppbindings.d` | compile-time | V8TypeName coverage, tag->name mapping |
 | JSC TMP bridge | `source/dun/engine/jsc/cppbindings.d` | compile-time | JSCTypeName coverage, kJSType* alignment |
 
-### Integration Tests (141 tests, 145 npm-compat checks)
+### Integration Tests (151 tests, 145 npm-compat checks)
 
 ```sh
 # Run against a specific backend
@@ -87,7 +87,7 @@ dub build -c v8  && BACKEND=v8  ./tests/integration/run.sh
 | **SIMD encoder audit (v1.1.3)** | `audit_simd` | 25 checks: hex boundary at 15/16/17 bytes (SIMD 16-byte cycle), 1MB hex content, GCM 16-byte tag, randomUUID format, HMAC hex, Buffer hex round-trip, latin1 high bytes 0x80-0xFF preserved |
 | **Round-trip correctness (v1.1.4)** | `audit_roundtrip` | 16 checks: extractString NUL handling, Buffer.from / Buffer.write / Buffer.toString round-trips for utf8 / latin1 / binary across all 256 byte values, JSON NUL round-trip, JSC source NUL handling |
 
-Backend test scores: **QuickJS 148/148**, **JSC 147/147 + 1 SKIP** (`bun_v7_additions` — root-traced to per-fetch JS bytecode compile leak in `fetch.d`'s `makeResponse`; v1.1.7 cached the Response builder + headers flattener and lifted the threshold from 9-10 → 13-14 servers with v7 extras enabled; residual leak in the per-request listener chain), **V8 148/148** — **0 failures** across all 3 backends.
+Backend test scores: **QuickJS 151/151**, **JSC 151/151**, **V8 151/151** — **0 failures** across all 3 backends. The historical `bun_v7_additions` SKIP on JSC was resolved by the v1.1.9 cached-handle pin fix (double-`dupValue` before `freeValue` of cached `__gshared` handles, eliminating the JSC protect-counter underflow that surfaced as `await fetch()` returning `undefined` under sweep heap-load); sweep stable 3/3 since.
 
 Test pattern: fixtures in `tests/integration/fixtures/*.{js,mjs,ts}`, expected stdout in `tests/integration/expected/*.txt`.
 
@@ -118,30 +118,29 @@ Cross-runtime comparison (feature_bench.js, 25 tests, release builds, ops/sec):
 
 | Runtime | Total Throughput | vs Bun |
 |---------|-----------------|--------|
-| **DunJS JSC** | **658M** | **1.15x** ⭐ |
-| Bun 1.3.14 | 570M | 1.00x |
-| Node.js v22 | 199M | 0.35x |
-| DunJS V8 | 180M | 0.32x |
-| DunJS QuickJS | 26M | 0.05x (interpreter-only) |
+| **DunJS JSC** | **552M** | **1.04x** ⭐ |
+| Bun 1.3.14 | 533M | 1.00x |
+| Node.js v22 | 162M | 0.30x |
+| DunJS V8 | 151M | 0.28x |
+| DunJS QuickJS | 20M | 0.04x (interpreter-only) |
 
-After the Buffer-as-Uint8Array refactor (factory call + Proxy wrapper
-removed in favor of `Object.setPrototypeOf` on a real `new Uint8Array`),
-DunJS JSC overtook Bun on `feature_bench.js` total throughput. The same
-refactor unblocked the Buffer.concat segfault that was killing JSC under
-hot iteration in earlier sessions (heap stays under 90M instead of
-growing to 187M+ before crash).
+DunJS JSC has held a small lead over Bun on `feature_bench.js` since
+the v1.1.7 cached Response builder + v1.1.9 handle-pin landed. The
+v1.1.16 fs stream-method caching and `newUint8ArrayZeroedWithProto`
+fused primitive are additional wins on the V8 path (Buffer.alloc
+saves 1 `withContext` scope entry per call).
 
 Framework benchmarks (framework_bench.js, 39 tests, release builds, ops/sec):
 
 | Runtime | Total Throughput | vs Bun |
 |---------|-----------------|--------|
-| **DunJS JSC** | **289M** | **1.03x** ⭐ |
-| Bun 1.3.14 | 280M | 1.00x |
-| Node.js v22 | 194M | 0.69x |
-| DunJS V8 | 189M | 0.68x |
-| DunJS QuickJS | 20M | 0.07x |
+| **DunJS JSC** | **292M** | **1.17x** ⭐ |
+| Bun 1.3.14 | 250M | 1.00x |
+| Node.js v22 | 169M | 0.68x |
+| DunJS V8 | 163M | 0.65x |
+| DunJS QuickJS | 16M | 0.06x |
 
-npm compat test (npm_compat_test.js, 145 assertions): **All 6 runtimes: 145/145 pass**
+npm compat test (npm_compat_test.js, 145 assertions): **All 5 runtimes: 145/145 pass** (Bun, Node, dun-v8, dun-jsc, dun-qjs)
 
 HTTP benchmarks (wrk, 2 threads, 128 connections, 5s per endpoint, release builds):
 

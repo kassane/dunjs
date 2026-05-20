@@ -70,7 +70,8 @@ Cross:   Security              source/dun/security/    (permissions, CVE audit, 
 ```
 source/dun/engine/
 +-- iface.d          # IJSEngine interface, JSHandle, JSResult, EngineConfig
-                     #   newUint8Array, setPropertyIndex, getPropertyIndex, isArray, getArrayLength
+                     #   newUint8Array, newUint8ArrayZeroedWithProto, setPropertyIndex,
+                     #   getPropertyIndex, isArray, getArrayLength
 +-- callbacks.d      # Global NativeCallback registry (register/get by slot ID)
 +-- package.d        # Re-exports iface + factory
 +-- test.d           # BDD-style engine contract tests (~50 cases)
@@ -424,8 +425,8 @@ Key shim patterns:
 
 ## Testing
 
-See [TESTING.md](TESTING.md) — unit tests (118 quickjs+v8 / 47 jsc),
-integration sweep (**148/148** on QJS / V8, **147/147 + 1 SKIP** on JSC),
+See [TESTING.md](TESTING.md) — unit tests (71 passed, 0 failed),
+integration sweep (**151/151** on QJS / V8 / JSC; sweep stable 3/3 since v1.1.9),
 145 npm-compat checks, 98/98 ECMAScript spec, 35/35 TypeScript spec,
 81/81 react-compat, 231/231 safe-features, 45/45 security audit,
 12/12 ts_parity vs `tsc`, 12/12 deno_deploy_compat vs Deno 2.7,

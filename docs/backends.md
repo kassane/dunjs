@@ -20,24 +20,24 @@ identically on all three.
 | **ES2025 support** | Full | Full | Full |
 | **Best for** | CLI tools, embedded, small bins | Throughput, HTTP servers, compute | Node.js compat, drop-in replacement |
 
-## Performance snapshot (v1.1.11)
+## Performance snapshot (v1.1.16)
 
 Per-bench, release builds, single-threaded:
 
 | Bench | Bun 1.3 | Node 22 | dun-jsc | dun-v8 | dun-qjs |
 |---|---:|---:|---:|---:|---:|
-| feature_bench (compute) | 556M ops/s | 162M | **578M** | 158M | 20M |
-| framework_bench (compute) | 315M | 167M | 272M | 171M | 16M |
+| feature_bench (compute) | 533M ops/s | 162M | **552M** | 151M | 20M |
+| framework_bench (compute) | 250M | 169M | **292M** | 163M | 16M |
 | http_bench plaintext | 80,354 rps | 50,838 | 18,381 | 34,635 | 16,299 |
 | http_bench json | 79,724 | 59,071 | 18,206 | 37,325 | 16,564 |
 | npm_compat (correctness) | 145/145 | 145/145 | 145/145 | 145/145 | 145/145 |
 
 Highlights:
 
-- **dun-jsc beats Bun on `feature_bench`** (+4%, 578M vs 556M) since
+- **dun-jsc beats Bun on `feature_bench`** (+4%, 552M vs 533M) since
   v1.1.7's cached Response builder + v1.1.9's handle pin.
-- **dun-jsc matches Bun on framework_bench** workload patterns (~86%).
-- **dun-v8 matches Node** on framework_bench (171M vs 167M).
+- **dun-jsc beats Bun on `framework_bench`** (+17%, 292M vs 250M).
+- **dun-v8 close to Node** on framework_bench (163M vs 169M, within ~4%).
 - **dun-qjs** is 10-30× slower on CPU-bound code (interpreter trade-off),
   but matches everyone on `npm_compat` correctness and has the fastest
   startup time of all five runtimes.

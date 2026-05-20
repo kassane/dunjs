@@ -72,7 +72,7 @@ cross-runtime testing.
 
 ```sh
 ./dun --version
-# dun 1.1.11
+# dun 1.1.16
 # engine: JavaScriptCore   (or QuickJS-NG / V8)
 
 ./dun eval "console.log('hello'); 42"
