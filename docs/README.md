@@ -134,14 +134,16 @@ const greet = (name: string): string => `Hello, ${name}!`;
 console.log(greet("DunJS"));
 ```
 
-## Performance snapshot (v1.1.11)
+## Performance snapshot (v1.1.16)
 
 | Bench | Bun 1.3 | Node 22 | dun-jsc | dun-v8 | dun-qjs |
 |---|---:|---:|---:|---:|---:|
-| feature_bench | 556M | 162M | **578M (+4%)** | 158M | 20M |
-| framework_bench | 315M | 167M | 272M | 171M | 16M |
+| feature_bench | 533M | 162M | **552M (+4%)** | 151M | 20M |
+| framework_bench | 250M | 169M | **292M (+17%)** | 163M | 16M |
 | npm_compat | 145/145 | 145/145 | 145/145 | 145/145 | 145/145 |
 
 DunJS JSC beats Bun on `feature_bench.js` since the v1.1.7 cached
-Response builder + v1.1.9 handle pin landed. See
+Response builder + v1.1.9 handle pin landed; v1.1.16 fs stream
+caching + `newUint8ArrayZeroedWithProto` fused primitive add
+incremental wins. See
 [performance.md](./performance.md) for the per-endpoint breakdown.

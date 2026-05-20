@@ -3,30 +3,33 @@
 How DunJS performs against Node, Deno, and Bun — and how to get the
 best out of it.
 
-## Cross-runtime benchmarks (v1.1.11)
+## Cross-runtime benchmarks (v1.1.16)
 
 ### feature_bench.js — JS compute throughput
 
 | Runtime | ops/sec | vs Node |
 |---------|--------:|--------:|
-| **dun-jsc** | **578M** | 3.57× |
-| Bun 1.3 | 556M | 3.43× |
+| **dun-jsc** | **552M** | 3.41× |
+| Bun 1.3 | 533M | 3.29× |
 | Node 22 | 162M | 1.00× |
-| dun-v8 | 158M | 0.98× |
+| dun-v8 | 151M | 0.93× |
 | dun-qjs | 20M | 0.12× |
 
 DunJS JSC backend **beats Bun** on `feature_bench.js` (+4%) since
 the v1.1.7 cached Response builder + v1.1.9 handle pin landed.
+v1.1.16 added fs stream-method caching + `newUint8ArrayZeroedWithProto`
+fused Buffer.alloc primitive (V8 saves one `withContext` scope entry
+per call).
 
 ### framework_bench.js — real-world framework patterns
 
 | Runtime | ops/sec | vs Node |
 |---------|--------:|--------:|
-| Bun 1.3 | 315M | 1.89× |
-| dun-jsc | 272M | 1.63× |
-| dun-v8 | 171M | 1.02× |
-| Node 22 | 167M | 1.00× |
-| dun-qjs | 16M | 0.10× |
+| **dun-jsc** | **292M** | 1.73× |
+| Bun 1.3 | 250M | 1.48× |
+| Node 22 | 169M | 1.00× |
+| dun-v8 | 163M | 0.96× |
+| dun-qjs | 16M | 0.09× |
 
 ### npm_compat — correctness
 

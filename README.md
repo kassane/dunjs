@@ -145,9 +145,9 @@ for 24 hours. `dun install` checks packages before download. See [SECURITY.md](S
 
 | Backend | Tests | Notes |
 |---------|-------|-------|
-| QuickJS-NG | 149/149 | Default. Interpreter, ES2025, smallest binary (9.8MB) |
-| JavaScriptCore | 147/147 (1 SKIP) | JIT. Same engine as Safari/Bun. Skips `bun_v7_additions` — root-cause traced (per-fetch JS bytecode compile leak); v1.1.7 cached the Response constructor + headers flattener, threshold moved from 9-10 servers to 13-14 with v7 extras enabled. Residual leak in the per-request listener chain |
-| V8 | 149/149 | JIT. Same engine as Chrome/Node.js (V8 15.0). Via C++ shim |
+| QuickJS-NG | 151/151 | Default. Interpreter, ES2025, smallest binary (9.8MB) |
+| JavaScriptCore | 151/151 | JIT. Same engine as Safari/Bun. v1.1.9 JSC handle-pin fix resolved the prior 1-SKIP gate; sweep stable 3/3 since |
+| V8 | 151/151 | JIT. Same engine as Chrome/Node.js (V8 15.0). Via C++ shim |
 
 All 24 built-in modules, Workers, SharedArrayBuffer, Atomics, fetch, Deno compat, and web globals work identically on every backend.
 
@@ -177,7 +177,7 @@ BACKEND=jsc DUN=./dun-jsc bash tests/integration/run.sh
 BACKEND=v8  DUN=./dun-v8  bash tests/integration/run.sh
 ```
 
-149/149 integration on QJS / V8, 148/148 + 1 SKIP on JSC, plus 145 npm-compat checks,
+151/151 integration on QJS / V8 / JSC, plus 145 npm-compat checks,
 98/98 ECMAScript spec audit (all 3 backends — /v set-op gap on
 QJS / V8 closed via source rewriter), 81/81 react-compat,
 231/231 safe-features, 45/45 security audit, 35/35 TypeScript
@@ -241,23 +241,21 @@ Feature benchmarks (25 tests, ops/sec — higher is better, median of 3 runs):
 
 | Runtime | Total Throughput | Relative |
 |---------|-----------------|----------|
-| Bun 1.3.14 | 491M | 1.00x |
-| DunJS JSC | **488M** | **0.99x** |
-| Node.js 22.22.2 | 172M | 0.35x |
-| Deno 2.7.14 | 169M | 0.34x |
-| DunJS V8 | 160M | 0.33x |
-| DunJS QuickJS | 22M | 0.05x (interpreter-only) |
+| DunJS JSC | **552M** | **1.04x** |
+| Bun 1.3.14 | 533M | 1.00x |
+| Node.js 22.22.2 | 162M | 0.30x |
+| DunJS V8 | 151M | 0.28x |
+| DunJS QuickJS | 20M | 0.04x (interpreter-only) |
 
 Framework benchmarks (39 tests, ops/sec — median of 3 runs):
 
 | Runtime | Total Throughput | Relative |
 |---------|-----------------|----------|
-| Bun 1.3.14 | 339M | 1.00x |
-| DunJS JSC | 277M | 0.82x |
-| Node.js 22.22.2 | 180M | 0.53x |
-| DunJS V8 | 172M | 0.51x |
-| Deno 2.7.14 | 154M | 0.45x |
-| DunJS QuickJS | 17M | 0.05x |
+| DunJS JSC | **292M** | **1.17x** |
+| Bun 1.3.14 | 250M | 1.00x |
+| Node.js 22.22.2 | 169M | 0.68x |
+| DunJS V8 | 163M | 0.65x |
+| DunJS QuickJS | 16M | 0.06x |
 
 HTTP stress (wrk, 128 connections, req/sec — higher is better):
 
@@ -279,7 +277,7 @@ Partially. Honest assessment:
 **Where it works today** (CLI tools, build scripts, microservices,
 test harnesses, learning projects):
 
-- 148/148 integration sweep on QJS / V8 (147/147 + 1 SKIP on JSC); 146/146 npm-compat,
+- 151/151 integration sweep on QJS / V8 / JSC (sweep stable 3/3); 145/145 npm-compat,
   98/98 ES2025 spec, 12/12 `deno_deploy_compat` vs Deno 2.7,
   13/13 `bun_bundler_compat` vs Bun 1.3, 38/38 v0.6.0 web API
   audit.
@@ -303,10 +301,11 @@ test harnesses, learning projects):
 
 **Where it can't yet**:
 
-- **Maturity.** v1.1.7 stable — 148/148
-  integration sweep on QJS / V8, ThreadSanitizer clean (modulo
-  intentional daemon worker threads), 147 JSC handle leaks
-  plugged, 4 lockfree-converted hot paths. But no production
+- **Maturity.** v1.1.16 stable — 151/151
+  integration sweep on QJS / V8 / JSC, ThreadSanitizer clean (modulo
+  intentional daemon worker threads), JSC handle leaks plugged
+  (v1.1.5 → v1.1.16 — fetch.d, child_process.d, fs.d, crypto.d),
+  4 lockfree-converted hot paths. But no production
   deployments tracked yet and no CVE history. Bun and Deno took
   years to harden under real traffic; DunJS is freshly stable.
 - **Stub-only web APIs.** `IndexedDB`, `WebTransport`,
