@@ -49,5 +49,7 @@ ok("post-fix output mentions no-empty-block",
 ok("post-fix output does NOT mention no-var",
    out4.indexOf("no-var") < 0);
 
+try { fs.rmSync(dir, { recursive: true, force: true }); } catch {}
+
 console.log(`Score: ${pass}/${pass + fail}`);
 process.exit(fail > 0 ? 1 : 0);

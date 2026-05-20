@@ -38,5 +38,9 @@ ok("compiled stdout has hello", out2.indexOf("hello") >= 0);
 const sanity = Bun.spawnSync({ cmd: [exe, "eval", "1+1"] });
 ok("dun runtime still exits 0", sanity.exitCode === 0);
 
+// Clean up the test dir — the produced binary is ~60-300 MB depending
+// on backend, and sweeps accumulate them until /tmp fills up.
+try { fs.rmSync(dir, { recursive: true, force: true }); } catch {}
+
 console.log(`Score: ${pass}/${pass + fail}`);
 process.exit(fail > 0 ? 1 : 0);

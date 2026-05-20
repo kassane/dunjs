@@ -42,5 +42,7 @@ const after2 = fs.readFileSync(target, "utf-8");
 ok("--fix is idempotent", after === after2);
 ok("idempotent --fix exits 0", r3.success === true);
 
+try { fs.rmSync(dir, { recursive: true, force: true }); } catch {}
+
 console.log(`Score: ${pass}/${pass + fail}`);
 process.exit(fail > 0 ? 1 : 0);

@@ -52,5 +52,7 @@ const out5 = new TextDecoder().decode(r5.stdout);
 ok("--quiet --max-warnings=0 hides individual warnings",
    (out5.match(/^\/.+?:\d+:\d+/gm) || []).length === 0);
 
+try { fs.rmSync(dir, { recursive: true, force: true }); } catch {}
+
 console.log(`Score: ${pass}/${pass + fail}`);
 process.exit(fail > 0 ? 1 : 0);
