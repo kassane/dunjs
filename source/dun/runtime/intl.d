@@ -181,8 +181,19 @@ private string intlPolyfillSource() pure nothrow @safe
     "    }" ~
     "    return parts.join(', ');" ~
     "  }" ~
+    "  /* Default short date — locale-aware ordering. ja/ko: YYYY/M/D;" ~
+    "     en-GB / de / fr / it / es / pt / nl: DD/MM/YYYY or DD.MM.YYYY;" ~
+    "     en-US / default: M/D/YYYY (no leading zero — matches V8 i18n default). */" ~
     "  var m2=date.getMonth()+1,d2=date.getDate(),y2=date.getFullYear();" ~
-    "  return (m2<10?'0':'')+m2+'/'+(d2<10?'0':'')+d2+'/'+y2;" ~
+    "  var lang2=(this._locale||'').split('-')[0].toLowerCase();" ~
+    "  var region2=(this._locale||'').split('-')[1]||'';" ~
+    "  if (lang2 === 'ja' || lang2 === 'ko' || lang2 === 'zh' || lang2 === 'hu')" ~
+    "    return y2 + '/' + m2 + '/' + d2;" ~
+    "  if (lang2 === 'de' || lang2 === 'fi' || lang2 === 'tr' || lang2 === 'cs' || lang2 === 'pl' || lang2 === 'ru')" ~
+    "    return (d2<10?'0':'')+d2 + '.' + (m2<10?'0':'')+m2 + '.' + y2;" ~
+    "  if (lang2 === 'fr' || lang2 === 'it' || lang2 === 'es' || lang2 === 'pt' || lang2 === 'nl' || lang2 === 'sv' || lang2 === 'da' || lang2 === 'no' || lang2 === 'nb' || (lang2 === 'en' && region2 === 'GB'))" ~
+    "    return (d2<10?'0':'')+d2 + '/' + (m2<10?'0':'')+m2 + '/' + y2;" ~
+    "  return m2 + '/' + d2 + '/' + y2;" ~
     "};" ~
     "Intl.DateTimeFormat.prototype.formatToParts = function(date) {" ~
     "  var s = this.format(date); return [{type:'literal',value:s}];" ~
@@ -198,15 +209,42 @@ private string intlPolyfillSource() pure nothrow @safe
     "  this._locale = resolveLocale(locales);" ~
     "  this._options = Object.assign({}, options);" ~
     "};" ~
+    /* Locale-aware separator table. Maps a language tag prefix to
+       {thousands separator, decimal separator}. Covers the common
+       European + Asian locales the polyfill bench/test fixtures
+       exercise. Real ICU has hundreds of locales; this is the 80/20
+       fallback for QJS (which ships no ICU at all). */
+    "function _localeSeps(locale) {" ~
+    "  if (!locale) return {t:',', d:'.'};" ~
+    "  var lang = locale.split('-')[0].toLowerCase();" ~
+    "  var region = (locale.split('-')[1] || '').toUpperCase();" ~
+    "  /* French / Russian / Polish / Czech / Finnish: NBSP thousand + comma decimal */" ~
+    "  if (lang === 'fr' || lang === 'ru' || lang === 'pl' || lang === 'cs' || lang === 'fi' || lang === 'sv' || lang === 'no' || lang === 'nb')" ~
+    "    return {t:'\\u00a0', d:','};" ~
+    "  /* German / Dutch / Italian / Spanish (mostly) / Portuguese: dot thousand + comma decimal */" ~
+    "  if (lang === 'de' || lang === 'nl' || lang === 'it' || lang === 'es' || lang === 'pt' || lang === 'tr' || lang === 'el' || lang === 'da')" ~
+    "    return {t:'.', d:','};" ~
+    "  /* Indian English: lakhs/crores grouping uses comma; standard decimal dot */" ~
+    "  if (lang === 'en' && region === 'IN') return {t:',', d:'.'};" ~
+    "  /* English / Chinese / Japanese / Korean / default — comma + dot */" ~
+    "  return {t:',', d:'.'};" ~
+    "}" ~
     "Intl.NumberFormat.prototype.format = function(num) {" ~
     "  var o = this._options;" ~
+    "  var seps = _localeSeps(this._locale);" ~
     "  if (o.style === 'currency') {" ~
     "    var c = o.currency || 'USD';" ~
     "    var sym = {USD:'$',EUR:'\\u20ac',GBP:'\\u00a3',JPY:'\\u00a5',CNY:'\\u00a5',KRW:'\\u20a9',INR:'\\u20b9',BRL:'R$',CAD:'CA$',AUD:'A$',CHF:'CHF'}[c] || c;" ~
     "    var digits = o.maximumFractionDigits !== undefined ? o.maximumFractionDigits : (c === 'JPY' || c === 'KRW' ? 0 : 2);" ~
     "    var n = Number(num).toFixed(digits);" ~
+    "    /* Apply locale separators to the currency amount */" ~
+    "    if (n.indexOf('.') >= 0) n = n.replace('.', seps.d);" ~
     "    if (o.currencyDisplay === 'code') return c + '\\u00a0' + n;" ~
     "    if (o.currencyDisplay === 'name') return n + ' ' + c;" ~
+    "    /* Many locales suffix the currency symbol (de-DE, fr-FR) */" ~
+    "    var lang = (this._locale || '').split('-')[0].toLowerCase();" ~
+    "    if (lang === 'de' || lang === 'fr' || lang === 'it' || lang === 'es' || lang === 'pt')" ~
+    "      return n + '\\u00a0' + sym;" ~
     "    return sym + n;" ~
     "  }" ~
     "  if (o.style === 'percent') return (Number(num) * 100).toFixed(o.maximumFractionDigits || 0) + '%';" ~
@@ -224,20 +262,22 @@ private string intlPolyfillSource() pure nothrow @safe
     "    return String(num);" ~
     "  }" ~
     "  var minFrac = o.minimumFractionDigits, maxFrac = o.maximumFractionDigits;" ~
-    "  if (typeof maxFrac === 'number') return Number(num).toFixed(maxFrac);" ~
-    "  if (typeof minFrac === 'number') return Number(num).toFixed(minFrac);" ~
+    "  var rawN = typeof maxFrac === 'number' ? Number(num).toFixed(maxFrac)" ~
+    "           : typeof minFrac === 'number' ? Number(num).toFixed(minFrac)" ~
+    "           : String(num);" ~
+    "  var idx = rawN.indexOf('.');" ~
+    "  var intPart = idx >= 0 ? rawN.slice(0,idx) : rawN, fracPart = idx >= 0 ? rawN.slice(idx+1) : '';" ~
+    "  var neg = intPart[0] === '-'; if (neg) intPart = intPart.slice(1);" ~
+    "  /* Grouping: skip when explicitly disabled or for integers < 1000 */" ~
     "  if (o.useGrouping !== false) {" ~
-    "    var s = String(num), idx = s.indexOf('.');" ~
-    "    var intPart = idx >= 0 ? s.slice(0,idx) : s, frac = idx >= 0 ? s.slice(idx) : '';" ~
-    "    var neg = intPart[0] === '-'; if (neg) intPart = intPart.slice(1);" ~
     "    var grouped = '';" ~
     "    for (var i = intPart.length - 1, c = 0; i >= 0; i--, c++) {" ~
-    "      if (c > 0 && c % 3 === 0) grouped = ',' + grouped;" ~
+    "      if (c > 0 && c % 3 === 0) grouped = seps.t + grouped;" ~
     "      grouped = intPart[i] + grouped;" ~
     "    }" ~
-    "    return (neg ? '-' : '') + grouped + frac;" ~
+    "    intPart = grouped;" ~
     "  }" ~
-    "  return String(num);" ~
+    "  return (neg ? '-' : '') + intPart + (fracPart ? seps.d + fracPart : '');" ~
     "};" ~
     "Intl.NumberFormat.prototype.formatToParts = function(num) {" ~
     "  var s = this.format(num); return [{type:'literal',value:s}];" ~

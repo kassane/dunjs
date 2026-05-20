@@ -156,17 +156,19 @@ string v8PrebuiltUrl()
 {
     import std.process : environment;
     auto ptrComp = environment.get("V8_COMPRESS_POINTERS", "");
-    auto i18n = environment.get("V8_I18N", "");
+    auto i18n = environment.get("V8_I18N", "1");
     // Profile precedence: pointer-compression > i18n > default.
     // i18n bundles `icudtl.dat` for full locale-aware Intl
-    // (number/date/currency formatting per locale). Default
-    // profile has minimal ICU — basic numeric/date works but
-    // locale formatting falls back to English style.
-    // Selecting i18n via env var so the default download stays
-    // small (~15 MB); set `V8_I18N=1` to opt in (~25 MB).
+    // (number/date/currency formatting per locale). v1.1.21 made it
+    // the default so `Intl.NumberFormat('de-DE')` and friends return
+    // the right format on V8 without an opt-in build flag — Node and
+    // Bun both ship full ICU by default; matching them is the right
+    // baseline. Cost: +~10 MB to the V8 monolith + a bundled 11 MB
+    // `icudtl.dat`. Set `V8_I18N=0` to opt out and shrink the binary
+    // back to the no-ICU default profile.
     string profile = (ptrComp == "1" || ptrComp == "true")
         ? "pointer-compression"
-        : ((i18n == "1" || i18n == "true") ? "i18n" : "default");
+        : ((i18n == "0" || i18n == "false" || i18n == "no") ? "default" : "i18n");
     // kassane/libv8 naming: libv8-<version>-<platform>-<arch>-<profile>.tar.xz
     string stem = "libv8-" ~ V8_PREBUILT_VERSION[1..$] ~ "-";
     version (OSX)

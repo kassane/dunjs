@@ -17,23 +17,21 @@ import dun.engine.iface : IJSEngine;
 void installBunExtrasV7(IJSEngine engine) @trusted
 {
     assert(engine !is null);
-    /* v1.1.7 — major threshold improvement. The root per-fetch JSC
-       leak was `engine.eval(<unique-source-with-embedded-body>)` in
-       `fetch.d`'s `makeResponse` (uncacheable bytecode, ~9 MB heap
-       per fetch). Plus `engine.eval(<headers-flatten-source>)` per
-       request with custom headers. Both now cache the function at
-       first use and call with value arguments per request.
-
-       Threshold after fixes (release build, JSC):
-         baseline (no v7):  17 → 17 servers OK (unchanged)
-         fetch_only stress: 27 → 30+ fetches OK (cached builder)
-         with v7 extras:     9 → 13-14 servers OK (~40% better)
-
-       deno_deploy_compat (15 servers) still tips over the threshold
-       with v7 on release. So the JSC gate stays for ONE more
-       release while the residual leak — probably in the per-request
-       `req.on('data'/'end')` listener chain or the response.body
-       streaming reader — gets traced. QJS / V8 install eagerly. */
+    /* JSC gate (re-confirmed v1.1.21): tried two approaches to remove
+       the gate, both still crash `deno_deploy_compat`:
+       (a) eager install — same as v1.1.5-1.1.20, tips at server 13.
+       (b) lazy-load via Object.defineProperty getter (mirrors v1.1.10
+           diagnostics_channel) — even the ~50-line stub-install
+           source itself tips it. The crash is in JSC's concurrent-GC
+           when `deno_deploy_compat` runs 15 sequential Deno.serve
+           cycles; the extras-install JS bytecode adds heap pressure
+           that combines with the per-request listener-chain leak (as
+           yet unfound) to push past the threshold.
+       The fundamental fix is to find that residual per-request leak
+       on JSC — likely in the response.body streaming reader or the
+       req.on('data'/'end') listener chain. Until then, JSC ships
+       without v7 extras and bun_v7_additions stays gated. See
+       CHANGELOG #43a for the gdb investigation notes. */
     version (EngineJSC) return;
     auto r = engine.eval(extrasSource(), "<bun-extras-v7>");
     if (!r.isError) engine.freeValue(r.value);
@@ -50,11 +48,20 @@ void installBunExtrasV7(IJSEngine engine) @trusted
 
 private string extrasSource() pure nothrow @safe
 {
+    /* Lazy install: each Bun.* extra is a getter that on first access
+       new-Function's its body source, calls it, replaces the getter
+       with the resulting function (so subsequent accesses are direct
+       reads), and returns the function. Apps that don't touch any of
+       these (deno_deploy_compat, most HTTP servers) pay only the
+       getter-install cost (~10 properties × ~50B JS bytecode each).
+       Same lazy-load pattern as diagnostics_channel (v1.1.10). */
     return
     "(function(){" ~
     "if (typeof Bun === 'undefined') return;" ~
+    "var _src = {" ~
 
-    "Bun.deepMatch = function(a, b) {" ~
+    "deepMatch:" ~
+    "'return function(a, b) {" ~
     "  if (a === b) return true;" ~
     "  if (typeof a !== typeof b || a === null || b === null) return a === b;" ~
     "  if (Array.isArray(b)) {" ~
@@ -62,16 +69,17 @@ private string extrasSource() pure nothrow @safe
     "    for (var i = 0; i < b.length; i++) if (!Bun.deepMatch(a[i], b[i])) return false;" ~
     "    return true;" ~
     "  }" ~
-    "  if (typeof b !== 'object') return a === b;" ~
+    "  if (typeof b !== \"object\") return a === b;" ~
     "  var kb = Object.keys(b);" ~
     "  for (var j = 0; j < kb.length; j++) if (!Bun.deepMatch(a[kb[j]], b[kb[j]])) return false;" ~
     "  return true;" ~
-    "};" ~
+    "};'," ~
 
-    "Bun.concatArrayBuffers = function(parts, max, asU8) {" ~
+    "concatArrayBuffers:" ~
+    "'return function(parts, max, asU8) {" ~
     "  var total = 0;" ~
     "  for (var i = 0; i < parts.length; i++) total += parts[i] && (parts[i].byteLength|0);" ~
-    "  if (typeof max === 'number' && total > max) total = max;" ~
+    "  if (typeof max === \"number\" && total > max) total = max;" ~
     "  var out = new Uint8Array(total);" ~
     "  var off = 0;" ~
     "  for (var j = 0; j < parts.length && off < total; j++) {" ~
@@ -82,16 +90,18 @@ private string extrasSource() pure nothrow @safe
     "    off += n;" ~
     "  }" ~
     "  return asU8 ? out : out.buffer;" ~
-    "};" ~
+    "};'," ~
 
-    "Bun.arrayBufferToString = function(buf, enc) {" ~
-    "  if (typeof buf === 'string') return buf;" ~
+    "arrayBufferToString:" ~
+    "'return function(buf, enc) {" ~
+    "  if (typeof buf === \"string\") return buf;" ~
     "  var u = buf instanceof Uint8Array ? buf : new Uint8Array(buf.buffer || buf);" ~
-    "  return new TextDecoder(enc || 'utf-8').decode(u);" ~
-    "};" ~
+    "  return new TextDecoder(enc || \"utf-8\").decode(u);" ~
+    "};'," ~
 
-    "Bun.randomUUIDv7 = function(enc, ts) {" ~
-    "  if (typeof ts !== 'number') ts = Date.now();" ~
+    "randomUUIDv7:" ~
+    "'return function(enc, ts) {" ~
+    "  if (typeof ts !== \"number\") ts = Date.now();" ~
     "  var bytes = new Uint8Array(16);" ~
     "  crypto.getRandomValues(bytes);" ~
     "  var hi = Math.floor(ts / 0x100000000);" ~
@@ -101,34 +111,51 @@ private string extrasSource() pure nothrow @safe
     "  bytes[4] = (lo >>> 8) & 0xff; bytes[5] = lo & 0xff;" ~
     "  bytes[6] = (bytes[6] & 0x0f) | 0x70;" ~
     "  bytes[8] = (bytes[8] & 0x3f) | 0x80;" ~
-    "  if (enc === 'hex') {" ~
-    "    var hx = '';" ~
-    "    for (var i = 0; i < 16; i++) hx += bytes[i].toString(16).padStart(2, '0');" ~
+    "  if (enc === \"hex\") {" ~
+    "    var hx = \"\";" ~
+    "    for (var i = 0; i < 16; i++) hx += bytes[i].toString(16).padStart(2, \"0\");" ~
     "    return hx;" ~
     "  }" ~
-    "  if (enc === 'buffer') return Buffer.from(bytes);" ~
-    "  var h = '';" ~
-    "  for (var k = 0; k < 16; k++) h += bytes[k].toString(16).padStart(2, '0');" ~
-    "  return h.slice(0, 8) + '-' + h.slice(8, 12) + '-' + h.slice(12, 16)" ~
-    "       + '-' + h.slice(16, 20) + '-' + h.slice(20, 32);" ~
+    "  if (enc === \"buffer\") return Buffer.from(bytes);" ~
+    "  var h = \"\";" ~
+    "  for (var k = 0; k < 16; k++) h += bytes[k].toString(16).padStart(2, \"0\");" ~
+    "  return h.slice(0, 8) + \"-\" + h.slice(8, 12) + \"-\" + h.slice(12, 16)" ~
+    "       + \"-\" + h.slice(16, 20) + \"-\" + h.slice(20, 32);" ~
+    "};'," ~
+
+    "nanoseconds:" ~
+    "'return function() { return Math.round(performance.now() * 1e6); };'," ~
+
+    "gcAggressionLevel:" ~
+    "'var _gcLevel = 1;" ~
+    "return function(lvl) {" ~
+    "  if (typeof lvl === \"number\" && lvl >= 0 && lvl <= 2) _gcLevel = lvl|0;" ~
+    "  return _gcLevel;" ~
+    "};'," ~
+
+    "shrink:" ~
+    "'return function() {" ~
+    "  if (typeof globalThis.gc === \"function\") { try { globalThis.gc(); } catch (_) {} }" ~
+    "};'," ~
+
+    "generateHeapSnapshot:" ~
+    "'return function(fmt) {" ~
+    "  return { version: 1, format: fmt || \"jsc\", nodes: [], edges: [], note: \"heap snapshot stub\" };" ~
+    "};'" ~
+
     "};" ~
 
-    "Bun.nanoseconds = function() { return Math.round(performance.now() * 1e6); };" ~
-
-    "(function() {" ~
-    "  var _gcLevel = 1;" ~
-    "  Bun.gcAggressionLevel = function(lvl) {" ~
-    "    if (typeof lvl === 'number' && lvl >= 0 && lvl <= 2) _gcLevel = lvl|0;" ~
-    "    return _gcLevel;" ~
-    "  };" ~
-    "})();" ~
-
-    "Bun.shrink = function() {" ~
-    "  if (typeof globalThis.gc === 'function') { try { globalThis.gc(); } catch (_) {} }" ~
-    "};" ~
-
-    "Bun.generateHeapSnapshot = function(fmt) {" ~
-    "  return { version: 1, format: fmt || 'jsc', nodes: [], edges: [], note: 'heap snapshot stub' };" ~
-    "};" ~
+    /* Install each as a self-promoting getter: first access triggers
+       eval, replaces the property with the real function, returns it. */
+    "Object.keys(_src).forEach(function(k) {" ~
+    "  Object.defineProperty(Bun, k, {" ~
+    "    configurable: true," ~
+    "    get: function() {" ~
+    "      var fn = (new Function(_src[k]))();" ~
+    "      Object.defineProperty(Bun, k, { configurable: true, writable: true, enumerable: true, value: fn });" ~
+    "      return fn;" ~
+    "    }" ~
+    "  });" ~
+    "});" ~
     "})();";
 }
