@@ -8,6 +8,28 @@ import dun.security.permissions : Permission;
 private enum MAX_WORKERS = 1024;
 /// Maximum number of registered exit callbacks.
 private enum MAX_EXIT_CALLBACKS = 64;
+
+// Cached Worker method handles. Without these, every cluster.fork()
+// + the per-worker self-object allocate 6 new JSValueProtect slots
+// per call on JSC. Same pattern as v1.1.5 http.d / v1.1.16 fs.d /
+// v1.1.17 dgram.d.
+__gshared JSHandle _workerSend, _workerOn, _workerDisconnect;
+__gshared JSHandle _workerKill, _workerIsConnected, _workerIsDead;
+__gshared bool _workerFnsCached = false;
+
+private void ensureWorkerFnsCached(IJSEngine engine) @trusted
+{
+    if (!_workerFnsCached)
+    {
+        _workerSend        = engine.newFunction(&jsWorkerSend, "send", 1);
+        _workerOn          = engine.newFunction(&jsWorkerOn, "on", 2);
+        _workerDisconnect  = engine.newFunction(&jsWorkerDisconnect, "disconnect", 0);
+        _workerKill        = engine.newFunction(&jsWorkerKill, "kill", 0);
+        _workerIsConnected = engine.newFunction(&jsWorkerIsConnected, "isConnected", 0);
+        _workerIsDead      = engine.newFunction(&jsWorkerIsDead, "isDead", 0);
+        _workerFnsCached = true;
+    }
+}
 /// Bitmask to extract exit status from waitpid status.
 private enum WSTATUS_EXIT_MASK = 0x7F;
 /// Bit shift to extract exit code from waitpid status.
@@ -244,12 +266,13 @@ JSHandle jsClusterFork(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trus
             auto workerObj = engine.newObject();
             engine.setProperty(workerObj, "pid", engine.newInt(pid));
             engine.setProperty(workerObj, "id", engine.newInt(gWorkerCount));
-            engine.setProperty(workerObj, "send", engine.newFunction(&jsWorkerSend, "send", 1));
-            engine.setProperty(workerObj, "on", engine.newFunction(&jsWorkerOn, "on", 2));
-            engine.setProperty(workerObj, "disconnect", engine.newFunction(&jsWorkerDisconnect, "disconnect", 0));
-            engine.setProperty(workerObj, "kill", engine.newFunction(&jsWorkerKill, "kill", 0));
-            engine.setProperty(workerObj, "isConnected", engine.newFunction(&jsWorkerIsConnected, "isConnected", 0));
-            engine.setProperty(workerObj, "isDead", engine.newFunction(&jsWorkerIsDead, "isDead", 0));
+            ensureWorkerFnsCached(engine);
+            engine.bindMethod(workerObj, "send", _workerSend);
+            engine.bindMethod(workerObj, "on", _workerOn);
+            engine.bindMethod(workerObj, "disconnect", _workerDisconnect);
+            engine.bindMethod(workerObj, "kill", _workerKill);
+            engine.bindMethod(workerObj, "isConnected", _workerIsConnected);
+            engine.bindMethod(workerObj, "isDead", _workerIsDead);
             engine.setProperty(workerObj, "process", engine.newObject());
 
             import std.conv : to;
@@ -334,12 +357,13 @@ JSHandle makeWorkerSelf(IJSEngine engine) @trusted
         import core.sys.posix.unistd : getpid;
         engine.setProperty(w, "pid", engine.newInt(getpid()));
     }
-    engine.setProperty(w, "send", engine.newFunction(&jsWorkerSend, "send", 1));
-    engine.setProperty(w, "on", engine.newFunction(&jsWorkerOn, "on", 2));
-    engine.setProperty(w, "disconnect", engine.newFunction(&jsWorkerDisconnect, "disconnect", 0));
-    engine.setProperty(w, "kill", engine.newFunction(&jsWorkerKill, "kill", 0));
-    engine.setProperty(w, "isConnected", engine.newFunction(&jsWorkerIsConnected, "isConnected", 0));
-    engine.setProperty(w, "isDead", engine.newFunction(&jsWorkerIsDead, "isDead", 0));
+    ensureWorkerFnsCached(engine);
+    engine.bindMethod(w, "send", _workerSend);
+    engine.bindMethod(w, "on", _workerOn);
+    engine.bindMethod(w, "disconnect", _workerDisconnect);
+    engine.bindMethod(w, "kill", _workerKill);
+    engine.bindMethod(w, "isConnected", _workerIsConnected);
+    engine.bindMethod(w, "isDead", _workerIsDead);
     return w;
 }
 
