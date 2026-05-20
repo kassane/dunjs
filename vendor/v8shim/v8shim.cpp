@@ -5,9 +5,17 @@
 #include <v8.h>
 #include <libplatform/libplatform.h>
 #include <cassert>
+#include <cstdlib>
 #include <cstring>
 #include <array>
 #include <memory>
+#ifdef __linux__
+#include <unistd.h>
+#elif defined(__APPLE__)
+#include <mach-o/dyld.h>
+#elif defined(_WIN32)
+#include <windows.h>
+#endif
 #include <span>
 #include <string>
 #include <mutex>
@@ -34,9 +42,45 @@ static void ensurePlatform() {
         // escapes (`\p{L}`, etc.) work in regular expressions. Without
         // this V8 reports "Invalid property name in character class" for
         // any `/[\p{L}]/u` or `/[\p{L}]/v` regex, even though the build
-        // links ICU. Try the linked icudtl.dat first (default lookup),
-        // fall back to the i18n table embedded in libv8_monolith.a.
-        v8::V8::InitializeICUDefaultLocation("");
+        // links ICU.
+        //
+        // ICU data resolution (v15.0.112 i18n profile + earlier):
+        //   1. Try `$DUN_ICU_DATA` env var (explicit override)
+        //   2. Try `<exec_dir>/icudtl.dat` (libv8 i18n profile ships
+        //      this file next to libv8_monolith.a; we copy it next to
+        //      the `dun` binary at link time via dub's preBuildCommands)
+        //   3. Fall back to `InitializeICU(nullptr)` — uses the i18n
+        //      table embedded in libv8_monolith.a for default profile
+        //      builds (covers Unicode property escapes; locale data
+        //      will be English-only)
+        const char* icu_env = std::getenv("DUN_ICU_DATA");
+        bool icu_ok = false;
+        if (icu_env && *icu_env) {
+            icu_ok = v8::V8::InitializeICU(icu_env);
+        }
+        if (!icu_ok) {
+            // Resolve the real executable path so
+            // InitializeICUDefaultLocation can find `<exec_dir>/icudtl.dat`.
+            // Cross-platform argv[0] discovery — V8's
+            // InitializeICUDefaultLocation does `dirname(argv0) + /icudtl.dat`
+            // so an empty argv0 makes it skip the search.
+            char exe_path[4096] = {0};
+#ifdef __linux__
+            ssize_t n = readlink("/proc/self/exe", exe_path, sizeof(exe_path) - 1);
+            if (n > 0) exe_path[n] = '\0';
+#elif defined(__APPLE__)
+            uint32_t sz = sizeof(exe_path);
+            _NSGetExecutablePath(exe_path, &sz);
+#elif defined(_WIN32)
+            GetModuleFileNameA(NULL, exe_path, sizeof(exe_path));
+#endif
+            if (exe_path[0]) {
+                v8::V8::InitializeICUDefaultLocation(exe_path);
+            } else {
+                v8::V8::InitializeICUDefaultLocation("");
+            }
+            icu_ok = true;
+        }
         v8::V8::Initialize();
     });
 }

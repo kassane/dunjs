@@ -122,6 +122,9 @@
 			"targetType": "executable",
 			"preBuildCommands-posix": [
 				"$DC -run $PACKAGE_DIR/build.d --backend=v8"
+			],
+			"postBuildCommands-posix": [
+				"sh -c 'cp -f $PACKAGE_DIR/vendor/v8/lib/icudtl.dat $PACKAGE_DIR/build/ 2>/dev/null || true'"
 			]
 		},
 		{
@@ -314,7 +317,7 @@
 	"toolchainRequirements": {
 		"frontend": ">=2.112.0"
 	},
-	"version": "1.1.12",
+	"version": "1.1.13",
 	"description": "A secure JavaScript runtime written in D",
 	"dependencies": {},
 	"targetType": "executable",
