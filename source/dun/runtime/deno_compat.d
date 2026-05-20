@@ -1212,7 +1212,7 @@ makeResult:
     auto ph = engine.newPromise();
     auto resultObj = engine.newObject();
     engine.setProperty(resultObj, "state", engine.newString(stateStr));
-    engine.callFunction(ph.resolve, engine.newUndefined(), [resultObj]);
+    engine.freeValue(engine.callFunction(ph.resolve, engine.newUndefined(), [resultObj]));
     engine.freeValue(ph.resolve);
     engine.freeValue(ph.reject);
     return ph.promise;

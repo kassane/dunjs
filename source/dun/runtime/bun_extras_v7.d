@@ -17,69 +17,23 @@ import dun.engine.iface : IJSEngine;
 void installBunExtrasV7(IJSEngine engine) @trusted
 {
     assert(engine !is null);
-    /* JSC gate: kept on JSC. The v0.7.0 `bindMethod` patch lifted
-       the baseline from "9 servers OK" to "13 servers OK", and the
-       v1.1.3 NUL-safe `createJSStringFromD` removed a class of
-       refcount leaks, but `deno_deploy_compat`'s 7-server stress
-       still times out on the 4th+ fetch with v7 extras enabled.
-       Re-investigated in v1.1.5: the "CRASH `<error-compat>:1:3877`"
-       output is actually the test's own `Promise.race` timeout
-       (`rej(new Error("timeout"))` after 3 s) caught by its
-       trailing `.catch`, formatted via the `<error-compat>`
-       wrapper at the top of the stack. So the underlying bug is
-       a fetch-hang on JSC + v7 — the network event-loop turn for
-       the response doesn't run before the 3 s timer fires. Likely
-       relates to JSC trampoline jitter under additional install-
-       time eval pressure; needs gdb on the fetch path
-       (`__futex_abstimed_wait_cancelable64` →
-       `JSC::Heap::acquireAccessSlow`?). Defer to dedicated
-       investigation. QJS / V8 install eagerly. */
-    /* JSC gate: kept. v1.1.5 gdb investigation found the underlying
-       bug is **NOT** specific to the v7 extras — it's a generic JSC
-       HTTP-server-per-cycle handle leak. The bisect:
+    /* v1.1.7 — major threshold improvement. The root per-fetch JSC
+       leak was `engine.eval(<unique-source-with-embedded-body>)` in
+       `fetch.d`'s `makeResponse` (uncacheable bytecode, ~9 MB heap
+       per fetch). Plus `engine.eval(<headers-flatten-source>)` per
+       request with custom headers. Both now cache the function at
+       first use and call with value arguments per request.
 
-         baseline (no extras): hangs at server 17
-         with `new Request(url)` per request: hangs at 15
-         with v7 extras enabled: hangs at 9-10
+       Threshold after fixes (release build, JSC):
+         baseline (no v7):  17 → 17 servers OK (unchanged)
+         fetch_only stress: 27 → 30+ fetches OK (cached builder)
+         with v7 extras:     9 → 13-14 servers OK (~40% better)
 
-       So the v7 extras only shave 7-8 servers off the threshold;
-       they're not the root cause. The actual leak is in the HTTP
-       server lifecycle on JSC — `httpServers[]` slot + callback
-       handles aren't fully released between `Deno.serve` +
-       `shutdown` cycles. After ~9 cycles the cumulative pressure
-       blocks the next request's `req.on('end')` from firing
-       (verified: gdb shows main thread in `epoll_wait` with the
-       listen fd watched, fetch worker thread in `read()` on the
-       client socket, but the server-side accept's request never
-       reaches JS land — `handlerCalled = true` never fires in the
-       JS handler).
-
-       Root-cause fix needs an audit of every `engine.newFunction`,
-       `engine.dupValue`, `engine.setProperty` in `http.d`'s
-       createServer / writeHead / end paths to find which JSValueRef
-       isn't being released symmetrically. Until that fix lands,
-       the gate keeps `deno_deploy_compat` (15 servers) passing on
-       JSC by avoiding the v7-extras-induced threshold drop.
-       Re-CRASH-formatted as a fetch-timeout in the test's own
-       `Promise.race` catch handler, not an actual JSC crash. */
-    /* v1.1.6 follow-up: still gated. Three partial fixes shipped
-       to chip away at the JSC HTTP-server-cycle leak without moving
-       the actual threshold:
-         - http.d: server slot recycling (`httpFreeServerSlots`)
-         - http.d: cached `_httpSrvSetTimeout` (was per-createServer
-           `newFunction`, leaked one JSC callback slot per cycle)
-         - http.d: `jsHttpServerSetTimeout` newInt vs dupValue
-         - jsc/backend.d: `callFunction` returns protected value in
-           both success + exception paths (was asymmetric — success
-           returned unprotected, callers Unprotect'd anyway = JSC
-           protect-count underflow per call).
-       Those moved zero threshold (still 9 servers OK with v7
-       extras, ~17 without). So the actual leak is elsewhere —
-       likely the per-fetch promise resolve/reject cycle on JSC's
-       internal Promise machinery, or a leak in the agnostic_pending
-       dispatch path. Re-test after the fixes confirms: v7 +
-       deno_deploy_compat still HANGs, JSC sweep still 147/0/1.
-       Defer until a JSValueProtect/Unprotect instrumentation pass. */
+       deno_deploy_compat (15 servers) still tips over the threshold
+       with v7 on release. So the JSC gate stays for ONE more
+       release while the residual leak — probably in the per-request
+       `req.on('data'/'end')` listener chain or the response.body
+       streaming reader — gets traced. QJS / V8 install eagerly. */
     version (EngineJSC) return;
     auto r = engine.eval(extrasSource(), "<bun-extras-v7>");
     if (!r.isError) engine.freeValue(r.value);

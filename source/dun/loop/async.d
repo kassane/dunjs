@@ -94,19 +94,25 @@ int asyncDrain() @trusted
                     "new Error('" ~ escapeForEval(task.error) ~ "')", "<async>");
                 auto errVal = errResult.isError
                     ? engine.newString(task.error) : errResult.value;
-                engine.callFunction(task.reject, engine.newUndefined(), [errVal]);
+                /* `callFunction` returns an owned protected value per
+                   the cross-backend contract — discard via freeValue.
+                   v1.1.7: previously discarded directly, leaking one
+                   JSValueProtect per promise resolution × N fetches
+                   on JSC. `newUndefined()` returns the JSC singleton
+                   which doesn't need freeing. */
+                engine.freeValue(engine.callFunction(task.reject, engine.newUndefined(), [errVal]));
                 engine.freeValue(errVal);
             }
             else if (task.transform !is null)
             {
                 auto val = task.transform(engine, task.result);
-                engine.callFunction(task.resolve, engine.newUndefined(), [val]);
+                engine.freeValue(engine.callFunction(task.resolve, engine.newUndefined(), [val]));
                 engine.freeValue(val);
             }
             else
             {
                 auto val = engine.newString(task.result);
-                engine.callFunction(task.resolve, engine.newUndefined(), [val]);
+                engine.freeValue(engine.callFunction(task.resolve, engine.newUndefined(), [val]));
                 engine.freeValue(val);
             }
             engine.freeValue(task.resolve);
