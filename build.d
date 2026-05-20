@@ -95,7 +95,7 @@ enum SQLITE_YEAR        = "2026";
 // Brotli configuration
 // Vendored from google/brotli so we don't depend on system libbrotli-dev.
 // CMake build produces libbrotlicommon.a + libbrotlidec.a + libbrotlienc.a.
-enum BROTLI_VERSION = "v1.1.0";
+enum BROTLI_VERSION = "v1.2.0";
 enum BROTLI_URL     = "https://github.com/google/brotli/archive/refs/tags/"
                     ~ BROTLI_VERSION ~ ".tar.gz";
 enum BROTLI_SRC_MARKER = "c/include/brotli/encode.h";
