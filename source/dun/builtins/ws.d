@@ -3,6 +3,7 @@ module dun.builtins.ws;
 import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
 import dun.runtime.globals : DunState;
 import dun.loop.agnostic_pending : pushAgnosticPending;
+import dun.declarations : DEFAULT_LISTEN_BACKLOG;
 
 private enum : size_t {
     WS_PAYLOAD_LEN_16BIT  = 126,
@@ -18,8 +19,8 @@ private enum : ushort {
     WS_DEFAULT_TLS_PORT   = 443,
     WS_DEFAULT_SERVER_PORT = 8080,
 }
+private alias WS_LISTEN_BACKLOG = DEFAULT_LISTEN_BACKLOG;
 private enum {
-    WS_LISTEN_BACKLOG    = 1024,
     IO_POLL_BATCH_SIZE   = 64,
 }
 

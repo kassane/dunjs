@@ -287,9 +287,9 @@ public JSHandle makeBufferObj(IJSEngine engine, const(ubyte)[] data) @trusted
 public JSHandle makeBufferObjZeroed(IJSEngine engine, int size) @trusted
 {
     ensureBufferFnsCached(engine);
-    auto u8 = engine.newUint8ArrayZeroed(size);
-    engine.setPrototype(u8, _bufProto);
-    return u8;
+    // 1 FFI call on V8 (fused ArrayBuffer + Uint8Array + SetPrototype);
+    // QuickJS/JSC fall back internally to the 2-step path.
+    return engine.newUint8ArrayZeroedWithProto(size, _bufProto);
 }
 
 private immutable char[512] hexLUT = () {

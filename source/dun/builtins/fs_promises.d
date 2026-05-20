@@ -4,6 +4,7 @@ import dun.engine.iface : IJSEngine, JSHandle, JSResult, NativeCallback;
 import dun.runtime.globals : DunState;
 import dun.security.permissions : Permission;
 import dun.builtins.fs : errnoMsg;
+import dun.declarations : FILE_MODE_DEFAULT_FILE;
 
 void registerFsPromisesModule(IJSEngine engine) @trusted
 {
@@ -935,7 +936,7 @@ JSHandle jsFspOpen(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
     string flags = "r";
     if (args.length >= 2 && engine.isString(args[1]))
         flags = engine.extractString(args[1]);
-    int mode = 0x1A4; // 0644
+    int mode = FILE_MODE_DEFAULT_FILE;
     if (args.length >= 3 && engine.isNumber(args[2]))
         mode = engine.extractInt(args[2]);
 

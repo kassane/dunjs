@@ -242,6 +242,13 @@ class QuickJSEngine : IJSEngine
         return u8;
     }
 
+    JSHandle newUint8ArrayZeroedWithProto(size_t size, JSHandle proto) @trusted
+    {
+        auto u8 = newUint8ArrayZeroed(size);
+        setPrototype(u8, proto);
+        return u8;
+    }
+
     JSHandle newBufferFromUtf8String(JSHandle jsStr, JSHandle proto) @trusted
     {
         // No native one-shot — fall back to extract + alloc + setProto.

@@ -4,6 +4,7 @@ import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
 import dun.runtime.globals : DunState;
 import dun.loop.agnostic_pending : pushAgnosticPending;
 import dun.platform.arena : Appender;
+import dun.declarations : DEFAULT_LISTEN_BACKLOG;
 
 void registerHttp2Module(IJSEngine engine) @trusted
 {
@@ -119,7 +120,7 @@ enum H2_SETTING_ENTRY_SIZE = 6;
 enum H2_SETTINGS_COUNT = 3;
 enum H2_DEFAULT_MAX_CONCURRENT_STREAMS = 100;
 enum H2_DEFAULT_TLS_PORT = 443;
-enum H2_LISTEN_BACKLOG = 1024;
+private alias H2_LISTEN_BACKLOG = DEFAULT_LISTEN_BACKLOG;
 enum IO_POLL_BATCH_SIZE = 64;
 
 enum : ubyte {

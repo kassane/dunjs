@@ -66,3 +66,22 @@ enum uint UNICODE_REPLACEMENT_CHAR = 0xFFFDu;/// U+FFFD for malformed input
 enum uint UTF16_HIGH_SURROGATE_BASE = 0xD800u; /// U+D800 start of high half
 enum uint UTF16_LOW_SURROGATE_BASE  = 0xDC00u; /// U+DC00 start of low half
 enum uint UTF16_SURROGATE_LOW_MASK  = 0x3FFu;  /// low 10 bits in surrogate
+
+// ─── POSIX file modes (Node.js compat) ──────────────────────────
+//
+// Default file mode used by fs.writeFile / fs.openSync / fs.copyFile
+// when caller doesn't specify (matches Node's documented `0o644`).
+// Centralized here so fs.d and fs_promises.d share the same value —
+// otherwise "fix mode here but not there" is a real risk.
+
+enum int FILE_MODE_DEFAULT_FILE = 0x1A4;        /// 0o644 rw-r--r--
+enum int FILE_MODE_DEFAULT_DIR  = 0x1ED;        /// 0o755 rwxr-xr-x
+enum int S_IFREG_DEFAULT_FILE   = 0x81A4;       /// S_IFREG | 0o644
+
+// ─── Network listen() backlog ───────────────────────────────────
+//
+// Same value used by every TCP-style listener (net.d, http.d, http2.d,
+// ws.d). Linux silently caps to `net.core.somaxconn` (default 4096+
+// since 5.4), so picking 1024 leaves room without hitting kernel limit.
+
+enum int DEFAULT_LISTEN_BACKLOG = 1024;
