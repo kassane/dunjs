@@ -87,6 +87,9 @@ Patterns to look for in the backtrace:
 | `JSValueProtect` / `JSValueUnprotect` | Reference-counting underflow or leaked protection | Audit `dupValue` / `freeValue` pairing for the type. JSC `dupValue` adds a protection; `freeValue` removes it. Symmetric or you crash. |
 | `JS_Eval` → `JS_FreeValue` (QuickJS) | Refcount underflow | Look for missing `dupValue` before `setProperty` (which consumes) |
 | `__GI___assert_fail` with `... slot overflow` | Monotonic slot ID counter | Add an `int[]` free-list, push on `digest()`/destroy, pop on `create()`. See `_freeHashIds` in `source/dun/builtins/crypto.d` |
+| Main thread in `epoll_wait(timeout=0)`, worker in `read(fd=N)` | Per-cycle JS bytecode compile leak (uncacheable eval source) | Cache the function at first use with `engine.dupValue(eval result)`, call with value args instead of inlining them in source. See `_fetchResponseBuilder` / `_fetchHeadersFlattener` in `source/dun/builtins/fetch.d` (v1.1.7 fix — JSC fetch_only stress moved from 27 → 30+ on all backends) |
+| `Uncaught SyntaxError: Unexpected EOF` on JSC, source contains literal `\0` | `JSStringCreateWithUTF8CString` terminates at first NUL | Route through the NUL-safe `createJSStringFromD` helper in `source/dun/engine/jsc/backend.d` (v1.1.3 / v1.1.4) |
+| `Buffer.toString('latin1')` or `Buffer.from(str, 'latin1')` returns empty or garbled bytes ≥ 0x80 | UTF-8 / Latin-1 conversion bug | Use `dun.platform.simd.latin1ToUtf8Buf` (encode) / `utf8ToLatin1Buf` (decode) — Latin-1 constants live in `source/dun/declarations.d` |
 
 ## Step 3: Bisect by stripping
 
@@ -121,3 +124,28 @@ If the bug only triggers in a multi-benchmark sequence:
 - **Don't** add `JSValueProtect` to every `newX` in JSC unless you also
   make every `setProperty` consume — partial changes break the
   refcount accounting on ~360 call sites.
+- **Don't** trust the test's own crash message — `"CRASH @<error-compat>:1:3877"`
+  in `deno_deploy_compat` output is the test's own `Promise.race`
+  timeout caught by its `.catch`, formatted via the `<error-compat>`
+  wrapper at the top of the stack. The actual bug is a fetch-hang,
+  not a JSC crash. Investigate where the fetch is blocked, not where
+  the JS exception was formatted.
+- **Don't** build per-fetch JS source strings with response body
+  embedded — JSC compiles bytecode per unique source and never
+  evicts it. This was the v1.1.7 root-cause fix; see `_fetchResponseBuilder`
+  pattern. Same warning for headers flattener, JSON parse paths,
+  and any other "eval per call" code.
+
+## CVE-class fixes (regression-tested)
+
+Whenever you fix a CVE-class bug or correctness root cause:
+
+1. **Cite the upstream advisory in the inline comment** — e.g.,
+   "Mirrors Node CVE-2023-32004 (path traversal in fs)".
+2. **Add a permanent fixture** in `tests/integration/fixtures/`
+   (see `cve_path_traversal.js`, `audit_simd.js`,
+   `audit_roundtrip.js` for the canonical patterns) so the
+   regression check runs on every sweep.
+3. **Update `SECURITY.md`** with the version, class, symptom,
+   and fix description — future investigators trying to remove the
+   fix should see exactly why it's there.

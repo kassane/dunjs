@@ -83,8 +83,11 @@ dub build -c v8  && BACKEND=v8  ./tests/integration/run.sh
 | Production gaps 3 | `production_gaps3` | 15 checks: console.group, TypedArray.from/of, zlib Buffer, sqlite bind |
 | Production gaps 4 | `production_gaps4` | 144 checks: process, Buffer, stream, EventEmitter, path, crypto, fs, Error, util, npm patterns |
 | Production readiness | `production_readiness` | 122 checks: all critical Node.js APIs for production server workloads |
+| **CVE path-traversal (v1.1.0)** | `cve_path_traversal` | 5 checks: legit read inside scope, `..` traversal blocked, content not leaked, nested traversal blocked, absolute outside scope blocked. CVE-2023-32004 / CVE-2024-21896 class |
+| **SIMD encoder audit (v1.1.3)** | `audit_simd` | 25 checks: hex boundary at 15/16/17 bytes (SIMD 16-byte cycle), 1MB hex content, GCM 16-byte tag, randomUUID format, HMAC hex, Buffer hex round-trip, latin1 high bytes 0x80-0xFF preserved |
+| **Round-trip correctness (v1.1.4)** | `audit_roundtrip` | 16 checks: extractString NUL handling, Buffer.from / Buffer.write / Buffer.toString round-trips for utf8 / latin1 / binary across all 256 byte values, JSON NUL round-trip, JSC source NUL handling |
 
-Backend test scores: **QuickJS 146/146**, **JSC 145/145 + 1 SKIP** (`bun_v7_additions` — io_uring fd-accumulation pending), **V8 146/146** — **0 failures** across all 3 backends.
+Backend test scores: **QuickJS 148/148**, **JSC 147/147 + 1 SKIP** (`bun_v7_additions` — root-traced to per-fetch JS bytecode compile leak in `fetch.d`'s `makeResponse`; v1.1.7 cached the Response builder + headers flattener and lifted the threshold from 9-10 → 13-14 servers with v7 extras enabled; residual leak in the per-request listener chain), **V8 148/148** — **0 failures** across all 3 backends.
 
 Test pattern: fixtures in `tests/integration/fixtures/*.{js,mjs,ts}`, expected stdout in `tests/integration/expected/*.txt`.
 
@@ -95,7 +98,7 @@ dub build -c quickjs -b asan                          # ASan build via DUB
 ASAN_OPTIONS=detect_leaks=0 bash tests/integration/run.sh  # Run with ASan
 ```
 
-All 146 integration tests pass under AddressSanitizer with zero memory errors (QJS).
+All 148 integration tests pass under AddressSanitizer with zero memory errors (QJS).
 
 ### Stress Benchmarks
 
@@ -138,7 +141,7 @@ Framework benchmarks (framework_bench.js, 39 tests, release builds, ops/sec):
 | DunJS V8 | 189M | 0.68x |
 | DunJS QuickJS | 20M | 0.07x |
 
-npm compat test (npm_compat_test.js, 145 assertions): **All 6 runtimes: 146/146 pass**
+npm compat test (npm_compat_test.js, 145 assertions): **All 6 runtimes: 145/145 pass**
 
 HTTP benchmarks (wrk, 2 threads, 128 connections, 5s per endpoint, release builds):
 

@@ -425,13 +425,17 @@ Key shim patterns:
 ## Testing
 
 See [TESTING.md](TESTING.md) — unit tests (118 quickjs+v8 / 47 jsc),
-integration sweep (146/146 on QJS / V8, 145/145 + 1 SKIP on JSC), 145 npm-compat checks,
-98/98 ECMAScript spec, 35/35 TypeScript spec, 81/81 react-compat,
-231/231 safe-features, 45/45 security audit, 12/12 ts_parity vs
-`tsc`, 12/12 deno_deploy_compat vs Deno 2.7, 13/13
-bun_bundler_compat vs Bun 1.3, **38/38 v0.6.0 web API audit**,
-**25/26 Bun.* audit**, sanitizer testing, stress benchmarks,
-HTTP bench, Docker matrix. The quick recipe:
+integration sweep (**148/148** on QJS / V8, **147/147 + 1 SKIP** on JSC),
+145 npm-compat checks, 98/98 ECMAScript spec, 35/35 TypeScript spec,
+81/81 react-compat, 231/231 safe-features, 45/45 security audit,
+12/12 ts_parity vs `tsc`, 12/12 deno_deploy_compat vs Deno 2.7,
+13/13 bun_bundler_compat vs Bun 1.3, **38/38 v0.6.0 web API audit**,
+**25/26 Bun.* audit**, **25/25 `audit_simd` (SIMD encoder boundary
++ latin1 + NUL)**, **16/16 `audit_roundtrip` (Buffer.from/write/
+toString across all 256 byte values + JSON NUL + JSC source NUL)**,
+**5/5 `cve_path_traversal` (CVE-2023-32004 class)**, sanitizer
+testing, stress benchmarks, HTTP bench, Docker matrix. The quick
+recipe:
 
 ```sh
 dub test -c unittest                   # unit tests
@@ -446,11 +450,14 @@ BACKEND=v8  DUN=./dun-v8  bash tests/integration/run.sh
 - **CLI flags**: `--allow-read`, `--allow-write`, `--allow-net`, `--allow-env`, `--allow-run`, `--allow-all`
 - **Scoped**: `--allow-read=./data,/tmp` grants read only to those paths
 - **Deny overrides allow**: `--deny-write=/etc` always wins
-- **Path canonicalization**: Resolve symlinks before permission checks
+- **Path canonicalization** (v1.1.0+): Both the resource path AND the scope patterns are canonicalized via `dun.platform.paths.canonicalizePath` (`buildNormalizedPath(absolutePath(...))`) BEFORE the `isSubpathOf` scope check. Closes the same class as Node CVE-2023-32004 / CVE-2024-21896 — without this, `/tmp/safe/../../etc/hostname` would match a `--allow-read=/tmp/safe` scope via raw `startsWith`. Tested by `tests/integration/fixtures/cve_path_traversal.js` (5/5 across all 3 backends)
 - **Memory limits**: Engine-level heap cap (default 256MB)
 - **Execution timeout**: Engine interrupt handler for infinite loop protection
-- **38 unit tests**: Default deny, global grant, --allow-all, scoped grants, deny-overrides-allow, parseFlag, CVE semver, vulnerability checks
+- **NUL-safe string handling (v1.1.3+)**: JSC's `JSStringCreateWithUTF8CString` truncates at the first NUL byte. `dun.engine.jsc.backend.createJSStringFromD` detects NUL via SIMD `findByte` and falls back to length-explicit `JSStringCreateWithCharacters`. Used by both `newString` and `eval(source)` so `.ts` source code or `Buffer.toString` output containing `\0` doesn't get silently chopped
+- **Latin-1 high-byte preservation (v1.1.3 / v1.1.4)**: `Buffer.toString('latin1')` and `Buffer.from(str, 'latin1')` / `Buffer.write(str, ..., 'latin1')` correctly round-trip bytes 0x80-0xFF via `dun.platform.simd.latin1ToUtf8Buf` / `utf8ToLatin1Buf`. Tested by `audit_roundtrip.js` (all 256 byte values)
 - **CVE audit**: OSV API (osv.dev) with local cache (24h TTL), `dun audit` scans node_modules, `--audit=block` blocks critical/high
+- **45+ security tests**: Default deny, global grant, --allow-all, scoped grants, deny-overrides-allow, parseFlag, CVE semver, vulnerability checks, path-traversal canonicalization, NUL-safe round-trip
+- **`/security-review` skill** runs a security-focused audit of the pending changes on the current branch (covers OWASP top-10 applicable to this codebase: command injection, path traversal, XSS in HTML output, SQL injection via sqlite, prototype pollution, ReDoS, supply-chain via npm CVE audit)
 
 ## Code Style
 
@@ -461,9 +468,10 @@ BACKEND=v8  DUN=./dun-v8  bash tests/integration/run.sh
 - **`@safe` first, `@system` when needed, `@trusted` only as last resort**: `@trusted` bypasses compiler safety checks entirely -- it is *more dangerous* than `@system` because it silently trusts the programmer. Use `@safe` for all pure logic. Use `@system` for raw OS/FFI calls (compiler still flags unsafe operations). Only use `@trusted` at the *narrowest possible scope* when bridging `@safe` code to a verified-safe `@system` operation -- never on entire functions unless unavoidable (e.g., `extern(C)` callbacks that call `@system` internally). Audit every `@trusted` annotation: if the function can be made `@safe` or split into `@safe` + `@system` parts, do that instead
 - Every `extern(C)` callback must be `nothrow`
 - Named constants for limits: `DEFAULT_MEMORY_LIMIT`, `DEFAULT_MAX_STACK`, `TEST_MEMORY_LIMIT`, `TEST_MAX_STACK`
-- **Avoid magic numbers**: Use named `enum` constants for buffer sizes, protocol constants, reserve capacities, and bit patterns. Use `dun.platform.arena` for all allocation utilities (`Appender`, `BumpRegion`, `makeAppender`)
-- **Avoid redundancies**: Use `dun.platform.arena` instead of `import std.array : Appender` directly. Prefer `*To(ref Appender)` helper patterns to eliminate intermediate allocations. Remove duplicate local imports when already imported at module level
-- **MUST add `assert`/`static assert` in all new features** -- TIGER_STYLE: assert preconditions at every `@trusted` boundary, every `extern(C)` callback, every FFI entry point
+- **Avoid magic numbers**: Use named `enum` constants for buffer sizes, protocol constants, reserve capacities, and bit patterns. Centralize cross-module constants in `source/dun/declarations.d` (UTF-8 / Unicode / NAPI / RTLD lookup tables live there as of v1.1.3). Use `dun.platform.arena` for all allocation utilities (`Appender`, `BumpRegion`, `StackFallback!N`, `makeAppender`)
+- **Avoid redundancies**: Use `dun.platform.arena` instead of `import std.array : Appender` directly. Prefer `*To(ref Appender)` helper patterns to eliminate intermediate allocations. Remove duplicate local imports when already imported at module level. When the same constants live in two modules (e.g., UTF-8 decoder in `simd.d` and JSC backend's `newString`), hoist them to `declarations.d` — historically that's where "fixed UTF-8 here but not there" bugs come from
+- **Doc-comments are human-concise**: Default to one line. Multi-line `///` only when the WHY is non-obvious (a hidden constraint, a CVE-class workaround, a subtle invariant). Never echo what well-named identifiers already convey. Never reference the current task/PR ("added for #123") — those belong in commit messages and rot fast. Reading a doc-comment should answer a question the code itself doesn't, in the smallest number of words
+- **MUST add `assert`/`static assert` in all new features** -- TIGER_STYLE: assert preconditions at every `@trusted` boundary, every `extern(C)` callback, every FFI entry point. `static assert(N > 0)` on size-parameterized templates. `static assert(__traits(allMembers, EnumT).length == K, "enum drift")` on every enum that gets parsed externally (CLI flags, type tags)
 - **MUST always build and test ALL backends (quickjs, jsc, v8) before committing any changes**:
   ```sh
   dub build -c quickjs && dub build -c jsc && dub build -c v8
@@ -473,6 +481,9 @@ BACKEND=v8  DUN=./dun-v8  bash tests/integration/run.sh
   BACKEND=v8  bash tests/integration/run.sh              # V8
   ```
 - Never ship code that only compiles or passes on one backend
+- **DIP1000 (`return scope`)**: Engine APIs returning slices into engine-owned memory carry `return scope` on the *virtual method* AND every backend override. The compiler refuses callers leaking the slice past the source JSHandle's lifetime without `.dup`. Annotated so far: `IJSEngine.getTypedArrayBytes`, `dun.builtins.buffer.extractBytes`. When adding a new slice-returning method, propagate the annotation to every backend
+- **DIP1038 (`@mustuse`)**: Use on struct returns that must never be silently dropped. Currently `JSResult` (every `engine.eval(...)` caller must check `isError` or hand the value to a consumer) and `AsyncResult` (every `asyncSubmitSafe` work delegate must build a result via `AsyncResult.ok(...)` / `.fail(...)`). The compile-time error catches the bug class where an eval failure gets swallowed and the symptom surfaces seconds later as `Worker is undefined`. For inline JS init code where a parse failure is a build-time bug, use `mustEval(engine, src, name, what)` (asserts, frees value, drops cleanly)
+- **CVE-class fixes are documented in code with the CVE reference** (e.g., `Permission.check` cites CVE-2023-32004; `newString` cites the NUL-truncation root cause). When fixing a class of bug, write the comment so the next investigator skips the misleading trail this one chased
 
 ## FFI Bridge: D <-> Engine Memory Rules
 
