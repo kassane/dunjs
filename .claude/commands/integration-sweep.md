@@ -48,9 +48,9 @@ parallel-ish test layout (port reuse + node_modules state).
 4. **Print summary table:**
    ```
    Backend  PASS  SKIP  REAL_FAIL  FLAKES
-   QJS      107   1     0          (npm_packages_e2e)
-   JSC      103   3     0          (npm_packages_e2e, npm_real_packages, production_gaps4)
-   V8       104   2     1          npm_deep_compat
+   QJS      148   0     0          (npm_packages_e2e)
+   JSC      147   1     0          (deno_deploy_compat under sweep heap-load, npm_packages_e2e)
+   V8       148   0     0          (npm_packages_e2e)
    ```
 
 ## Known persistent failures (session baseline)
@@ -59,8 +59,27 @@ parallel-ish test layout (port reuse + node_modules state).
   express 4. Not a runtime bug — `dun install express@4` makes it pass.
 - **`express_e2e` / `npm_packages_e2e` / `npm_real_packages`**: flaky in suite
   (port/state contention), always pass standalone.
+- **JSC `bun_v7_additions`**: gated SKIP (`.backends` sidecar). v1.1.7 cached
+  the per-fetch Response builder + headers flattener, lifting the threshold
+  from 9-10 → 13-14 servers with v7 extras enabled. Residual per-request
+  listener-chain leak still tips `deno_deploy_compat` (15 servers) over
+  threshold ~33% of the time under sweep heap-load. Standalone: 3/3 PASS.
+- **JSC `deno_deploy_compat` under sweep heap-load**: flakes when run after
+  the full preceding test corpus has loaded JSC's heap. Standalone-reruns
+  pass 3/3. Same root as the bun_v7 SKIP (per-request listener accumulation).
 - **JSC `production_gaps4`**: occasional stderr-vs-stdout flake on
   `DeprecationWarning: deprecated`.
+
+## CVE-class fixtures (always must PASS)
+
+- **`cve_path_traversal`** — CVE-2023-32004 class regression check.
+- **`audit_simd`** — SIMD encoder boundary cases (15/16/17 bytes,
+  GCM 16-byte tag) + Latin-1 high-byte preservation + hex round-trip.
+- **`audit_roundtrip`** — Buffer.from / Buffer.write / Buffer.toString
+  across all 256 byte values + JSON NUL round-trip + JSC source NUL.
+
+If any of these three FAIL, treat it as a security regression — do NOT
+mark as a flake, investigate immediately.
 
 ## Skip the flake check (when you want raw run.sh output)
 

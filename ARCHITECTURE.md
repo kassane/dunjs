@@ -6,7 +6,7 @@ DunJS is a 7-layer JavaScript/TypeScript runtime with a **pluggable engine archi
 (IJSEngine interface), a cross-platform I/O poller (epoll/kqueue/poll), and a Deno-inspired permission system.
 
 Three backends are fully functional: QuickJS-NG (default), JavaScriptCore, and V8.
-All 146 integration tests pass on QuickJS / V8 (145/145 + 1 SKIP on JSC; full parity across all 3 backends for the shared 145).
+All 148 integration tests pass on QuickJS / V8 (147/147 + 1 SKIP on JSC; full parity across all 3 backends for the shared 147).
 All built-in modules (see CLAUDE.md for the canonical list — 30+ including fs, path,
 crypto, net, http, http2, http3, buffer, events, url, os, fetch, child_process, stream,
 zlib, dns, ws, sqlite, util, assert, querystring, string_decoder, timers/promises, vm,
@@ -505,7 +505,7 @@ tests, release builds, ops/sec — median of 3 runs):
 | Deno 2.7.14 | 154M | 0.45x |
 | DunJS QuickJS | 17M | 0.05x |
 
-npm compat: **146/146** pass across all 6 runtimes.
+npm compat: **146/146** pass across all 6 runtimes (test count unchanged; full parity).
 
 ## Design Decisions
 
@@ -606,4 +606,4 @@ tests/benchmarks/http_bench/
 HTTP server optimizations: TCP_NODELAY, buffered single-write response, CTFE pre-computed
 status lines, connection slot pooling, fd→connId hashmap (O(1) lookup), JS-level dispatch
 for reduced FFI overhead, lazy header loading, MSG_NOSIGNAL, EOF detection with RAII cleanup.
-**QuickJS 146/146, JSC 145/145 + 1 SKIP, V8 146/146** (full parity on the shared 145; v7 Bun.* additions deferred on JSC).
+**QuickJS 148/148, JSC 147/147 + 1 SKIP, V8 148/148** (full parity on the shared 147; v7 Bun.* additions partially fixed in v1.1.7 — Response builder cached, threshold 9-10 → 13-14 with v7 enabled, gate kept for deno_deploy_compat headroom).

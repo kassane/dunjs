@@ -69,7 +69,7 @@ executing the operation. JavaScript code cannot bypass these checks.
 4. **Path canonicalization** -- Symlinks resolved and paths normalized before checking
 5. **No ambient authority** -- Child contexts inherit parent permissions, cannot escalate
 
-### Unit Tests (27 tests)
+### Unit Tests (38+ tests + 5/5 CVE fixture)
 
 The `PermissionRegistry` is tested in `source/dun/security/test.d`:
 - Default deny for all permission types
@@ -79,6 +79,24 @@ The `PermissionRegistry` is tested in `source/dun/security/test.d`:
 - Deny overrides allow (scoped deny wins over global grant)
 - `parseFlag` for all CLI flag formats
 - Edge cases (empty scopes, overlapping paths)
+- Path canonicalization (CVE-2023-32004 class) — `tests/integration/fixtures/cve_path_traversal.js`
+
+## Fixed Vulnerabilities
+
+CVE-class fixes shipped with reference to the Node / Deno advisory that
+inspired the audit. Each is regression-tested by a permanent fixture.
+
+| Version | Class | Description | Test |
+|---------|-------|-------------|------|
+| v1.1.0 | Path-traversal permission bypass (CVE-2023-32004 / CVE-2024-21896 class) | `Permission.check` was comparing the raw user-supplied path against the scope via `startsWith`, so `/tmp/safe/../../etc/hostname` matched a `--allow-read=/tmp/safe` scope (literal prefix match) but the OS opened `/etc/hostname`. Fix: canonicalize the resource via `dun.platform.paths.canonicalizePath` (`buildNormalizedPath(absolutePath(...))`) BEFORE `isSubpathOf`. Also canonicalize the scope patterns at parse time | `cve_path_traversal.js` (5/5) |
+| v1.1.3 | Latin-1 high-byte truncation (correctness) | `Buffer.toString('latin1')` cast each byte directly to `char` and handed it to `engine.newString` (UTF-8). Bytes 0x80-0xFF are invalid as 1-byte UTF-8, so the engine silently dropped them. Fix: `dun.platform.simd.latin1ToUtf8Buf` encodes each high byte as a 2-byte UTF-8 sequence (`0xC2 0x80` .. `0xC3 0xBF`) | `audit_simd.js` (25/25) |
+| v1.1.3 | JSC `newString` NUL truncation | `JSStringCreateWithUTF8CString` is NUL-terminated — strings containing 0x00 got cut at the first NUL. Fix: NUL detection via SIMD `findByte`, fallback to length-explicit `JSStringCreateWithCharacters` with full UTF-8 → UTF-16 surrogate handling. Factored as `createJSStringFromD` (private helper used by `newString` + `eval`) | `audit_roundtrip.js` (16/16) |
+| v1.1.4 | `Buffer.write(str, ..., 'latin1')` ignored encoding | The implementation only sniffed `args[1]` as a numeric offset and treated the JS string's UTF-8 bytes as a Latin-1 byte sequence — so `buf.write("\x80", 0, 1, "latin1")` wrote `0xC2` (UTF-8 lead byte) instead of `0x80`. Fix: proper Node-style argument parsing + `utf8ToLatin1Buf` for latin1 decoding | `audit_roundtrip.js` (16/16) |
+| v1.1.4 | JSC `eval(source)` NUL truncation | Same root cause as `newString` (UTF8CString constructor). Source code containing literal `\0` was silently chopped, producing `Uncaught SyntaxError: Unexpected EOF`. Fix: route through the same `createJSStringFromD` helper | covered by audit_roundtrip |
+
+When fixing a CVE class, the inline code comment must cite the
+specific upstream advisory + the symptom the next investigator would
+see if they tried to remove the fix.
 
 ## npm Package Auditing (CVE)
 
@@ -202,9 +220,33 @@ Please report security vulnerabilities **privately** via one of these channels:
 **Do not** open public issues for security bugs. We will acknowledge reports
 within 48 hours and aim to release patches within 7 days for critical issues.
 
+## Security Review Workflow
+
+The `/security-review` skill (Claude Code) runs an audit of the pending
+changes on the current branch. It checks for the OWASP top-10 classes
+applicable to this codebase:
+
+- **Command injection** — `child_process.exec*` / `spawn` arguments
+- **Path traversal** — file ops via `fs.*` (canonicalization gate
+  in `Permission.check` is the line of defense)
+- **XSS** — HTML output via `Response`, template strings injected
+  into headers
+- **SQL injection** — `sqlite3` bindings (parameterized queries
+  enforced)
+- **Prototype pollution** — `Object.assign` / spread on untrusted
+  input
+- **ReDoS** — regex literals on user input (lexer + linter flag
+  catastrophic patterns)
+- **Supply chain** — `dun install` checks each package against OSV
+  before download in `--audit=block` mode
+
+Run before opening a PR that touches `source/dun/security/`,
+`source/dun/builtins/fs.d` / `net.d` / `http*.d` / `child_process.d`,
+or any new `IJSEngine` callback that takes user input.
+
 ## Supported Versions
 
 | Version | Supported |
 |---------|-----------|
 | 0.x.x | Development -- best effort |
-| 1.x.x | (future) Full security support |
+| 1.x.x | Active security support — CVE-class fixes backported |
