@@ -3,6 +3,7 @@ module dun.builtins.http;
 import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
 import dun.runtime.globals : DunState;
 import dun.loop.agnostic_pending : pushAgnosticPending;
+import dun.declarations : DEFAULT_LISTEN_BACKLOG;
 
 version (Posix) { private import ssl = dun.platform.openssl; }
 
@@ -11,10 +12,10 @@ version (linux)
     private extern (C) int accept4(int, void*, void*, int) nothrow @nogc;
 }
 
+private alias HTTP_LISTEN_BACKLOG = DEFAULT_LISTEN_BACKLOG;
 private enum {
     HTTP_STATUS_OK    = 200,
     HTTP_DEFAULT_PORT = 80,
-    HTTP_LISTEN_BACKLOG = 1024,
     HTTP_MAX_HEADER_NAME = 128,
     HTTP_MAX_HEADER_SIZE = 16_384,
     IO_POLL_BATCH_SIZE = 256,

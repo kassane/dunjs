@@ -25,6 +25,14 @@ class V8Engine : IJSEngine
             dun_v8_set_memory_limit(isolate, config.memoryLimit);
         if (config.maxStackSize > 0)
             dun_v8_set_stack_limit(isolate, config.maxStackSize);
+
+        // Eagerly populate the type-check dispatch table so every
+        // hot-path isXxx() call skips the lazy-init branch.
+        if (!_typeChecksReady)
+        {
+            _typeChecks = V8TypeChecks.init();
+            _typeChecksReady = true;
+        }
     }
 
     void shutdown() @trusted
@@ -223,6 +231,17 @@ class V8Engine : IJSEngine
         return toHandle(v);
     }
 
+    JSHandle newUint8ArrayZeroedWithProto(size_t size, JSHandle proto) @trusted
+    {
+        assert(ctx !is null, "V8 context not initialized");
+        // 1 FFI call: ArrayBuffer::New(size) + Uint8Array::New + SetPrototype
+        // inside a single withContext entry. Eliminates the per-call
+        // scope/handle-scope overhead of the previous 2-step pattern.
+        auto v = dun_v8_new_uint8array_with_proto(ctx, null, size,
+            fromHandle(proto), 1);
+        return toHandle(v);
+    }
+
     JSHandle newBufferFromUtf8String(JSHandle jsStr, JSHandle proto) @trusted
     {
         assert(ctx !is null, "V8 context not initialized");
@@ -322,11 +341,8 @@ class V8Engine : IJSEngine
 
     private bool checkType(V8TypeTag tag, JSHandle val) @trusted
     {
-        if (!_typeChecksReady)
-        {
-            _typeChecks = V8TypeChecks.init();
-            _typeChecksReady = true;
-        }
+        // Table is eagerly populated in initialize() — see comment there.
+        assert(_typeChecksReady, "V8 type checks not initialized (initialize() not called?)");
         return _typeChecks.check(tag, fromHandle(val));
     }
 

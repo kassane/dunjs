@@ -22,6 +22,14 @@ class JSCEngine : IJSEngine
         assert(group !is null, "Failed to create JSContextGroup");
         ctx = JSGlobalContextCreateInGroup(group, null);
         assert(ctx !is null, "Failed to create JSGlobalContext");
+
+        // Eagerly populate the type-check dispatch table so every
+        // hot-path isXxx() call skips the lazy-init branch.
+        if (!_typeChecksReady)
+        {
+            _typeChecks = JSCTypeChecks.create();
+            _typeChecksReady = true;
+        }
     }
 
     void shutdown() @trusted
@@ -415,6 +423,13 @@ class JSCEngine : IJSEngine
         return u8;
     }
 
+    JSHandle newUint8ArrayZeroedWithProto(size_t size, JSHandle proto) @trusted
+    {
+        auto u8 = newUint8ArrayZeroed(size);
+        setPrototype(u8, proto);
+        return u8;
+    }
+
     JSHandle newBufferFromUtf8String(JSHandle jsStr, JSHandle proto) @trusted
     {
         auto s = extractString(jsStr);
@@ -545,11 +560,8 @@ class JSCEngine : IJSEngine
     private bool checkType(JSCTypeTag tag, JSHandle val) @trusted
     {
         assert(ctx !is null, "JSC context not initialized");
-        if (!_typeChecksReady)
-        {
-            _typeChecks = JSCTypeChecks.create();
-            _typeChecksReady = true;
-        }
+        // Table is eagerly populated in initialize() — see comment there.
+        assert(_typeChecksReady, "JSC type checks not initialized (initialize() not called?)");
         return _typeChecks.check(tag, ctx, cast(JSValueRef) fromHandle(val));
     }
 

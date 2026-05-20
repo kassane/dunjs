@@ -13,7 +13,18 @@ napi_value allocValue(JSHandle h) nothrow @trusted
     assert(gValuePoolUsed >= 0 && gValuePoolUsed <= MAX_NAPI_VALUES,
         "NAPI value pool index out of bounds");
     if (gValuePoolUsed >= MAX_NAPI_VALUES)
+    {
         gValuePoolUsed = 0;
+        // We could freeValue the previous occupants of slot 0..MAX-1
+        // here to release protect counters on JSC, but JSHandle is
+        // backend-shaped (QJS: 16-byte JSValue tagged union; JSC: ptr
+        // + protect counter side-table; V8: ref to v8::Global<>), and
+        // "is this slot live or zero-initialized" can't be answered
+        // uniformly. The historical ring-wrap behavior matches Node's
+        // handle-scope semantics where napi_value lifetime is tied to
+        // the enclosing scope; long-running addons should call
+        // napi_close_handle_scope to drop references explicitly.
+    }
     gValuePool[gValuePoolUsed].handle = h;
     auto result = &gValuePool[gValuePoolUsed];
     gValuePoolUsed++;

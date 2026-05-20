@@ -6,13 +6,22 @@ import dun.security.permissions : Permission;
 
 private enum : size_t {
     READLINK_BUF_SIZE = 4096,
+    PATH_BUF_SIZE     = 4096,  // POSIX PATH_MAX on Linux; safe upper bound elsewhere
     MAX_READ_LENGTH   = 64 * 1024 * 1024,
 }
 
-private enum {
-    FILE_MODE_0644 = 0x1A4,
-    S_IFREG_0644   = 0x81A4,
-}
+// Default poll interval (ms) for fs.watchFile when caller omits the
+// `interval` option. Matches Node's documented 5007ms default.
+private enum DEFAULT_WATCHFILE_INTERVAL_MS = 5007;
+// Default poll interval (ms) for fs.watch (no inotify path on portable
+// runtimes; falls back to polling every second).
+private enum DEFAULT_WATCH_POLL_INTERVAL_MS = 1000;
+
+// File mode constants — re-exported from dun.declarations for
+// clarity inside fs.d (the local names match the historical usage).
+import dun.declarations : FILE_MODE_DEFAULT_FILE, S_IFREG_DEFAULT_FILE;
+private alias FILE_MODE_0644 = FILE_MODE_DEFAULT_FILE;
+private alias S_IFREG_0644 = S_IFREG_DEFAULT_FILE;
 
 // ── Cross-platform compatibility layer ──────────────────────────
 
@@ -341,6 +350,18 @@ __gshared bool _statFnsCached = false;
 __gshared JSHandle _cachedDateFactoryFn;
 __gshared bool _dateFactoryCached = false;
 
+// Cached stream method handles. Built once at registerFsModule;
+// reused across every createReadStream / createWriteStream / watch
+// call via `bindMethod` (no new JSValueProtect slot allocated per
+// stream object on JSC). Previously: 6 newFunction per readStream,
+// 6 per writeStream, 3 per watcher — leaked one protect counter per
+// method per call on JSC.
+__gshared JSHandle _fsStreamOn, _fsReadStreamPipe, _fsReadStreamDestroy;
+__gshared JSHandle _fsReadStreamRead, _fsReadStreamResume;
+__gshared JSHandle _fsWriteStreamWrite, _fsWriteStreamEnd, _fsWriteStreamDestroy;
+__gshared JSHandle _fsWatcherClose, _fsWatcherOn, _fsWatcherRef;
+__gshared bool _fsStreamFnsCached = false;
+
 void ensureStatFnsCached(IJSEngine engine) @trusted
 {
     if (!_statFnsCached)
@@ -349,6 +370,25 @@ void ensureStatFnsCached(IJSEngine engine) @trusted
         _cachedIsDirFn = engine.newFunction(&jsStatIsDirectory, "isDirectory", 0);
         _cachedIsSymlinkFn = engine.newFunction(&jsStatIsSymbolicLink, "isSymbolicLink", 0);
         _statFnsCached = true;
+    }
+}
+
+private void ensureFsStreamFnsCached(IJSEngine engine) @trusted
+{
+    if (!_fsStreamFnsCached)
+    {
+        _fsStreamOn          = engine.newFunction(&jsStreamOn, "on", 2);
+        _fsReadStreamPipe    = engine.newFunction(&jsReadStreamPipe, "pipe", 1);
+        _fsReadStreamDestroy = engine.newFunction(&jsReadStreamDestroy, "destroy", 0);
+        _fsReadStreamRead    = engine.newFunction(&jsReadStreamRead, "read", 0);
+        _fsReadStreamResume  = engine.newFunction(&jsReadStreamResume, "resume", 0);
+        _fsWriteStreamWrite  = engine.newFunction(&jsWriteStreamWrite, "write", 1);
+        _fsWriteStreamEnd    = engine.newFunction(&jsWriteStreamEnd, "end", 0);
+        _fsWriteStreamDestroy = engine.newFunction(&jsStreamDestroy, "destroy", 0);
+        _fsWatcherClose      = engine.newFunction(&jsWatcherClose, "close", 0);
+        _fsWatcherOn         = engine.newFunction(&jsWatcherOn, "on", 2);
+        _fsWatcherRef        = engine.newFunction(&jsWatcherRef, "ref", 0);
+        _fsStreamFnsCached = true;
     }
 }
 
@@ -1839,7 +1879,7 @@ JSHandle jsCreateReadStream(void* ctx, JSHandle thisVal, scope JSHandle[] args) 
         import core.stdc.errno : errno;
 
         // Null-terminate path for POSIX open()
-        char[4096] pathBuf = void;
+        char[PATH_BUF_SIZE] pathBuf = void;
         if (path.length >= pathBuf.length)
             return engine.throwTypeError("Path too long");
         pathBuf[0 .. path.length] = path[];
@@ -1871,12 +1911,13 @@ JSHandle jsCreateReadStream(void* ctx, JSHandle thisVal, scope JSHandle[] args) 
         engine.setProperty(stream, "_ended", engine.newBool(false));
         engine.setProperty(stream, "readable", engine.newBool(true));
         engine.setProperty(stream, "path", engine.newString(path));
-        engine.setProperty(stream, "on", engine.newFunction(&jsStreamOn, "on", 2));
-        engine.setProperty(stream, "once", engine.newFunction(&jsStreamOn, "once", 2));
-        engine.setProperty(stream, "pipe", engine.newFunction(&jsReadStreamPipe, "pipe", 1));
-        engine.setProperty(stream, "destroy", engine.newFunction(&jsReadStreamDestroy, "destroy", 0));
-        engine.setProperty(stream, "read", engine.newFunction(&jsReadStreamRead, "read", 0));
-        engine.setProperty(stream, "resume", engine.newFunction(&jsReadStreamResume, "resume", 0));
+        ensureFsStreamFnsCached(engine);
+        engine.bindMethod(stream, "on", _fsStreamOn);
+        engine.bindMethod(stream, "once", _fsStreamOn);
+        engine.bindMethod(stream, "pipe", _fsReadStreamPipe);
+        engine.bindMethod(stream, "destroy", _fsReadStreamDestroy);
+        engine.bindMethod(stream, "read", _fsReadStreamRead);
+        engine.bindMethod(stream, "resume", _fsReadStreamResume);
 
         return stream;
     }
@@ -1907,12 +1948,13 @@ JSHandle jsCreateWriteStream(void* ctx, JSHandle thisVal, scope JSHandle[] args)
     engine.setProperty(stream, "writable", engine.newBool(true));
     engine.setProperty(stream, "path", engine.newString(path));
     engine.setProperty(stream, "bytesWritten", engine.newInt(0));
-    engine.setProperty(stream, "on", engine.newFunction(&jsStreamOn, "on", 2));
-    engine.setProperty(stream, "once", engine.newFunction(&jsStreamOn, "once", 2));
-    engine.setProperty(stream, "write", engine.newFunction(&jsWriteStreamWrite, "write", 1));
-    engine.setProperty(stream, "end", engine.newFunction(&jsWriteStreamEnd, "end", 0));
-    engine.setProperty(stream, "destroy", engine.newFunction(&jsStreamDestroy, "destroy", 0));
-    engine.setProperty(stream, "close", engine.newFunction(&jsStreamDestroy, "close", 0));
+    ensureFsStreamFnsCached(engine);
+    engine.bindMethod(stream, "on", _fsStreamOn);
+    engine.bindMethod(stream, "once", _fsStreamOn);
+    engine.bindMethod(stream, "write", _fsWriteStreamWrite);
+    engine.bindMethod(stream, "end", _fsWriteStreamEnd);
+    engine.bindMethod(stream, "destroy", _fsWriteStreamDestroy);
+    engine.bindMethod(stream, "close", _fsWriteStreamDestroy);
     return stream;
 }
 
@@ -2049,14 +2091,14 @@ JSHandle jsReadStreamPipe(void* ctx, JSHandle thisVal, scope JSHandle[] args) @t
     {
         auto writeFn = engine.getProperty(args[0], "write");
         if (engine.isFunction(writeFn))
-            engine.callFunction(writeFn, args[0], [data]);
+            engine.freeValue(engine.callFunction(writeFn, args[0], [data]));
         engine.freeValue(writeFn);
     }
     engine.freeValue(data);
 
     auto endFn = engine.getProperty(args[0], "end");
     if (engine.isFunction(endFn))
-        engine.callFunction(endFn, args[0], []);
+        engine.freeValue(engine.callFunction(endFn, args[0], []));
     engine.freeValue(endFn);
     return engine.dupValue(args[0]);
 }
@@ -2154,7 +2196,7 @@ JSHandle jsWriteStreamEnd(void* ctx, JSHandle thisVal, scope JSHandle[] args) @t
             ~ "});})", "<ws:emit>"
         );
         if (!emitFn.isError)
-            engine.callFunction(emitFn.value, engine.newUndefined(), [streamRef]);
+            engine.freeValue(engine.callFunction(emitFn.value, engine.newUndefined(), [streamRef]));
         engine.freeValue(emitFn.value);
         engine.freeValue(streamRef);
     }
@@ -2181,7 +2223,7 @@ JSHandle jsWatch(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
     //   watch(filename, options, listener)
     //   watch(filename, options)
     //   watch(filename)
-    int pollInterval = 1000;
+    int pollInterval = DEFAULT_WATCH_POLL_INTERVAL_MS;
     bool hasListener = false;
     JSHandle listenerFn;
 
@@ -2220,9 +2262,13 @@ JSHandle jsWatch(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
     engine.setProperty(watcher, "filename", engine.newString(filename));
     engine.setProperty(watcher, "_closed", engine.newBool(false));
     engine.setProperty(watcher, "_listeners", engine.newObject());
-    engine.setProperty(watcher, "close", engine.newFunction(&jsWatcherClose, "close", 0));
-    engine.setProperty(watcher, "on", engine.newFunction(&jsWatcherOn, "on", 2));
-    engine.setProperty(watcher, "ref", engine.newFunction(&jsWatcherRef, "ref", 0));
+    ensureFsStreamFnsCached(engine);
+    engine.bindMethod(watcher, "close", _fsWatcherClose);
+    engine.bindMethod(watcher, "on", _fsWatcherOn);
+    engine.bindMethod(watcher, "ref", _fsWatcherRef);
+    // `unref` is rarely used; the per-call newFunction is left in place
+    // for simplicity since fs.watch is not a hot path for unref(). If a
+    // future benchmark shows otherwise, cache `_fsWatcherUnref` too.
     engine.setProperty(watcher, "unref", engine.newFunction(&jsWatcherUnref, "unref", 0));
 
     // If listener provided, register as 'change' listener
@@ -2265,7 +2311,7 @@ JSHandle jsWatch(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
     if (!evalRes.isError)
     {
         auto global = engine.getGlobal();
-        engine.callFunction(evalRes.value, global, [watcher]);
+        engine.freeValue(engine.callFunction(evalRes.value, global, [watcher]));
         engine.freeValue(global);
     }
     engine.freeValue(evalRes.value);
@@ -2343,7 +2389,7 @@ JSHandle jsWatcherPoll(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trus
             auto evtArg = engine.newString(eventType);
             auto fnArg = engine.newString(filename);
             auto global = engine.getGlobal();
-            engine.callFunction(changeCb, global, [evtArg, fnArg]);
+            engine.freeValue(engine.callFunction(changeCb, global, [evtArg, fnArg]));
             engine.freeValue(global);
             engine.freeValue(evtArg);
             engine.freeValue(fnArg);
@@ -2369,7 +2415,7 @@ JSHandle jsWatcherClose(void* ctx, JSHandle thisVal, scope JSHandle[] args) @tru
     if (!evalRes.isError)
     {
         auto global = engine.getGlobal();
-        engine.callFunction(evalRes.value, global, [thisVal]);
+        engine.freeValue(engine.callFunction(evalRes.value, global, [thisVal]));
         engine.freeValue(global);
     }
     engine.freeValue(evalRes.value);

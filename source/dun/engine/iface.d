@@ -96,6 +96,12 @@ interface IJSEngine
     /// null when `zeroed` and `len > 0` (Buffer.alloc semantics).
     JSHandle newBufferWithProto(scope const(ubyte)[] data, JSHandle proto, bool zeroed);
 
+    /// Fused `new Uint8Array(size) + setPrototypeOf(_, proto)` for
+    /// `Buffer.alloc(size)` — V8 collapses to one Isolate/Context-Scope
+    /// entry; QuickJS/JSC fall back to the 2-step path. Returns a
+    /// zeroed buffer of `size` bytes with `proto` installed.
+    JSHandle newUint8ArrayZeroedWithProto(size_t size, JSHandle proto);
+
     /// Fused `Buffer.from(jsString, "utf8")` — V8 writes UTF-8 directly;
     /// QuickJS/JSC fall back to the two-step path.
     JSHandle newBufferFromUtf8String(JSHandle jsStr, JSHandle proto);

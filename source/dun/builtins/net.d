@@ -3,12 +3,13 @@ module dun.builtins.net;
 import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
 import dun.runtime.globals : DunState;
 import dun.loop.agnostic_pending : pushAgnosticPending;
+import dun.declarations : DEFAULT_LISTEN_BACKLOG;
 
 private enum : size_t {
     SOCKET_READ_BUF_SIZE = 4096,
-    LISTEN_BACKLOG       = 1024,
     IO_POLL_BATCH_SIZE   = 64,
 }
+private alias LISTEN_BACKLOG = DEFAULT_LISTEN_BACKLOG;
 
 void registerNetModule(IJSEngine engine) @trusted
 {
