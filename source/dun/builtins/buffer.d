@@ -800,22 +800,29 @@ JSHandle jsBufferToString(void* ctx, JSHandle thisVal, scope JSHandle[] args) @t
     }
     else if (encoding == "latin1" || encoding == "binary")
     {
-        /* StackFallback scratch: latin1 is byte-for-byte ASCII, so we
-           need a temporary `char[]` only to pass to `newString` (which
-           copies into engine storage). Small buffers (≤2KB — the bulk
-           of latin1 string conversions) live entirely on the stack;
-           larger ones spill to GC. Mirrors Bun's
-           `std.heap.stackFallback(N, default_allocator)` pattern in
-           node_assert_binding.zig / node_process.zig. */
+        /* Latin-1 → UTF-8 via the SIMD scratch helper.
+           `IJSEngine.newString` takes UTF-8, so bytes 0x80..0xFF must
+           be encoded as 2-byte sequences (0xC2 0x80 .. 0xC3 0xBF) for
+           the engine to read them as U+0080..U+00FF code points. The
+           previous version cast bytes directly to `char` and lost the
+           high half — `Buffer.from([0x80]).toString('latin1')` came
+           back as the UTF-8 replacement char instead of "".
+
+           StackFallback!STACK_LATIN1_BUDGET keeps the worst-case
+           output (2× src) on the stack for typical Buffer-to-string
+           conversions (≤ STACK_LATIN1_BUDGET / 2 bytes input) with
+           zero GC pressure; larger buffers spill silently to GC. */
         import dun.platform.arena : StackFallback;
-        StackFallback!2048 sfb;
+        import dun.platform.simd : latin1ToUtf8Buf, latin1ToUtf8MaxLen;
+        enum STACK_LATIN1_BUDGET = 4096;
+        StackFallback!STACK_LATIN1_BUDGET sfb;
         scope(exit) sfb.deallocateAll();
-        auto raw = sfb.allocate(slice.length);
+        if (slice.length == 0) return engine.newString("");
+        auto raw = sfb.allocate(latin1ToUtf8MaxLen(slice.length));
         if (raw is null) return engine.newString("");
         auto chars = cast(char[]) raw;
-        foreach (i, b; slice)
-            chars[i] = cast(char) b;
-        return engine.newString(cast(const(char)[]) chars);
+        auto written = latin1ToUtf8Buf(slice, chars);
+        return engine.newString(cast(const(char)[]) chars[0 .. written]);
     }
     else
     {

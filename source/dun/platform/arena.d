@@ -59,13 +59,18 @@ Appender!(T[]) makeAppender(T)(size_t reserveCapacity = 0)
 /// ```
 struct StackFallback(size_t N)
 {
+    static assert(N > 0, "StackFallback!N requires N > 0");
+
     InSituRegion!N primary;
 
     /// Returns a slice of `bytes` from the stack region when it
-    /// fits, otherwise from the GC heap. Caller must not retain the
-    /// stack-portion slice past `deallocateAll()` / scope exit.
+    /// fits, otherwise from the GC heap. Returns `null` only for a
+    /// 0-byte request or under GC `OutOfMemoryError`. Caller must
+    /// not retain the stack-portion slice past `deallocateAll()` /
+    /// scope exit.
     void[] allocate(size_t bytes) @trusted nothrow
     {
+        if (bytes == 0) return null;
         auto p = primary.allocate(bytes);
         if (p.length != 0) return p;
         try return new ubyte[bytes];

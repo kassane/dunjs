@@ -143,6 +143,9 @@ void JSGarbageCollect(JSContextRef ctx);
 
 // --- String ---
 JSStringRef JSStringCreateWithUTF8CString(const(char)* string);
+// Length-explicit UTF-16 constructor — required for NUL-safe strings
+// (the UTF8CString variant terminates at the first \0 byte).
+JSStringRef JSStringCreateWithCharacters(const(ushort)* chars, size_t numChars);
 JSStringRef JSStringRetain(JSStringRef string);
 void JSStringRelease(JSStringRef string);
 size_t JSStringGetLength(JSStringRef string);
