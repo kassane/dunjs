@@ -2432,9 +2432,13 @@ private ubyte[] extractDataArg(IJSEngine engine, JSHandle arg) @trusted
 /// Helper: create a resolved promise wrapping a value
 private JSHandle resolvedPromise(IJSEngine engine, JSHandle value) @trusted
 {
+    assert(engine !is null, "Null engine in resolvedPromise");
     import dun.engine.iface : PromiseHandles;
     auto ph = engine.newPromise();
-    engine.callFunction(ph.resolve, engine.newUndefined(), [value]);
+    /* callFunction returns an owned protected value (cross-backend
+       contract from v1.1.6) — discarding it without freeValue leaks
+       one JSValueProtect per crypto-async-op on JSC. Audit fix. */
+    engine.freeValue(engine.callFunction(ph.resolve, engine.newUndefined(), [value]));
     engine.freeValue(ph.resolve);
     engine.freeValue(ph.reject);
     return ph.promise;
@@ -2443,18 +2447,19 @@ private JSHandle resolvedPromise(IJSEngine engine, JSHandle value) @trusted
 /// Helper: create a rejected promise with an error message
 private JSHandle rejectedPromise(IJSEngine engine, string msg) @trusted
 {
+    assert(engine !is null, "Null engine in rejectedPromise");
     import dun.engine.iface : PromiseHandles;
     auto ph = engine.newPromise();
     auto errResult = engine.eval("new Error('" ~ escapeJsStr(msg) ~ "')", "<subtle-err>");
     if (!errResult.isError)
     {
-        engine.callFunction(ph.reject, engine.newUndefined(), [errResult.value]);
+        engine.freeValue(engine.callFunction(ph.reject, engine.newUndefined(), [errResult.value]));
         engine.freeValue(errResult.value);
     }
     else
     {
         auto fallback = engine.newString(msg);
-        engine.callFunction(ph.reject, engine.newUndefined(), [fallback]);
+        engine.freeValue(engine.callFunction(ph.reject, engine.newUndefined(), [fallback]));
         engine.freeValue(fallback);
         engine.freeValue(errResult.value);
     }

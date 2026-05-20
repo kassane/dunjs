@@ -595,7 +595,7 @@ private Node classifyScalar(string raw)
     return Node(NodeKind.scalar, ScalarType.str, raw);
 }
 
-private bool parseBool(string s, out bool b)
+private bool parseBool(string s, out bool b) @safe pure nothrow
 {
     switch (s)
     {
@@ -647,6 +647,7 @@ private bool looksLikeFloat(string s) @safe pure nothrow
 
 private JSHandle nodeToJs(IJSEngine engine, Node n) @trusted
 {
+    assert(engine !is null, "Null engine in nodeToJs");
     final switch (n.kind)
     {
         case NodeKind.nullVal:
@@ -697,6 +698,7 @@ private enum string INDENT_UNIT = "  ";
 private void emitValue(IJSEngine engine, JSHandle val, size_t depth,
     ref Appender!string out_) @trusted
 {
+    assert(engine !is null, "Null engine in emitValue");
     if (engine.isNull(val) || engine.isUndefined(val))
     {
         out_.put("null\n");
@@ -769,6 +771,7 @@ private void emitValue(IJSEngine engine, JSHandle val, size_t depth,
 private void emitInlineOrNested(IJSEngine engine, JSHandle val, size_t depth,
     ref Appender!string out_) @trusted
 {
+    assert(engine !is null, "Null engine in emitInlineOrNested");
     // Scalars on the same line; arrays/objects start on the next line
     // (handled by emitValue's leading '\n' for non-empty containers).
     if (engine.isObject(val) && !engine.isArray(val))
@@ -859,6 +862,7 @@ private __gshared bool _yamlKeysFnCached = false;
 
 private JSHandle lookupKeysFn(IJSEngine engine) @trusted
 {
+    assert(engine !is null, "Null engine in lookupKeysFn");
     if (_yamlKeysFnCached) return _yamlKeysFn;
     auto r = engine.eval("(o => Object.keys(o))", "<yaml-keys>");
     if (!r.isError && engine.isFunction(r.value))
