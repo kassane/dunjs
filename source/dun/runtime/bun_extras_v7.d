@@ -17,13 +17,23 @@ import dun.engine.iface : IJSEngine;
 void installBunExtrasV7(IJSEngine engine) @trusted
 {
     assert(engine !is null);
-    /* JSC: skipped pending the deeper accumulation fix. The
-       v0.7.0 bindMethod patch (commit d995bef) moved the bare
-       baseline from "9 servers OK" to "13 servers OK", but
-       adding v7 install-time JS still tips it under 7 servers
-       — `deno_deploy_compat` would fail. Re-enable on JSC once
-       the residual JS-side closure capture in `Deno.serve`'s
-       wrapper gets resolved. QJS / V8 install eagerly. */
+    /* JSC gate: kept on JSC. The v0.7.0 `bindMethod` patch lifted
+       the baseline from "9 servers OK" to "13 servers OK", and the
+       v1.1.3 NUL-safe `createJSStringFromD` removed a class of
+       refcount leaks, but `deno_deploy_compat`'s 7-server stress
+       still times out on the 4th+ fetch with v7 extras enabled.
+       Re-investigated in v1.1.5: the "CRASH `<error-compat>:1:3877`"
+       output is actually the test's own `Promise.race` timeout
+       (`rej(new Error("timeout"))` after 3 s) caught by its
+       trailing `.catch`, formatted via the `<error-compat>`
+       wrapper at the top of the stack. So the underlying bug is
+       a fetch-hang on JSC + v7 — the network event-loop turn for
+       the response doesn't run before the 3 s timer fires. Likely
+       relates to JSC trampoline jitter under additional install-
+       time eval pressure; needs gdb on the fetch path
+       (`__futex_abstimed_wait_cancelable64` →
+       `JSC::Heap::acquireAccessSlow`?). Defer to dedicated
+       investigation. QJS / V8 install eagerly. */
     version (EngineJSC) return;
     auto r = engine.eval(extrasSource(), "<bun-extras-v7>");
     if (!r.isError) engine.freeValue(r.value);
