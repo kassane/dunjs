@@ -2,25 +2,14 @@ module dun.builtins.wasi;
 
 import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
 import dun.runtime.globals : DunState;
+import dun.builtins.helpers : installPureJsModule;
 
 /// Number of exported wasi API names
 enum WASI_EXPORT_COUNT = 2;
 
 void registerWasiModule(IJSEngine engine) @trusted
 {
-    assert(engine !is null, "Null engine in registerWasiModule");
-
-    auto src = wasiSource();
-    auto result = engine.eval(src, "<wasi>");
-    if (result.isError)
-    {
-        try
-        {
-            import std.stdio : stderr;
-            stderr.writeln("wasi init failed: ", result.errorMessage);
-        }
-        catch (Exception) {}
-    }
+    installPureJsModule(engine, wasiSource(), "<wasi>", "wasi");
 
     version (EngineQuickJS)
         registerQuickJSModule(engine);

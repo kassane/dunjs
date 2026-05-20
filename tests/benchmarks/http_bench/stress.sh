@@ -17,6 +17,20 @@ THREADS="${WRK_THREADS:-2}"
 CONNECTIONS="${WRK_CONNS:-128}"
 BASE_PORT=9300
 
+# `MASSIVE=1 bash tests/benchmarks/http_bench/stress.sh` bumps the load
+# to a sustained, contention-heavy profile suitable for spotting JSC
+# protect-counter overflow, file-descriptor exhaustion, or scheduler
+# starvation. Tune via:
+#   MASSIVE_DURATION (default 60s)
+#   MASSIVE_THREADS  (default `nproc` * 2)
+#   MASSIVE_CONNS    (default 1024)
+if [ "${MASSIVE:-0}" = "1" ]; then
+    DURATION="${MASSIVE_DURATION:-60s}"
+    THREADS="${MASSIVE_THREADS:-$(($(nproc) * 2))}"
+    CONNECTIONS="${MASSIVE_CONNS:-1024}"
+    echo "MASSIVE mode: $THREADS threads, $CONNECTIONS connections, $DURATION duration"
+fi
+
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'

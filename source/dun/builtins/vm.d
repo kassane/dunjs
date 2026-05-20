@@ -2,25 +2,14 @@ module dun.builtins.vm;
 
 import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
 import dun.runtime.globals : DunState;
+import dun.builtins.helpers : installPureJsModule;
 
 /// Number of exported vm API functions
 enum VM_EXPORT_COUNT = 6;
 
 void registerVmModule(IJSEngine engine) @trusted
 {
-    assert(engine !is null, "Null engine in registerVmModule");
-
-    auto src = vmSource();
-    auto result = engine.eval(src, "<vm>");
-    if (result.isError)
-    {
-        try
-        {
-            import std.stdio : stderr;
-            stderr.writeln("vm init failed: ", result.errorMessage);
-        }
-        catch (Exception) {}
-    }
+    installPureJsModule(engine, vmSource(), "<vm>", "vm");
 
     version (EngineQuickJS)
         registerQuickJSModule(engine);

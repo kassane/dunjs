@@ -2,24 +2,11 @@ module dun.builtins.readline;
 
 import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
 import dun.runtime.globals : DunState;
+import dun.builtins.helpers : installPureJsModule;
 
 void registerReadlineModule(IJSEngine engine) @trusted
 {
-    assert(engine !is null, "Null IJSEngine in registerReadlineModule");
-
-    auto global = engine.getGlobal();
-    auto src = readlineSource();
-    auto result = engine.eval(src, "<readline>");
-    if (result.isError)
-    {
-        try
-        {
-            import std.stdio : stderr;
-            stderr.writeln("readline init failed: ", result.errorMessage);
-        }
-        catch (Exception) {}
-    }
-    engine.freeValue(global);
+    installPureJsModule(engine, readlineSource(), "<readline>", "readline");
 
     version (EngineQuickJS)
         registerQuickJSModule(engine);

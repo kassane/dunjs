@@ -2,26 +2,11 @@ module dun.builtins.timers_promises;
 
 import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
 import dun.runtime.globals : DunState;
+import dun.builtins.helpers : installPureJsModule;
 
 void registerTimersPromisesModule(IJSEngine engine) @trusted
 {
-    assert(engine !is null, "Null engine in registerTimersPromisesModule");
-
-    auto global = engine.getGlobal();
-
-    auto src = timersPromisesSource();
-    auto result = engine.eval(src, "<timers_promises>");
-    if (result.isError)
-    {
-        try
-        {
-            import std.stdio : stderr;
-            stderr.writeln("timers/promises init failed: ", result.errorMessage);
-        }
-        catch (Exception) {}
-    }
-
-    engine.freeValue(global);
+    installPureJsModule(engine, timersPromisesSource(), "<timers_promises>", "timers/promises");
 
     version (EngineQuickJS)
         registerQuickJSModule(engine);
