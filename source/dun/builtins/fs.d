@@ -2072,7 +2072,25 @@ JSHandle jsWriteStreamWrite(void* ctx, JSHandle thisVal, scope JSHandle[] args) 
     auto countProp = engine.getProperty(thisVal, "_chunkCount");
     auto idx = engine.extractInt(countProp);
     engine.freeValue(countProp);
-    engine.setPropertyIndex(chunks, cast(uint) idx, engine.dupValue(args[0]));
+    /* `setPropertyIndex` semantics: QJS consumes the value, JSC / V8
+       don't. Branch by backend so QJS doesn't double-free and JSC / V8
+       don't leak one JSValueProtect per write-chunk. Same pattern as
+       `fetch.d makeResponse` header-pair construction (v1.1.7). */
+    version (EngineQuickJS)
+    {
+        // QJS consumes — dup so caller still owns args[0]
+        engine.setPropertyIndex(chunks, cast(uint) idx, engine.dupValue(args[0]));
+    }
+    else
+    {
+        // JSC / V8: dup then explicitly retain via the property table;
+        // the dup is the protect we're storing; freeValue once we're
+        // done with the local handle (the property table holds its own
+        // protect after setPropertyIndex).
+        auto dup = engine.dupValue(args[0]);
+        engine.setPropertyIndex(chunks, cast(uint) idx, dup);
+        engine.freeValue(dup);
+    }
     engine.freeValue(chunks);
     engine.setProperty(thisVal, "_chunkCount", engine.newInt(idx + 1));
     return engine.newBool(true);
@@ -2090,7 +2108,18 @@ JSHandle jsWriteStreamEnd(void* ctx, JSHandle thisVal, scope JSHandle[] args) @t
         auto countProp0 = engine.getProperty(thisVal, "_chunkCount");
         auto idx = engine.extractInt(countProp0);
         engine.freeValue(countProp0);
-        engine.setPropertyIndex(chunks0, cast(uint) idx, engine.dupValue(args[0]));
+        // setPropertyIndex consumption differs by backend (see
+        // jsWriteStreamWrite comment).
+        version (EngineQuickJS)
+        {
+            engine.setPropertyIndex(chunks0, cast(uint) idx, engine.dupValue(args[0]));
+        }
+        else
+        {
+            auto dup = engine.dupValue(args[0]);
+            engine.setPropertyIndex(chunks0, cast(uint) idx, dup);
+            engine.freeValue(dup);
+        }
         engine.freeValue(chunks0);
         engine.setProperty(thisVal, "_chunkCount", engine.newInt(idx + 1));
     }
