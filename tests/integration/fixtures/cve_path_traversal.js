@@ -57,5 +57,7 @@ ok("nested .. traversal blocked", escapeOut2.indexOf("BLOCKED:") >= 0);
 const outsideOut = tryRead(dir, "/etc/hostname");
 ok("absolute path outside scope blocked", outsideOut.indexOf("BLOCKED:") >= 0);
 
+try { fs.rmSync(dir, { recursive: true, force: true }); } catch {}
+
 console.log(`Score: ${pass}/${pass + fail}`);
 process.exit(fail > 0 ? 1 : 0);

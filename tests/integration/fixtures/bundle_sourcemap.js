@@ -43,6 +43,9 @@ async function main() {
   ok("default no .map", !fs.existsSync(path.join(out, "bundle.js.map")));
   ok("default no inline data URI", fs.readFileSync(path.join(out, "bundle.js"), "utf-8").indexOf("sourceMappingURL=data:") < 0);
 
+  // Clean up the tmpdir so sweeps don't accumulate bundle artifacts.
+  try { fs.rmSync(dir, { recursive: true, force: true }); } catch {}
+
   console.log(`Score: ${pass}/${pass + fail}`);
   process.exit(fail > 0 ? 1 : 0);
 }
