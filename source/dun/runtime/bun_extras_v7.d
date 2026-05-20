@@ -34,6 +34,34 @@ void installBunExtrasV7(IJSEngine engine) @trusted
        (`__futex_abstimed_wait_cancelable64` →
        `JSC::Heap::acquireAccessSlow`?). Defer to dedicated
        investigation. QJS / V8 install eagerly. */
+    /* JSC gate: kept. v1.1.5 gdb investigation found the underlying
+       bug is **NOT** specific to the v7 extras — it's a generic JSC
+       HTTP-server-per-cycle handle leak. The bisect:
+
+         baseline (no extras): hangs at server 17
+         with `new Request(url)` per request: hangs at 15
+         with v7 extras enabled: hangs at 9-10
+
+       So the v7 extras only shave 7-8 servers off the threshold;
+       they're not the root cause. The actual leak is in the HTTP
+       server lifecycle on JSC — `httpServers[]` slot + callback
+       handles aren't fully released between `Deno.serve` +
+       `shutdown` cycles. After ~9 cycles the cumulative pressure
+       blocks the next request's `req.on('end')` from firing
+       (verified: gdb shows main thread in `epoll_wait` with the
+       listen fd watched, fetch worker thread in `read()` on the
+       client socket, but the server-side accept's request never
+       reaches JS land — `handlerCalled = true` never fires in the
+       JS handler).
+
+       Root-cause fix needs an audit of every `engine.newFunction`,
+       `engine.dupValue`, `engine.setProperty` in `http.d`'s
+       createServer / writeHead / end paths to find which JSValueRef
+       isn't being released symmetrically. Until that fix lands,
+       the gate keeps `deno_deploy_compat` (15 servers) passing on
+       JSC by avoiding the v7-extras-induced threshold drop.
+       Re-CRASH-formatted as a fetch-timeout in the test's own
+       `Promise.race` catch handler, not an actual JSC crash. */
     version (EngineJSC) return;
     auto r = engine.eval(extrasSource(), "<bun-extras-v7>");
     if (!r.isError) engine.freeValue(r.value);

@@ -1715,6 +1715,21 @@ public void pollHttpIO() nothrow @trusted
                 {
                     if (auto cidp = ev.fd in fdToConnId)
                         readHttpData(*cidp);
+                    else
+                    {
+                        /* Stale epoll registration: drop it. Without
+                           this unwatch, level-triggered EPOLLIN/HUP
+                           on an fd that no longer maps to a known
+                           connection re-fires every poll tick and
+                           pollHttpIO spin-loops. Bisect investigation
+                           (v1.1.5) confirmed this isn't the JSC
+                           Deno.serve hang's root cause — the actual
+                           leak is in createServer/shutdown handle
+                           accounting — but unwatching stale fds is
+                           still the right defensive move and reduces
+                           CPU spin in the rare bug case. */
+                        version (linux) gHttpPoller.unwatch(ev.fd);
+                    }
                 }
                 catch (Exception) {}
             }
