@@ -204,6 +204,7 @@ __gshared JSHandle _httpResSetHeader, _httpResWriteHead, _httpResWrite, _httpRes
 __gshared JSHandle _httpResGetHeader, _httpResGetHeaders, _httpResHasHeader, _httpResRemoveHeader;
 __gshared JSHandle _httpResOn, _httpResEmit;
 __gshared JSHandle _httpSrvAddress;
+__gshared JSHandle _httpSrvSetTimeout;
 __gshared JSHandle _httpJsDispatchFn;
 __gshared JSHandle _httpCachedUndef;
 __gshared bool _httpFnsCached = false;
@@ -215,6 +216,7 @@ void ensureHttpFnsCached(IJSEngine engine) @trusted
     _httpSrvClose = engine.newFunction(&jsHttpServerClose, "close", 0);
     _httpSrvOn = engine.newFunction(&jsHttpServerOn, "on", 2);
     _httpSrvAddress = engine.newFunction(&jsHttpServerAddress, "address", 0);
+    _httpSrvSetTimeout = engine.newFunction(&jsHttpServerSetTimeout, "setTimeout", 2);
     _httpReqOn = engine.newFunction(&jsReqOn, "on", 2);
     _httpResSetHeader = engine.newFunction(&jsResSetHeader, "setHeader", 2);
     _httpResWriteHead = engine.newFunction(&jsResWriteHead, "writeHead", 1);
@@ -417,6 +419,34 @@ int nextHttpConnId;
 // Free list for connection slot reuse (avoids unbounded array growth)
 int[] httpFreeSlots;
 
+/* Free list for SERVER slot reuse — mirrors `httpFreeSlots`. Without
+   this, `httpServers[]` grew monotonically per createServer cycle,
+   which (a) wasted memory + a JSHandle per leaked server, and (b)
+   made the per-accept O(N) listen-fd lookup at line ~1701 slower
+   each cycle. /debug-native-callback bisect found this was a major
+   contributor to the JSC HTTP-server-cycle hang threshold. */
+int[] httpFreeServerSlots;
+
+int allocServerSlot() nothrow @trusted
+{
+    if (httpFreeServerSlots.length > 0)
+    {
+        try
+        {
+            int slot = httpFreeServerSlots[$ - 1];
+            httpFreeServerSlots = httpFreeServerSlots[0 .. $ - 1];
+            return slot;
+        }
+        catch (Throwable) {}
+    }
+    return nextHttpServerId++;
+}
+
+void freeServerSlot(int slot) nothrow @trusted
+{
+    try { httpFreeServerSlots ~= slot; } catch (Throwable) {}
+}
+
 // Direct dispatch queue — bypasses agnostic pending for lower latency
 enum MAX_HTTP_READY = 256;
 int[MAX_HTTP_READY] httpReadyConns;
@@ -479,18 +509,26 @@ void freeConnSlot(int slot) nothrow @trusted
 package JSHandle createServerWithTls(IJSEngine engine, JSHandle cb, bool hasCb,
     void* sslCtx = null) @trusted
 {
-    int id = nextHttpServerId++;
+    int id = allocServerSlot();
     try
     {
         HttpServerState srv;
         srv.engine = engine;
         if (hasCb) { srv.requestCb = cb; srv.cbSet = true; }
         version (Posix) { srv.sslCtx = sslCtx; }
-        httpServers ~= srv;
+        /* Slot may be reused (from freeServerSlot) or fresh. For
+           reuse, overwrite the existing struct; for fresh, extend
+           the array. Without this, every createServer leaked a
+           dead HttpServerState plus its requestCb JSHandle slot. */
+        if (id < cast(int) httpServers.length)
+            httpServers[id] = srv;
+        else
+            httpServers ~= srv;
     }
     catch (Throwable)
     {
         if (hasCb) engine.freeValue(cb);
+        freeServerSlot(id);
         return engine.throwTypeError("http.createServer: out of memory");
     }
     return makeHttpServerObj(engine, id);
@@ -540,7 +578,14 @@ JSHandle makeHttpServerObj(IJSEngine engine, int id) @trusted
     engine.setProperty(obj, "headersTimeout", engine.newInt(HTTP_REQUEST_TIMEOUT_MS));
     engine.setProperty(obj, "requestTimeout", engine.newInt(HTTP_HEADERS_TIMEOUT_MS));
     engine.setProperty(obj, "maxHeadersCount", engine.newInt(HTTP_MAX_HEADERS_COUNT));
-    engine.setProperty(obj, "setTimeout", engine.newFunction(&jsHttpServerSetTimeout, "setTimeout", 2));
+    /* `setTimeout` previously did `engine.newFunction(...)` per
+       createServer call — that allocates a JSC callback slot each
+       time without ever releasing it. Bisected via /debug-native-
+       callback gdb session as the per-server-cycle leak that pushes
+       JSC into the "handler never fires" hang after ~17 cycles
+       (~9 with v7 extras). Now uses the cached __gshared handle
+       via bindMethod (which doesn't dup on JSC). */
+    engine.bindMethod(obj, "setTimeout", _httpSrvSetTimeout);
     return obj;
 }
 
@@ -550,8 +595,13 @@ JSHandle jsHttpServerSetTimeout(void* ctx, JSHandle thisVal, scope JSHandle[] ar
     auto state = cast(DunState*) ctx;
     assert(state.engine !is null);
     auto engine = state.engine;
+    /* `engine.setProperty(thisVal, "timeout", engine.dupValue(args[0]))`
+       leaks one JSValueProtect per call on JSC — `setProperty` doesn't
+       consume `val`. Just extract the int and re-construct via newInt
+       (which the engine owns at the right level). Same pattern as the
+       v0.7.0 bindMethod refactor that fixed 18 leaks elsewhere. */
     if (args.length >= 1 && engine.isNumber(args[0]))
-        engine.setProperty(thisVal, "timeout", engine.dupValue(args[0]));
+        engine.setProperty(thisVal, "timeout", engine.newInt(engine.extractInt(args[0])));
     return engine.dupValue(thisVal);
 }
 
@@ -745,6 +795,14 @@ JSHandle jsHttpServerClose(void* ctx, JSHandle thisVal, scope JSHandle[] args) @
                 engine.freeValue(cbRet);
                 engine.freeValue(undef);
             }
+
+            /* Release the server slot for reuse. Without this,
+               `httpServers[]` grew monotonically per cycle, leaving
+               dead-slot pressure that contributed to the JSC
+               HTTP-server-cycle hang. The slot's `requestCb` was
+               already freed above (line 762-766), so the slot is
+               safe to reuse. */
+            freeServerSlot(idVal);
         }
         return engine.dupValue(thisVal);
     }

@@ -478,35 +478,45 @@ class JSCEngine : IJSEngine
         auto jsFunc = cast(JSObjectRef) fromHandle(func);
         auto jsThis = cast(JSObjectRef) fromHandle(thisVal);
         JSValueRef exc = null;
+        /* Always protect the return value before handing it to the
+           caller — symmetric to other `newX` factories in this engine
+           and matches what every caller actually expects (every
+           callFunction site is followed by `engine.freeValue(ret)`).
+           Previously only the exception path protected, so the
+           success path returned an unprotected value that the caller
+           Unprotect'd anyway — undercounting JSC's protect counter
+           per call. Bisected via /debug-native-callback as the root
+           of the JSC fetch-cycle threshold (single long-lived server
+           + 30 fetches hangs at fetch 27 on JSC, all 30 OK on QJS/V8).
+           Per-callFunction undercount × N fetches × N promise
+           callbacks pushed JSC's GC into "value freed while still
+           referenced" territory, manifesting as the next request's
+           handler never firing. */
+        JSValueRef ret;
         if (args.length == 0)
         {
-            auto ret = JSObjectCallAsFunction(ctx, jsFunc, jsThis, 0, null, &exc);
-            if (exc !is null)
-            {
-                lastCallWasException = true;
-                JSValueProtect(ctx, exc);
-                return toHandle(cast(void*) exc);
-            }
-            lastCallWasException = false;
-            return toHandle(cast(void*) ret);
-        }
-        JSValueRef[NATIVE_CALL_STACK_ARGS] stackArgv = void;
-        auto argc = args.length;
-        const(JSValueRef)* argp;
-        if (argc <= NATIVE_CALL_STACK_ARGS)
-        {
-            foreach (i; 0 .. argc)
-                stackArgv[i] = cast(JSValueRef) fromHandle(args[i]);
-            argp = cast(const(JSValueRef)*) stackArgv.ptr;
+            ret = JSObjectCallAsFunction(ctx, jsFunc, jsThis, 0, null, &exc);
         }
         else
         {
-            auto buf = new JSValueRef[argc];
-            foreach (i; 0 .. argc)
-                buf[i] = cast(JSValueRef) fromHandle(args[i]);
-            argp = cast(const(JSValueRef)*) buf.ptr;
+            JSValueRef[NATIVE_CALL_STACK_ARGS] stackArgv = void;
+            auto argc = args.length;
+            const(JSValueRef)* argp;
+            if (argc <= NATIVE_CALL_STACK_ARGS)
+            {
+                foreach (i; 0 .. argc)
+                    stackArgv[i] = cast(JSValueRef) fromHandle(args[i]);
+                argp = cast(const(JSValueRef)*) stackArgv.ptr;
+            }
+            else
+            {
+                auto buf = new JSValueRef[argc];
+                foreach (i; 0 .. argc)
+                    buf[i] = cast(JSValueRef) fromHandle(args[i]);
+                argp = cast(const(JSValueRef)*) buf.ptr;
+            }
+            ret = JSObjectCallAsFunction(ctx, jsFunc, jsThis, argc, argp, &exc);
         }
-        auto ret = JSObjectCallAsFunction(ctx, jsFunc, jsThis, argc, argp, &exc);
         if (exc !is null)
         {
             lastCallWasException = true;
@@ -514,6 +524,8 @@ class JSCEngine : IJSEngine
             return toHandle(cast(void*) exc);
         }
         lastCallWasException = false;
+        if (ret !is null)
+            JSValueProtect(ctx, ret);
         return toHandle(cast(void*) ret);
     }
 
