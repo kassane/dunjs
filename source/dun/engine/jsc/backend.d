@@ -89,21 +89,111 @@ class JSCEngine : IJSEngine
     JSHandle newString(scope const(char)[] s) @trusted
     {
         assert(ctx !is null, "JSC context not initialized");
-        // Stack-terminate for short strings to avoid GC allocation from toStringz
-        const(char)* cstr;
-        char[STACK_TERM_SIZE] stackBuf = void;
-        if (s.length < STACK_TERM_SIZE)
+        /* JSStringCreateWithUTF8CString terminates at the first NUL,
+           so Buffer.toString('latin1') of a buffer containing 0x00
+           bytes (or any user input with embedded \0) gets truncated.
+           Fast path scans for NUL via SIMD `findByte`; when none is
+           present, we use the cheap UTF8CString constructor with a
+           stack-terminated buffer for short strings. When a NUL is
+           found we fall through to the UTF-16 constructor below,
+           which is length-explicit. */
+        import dun.platform.simd : findByte;
+        bool hasNul = findByte(cast(const(ubyte)[]) s, '\0') != s.length;
+        if (!hasNul)
         {
-            stackBuf[0 .. s.length] = s[];
-            stackBuf[s.length] = '\0';
-            cstr = stackBuf.ptr;
+            // Stack-terminate for short strings to avoid GC allocation from toStringz
+            const(char)* cstr;
+            char[STACK_TERM_SIZE] stackBuf = void;
+            if (s.length < STACK_TERM_SIZE)
+            {
+                stackBuf[0 .. s.length] = s[];
+                stackBuf[s.length] = '\0';
+                cstr = stackBuf.ptr;
+            }
+            else
+            {
+                cstr = s.toStringz;
+            }
+            auto jsStr = JSStringCreateWithUTF8CString(cstr);
+            assert(jsStr !is null, "JSStringCreateWithUTF8CString returned null");
+            auto val = JSValueMakeString(ctx, jsStr);
+            JSStringRelease(jsStr);
+            return toHandle(cast(void*) val);
         }
-        else
+        /* NUL-safe slow path: decode UTF-8 to UTF-16 in place so we
+           can call JSStringCreateWithCharacters (length-explicit).
+           UTF-8 chars expand to at most 1 JSChar (BMP) or 2 JSChars
+           (surrogate pair for non-BMP). Worst case is s.length
+           JSChars — plain ASCII is 1:1, every other input is shorter.
+
+           UTF-8 / UTF-16 constants live in `dun.declarations` so
+           they're shared with the SIMD `latin1ToUtf8Buf` encoder. */
+        import dun.declarations :
+            UTF8_ASCII_MAX, UTF8_CONT_MASK,
+            UTF8_2BYTE_LEAD, UTF8_2BYTE_MASK,
+            UTF8_3BYTE_LEAD, UTF8_3BYTE_MASK,
+            UTF8_4BYTE_LEAD, UTF8_4BYTE_MASK,
+            UNICODE_BMP_MAX, UNICODE_REPLACEMENT_CHAR,
+            UTF16_HIGH_SURROGATE_BASE, UTF16_LOW_SURROGATE_BASE,
+            UTF16_SURROGATE_LOW_MASK;
+
+        ushort[] codeUnits;
+        try codeUnits = new ushort[s.length];
+        catch (Exception) return toHandle(cast(void*) JSValueMakeUndefined(ctx));
+        size_t outIdx = 0;
+        size_t i = 0;
+        while (i < s.length)
         {
-            cstr = s.toStringz;
+            ubyte b = cast(ubyte) s[i];
+            uint cp;
+            size_t advance;
+            if (b <= UTF8_ASCII_MAX)
+            {
+                cp = b;
+                advance = 1;
+            }
+            else if (b < UTF8_2BYTE_LEAD)
+            {
+                cp = UNICODE_REPLACEMENT_CHAR;  // stray continuation byte
+                advance = 1;
+            }
+            else if (b < UTF8_3BYTE_LEAD && i + 1 < s.length)
+            {
+                cp = ((b & UTF8_2BYTE_MASK) << 6) | (s[i+1] & UTF8_CONT_MASK);
+                advance = 2;
+            }
+            else if (b < UTF8_4BYTE_LEAD && i + 2 < s.length)
+            {
+                cp = ((b & UTF8_3BYTE_MASK) << 12)
+                   | ((s[i+1] & UTF8_CONT_MASK) << 6)
+                   | (s[i+2] & UTF8_CONT_MASK);
+                advance = 3;
+            }
+            else if (i + 3 < s.length)
+            {
+                cp = ((b & UTF8_4BYTE_MASK) << 18)
+                   | ((s[i+1] & UTF8_CONT_MASK) << 12)
+                   | ((s[i+2] & UTF8_CONT_MASK) << 6)
+                   | (s[i+3] & UTF8_CONT_MASK);
+                advance = 4;
+            }
+            else
+            {
+                cp = UNICODE_REPLACEMENT_CHAR;  // truncated multi-byte
+                advance = 1;
+            }
+            i += advance;
+            if (cp < UNICODE_BMP_MAX) codeUnits[outIdx++] = cast(ushort) cp;
+            else
+            {
+                // Astral → UTF-16 surrogate pair
+                cp -= UNICODE_BMP_MAX;
+                codeUnits[outIdx++] = cast(ushort)(UTF16_HIGH_SURROGATE_BASE | (cp >> 10));
+                codeUnits[outIdx++] = cast(ushort)(UTF16_LOW_SURROGATE_BASE  | (cp & UTF16_SURROGATE_LOW_MASK));
+            }
         }
-        auto jsStr = JSStringCreateWithUTF8CString(cstr);
-        assert(jsStr !is null, "JSStringCreateWithUTF8CString returned null");
+        auto jsStr = JSStringCreateWithCharacters(codeUnits.ptr, outIdx);
+        assert(jsStr !is null, "JSStringCreateWithCharacters returned null");
         auto val = JSValueMakeString(ctx, jsStr);
         JSStringRelease(jsStr);
         return toHandle(cast(void*) val);

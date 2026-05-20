@@ -233,11 +233,65 @@ ulong bswap64(ulong val) pure nothrow @nogc @safe
 /// in place of `std.digest.toHexString!(LetterCase.lower)(buf).idup`
 /// — saves one allocation (no `.idup` immutable copy) and uses the
 /// 16-byte/cycle SIMD interleave path.
-char[] hexEncode(const(ubyte)[] src) @trusted
+char[] hexEncode(const(ubyte)[] src) @safe
 {
     auto dst = new char[src.length * 2];
     hexEncodeBuf(src, dst);
     return dst;
+}
+
+// Latin-1 → UTF-8 conversion: ISO-8859-1 maps byte 0xXX directly to
+// Unicode code point U+00XX, but the engine string APIs
+// (`IJSEngine.newString`) take UTF-8, which represents code points
+// 0x80..0xFF as a 2-byte sequence (0xC2 0x80..0xC3 0xBF). Bytes
+// 0x00..0x7F pass through unchanged.
+//
+// Constants live in `dun.declarations` so the JSC backend's UTF-8
+// decoder (`newString` slow path) shares the same source of truth.
+import dun.declarations :
+    UTF8_ASCII_MAX, UTF8_CONT_BASE, UTF8_CONT_MASK, UTF8_2BYTE_LEAD;
+
+/// Worst-case UTF-8 length for a Latin-1 input: every byte ≥ 0x80
+/// expands to 2 bytes. Useful for pre-sizing destination buffers.
+size_t latin1ToUtf8MaxLen(size_t srcLen) pure nothrow @nogc @safe
+{
+    return srcLen * 2;
+}
+
+/// Exact UTF-8 length for a Latin-1 input (counts bytes ≥ 0x80 and
+/// adds them once for the extra continuation byte they require).
+size_t latin1ToUtf8Len(const(ubyte)[] src) pure nothrow @nogc @safe
+{
+    size_t extra = 0;
+    foreach (b; src) if (b > UTF8_ASCII_MAX) extra++;
+    return src.length + extra;
+}
+
+/// Encode a Latin-1 (ISO-8859-1) byte sequence into a UTF-8 byte
+/// sequence written into `dst`. Returns the actual bytes written.
+/// `dst` must be at least `latin1ToUtf8MaxLen(src.length)` (or
+/// exactly `latin1ToUtf8Len(src)` if the caller pre-measured).
+/// Used by `Buffer.toString('latin1')` to feed `IJSEngine.newString`
+/// in a form the engine's UTF-8 parser will read each byte as a
+/// distinct Latin-1 code point. Equivalent to Node/Bun's
+/// `Buffer.prototype.latin1Slice`.
+size_t latin1ToUtf8Buf(const(ubyte)[] src, char[] dst)
+    pure nothrow @nogc @trusted
+{
+    assert(dst.length >= latin1ToUtf8MaxLen(src.length),
+        "dst too small for latin1 → UTF-8 worst-case expansion");
+    size_t j = 0;
+    foreach (b; src)
+    {
+        if (b <= UTF8_ASCII_MAX)
+            dst[j++] = cast(char) b;
+        else
+        {
+            dst[j++] = cast(char)(UTF8_2BYTE_LEAD | (b >> 6));
+            dst[j++] = cast(char)(UTF8_CONT_BASE  | (b & UTF8_CONT_MASK));
+        }
+    }
+    return j;
 }
 
 /// Compile-time-sized variant: stack-allocates the destination so
@@ -283,6 +337,24 @@ unittest
     ubyte[4] fxData = [0xDE, 0xAD, 0xBE, 0xEF];
     auto fxHex = hexEncodeFixed(fxData);
     assert(fxHex[] == "deadbeef");
+
+    // latin1 → UTF-8: covers ASCII (1-byte) + Latin-1 supplement
+    // (2-byte) edge bytes plus the inner switch boundary (0xBF→0xC0
+    // is where the lead byte flips from 0xC2 to 0xC3). Input is
+    // 2 ASCII bytes + 4 high bytes; output is 2 + 4 × 2 = 10 bytes.
+    const(ubyte)[] l1 = [0x41, 0x7F, 0x80, 0xBF, 0xC0, 0xFF];
+    char[16] l1Buf = void;
+    auto l1Written = latin1ToUtf8Buf(l1, l1Buf[]);
+    assert(l1Written == 10);
+    assert(l1Buf[0 .. l1Written] == cast(const(char)[])
+        [0x41,                              // 'A'
+         0x7F,                              // DEL (1-byte UTF-8)
+         0xC2, 0x80,                        // U+0080
+         0xC2, 0xBF,                        // U+00BF (last with lead 0xC2)
+         0xC3, 0x80,                        // U+00C0 (first with lead 0xC3)
+         0xC3, 0xBF]);                      // U+00FF
+    assert(latin1ToUtf8Len(l1) == 10);
+    assert(latin1ToUtf8MaxLen(l1.length) == 12);  // 6 × 2 worst case
 
     // findByte
     const(ubyte)[] haystack = cast(const(ubyte)[]) "hello\nworld";
