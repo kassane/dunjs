@@ -102,7 +102,7 @@ int main(string[] args)
 
 private:
 
-public enum VERSION = "1.1.16";
+public enum VERSION = "1.1.17";
 
 /// Entry point when the running executable was produced by
 /// `dun bundle --compile=PATH`. Sets up a runtime with --allow-all,

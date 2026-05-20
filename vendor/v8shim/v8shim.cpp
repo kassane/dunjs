@@ -143,7 +143,11 @@ struct ValuePool {
     }
 
     void release(DunV8Value* v) {
-        v->value.Reset();
+        // Caller is responsible for clearing v->value (owning) or
+        // v->borrowed_local (borrowed) before calling. release() just
+        // recycles the wrapper slot — the Persistent::Reset on borrowed
+        // wraps was wasted (Persistent never written) and showed up as
+        // the residual per-trampoline-arg cost after wrapBorrowed.
         if (count < kValuePoolCapacity)
             free_list[count++] = v;
         else
@@ -441,13 +445,23 @@ void dun_v8_free_string(const char* str) {
 
 int dun_v8_value_to_int(DunV8Context* cw, DunV8Value* vw) {
     return dun::withContext(cw, [&](auto isolate, auto context, auto*) {
-        return getLocal(vw, isolate)->Int32Value(context).FromMaybe(0);
+        auto val = getLocal(vw, isolate);
+        // Fast path: SMI / already-int32. Skips the ToInt32 coercion
+        // call (the hot path for indexed property work, Buffer sizes,
+        // randomBytes lengths, etc.).
+        if (val->IsInt32())
+            return v8::Local<v8::Int32>::Cast(val)->Value();
+        return val->Int32Value(context).FromMaybe(0);
     });
 }
 
 double dun_v8_value_to_number(DunV8Context* cw, DunV8Value* vw) {
     return dun::withContext(cw, [&](auto isolate, auto context, auto*) {
-        return getLocal(vw, isolate)->NumberValue(context).FromMaybe(0.0);
+        auto val = getLocal(vw, isolate);
+        // Fast path: already a Number — skip the ToNumber coercion.
+        if (val->IsNumber())
+            return v8::Local<v8::Number>::Cast(val)->Value();
+        return val->NumberValue(context).FromMaybe(0.0);
     });
 }
 
@@ -670,9 +684,12 @@ void dun_v8_value_unref(DunV8Value* vw) {
     if (--vw->ref_count <= 0) {
         // Borrowed Local doesn't own anything — its slot dies with the
         // HandleScope. Just drop the reference and recycle the wrapper.
+        // Owning wrappers need Persistent::Reset to release V8's GC root.
         if (vw->is_borrowed) {
             vw->borrowed_local.Clear();
             vw->is_borrowed = 0;
+        } else {
+            vw->value.Reset();
         }
         g_value_pool.release(vw);
     }
