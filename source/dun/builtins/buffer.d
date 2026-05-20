@@ -800,10 +800,22 @@ JSHandle jsBufferToString(void* ctx, JSHandle thisVal, scope JSHandle[] args) @t
     }
     else if (encoding == "latin1" || encoding == "binary")
     {
-        auto chars = new char[slice.length];
+        /* StackFallback scratch: latin1 is byte-for-byte ASCII, so we
+           need a temporary `char[]` only to pass to `newString` (which
+           copies into engine storage). Small buffers (≤2KB — the bulk
+           of latin1 string conversions) live entirely on the stack;
+           larger ones spill to GC. Mirrors Bun's
+           `std.heap.stackFallback(N, default_allocator)` pattern in
+           node_assert_binding.zig / node_process.zig. */
+        import dun.platform.arena : StackFallback;
+        StackFallback!2048 sfb;
+        scope(exit) sfb.deallocateAll();
+        auto raw = sfb.allocate(slice.length);
+        if (raw is null) return engine.newString("");
+        auto chars = cast(char[]) raw;
         foreach (i, b; slice)
             chars[i] = cast(char) b;
-        return engine.newString(cast(string) chars);
+        return engine.newString(cast(const(char)[]) chars);
     }
     else
     {
