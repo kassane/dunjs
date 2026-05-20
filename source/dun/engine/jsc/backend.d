@@ -478,20 +478,13 @@ class JSCEngine : IJSEngine
         auto jsFunc = cast(JSObjectRef) fromHandle(func);
         auto jsThis = cast(JSObjectRef) fromHandle(thisVal);
         JSValueRef exc = null;
-        /* Always protect the return value before handing it to the
-           caller — symmetric to other `newX` factories in this engine
-           and matches what every caller actually expects (every
-           callFunction site is followed by `engine.freeValue(ret)`).
-           Previously only the exception path protected, so the
-           success path returned an unprotected value that the caller
-           Unprotect'd anyway — undercounting JSC's protect counter
-           per call. Bisected via /debug-native-callback as the root
-           of the JSC fetch-cycle threshold (single long-lived server
-           + 30 fetches hangs at fetch 27 on JSC, all 30 OK on QJS/V8).
-           Per-callFunction undercount × N fetches × N promise
-           callbacks pushed JSC's GC into "value freed while still
-           referenced" territory, manifesting as the next request's
-           handler never firing. */
+        /* Cross-backend contract: callFunction returns a value the
+           caller owns and MUST `engine.freeValue` (matches QuickJS's
+           JS_Call which returns a refcount-incremented value). On
+           JSC the C API returns a scope-bound value, so we
+           explicitly `JSValueProtect` here to match the contract.
+           Both the success and exception paths protect; both require
+           `engine.freeValue` to release. */
         JSValueRef ret;
         if (args.length == 0)
         {

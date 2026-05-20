@@ -88,22 +88,11 @@ private JSHandle jsFetch(void* ctx, JSHandle thisVal, scope JSHandle[] args) @tr
         auto hVal = engine.getProperty(opts, "headers");
         if (engine.isObject(hVal))
         {
-            auto flatRes = engine.eval(
-                "(h => { const out = []; if (!h) return out; "
-                ~ "const push = (k, v) => { out.push(String(k).toLowerCase(), String(v)); }; "
-                ~ "if (h instanceof Headers || typeof h.forEach === 'function') { "
-                ~ "  h.forEach((v, k) => push(k, v)); return out; "
-                ~ "} "
-                ~ "if (Array.isArray(h)) { for (const [k, v] of h) push(k, v); return out; } "
-                ~ "for (const k of Object.keys(h)) push(k, h[k]); return out; "
-                ~ "})",
-                "<fetch-headers-flatten>");
-            if (!flatRes.isError && engine.isFunction(flatRes.value))
+            ensureHeadersFlattener(engine);
+            if (_fetchHeadersFlattenerCached)
             {
                 JSHandle[1] callArgs = [hVal];
-                auto undef = engine.newUndefined();
-                auto flat = engine.callFunction(flatRes.value, undef, callArgs[]);
-                engine.freeValue(undef);
+                auto flat = engine.callFunction(_fetchHeadersFlattener, engine.newUndefined(), callArgs[]);
                 if (engine.isArray(flat))
                 {
                     auto n = engine.getArrayLength(flat);
@@ -118,7 +107,6 @@ private JSHandle jsFetch(void* ctx, JSHandle thisVal, scope JSHandle[] args) @tr
                     }
                 }
                 engine.freeValue(flat);
-                engine.freeValue(flatRes.value);
             }
         }
         engine.freeValue(hVal);
@@ -653,41 +641,121 @@ else
     int tcpConnect(string, ushort) @trusted { return -1; }
 }
 
+/* Cached Response constructor. Compiled exactly once, then called
+   per fetch with (body, status, statusText, url, headerEntries) as
+   value arguments — no per-fetch bytecode compilation.
+
+   Bisect via /debug-native-callback identified the previous
+   per-fetch `engine.eval(<unique-source-with-embedded-body>)` as the
+   root of the JSC fetch-cycle hang: each call compiled fresh
+   bytecode into JSC's cache (uncacheable because the source string
+   embedded the response body). At ~9 MB heap growth per fetch on
+   JSC, the 27-fetch threshold matched a ~243 MB JSC heap budget.
+   With the cache, only the value arguments allocate per fetch. */
+__gshared JSHandle _fetchResponseBuilder;
+__gshared bool _fetchResponseBuilderCached = false;
+__gshared JSHandle _fetchHeadersFlattener;
+__gshared bool _fetchHeadersFlattenerCached = false;
+
+private void ensureHeadersFlattener(IJSEngine engine) @trusted
+{
+    if (_fetchHeadersFlattenerCached) return;
+    enum src = "(h => { const out = []; if (!h) return out; "
+        ~ "const push = (k, v) => { out.push(String(k).toLowerCase(), String(v)); }; "
+        ~ "if (h instanceof Headers || typeof h.forEach === 'function') { "
+        ~ "  h.forEach((v, k) => push(k, v)); return out; "
+        ~ "} "
+        ~ "if (Array.isArray(h)) { for (const [k, v] of h) push(k, v); return out; } "
+        ~ "for (const k of Object.keys(h)) push(k, h[k]); return out; "
+        ~ "})";
+    auto result = engine.eval(src, "<fetch-headers-flatten>");
+    if (!result.isError && engine.isFunction(result.value))
+    {
+        _fetchHeadersFlattener = engine.dupValue(result.value);
+        _fetchHeadersFlattenerCached = true;
+    }
+    engine.freeValue(result.value);
+}
+
+private void ensureResponseBuilder(IJSEngine engine) @trusted
+{
+    if (_fetchResponseBuilderCached) return;
+    enum builderSrc = "(function(body,status,statusText,url,headerEntries){"
+        ~ "var h=new Headers();"
+        ~ "for(var i=0;i<headerEntries.length;i++)"
+        ~ "  h.append(headerEntries[i][0],headerEntries[i][1]);"
+        ~ "var r=new Response(body,{status:status,statusText:statusText,headers:h});"
+        ~ "Object.defineProperty(r,'url',{value:url,writable:false,enumerable:true});"
+        ~ "return r;"
+        ~ "})";
+    auto result = engine.eval(builderSrc, "<fetch-response-builder>");
+    if (!result.isError && engine.isFunction(result.value))
+    {
+        _fetchResponseBuilder = engine.dupValue(result.value);
+        _fetchResponseBuilderCached = true;
+    }
+    engine.freeValue(result.value);
+}
+
 JSHandle makeResponse(IJSEngine engine, FetchResult r) @trusted
 {
+    ensureResponseBuilder(engine);
+    if (!_fetchResponseBuilderCached)
+        return makeResponseFallback(engine, r);
 
-    Appender!(char[]) js;
-    js.reserve(JSON_RESERVE_EXTRA + r.body_.length);
+    auto bodyVal = engine.newString(r.body_);
+    auto statusVal = engine.newInt(r.status);
+    auto statusTextVal = engine.newString(r.statusText);
+    auto urlVal = engine.newString(r.url);
 
-    // Build Response using the global Response constructor from web_apis.d
-    js ~= "(function(){var h=new Headers();";
+    auto headerArr = engine.newArray();
+    uint idx = 0;
+    /* setPropertyIndex has split semantics across backends:
+         QJS: consumes `val` (JS_SetPropertyUint32) — must NOT freeValue
+         JSC: doesn't consume — caller must freeValue
+         V8:  doesn't consume — caller must freeValue
+       Same dual-path pattern as `setProperty` for req/socket aliasing
+       in builtins/http.d:873-887. Without the version split, QJS
+       double-frees and corrupts the malloc tcache; JSC/V8 leaks one
+       refcount per pair. */
     foreach (k, v; r.headers)
     {
-        js ~= "h.append(";
-        js ~= jsonQuote(k);
-        js ~= ",";
-        js ~= jsonQuote(v);
-        js ~= ");";
+        auto pair = engine.newArray();
+        auto kVal = engine.newString(k);
+        auto vVal = engine.newString(v);
+        engine.setPropertyIndex(pair, 0, kVal);
+        engine.setPropertyIndex(pair, 1, vVal);
+        version (EngineQuickJS)
+        {
+            // QJS consumed the values — nothing to free
+        }
+        else
+        {
+            engine.freeValue(kVal);
+            engine.freeValue(vVal);
+        }
+        engine.setPropertyIndex(headerArr, idx, pair);
+        version (EngineQuickJS)
+        {
+            // QJS consumed pair — nothing to free
+        }
+        else
+        {
+            engine.freeValue(pair);
+        }
+        idx++;
     }
-    js ~= "var r=new Response(";
-    js ~= jsonQuote(r.body_);
-    js ~= ",{status:";
-    js ~= r.status.to!string;
-    js ~= ",statusText:";
-    js ~= jsonQuote(r.statusText);
-    js ~= ",headers:h});";
-    js ~= "Object.defineProperty(r,'url',{value:";
-    js ~= jsonQuote(r.url);
-    js ~= ",writable:false,enumerable:true});";
-    js ~= "return r;})()";
 
-    auto result = engine.eval((() @trusted => cast(string) js[])(), "<fetch-response>");
-    if (result.isError)
-    {
-        // Fallback to plain object if Response constructor unavailable
-        return makeResponseFallback(engine, r);
-    }
-    return result.value;
+    JSHandle[5] callArgs = [bodyVal, statusVal, statusTextVal, urlVal, headerArr];
+    auto resp = engine.callFunction(_fetchResponseBuilder, engine.newUndefined(), callArgs[]);
+
+    engine.freeValue(bodyVal);
+    engine.freeValue(statusVal);
+    engine.freeValue(statusTextVal);
+    engine.freeValue(urlVal);
+    engine.freeValue(headerArr);
+
+    return resp;
 }
 
 JSHandle makeResponseFallback(IJSEngine engine, FetchResult r) @trusted

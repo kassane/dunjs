@@ -66,7 +66,7 @@ bool invokeUncaughtExceptionHandler(IJSEngine engine, string errorMsg) @trusted 
         }
         JSHandle[1] args = [errObj];
         auto global = engine.getGlobal();
-        engine.callFunction(gUncaughtHandler, global, args[]);
+        engine.freeValue(engine.callFunction(gUncaughtHandler, global, args[]));
         engine.freeValue(errObj);
         engine.freeValue(global);
         return true;
@@ -86,7 +86,7 @@ bool invokeUnhandledRejectionHandler(IJSEngine engine, JSHandle reason, JSHandle
     {
         JSHandle[2] args = [reason, promise];
         auto global = engine.getGlobal();
-        engine.callFunction(gRejectionHandler, global, args[]);
+        engine.freeValue(engine.callFunction(gRejectionHandler, global, args[]));
         engine.freeValue(global);
         return true;
     }
