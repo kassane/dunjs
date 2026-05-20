@@ -279,13 +279,43 @@ private void registerStubModules(IJSEngine engine) @trusted
     },
     version: '2.3.1'
   };
+  /* diagnostics_channel — lazy. The compact (~30 line) install-time
+     version we tried in v1.1.10 tipped JSC deno_deploy_compat over
+     the heap budget threshold every sweep (3/3 fail). Placeholder
+     here returns no-ops; first call to a non-no-op method triggers
+     the real impl via lazy eval inside the function. This way the
+     install-time eval pressure stays at ~1 KB instead of ~5 KB on JSC. */
   var diagnostics_channel = {
-    channel: function(name) { return { subscribe: function(){}, unsubscribe: function(){}, hasSubscribers: false, name: name }; },
-    hasSubscribers: function() { return false; },
-    subscribe: function() {},
-    unsubscribe: function() {},
-    Channel: function(name) { this.name = name; this.hasSubscribers = false;
-      this.subscribe = function(){}; this.unsubscribe = function(){}; this.publish = function(){}; }
+    _real: null,
+    _load: function() {
+      if (this._real) return this._real;
+      this._real = (new Function(
+        "var ch=Object.create(null);" +
+        "function C(n){this.name=n;this._ls=[];}" +
+        "Object.defineProperty(C.prototype,'hasSubscribers'," +
+        "  {get:function(){return this._ls.length>0;}});" +
+        "C.prototype.subscribe=function(l){" +
+        "  if(typeof l!=='function')throw new TypeError('listener must be a function');" +
+        "  this._ls.push(l);};" +
+        "C.prototype.unsubscribe=function(l){" +
+        "  var i=this._ls.indexOf(l);if(i<0)return false;" +
+        "  this._ls.splice(i,1);return true;};" +
+        "C.prototype.publish=function(m){" +
+        "  var ls=this._ls.slice();" +
+        "  for(var i=0;i<ls.length;i++){try{ls[i](m,this.name);}catch(e){}}};" +
+        "function k(n){if(ch[n])return ch[n];return ch[n]=new C(n);}" +
+        "return {channel:k,Channel:C," +
+        "  hasSubscribers:function(n){var c=ch[n];return c?c.hasSubscribers:false;}," +
+        "  subscribe:function(n,l){k(n).subscribe(l);}," +
+        "  unsubscribe:function(n,l){var c=ch[n];return c?c.unsubscribe(l):false;}};"
+      ))();
+      return this._real;
+    },
+    channel: function(n) { return this._load().channel(n); },
+    hasSubscribers: function(n) { return this._load().hasSubscribers(n); },
+    subscribe: function(n, l) { return this._load().subscribe(n, l); },
+    unsubscribe: function(n, l) { return this._load().unsubscribe(n, l); },
+    get Channel() { return this._load().Channel; }
   };
   var domain = {
     create: function() {
