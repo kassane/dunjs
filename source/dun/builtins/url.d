@@ -2,26 +2,12 @@ module dun.builtins.url;
 
 import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
 import dun.runtime.globals : DunState;
+import dun.builtins.helpers : installPureJsModule;
 
 void registerUrlModule(IJSEngine engine) @trusted
 {
-    assert(engine !is null, "Null engine in registerUrlModule");
-    auto global = engine.getGlobal();
-
     // URL and URLSearchParams implemented in JS (pure data-structure logic)
-    auto src = urlSource();
-    auto result = engine.eval(src, "<url>");
-    if (result.isError)
-    {
-        try
-        {
-            import std.stdio : stderr;
-            stderr.writeln("URL init failed: ", result.errorMessage);
-        }
-        catch (Exception) {}
-    }
-
-    engine.freeValue(global);
+    installPureJsModule(engine, urlSource(), "<url>", "URL");
 
     version (EngineQuickJS)
         registerQuickJSModule(engine);

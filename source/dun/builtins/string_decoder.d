@@ -2,26 +2,11 @@ module dun.builtins.string_decoder;
 
 import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
 import dun.runtime.globals : DunState;
+import dun.builtins.helpers : installPureJsModule;
 
 void registerStringDecoderModule(IJSEngine engine) @trusted
 {
-    assert(engine !is null, "Null engine in registerStringDecoderModule");
-
-    auto global = engine.getGlobal();
-
-    auto src = stringDecoderSource();
-    auto result = engine.eval(src, "<string_decoder>");
-    if (result.isError)
-    {
-        try
-        {
-            import std.stdio : stderr;
-            stderr.writeln("string_decoder init failed: ", result.errorMessage);
-        }
-        catch (Exception) {}
-    }
-
-    engine.freeValue(global);
+    installPureJsModule(engine, stringDecoderSource(), "<string_decoder>", "string_decoder");
 
     version (EngineQuickJS)
         registerQuickJSModule(engine);

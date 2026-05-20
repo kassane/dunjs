@@ -2,22 +2,11 @@ module dun.builtins.assert_;
 
 import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
 import dun.runtime.globals : DunState;
+import dun.builtins.helpers : installPureJsModule;
 
 void registerAssertModule(IJSEngine engine) @trusted
 {
-    assert(engine !is null, "Null engine in registerAssertModule");
-
-    auto src = assertSource();
-    auto result = engine.eval(src, "<assert>");
-    if (result.isError)
-    {
-        try
-        {
-            import std.stdio : stderr;
-            stderr.writeln("assert init failed: ", result.errorMessage);
-        }
-        catch (Exception) {}
-    }
+    installPureJsModule(engine, assertSource(), "<assert>", "assert");
 
     version (EngineQuickJS)
         registerQuickJSModule(engine);

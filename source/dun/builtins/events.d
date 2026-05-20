@@ -2,27 +2,13 @@ module dun.builtins.events;
 
 import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
 import dun.runtime.globals : DunState;
+import dun.builtins.helpers : installPureJsModule;
 
 void registerEventsModule(IJSEngine engine) @trusted
 {
-    assert(engine !is null, "Null engine in registerEventsModule");
-    auto global = engine.getGlobal();
-
     // EventEmitter is implemented in JS since it's mostly data structure logic.
     // This avoids complex D<->JS callback management for .on()/.emit().
-    auto src = eventEmitterSource();
-    auto result = engine.eval(src, "<events>");
-    if (result.isError)
-    {
-        try
-        {
-            import std.stdio : stderr;
-            stderr.writeln("EventEmitter init failed: ", result.errorMessage);
-        }
-        catch (Exception) {}
-    }
-
-    engine.freeValue(global);
+    installPureJsModule(engine, eventEmitterSource(), "<events>", "EventEmitter");
 
     version (EngineQuickJS)
         registerQuickJSModule(engine);

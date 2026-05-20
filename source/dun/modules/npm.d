@@ -27,7 +27,14 @@ bool installPackage(string spec, AuditMode auditMode = AuditMode.warn,
     assert(spec.length > 0, "Package spec must not be empty");
 
     string name, versionRange;
-    auto atIdx = spec.indexOf('@');
+    // Scoped packages start with '@' (e.g. `@types/sarif`); their version
+    // separator is the SECOND '@' (after the scope+name part), not the
+    // first. Without this, `installPackage("@types/sarif@^2.1.7")` would
+    // see indexOf('@')==0, fall into the else branch, and try to fetch
+    // the entire spec as the package name.
+    auto atIdx = spec.length > 0 && spec[0] == '@'
+        ? spec[1 .. $].indexOf('@') + 1
+        : spec.indexOf('@');
     if (atIdx > 0)
     {
         name = spec[0 .. atIdx];

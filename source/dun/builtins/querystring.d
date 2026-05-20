@@ -2,26 +2,11 @@ module dun.builtins.querystring;
 
 import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
 import dun.runtime.globals : DunState;
+import dun.builtins.helpers : installPureJsModule;
 
 void registerQuerystringModule(IJSEngine engine) @trusted
 {
-    assert(engine !is null, "Null engine in registerQuerystringModule");
-
-    auto global = engine.getGlobal();
-
-    auto src = querystringSource();
-    auto result = engine.eval(src, "<querystring>");
-    if (result.isError)
-    {
-        try
-        {
-            import std.stdio : stderr;
-            stderr.writeln("querystring init failed: ", result.errorMessage);
-        }
-        catch (Exception) {}
-    }
-
-    engine.freeValue(global);
+    installPureJsModule(engine, querystringSource(), "<querystring>", "querystring");
 
     version (EngineQuickJS)
         registerQuickJSModule(engine);

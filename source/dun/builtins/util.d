@@ -2,26 +2,11 @@ module dun.builtins.util;
 
 import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
 import dun.runtime.globals : DunState;
+import dun.builtins.helpers : installPureJsModule;
 
 void registerUtilModule(IJSEngine engine) @trusted
 {
-    assert(engine !is null, "Null engine in registerUtilModule");
-
-    auto global = engine.getGlobal();
-
-    auto src = utilSource();
-    auto result = engine.eval(src, "<util>");
-    if (result.isError)
-    {
-        try
-        {
-            import std.stdio : stderr;
-            stderr.writeln("util init failed: ", result.errorMessage);
-        }
-        catch (Exception) {}
-    }
-
-    engine.freeValue(global);
+    installPureJsModule(engine, utilSource(), "<util>", "util");
 
     version (EngineQuickJS)
         registerQuickJSModule(engine);
