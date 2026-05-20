@@ -421,25 +421,16 @@ JSHandle jsBufferFrom(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trust
         }
         else if (encoding == "latin1" || encoding == "binary")
         {
-            // Latin1: each JS char's charCode (0-255) maps to one byte.
-            // extractString gives UTF-8, so decode codepoints and take low byte.
-            ubyte[] bytes;
-            size_t i = 0;
-            auto raw = cast(const(ubyte)[]) str;
-            while (i < raw.length)
-            {
-                uint cp;
-                if (raw[i] < 0x80) { cp = raw[i]; i += 1; }
-                else if ((raw[i] & 0xE0) == 0xC0 && i + 1 < raw.length) {
-                    cp = ((raw[i] & 0x1F) << 6) | (raw[i+1] & 0x3F); i += 2;
-                }
-                else if ((raw[i] & 0xF0) == 0xE0 && i + 2 < raw.length) {
-                    cp = ((raw[i] & 0x0F) << 12) | ((raw[i+1] & 0x3F) << 6) | (raw[i+2] & 0x3F); i += 3;
-                }
-                else { cp = raw[i]; i += 1; }
-                bytes ~= cast(ubyte)(cp & 0xFF);
-            }
-            return makeBufferObj(engine, bytes);
+            /* Latin1: each JS char's charCode (0-255) maps to one byte.
+               extractString gives UTF-8, so decode codepoints and take
+               low byte. Centralized helper (`utf8ToLatin1Buf`) shares
+               UTF-8 constants with the encoder and the JSC backend
+               decoder, so the surrogate / astral handling is identical
+               across all three paths. */
+            import dun.platform.simd : utf8ToLatin1Buf;
+            auto bytes = new ubyte[str.length];  // output ≤ input bytes
+            auto produced = utf8ToLatin1Buf(str, bytes);
+            return makeBufferObj(engine, bytes[0 .. produced]);
         }
         else
         {
@@ -1032,16 +1023,72 @@ JSHandle jsBufferWrite(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trus
 
     auto bytes = extractBytes(engine, thisVal);
     auto str = engine.extractString(args[0]);
+
+    /* Node-style argument parsing: write(string[, offset[, length[, encoding]]])
+       Any positional arg can be the encoding string in place of a number,
+       so we sniff each remaining slot for string-vs-number. */
     int offset = 0;
-    if (args.length >= 2 && engine.isNumber(args[1]))
-        offset = engine.extractInt(args[1]);
+    int length = -1;        // -1 means "until end of buffer"
+    string encoding = "utf8";
+    if (args.length >= 2)
+    {
+        if (engine.isString(args[1]))
+            encoding = engine.extractString(args[1]);
+        else if (engine.isNumber(args[1]))
+            offset = engine.extractInt(args[1]);
+    }
+    if (args.length >= 3)
+    {
+        if (engine.isString(args[2]))
+            encoding = engine.extractString(args[2]);
+        else if (engine.isNumber(args[2]))
+            length = engine.extractInt(args[2]);
+    }
+    if (args.length >= 4 && engine.isString(args[3]))
+        encoding = engine.extractString(args[3]);
+
+    if (offset < 0 || offset > cast(int) bytes.length)
+        return engine.throwRangeError("offset out of range");
+    int avail = cast(int) bytes.length - offset;
+    if (length < 0 || length > avail) length = avail;
 
     int written = 0;
-    auto src = cast(const(ubyte)[]) str;
-    for (size_t i = 0; i < src.length && offset + i < bytes.length; i++)
+    if (encoding == "latin1" || encoding == "binary")
     {
-        bytes[offset + i] = src[i];
-        written++;
+        /* JS strings hold UTF-8 in `extractString`; for latin1 we must
+           decode each UTF-8 code point and store its low byte. Without
+           this, `buf.write("\x80", 0, 1, "latin1")` would write 0xC2 (the
+           UTF-8 lead byte) instead of 0x80 — the bug fixed in v1.1.4. */
+        import dun.platform.simd : utf8ToLatin1Buf;
+        // Decode into a scratch buffer, then memcpy up to `length` bytes.
+        // Worst case: src.length == JS-string-length-in-UTF-8-bytes,
+        // output is ≤ src bytes. Use a stack buffer for typical small
+        // writes, GC for very large.
+        import dun.platform.arena : StackFallback;
+        enum WRITE_STACK_BUDGET = 4096;
+        StackFallback!WRITE_STACK_BUDGET sfb;
+        scope(exit) sfb.deallocateAll();
+        auto raw = sfb.allocate(str.length);
+        if (raw is null) return engine.newInt(0);
+        auto decoded = cast(ubyte[]) raw;
+        auto produced = utf8ToLatin1Buf(str, decoded);
+        auto n = produced < cast(size_t) length ? produced : cast(size_t) length;
+        bytes[offset .. offset + n] = decoded[0 .. n];
+        written = cast(int) n;
+    }
+    else
+    {
+        // utf8 (default) and ascii: copy UTF-8 bytes through.
+        // 'ascii' clamps each byte to its low 7 bits per Node semantics
+        // — but only on byte ≥ 0x80, which the extractString UTF-8
+        // already doesn't produce for ascii-only input.
+        auto src = cast(const(ubyte)[]) str;
+        size_t n = src.length < cast(size_t) length ? src.length : cast(size_t) length;
+        bytes[offset .. offset + n] = src[0 .. n];
+        if (encoding == "ascii")
+            foreach (ref b; bytes[offset .. offset + n])
+                if (b >= 0x80) b &= 0x7F;
+        written = cast(int) n;
     }
 
     return engine.newInt(written);

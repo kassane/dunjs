@@ -43,14 +43,16 @@ class JSCEngine : IJSEngine
     {
 
         assert(ctx !is null, "JSC context not initialized");
-        auto jsSource = JSStringCreateWithUTF8CString(source.toStringz);
-        scope (exit) JSStringRelease(jsSource);
+        /* `createJSStringFromD` is NUL-safe so JS source containing
+           a literal `\0` is handled correctly (the UTF8CString fast
+           path would truncate at the first NUL, silently dropping
+           the rest of the program). */
+        auto jsSource = createJSStringFromD(source);
+        scope (exit) if (jsSource !is null) JSStringRelease(jsSource);
 
         JSStringRef jsFilename = null;
         if (filename.length > 0)
-        {
-            jsFilename = JSStringCreateWithUTF8CString(filename.toStringz);
-        }
+            jsFilename = createJSStringFromD(filename);
         scope (exit) if (jsFilename !is null) JSStringRelease(jsFilename);
 
         JSValueRef exception = null;
@@ -86,17 +88,21 @@ class JSCEngine : IJSEngine
 
     private enum STACK_TERM_SIZE = 512;
 
-    JSHandle newString(scope const(char)[] s) @trusted
+    /* NUL-safe JSStringRef factory: `JSStringCreateWithUTF8CString`
+       terminates at the first NUL, so any D-side string containing
+       0x00 bytes (Buffer.toString('latin1') of a NUL-containing
+       buffer; .ts source code with a literal `\0`; etc.) would get
+       truncated. Fast path scans for NUL via SIMD `findByte`; when
+       none is present we use the cheap UTF8CString constructor with
+       a stack-terminated buffer for short inputs. When a NUL is
+       found we decode UTF-8 → UTF-16 and call the length-explicit
+       `JSStringCreateWithCharacters`. Used by every entry point
+       that creates a JSStringRef from D-side bytes (`newString`,
+       `eval`'s source / filename, etc.) — historically having two
+       copies of this logic is exactly how NUL-handling regresses
+       in one place but not the other. */
+    private JSStringRef createJSStringFromD(scope const(char)[] s) @trusted
     {
-        assert(ctx !is null, "JSC context not initialized");
-        /* JSStringCreateWithUTF8CString terminates at the first NUL,
-           so Buffer.toString('latin1') of a buffer containing 0x00
-           bytes (or any user input with embedded \0) gets truncated.
-           Fast path scans for NUL via SIMD `findByte`; when none is
-           present, we use the cheap UTF8CString constructor with a
-           stack-terminated buffer for short strings. When a NUL is
-           found we fall through to the UTF-16 constructor below,
-           which is length-explicit. */
         import dun.platform.simd : findByte;
         bool hasNul = findByte(cast(const(ubyte)[]) s, '\0') != s.length;
         if (!hasNul)
@@ -114,20 +120,10 @@ class JSCEngine : IJSEngine
             {
                 cstr = s.toStringz;
             }
-            auto jsStr = JSStringCreateWithUTF8CString(cstr);
-            assert(jsStr !is null, "JSStringCreateWithUTF8CString returned null");
-            auto val = JSValueMakeString(ctx, jsStr);
-            JSStringRelease(jsStr);
-            return toHandle(cast(void*) val);
+            return JSStringCreateWithUTF8CString(cstr);
         }
-        /* NUL-safe slow path: decode UTF-8 to UTF-16 in place so we
-           can call JSStringCreateWithCharacters (length-explicit).
-           UTF-8 chars expand to at most 1 JSChar (BMP) or 2 JSChars
-           (surrogate pair for non-BMP). Worst case is s.length
-           JSChars — plain ASCII is 1:1, every other input is shorter.
-
-           UTF-8 / UTF-16 constants live in `dun.declarations` so
-           they're shared with the SIMD `latin1ToUtf8Buf` encoder. */
+        // NUL-safe slow path: decode UTF-8 → UTF-16, length-explicit.
+        // Worst case is s.length JSChars (ASCII 1:1, others shorter).
         import dun.declarations :
             UTF8_ASCII_MAX, UTF8_CONT_MASK,
             UTF8_2BYTE_LEAD, UTF8_2BYTE_MASK,
@@ -139,7 +135,7 @@ class JSCEngine : IJSEngine
 
         ushort[] codeUnits;
         try codeUnits = new ushort[s.length];
-        catch (Exception) return toHandle(cast(void*) JSValueMakeUndefined(ctx));
+        catch (Exception) return null;
         size_t outIdx = 0;
         size_t i = 0;
         while (i < s.length)
@@ -192,8 +188,15 @@ class JSCEngine : IJSEngine
                 codeUnits[outIdx++] = cast(ushort)(UTF16_LOW_SURROGATE_BASE  | (cp & UTF16_SURROGATE_LOW_MASK));
             }
         }
-        auto jsStr = JSStringCreateWithCharacters(codeUnits.ptr, outIdx);
-        assert(jsStr !is null, "JSStringCreateWithCharacters returned null");
+        return JSStringCreateWithCharacters(codeUnits.ptr, outIdx);
+    }
+
+    JSHandle newString(scope const(char)[] s) @trusted
+    {
+        assert(ctx !is null, "JSC context not initialized");
+        auto jsStr = createJSStringFromD(s);
+        if (jsStr is null)
+            return toHandle(cast(void*) JSValueMakeUndefined(ctx));
         auto val = JSValueMakeString(ctx, jsStr);
         JSStringRelease(jsStr);
         return toHandle(cast(void*) val);

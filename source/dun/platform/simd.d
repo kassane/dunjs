@@ -294,6 +294,59 @@ size_t latin1ToUtf8Buf(const(ubyte)[] src, char[] dst)
     return j;
 }
 
+/// Decode a UTF-8 byte sequence (assumed valid for Latin-1 round-trip
+/// — only 1- and 2-byte sequences are expected) back into the
+/// corresponding Latin-1 byte sequence. Returns the number of Latin-1
+/// bytes written. Higher-plane code points (3+ byte UTF-8) get
+/// truncated to their low 8 bits, matching Node/Bun's
+/// `Buffer.prototype.write('latin1')` behavior. `dst` must be at
+/// least `src.length` bytes (Latin-1 output is ≤ UTF-8 input length).
+size_t utf8ToLatin1Buf(const(char)[] src, ubyte[] dst)
+    pure nothrow @nogc @trusted
+{
+    import dun.declarations :
+        UTF8_ASCII_MAX, UTF8_CONT_MASK,
+        UTF8_2BYTE_LEAD, UTF8_2BYTE_MASK,
+        UTF8_3BYTE_LEAD, UTF8_3BYTE_MASK,
+        UTF8_4BYTE_LEAD, UTF8_4BYTE_MASK;
+    assert(dst.length >= src.length,
+        "dst too small for UTF-8 → Latin-1 (output ≤ input bytes)");
+    size_t j = 0;
+    size_t i = 0;
+    while (i < src.length)
+    {
+        ubyte b = cast(ubyte) src[i];
+        uint cp;
+        size_t advance;
+        if (b <= UTF8_ASCII_MAX)        { cp = b; advance = 1; }
+        else if (b < UTF8_2BYTE_LEAD)   { cp = b; advance = 1; }   // stray, store as-is
+        else if (b < UTF8_3BYTE_LEAD && i + 1 < src.length)
+        {
+            cp = ((b & UTF8_2BYTE_MASK) << 6) | (src[i+1] & UTF8_CONT_MASK);
+            advance = 2;
+        }
+        else if (b < UTF8_4BYTE_LEAD && i + 2 < src.length)
+        {
+            cp = ((b & UTF8_3BYTE_MASK) << 12)
+               | ((src[i+1] & UTF8_CONT_MASK) << 6)
+               | (src[i+2] & UTF8_CONT_MASK);
+            advance = 3;
+        }
+        else if (i + 3 < src.length)
+        {
+            cp = ((b & UTF8_4BYTE_MASK) << 18)
+               | ((src[i+1] & UTF8_CONT_MASK) << 12)
+               | ((src[i+2] & UTF8_CONT_MASK) << 6)
+               | (src[i+3] & UTF8_CONT_MASK);
+            advance = 4;
+        }
+        else { cp = b; advance = 1; }
+        i += advance;
+        dst[j++] = cast(ubyte) cp;  // truncate to low 8 bits per Node semantics
+    }
+    return j;
+}
+
 /// Compile-time-sized variant: stack-allocates the destination so
 /// callers with a known-N input (GCM tag = 16 bytes, SHA-256 = 32,
 /// etc.) skip the GC allocation entirely. Returns by value; callers
