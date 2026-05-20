@@ -671,6 +671,16 @@ private void ensureHeadersFlattener(IJSEngine engine) @trusted
     auto result = engine.eval(src, "<fetch-headers-flatten>");
     if (!result.isError && engine.isFunction(result.value))
     {
+        /* `dupValue` on JSC returns the same JSValueRef with the
+           protect counter incremented; `freeValue` would decrement
+           and bring it back to 0 (JSC's `JSEvaluateScript` returns
+           an unprotected value). To pin the cached handle alive
+           permanently, do TWO `dupValue` calls — the first matches
+           the implicit eval-return ownership we're freeing; the
+           second is the permanent root. On QJS / V8 this is a
+           +1 refcount that lives forever (intended — this is a
+           permanently-cached __gshared global). */
+        engine.dupValue(result.value);
         _fetchHeadersFlattener = engine.dupValue(result.value);
         _fetchHeadersFlattenerCached = true;
     }
@@ -691,6 +701,12 @@ private void ensureResponseBuilder(IJSEngine engine) @trusted
     auto result = engine.eval(builderSrc, "<fetch-response-builder>");
     if (!result.isError && engine.isFunction(result.value))
     {
+        // Double-dup so the cached __gshared handle survives the
+        // freeValue below — JSC's eval returns an unprotected
+        // JSValueRef and `freeValue` would otherwise drop the
+        // protect counter back to 0. See ensureHeadersFlattener
+        // for the full explanation.
+        engine.dupValue(result.value);
         _fetchResponseBuilder = engine.dupValue(result.value);
         _fetchResponseBuilderCached = true;
     }

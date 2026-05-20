@@ -863,6 +863,10 @@ private JSHandle lookupKeysFn(IJSEngine engine) @trusted
     auto r = engine.eval("(o => Object.keys(o))", "<yaml-keys>");
     if (!r.isError && engine.isFunction(r.value))
     {
+        // Double-dup so the cached __gshared handle survives the
+        // freeValue below — JSC's eval returns an unprotected
+        // JSValueRef. Same pattern as fetch.d's _fetchResponseBuilder.
+        engine.dupValue(r.value);
         _yamlKeysFn = engine.dupValue(r.value);
         _yamlKeysFnCached = true;
     }
