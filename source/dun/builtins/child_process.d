@@ -406,12 +406,12 @@ JSHandle jsExec(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
                 engine.setProperty(errObj, "code", engine.newInt(result.status));
                 engine.setProperty(errObj, "killed", engine.newBool(false));
                 JSHandle[] cbArgs = [errObj, engine.newString(stdout_), engine.newString("")];
-                engine.callFunction(cb, engine.newUndefined(), cbArgs);
+                engine.freeValue(engine.callFunction(cb, engine.newUndefined(), cbArgs));
             }
             else
             {
                 JSHandle[] cbArgs = [engine.newNull(), engine.newString(stdout_), engine.newString("")];
-                engine.callFunction(cb, engine.newUndefined(), cbArgs);
+                engine.freeValue(engine.callFunction(cb, engine.newUndefined(), cbArgs));
             }
             return engine.newUndefined();
         }
@@ -430,7 +430,7 @@ JSHandle jsExec(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
             engine.setProperty(errObj, "stdout", engine.newString(stdout_));
             engine.setProperty(errObj, "stderr", engine.newString(""));
             JSHandle[] rejArgs = [errObj];
-            engine.callFunction(ph.reject, engine.newUndefined(), rejArgs);
+            engine.freeValue(engine.callFunction(ph.reject, engine.newUndefined(), rejArgs));
         }
         else
         {
@@ -438,7 +438,7 @@ JSHandle jsExec(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
             engine.setProperty(resObj, "stdout", engine.newString(stdout_));
             engine.setProperty(resObj, "stderr", engine.newString(""));
             JSHandle[] resArgs = [resObj];
-            engine.callFunction(ph.resolve, engine.newUndefined(), resArgs);
+            engine.freeValue(engine.callFunction(ph.resolve, engine.newUndefined(), resArgs));
         }
 
         return ph.promise;
@@ -454,7 +454,7 @@ JSHandle jsExec(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
             engine.setProperty(errObj, "message", engine.newString(msg));
             engine.setProperty(errObj, "code", engine.newString("ENOENT"));
             JSHandle[] cbArgs = [errObj, engine.newString(""), engine.newString("")];
-            engine.callFunction(args[1], engine.newUndefined(), cbArgs);
+            engine.freeValue(engine.callFunction(args[1], engine.newUndefined(), cbArgs));
             return engine.newUndefined();
         }
         return engine.throwTypeError("exec failed: " ~ msg);
@@ -828,12 +828,12 @@ JSHandle jsExecFile(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
                 engine.setProperty(errObj, "killed", engine.newBool(false));
                 engine.setProperty(errObj, "cmd", engine.newString(file));
                 JSHandle[] cbArgs = [errObj, engine.newString(stdoutStr), engine.newString(stderrStr)];
-                engine.callFunction(callbackFn, engine.newUndefined(), cbArgs);
+                engine.freeValue(engine.callFunction(callbackFn, engine.newUndefined(), cbArgs));
             }
             else
             {
                 JSHandle[] cbArgs = [engine.newNull(), engine.newString(stdoutStr), engine.newString(stderrStr)];
-                engine.callFunction(callbackFn, engine.newUndefined(), cbArgs);
+                engine.freeValue(engine.callFunction(callbackFn, engine.newUndefined(), cbArgs));
             }
             return engine.newUndefined();
         }
@@ -854,7 +854,7 @@ JSHandle jsExecFile(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
             engine.setProperty(errObj, "stderr", engine.newString(stderrStr));
             engine.setProperty(errObj, "cmd", engine.newString(file));
             JSHandle[] rejArgs = [errObj];
-            engine.callFunction(ph.reject, engine.newUndefined(), rejArgs);
+            engine.freeValue(engine.callFunction(ph.reject, engine.newUndefined(), rejArgs));
         }
         else
         {
@@ -862,7 +862,7 @@ JSHandle jsExecFile(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
             engine.setProperty(resObj, "stdout", engine.newString(stdoutStr));
             engine.setProperty(resObj, "stderr", engine.newString(stderrStr));
             JSHandle[] resArgs = [resObj];
-            engine.callFunction(ph.resolve, engine.newUndefined(), resArgs);
+            engine.freeValue(engine.callFunction(ph.resolve, engine.newUndefined(), resArgs));
         }
 
         return ph.promise;
@@ -881,7 +881,7 @@ JSHandle jsExecFile(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
             engine.setProperty(errObj, "syscall", engine.newString("spawn"));
             engine.setProperty(errObj, "path", engine.newString(file));
             JSHandle[] cbArgs = [errObj, engine.newString(""), engine.newString("")];
-            engine.callFunction(callbackFn, engine.newUndefined(), cbArgs);
+            engine.freeValue(engine.callFunction(callbackFn, engine.newUndefined(), cbArgs));
             return engine.newUndefined();
         }
         return engine.throwTypeError("execFile failed: " ~ msg);
