@@ -689,6 +689,46 @@ napi_status napi_throw(napi_env env, napi_value error)
     return napi_ok;
 }
 
+// `napi_get_last_error_info` is mandatory for any addon that does its
+// own error checking — node-addon-api's `Napi::Error::ThrowAsJavaScriptException`
+// calls it before deciding what to surface. We don't track per-thread
+// last-error state; return a static struct describing "no extra info".
+struct napi_extended_error_info
+{
+    const(char)* error_message;
+    void*        engine_reserved;
+    uint         engine_error_code;
+    napi_status  error_code;
+}
+
+napi_status napi_get_last_error_info(napi_env env, const(napi_extended_error_info)** result)
+{
+    if (env is null || result is null) return napi_invalid_arg;
+    static __gshared napi_extended_error_info gNoError = napi_extended_error_info(
+        null, null, 0, napi_ok);
+    *result = &gNoError;
+    return napi_ok;
+}
+
+// `napi_fatal_error` aborts the process — mirrors Node.js semantics.
+// Used by addons to signal unrecoverable corruption (Napi::Error::Fatal).
+void napi_fatal_error(const(char)* location, size_t location_len,
+    const(char)* message, size_t message_len)
+{
+    import core.stdc.stdio : fprintf, stderr;
+    import core.stdc.stdlib : abort;
+    auto loc = (location is null) ? "<unknown>" : (location_len == size_t.max
+        ? cast(string) location[0 .. () { size_t l; while (location[l] != 0) l++; return l; }()]
+        : cast(string) location[0 .. location_len]);
+    auto msg = (message is null) ? "(no message)" : (message_len == size_t.max
+        ? cast(string) message[0 .. () { size_t l; while (message[l] != 0) l++; return l; }()]
+        : cast(string) message[0 .. message_len]);
+    fprintf(stderr, "FATAL ERROR: %.*s %.*s\n",
+        cast(int) loc.length, loc.ptr,
+        cast(int) msg.length, msg.ptr);
+    abort();
+}
+
 napi_status napi_throw_range_error(napi_env env, const(char)* code, const(char)* msg)
 {
     if (env is null || msg is null) return napi_invalid_arg;
@@ -1728,6 +1768,13 @@ import dun.declarations :
     NAPI_ASYNC_SENTINEL, NAPI_VERSION,
     NODE_VERSION_MAJOR, NODE_VERSION_MINOR, NODE_VERSION_PATCH;
 
+// Re-enable C linkage for the public N-API surface — the
+// `private extern(D):` above scopes the wrap helpers only.
+// Without this, every napi_get_version / napi_coerce_to_bool /
+// napi_async_* / napi_set_instance_data exported below gets
+// D-mangled and invisible to dlopen'd native addons.
+extern(C) @trusted:
+
 napi_status napi_get_version(napi_env env, uint* result)
 {
     mixin(Check!"env result");
@@ -2009,20 +2056,14 @@ napi_status napi_get_all_property_names(napi_env env, napi_value object,
 }
 
 // ── String (latin-1) ─────────────────────────────────────────────
-
-napi_status napi_create_string_latin1(napi_env env, const(char)* str, size_t length, napi_value* result)
-{
-    if (env is null || result is null) return napi_invalid_arg;
-    if (str is null) length = 0;
-    auto bytes = length == size_t.max ? cast(string) str[0 .. _strLen(str)] : cast(string) str[0 .. length];
-    *result = allocValue(env.engine.newString(bytes));
-    return napi_ok;
-}
+// `napi_create_string_latin1` lives in the earlier extern(C) block —
+// the version there correctly expands bytes ≥ 0x80 to two UTF-8 bytes
+// via Appender, matching what `Buffer.from(buf, 'latin1')` does.
+// `napi_get_value_string_latin` delegates to the UTF-8 reader since
+// JSC stores latin-1 internally and Bun does the same on JSC.
 
 napi_status napi_get_value_string_latin(napi_env env, napi_value value, char* buf, size_t bufsize, size_t* result)
 {
-    // Latin-1 strings — for our purposes treat as UTF-8 (Bun does the
-    // same when running on JSC since JSC stores latin-1 internally).
     return napi_get_value_string_utf8(env, value, buf, bufsize, result);
 }
 
