@@ -179,8 +179,12 @@ JSHandle jsOsHostname(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trust
                 char[HOSTNAME_BUF_SIZE] buf;
                 if (gethostname(buf.ptr, buf.length) == 0)
                 {
+                    /* `newString` copies the bytes into engine-owned storage,
+                       so the previous `.idup` was a redundant GC allocation
+                       on the per-call hostname path. */
                     import core.stdc.string : strlen;
-                    name = cast(string) buf[0 .. strlen(buf.ptr)].idup;
+                    return engine.newString(
+                        cast(const(char)[]) buf[0 .. strlen(buf.ptr)]);
                 }
             }
         }
@@ -345,7 +349,7 @@ JSHandle jsOsRelease(void* ctx, JSHandle thisVal, scope JSHandle[] args) @truste
             {
                 import core.stdc.string : strlen;
                 auto p = buf.release.ptr;
-                return engine.newString(cast(string) p[0 .. strlen(p)].idup);
+                return engine.newString(cast(const(char)[]) p[0 .. strlen(p)]);
             }
         }
         catch (Exception) {}
@@ -397,12 +401,15 @@ JSHandle jsOsUserInfo(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trust
             auto pw = getpwuid(uid);
             if (pw !is null)
             {
-                auto name = cast(string) pw.pw_name[0 .. strlen(pw.pw_name)].idup;
-                auto dir = cast(string) pw.pw_dir[0 .. strlen(pw.pw_dir)].idup;
-                auto shell = cast(string) pw.pw_shell[0 .. strlen(pw.pw_shell)].idup;
-                engine.setProperty(obj, "username", engine.newString(name));
-                engine.setProperty(obj, "homedir", engine.newString(dir));
-                engine.setProperty(obj, "shell", engine.newString(shell));
+                /* `newString` copies the bytes into engine-owned storage,
+                   so the previous per-field `.idup` allocations were
+                   redundant — the slices live until `newString` returns. */
+                engine.setProperty(obj, "username", engine.newString(
+                    cast(const(char)[]) pw.pw_name[0 .. strlen(pw.pw_name)]));
+                engine.setProperty(obj, "homedir", engine.newString(
+                    cast(const(char)[]) pw.pw_dir[0 .. strlen(pw.pw_dir)]));
+                engine.setProperty(obj, "shell", engine.newString(
+                    cast(const(char)[]) pw.pw_shell[0 .. strlen(pw.pw_shell)]));
             }
             else
             {
@@ -476,7 +483,7 @@ JSHandle jsOsVersion(void* ctx, JSHandle thisVal, scope JSHandle[] args) @truste
             {
                 import core.stdc.string : strlen;
                 auto p = buf.release.ptr;
-                return engine.newString(cast(string) p[0 .. strlen(p)].idup);
+                return engine.newString(cast(const(char)[]) p[0 .. strlen(p)]);
             }
         }
         catch (Exception) {}
@@ -497,7 +504,7 @@ JSHandle jsOsMachine(void* ctx, JSHandle thisVal, scope JSHandle[] args) @truste
             {
                 import core.stdc.string : strlen;
                 auto p = buf.machine.ptr;
-                return engine.newString(cast(string) p[0 .. strlen(p)].idup);
+                return engine.newString(cast(const(char)[]) p[0 .. strlen(p)]);
             }
         }
         catch (Exception) {}

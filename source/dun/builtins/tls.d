@@ -283,8 +283,11 @@ void readTlsData(int id) nothrow @trusted
         {
             if (conn.eventsSet && conn.engine.isFunction(conn.onData))
             {
+                /* `newString` takes `scope const(char)[]` and copies bytes
+                   into engine-owned storage. The previous `.idup` was a
+                   per-read GC allocation on the hot TLS data path. */
                 auto jsData = conn.engine.newString(
-                    cast(string) conn.readBuf[0 .. n].idup);
+                    cast(const(char)[]) conn.readBuf[0 .. n]);
                 JSHandle[1] callArgs = [jsData];
                 pushAgnosticPending(conn.engine, conn.onData, callArgs[]);
                 conn.engine.freeValue(jsData);

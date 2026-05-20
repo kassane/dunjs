@@ -307,7 +307,10 @@ JSHandle jsSqliteVersion(void* ctx, JSHandle thisVal, scope JSHandle[] args) @tr
     if (ver is null)
         return engine.newString("unknown");
     import std.string : fromStringz;
-    return engine.newString(fromStringz(ver).idup);
+    /* `sqlite3_libversion` returns a static const string from
+       sqlite3.c; passing the slice directly to `newString` (which
+       copies) avoids the redundant `.idup`. */
+    return engine.newString(cast(const(char)[]) fromStringz(ver));
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────
@@ -390,7 +393,12 @@ JSHandle extractRow(IJSEngine engine, sqlite3_stmt* stmt) @trusted
                 break;
             case SQLITE_TEXT:
                 auto textPtr = cast(const(char)*) sqlite3_column_text(stmt, i);
-                val = engine.newString(textPtr !is null ? fromStringz(textPtr).idup : "");
+                /* `sqlite3_column_text`'s pointer is valid until the next
+                   call against this stmt; `newString` copies into engine
+                   storage before we touch the stmt again. The previous
+                   `.idup` allocated a redundant D string per column. */
+                val = engine.newString(textPtr !is null
+                    ? cast(const(char)[]) fromStringz(textPtr) : "");
                 break;
             case SQLITE_NULL:
                 val = engine.newNull();

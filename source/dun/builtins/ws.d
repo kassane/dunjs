@@ -1042,7 +1042,15 @@ void processFrames(WsConnState* conn, int cid) nothrow @trusted
             {
                 try
                 {
-                    auto msgStr = conn.engine.newString(cast(string) frame.payload.idup);
+                    /* `newString` copies the payload bytes into engine
+                       storage; the previous `.idup` allocated a redundant
+                       D string per message. For masked frames `frame.payload`
+                       is already a fresh ubyte[] from `parseWsFrame`, for
+                       unmasked frames it's a slice into `conn.buf` that
+                       lives across this synchronous newString call (the
+                       buffer shift happens later, at line ~1090). */
+                    auto msgStr = conn.engine.newString(
+                        cast(const(char)[]) frame.payload);
                     JSHandle[1] msgArgs = [msgStr];
                     pushAgnosticPending(conn.engine, conn.onmessage, msgArgs[]);
                     conn.engine.freeValue(msgStr);

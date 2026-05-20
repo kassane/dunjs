@@ -2025,57 +2025,64 @@ void parseRequestHeaders(HttpConnState* conn, const(char)[] text) nothrow @trust
     assert(conn !is null, "Null HttpConnState in parseRequestHeaders");
     try
     {
+        import dun.platform.simd : asciiToLowerBuf, findByte;
+
         size_t lineStart = 0;
         int lineNo = 0;
 
-        import dun.platform.simd : asciiToLowerBuf;
-
-        for (size_t i = 0; i <= text.length; i++)
+        /* SIMD line-splitter: `findByte` jumps 16 bytes/cycle to the
+           next '\n' (or returns `text.length` when none remain). Was a
+           serial `text[i] == '\n'` scan that touched every byte. The
+           request line + ~10 headers loop now runs in O(text/16). */
+        while (lineStart <= text.length)
         {
-            if (i == text.length || text[i] == '\n')
-            {
-                size_t end = i;
-                if (end > lineStart && text[end-1] == '\r') end--;
-                auto lineSlice = text[lineStart .. end];
-                lineStart = i + 1;
+            const(ubyte)[] tail = cast(const(ubyte)[]) text[lineStart .. $];
+            size_t rel = findByte(tail, '\n');
+            size_t lineEnd = lineStart + rel;  // either at '\n' or text.length
+            size_t end = lineEnd;
+            if (end > lineStart && text[end - 1] == '\r') end--;
+            auto lineSlice = text[lineStart .. end];
 
-                if (lineNo == 0)
+            if (lineNo == 0)
+            {
+                // Request line: METHOD URL HTTP/1.1
+                // Zero-copy: slice directly into conn.buf (lives until keep-alive reset)
+                size_t sp1 = findByte(cast(const(ubyte)[]) lineSlice, ' ');
+                conn.method = lineSlice[0 .. sp1];
+                if (sp1 < lineSlice.length)
                 {
-                    // Request line: METHOD URL HTTP/1.1
-                    // Zero-copy: slice directly into conn.buf (lives until keep-alive reset)
-                    size_t sp1 = 0;
-                    while (sp1 < lineSlice.length && lineSlice[sp1] != ' ') sp1++;
-                    conn.method = lineSlice[0 .. sp1];
-                    size_t sp2 = sp1 + 1;
-                    while (sp2 < lineSlice.length && lineSlice[sp2] != ' ') sp2++;
-                    if (sp1 < lineSlice.length)
-                        conn.url = lineSlice[sp1 + 1 .. sp2];
+                    auto afterMethod = lineSlice[sp1 + 1 .. $];
+                    size_t sp2rel = findByte(cast(const(ubyte)[]) afterMethod, ' ');
+                    size_t sp2 = sp1 + 1 + sp2rel;
+                    conn.url = lineSlice[sp1 + 1 .. sp2];
                     if (sp2 + 1 < lineSlice.length)
                         conn.httpVersion = lineSlice[sp2 + 1 .. $];
                 }
-                else if (lineSlice.length > 0)
-                {
-                    // Header: Name: Value
-                    size_t col = 0;
-                    while (col < lineSlice.length && lineSlice[col] != ':') col++;
-                    if (col < lineSlice.length)
-                    {
-                        char[HTTP_MAX_HEADER_NAME] nameBuf = void;
-                        size_t nameLen = col < HTTP_MAX_HEADER_NAME ? col : HTTP_MAX_HEADER_NAME;
-                        nameBuf[0 .. nameLen] = lineSlice[0 .. nameLen];
-                        asciiToLowerBuf(nameBuf[0 .. nameLen]);
-                        // Intern common header names to avoid GC allocation per request
-                        string name = internHeaderName(nameBuf[0 .. nameLen]);
-
-                        // Trim leading whitespace from value
-                        // Zero-copy: slice directly into conn.buf (lives until keep-alive reset)
-                        size_t valStart = col + 1;
-                        while (valStart < lineSlice.length && lineSlice[valStart] == ' ') valStart++;
-                        conn.headers[name] = lineSlice[valStart .. $];
-                    }
-                }
-                lineNo++;
             }
+            else if (lineSlice.length > 0)
+            {
+                // Header: Name: Value
+                size_t col = findByte(cast(const(ubyte)[]) lineSlice, ':');
+                if (col < lineSlice.length)
+                {
+                    char[HTTP_MAX_HEADER_NAME] nameBuf = void;
+                    size_t nameLen = col < HTTP_MAX_HEADER_NAME ? col : HTTP_MAX_HEADER_NAME;
+                    nameBuf[0 .. nameLen] = lineSlice[0 .. nameLen];
+                    asciiToLowerBuf(nameBuf[0 .. nameLen]);
+                    // Intern common header names to avoid GC allocation per request
+                    string name = internHeaderName(nameBuf[0 .. nameLen]);
+
+                    // Trim leading whitespace from value
+                    // Zero-copy: slice directly into conn.buf (lives until keep-alive reset)
+                    size_t valStart = col + 1;
+                    while (valStart < lineSlice.length && lineSlice[valStart] == ' ') valStart++;
+                    conn.headers[name] = lineSlice[valStart .. $];
+                }
+            }
+            lineNo++;
+
+            if (lineEnd >= text.length) break;
+            lineStart = lineEnd + 1;
         }
     }
     catch (Exception) {}

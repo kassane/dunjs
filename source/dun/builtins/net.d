@@ -877,7 +877,14 @@ void readSocketData(int sockId) nothrow @trusted
             {
                 if (sock.eventsSet && sock.engine.isFunction(sock.onData))
                 {
-                    auto jsData = sock.engine.newString(cast(string) sock.readBuf[0 .. n].idup);
+                    /* `newString` takes `scope const(char)[]` and the engine
+                       copies the bytes into its own string storage. The
+                       previous `.idup` was a per-read GC allocation that
+                       did nothing the engine wasn't going to do itself
+                       (matches the "drop redundant clone()" pattern from
+                       upstream Bun's recent perf pass). */
+                    auto jsData = sock.engine.newString(
+                        cast(const(char)[]) sock.readBuf[0 .. n]);
                     JSHandle[1] callArgs = [jsData];
                     pushAgnosticPending(sock.engine, sock.onData, callArgs[]);
                     sock.engine.freeValue(jsData);

@@ -807,7 +807,11 @@ JSHandle jsBufferToString(void* ctx, JSHandle thisVal, scope JSHandle[] args) @t
     }
     else
     {
-        return engine.newString(cast(string) slice.idup);
+        /* `newString` copies the bytes into engine-owned storage,
+           so we can pass the slice directly. The previous `.idup`
+           allocated a redundant GC string on the hot Buffer.toString
+           path. */
+        return engine.newString(cast(const(char)[]) slice);
     }
 }
 

@@ -228,6 +228,32 @@ ulong bswap64(ulong val) pure nothrow @nogc @safe
                ((val << 40) & 0xFF_0000_0000_0000) | (val << 56);
 }
 
+/// SIMD-accelerated hex encoder returning a heap-allocated char[].
+/// Single allocation + SIMD path (when LDC) for sizes ≥ 16. Use this
+/// in place of `std.digest.toHexString!(LetterCase.lower)(buf).idup`
+/// — saves one allocation (no `.idup` immutable copy) and uses the
+/// 16-byte/cycle SIMD interleave path.
+char[] hexEncode(const(ubyte)[] src) @trusted
+{
+    auto dst = new char[src.length * 2];
+    hexEncodeBuf(src, dst);
+    return dst;
+}
+
+/// Compile-time-sized variant: stack-allocates the destination so
+/// callers with a known-N input (GCM tag = 16 bytes, SHA-256 = 32,
+/// etc.) skip the GC allocation entirely. Returns by value; callers
+/// can either keep the returned `char[2*N]` array on the stack or
+/// hand the slice straight to `engine.newString` (copies into engine
+/// storage synchronously, before the stack frame unwinds).
+char[2 * N] hexEncodeFixed(size_t N)(scope const ubyte[N] src)
+    pure nothrow @nogc @trusted
+{
+    char[2 * N] dst = void;
+    hexEncodeBuf(src[], dst[]);
+    return dst;
+}
+
 unittest
 {
     // toLower
@@ -248,6 +274,15 @@ unittest
     hexEncodeBuf(big[], bigHex[]);
     assert(bigHex[0 .. 8] == "00010203");
     assert(bigHex[32 .. 40] == "10111213");
+
+    // hexEncode heap variant
+    const(ubyte)[] dynData = [0xDE, 0xAD, 0xBE, 0xEF];
+    assert(hexEncode(dynData) == "deadbeef");
+
+    // hexEncodeFixed CTFE-sized variant
+    ubyte[4] fxData = [0xDE, 0xAD, 0xBE, 0xEF];
+    auto fxHex = hexEncodeFixed(fxData);
+    assert(fxHex[] == "deadbeef");
 
     // findByte
     const(ubyte)[] haystack = cast(const(ubyte)[]) "hello\nworld";
