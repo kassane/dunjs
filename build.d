@@ -81,7 +81,7 @@ enum JSC_LIB_MARKER     = "lib/libJavaScriptCore.a";
 // Pre-built monolith from github.com/kassane/libv8 (preferred: self-contained, no system dep).
 // Archive layout: libv8-<ver>-<platform>-<arch>-<profile>/lib/libv8_monolith.a + include/ + args.gn
 // Fallback: system libv8-dev headers via /usr/include/v8 or Node.js headers tarball.
-enum V8_PREBUILT_VERSION  = "v15.0.91";
+enum V8_PREBUILT_VERSION  = "v15.0.112";
 enum V8_PREBUILT_BASE_URL = "https://github.com/kassane/libv8/releases/download/"
                             ~ V8_PREBUILT_VERSION ~ "/";
 enum V8_NODE_VERSION   = "v22.15.0";   // kept for fallback header download
@@ -156,7 +156,17 @@ string v8PrebuiltUrl()
 {
     import std.process : environment;
     auto ptrComp = environment.get("V8_COMPRESS_POINTERS", "");
-    string profile = (ptrComp == "1" || ptrComp == "true") ? "pointer-compression" : "default";
+    auto i18n = environment.get("V8_I18N", "");
+    // Profile precedence: pointer-compression > i18n > default.
+    // i18n bundles `icudtl.dat` for full locale-aware Intl
+    // (number/date/currency formatting per locale). Default
+    // profile has minimal ICU — basic numeric/date works but
+    // locale formatting falls back to English style.
+    // Selecting i18n via env var so the default download stays
+    // small (~15 MB); set `V8_I18N=1` to opt in (~25 MB).
+    string profile = (ptrComp == "1" || ptrComp == "true")
+        ? "pointer-compression"
+        : ((i18n == "1" || i18n == "true") ? "i18n" : "default");
     // kassane/libv8 naming: libv8-<version>-<platform>-<arch>-<profile>.tar.xz
     string stem = "libv8-" ~ V8_PREBUILT_VERSION[1..$] ~ "-";
     version (OSX)

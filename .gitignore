@@ -18,6 +18,12 @@
 .dub
 docs.json
 __dummy.html
+# V8 i18n profile ships icudtl.dat next to the binary (auto-copied
+# by dub's postBuildCommands). The file lives in vendor/v8/lib/ and
+# build/ — both are out of source. The root-level icudtl.dat is a
+# build artifact (from running dun-rel-v8 in cwd).
+/icudtl.dat
+build/icudtl.dat
 # (`docs/` is intentionally tracked — user-facing documentation.
 # dub's `--build=docs` would generate ddoc output here; we don't
 # use that target so the directory is reserved for hand-written docs.)
