@@ -18,7 +18,9 @@
 .dub
 docs.json
 __dummy.html
-docs/
+# (`docs/` is intentionally tracked — user-facing documentation.
+# dub's `--build=docs` would generate ddoc output here; we don't
+# use that target so the directory is reserved for hand-written docs.)
 
 # Code coverage
 *.lst

@@ -193,6 +193,26 @@ and cross-runtime grids for real-world apps (n8n, gaia, opencode).
 
 See [TESTING.md](TESTING.md) for the full suite breakdown.
 
+## Documentation
+
+User-facing docs live in [`docs/`](./docs/README.md):
+
+- [Installation](./docs/installation.md) — build from source
+- [Quick Start](./docs/quick-start.md) — first script, REPL, eval
+- [CLI Reference](./docs/cli-reference.md) — every subcommand + flag
+- [Backends](./docs/backends.md) — when to pick QJS / JSC / V8
+- [Permissions](./docs/permissions.md) — default-deny security model
+- [TypeScript](./docs/typescript.md) — `.ts` files, scanner mode, `tsc` mode
+- [Performance](./docs/performance.md) — benchmarks, GC tuning, hot paths
+- [Node compat](./docs/node-compat.md) / [Deno compat](./docs/deno-compat.md) / [Bun compat](./docs/bun-compat.md)
+- [Migration from Node](./docs/migration-node.md)
+- [GC Tuning](./docs/gc-tuning.md)
+- [Built-in modules](./docs/builtins/index.md) — 30+ modules
+
+Internals (developer-facing) live in [`ARCHITECTURE.md`](./ARCHITECTURE.md),
+[`CLAUDE.md`](./CLAUDE.md), [`TESTING.md`](./TESTING.md),
+[`SECURITY.md`](./SECURITY.md), [`CHANGELOG.md`](./CHANGELOG.md).
+
 ## Comparison
 
 | | Node.js 22 | Deno 2.7 | Bun 1.3 | DunJS |
