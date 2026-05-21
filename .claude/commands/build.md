@@ -94,6 +94,61 @@ ldc2 --mtriple=x86_64-linux-gnu -mcpu=x86-64-v3 -mattr=+aes,+pclmul -vv /tmp/emp
 # -> Targeting '...' (CPU 'x86-64-v3' with features '+aes,+pclmul')
 ```
 
+#### Reference baselines (mirror Zig std.Target on LLVM 21)
+
+When you want a deterministic, portable build with a known feature
+floor, mirror Zig's `std.Target` defaults — they're explicit, audited,
+and a known-good starting point that LDC's LLVM 21 accepts in full.
+
+**x86-64-v3** (Haswell-and-later AMD64, AVX2+FMA baseline):
+```sh
+DFLAGS="--mcpu=x86-64-v3 -mattr=+64bit,+avx,+avx2,+bmi,+bmi2,+cmov,+crc32,+cx16,+cx8,\
++f16c,+fma,+fxsr,+lzcnt,+mmx,+movbe,+popcnt,+sahf,+sse,+sse2,+sse3,+sse4.1,+sse4.2,\
++ssse3,+x87,+xsave,+allow-light-256-bit,+false-deps-lzcnt-tzcnt,+false-deps-popcnt,\
++fast-15bytenop,+fast-scalar-fsqrt,+fast-shld-rotate,+fast-variable-crosslane-shuffle,\
++fast-variable-perlane-shuffle,+idivq-to-divl,+macrofusion,+nopl,+slow-3ops-lea,\
++vzeroupper" dub build -c quickjs -b release
+```
+
+24 ISA flags + 13 LLVM scheduling tunings. Bench impact measured on
+LDC 1.42 host (`feature_bench` / `framework_bench`):
+
+| Backend | feature_bench Δ | framework_bench Δ |
+|---------|----------------:|------------------:|
+| qjs | +0.2% (noise)   | -6.5%             |
+| jsc | +1.6% (noise)   | **+8.7%**         |
+| v8  | -1.5% (noise)   | +3.9%             |
+
+So a Zig-v3 build is mostly a wash for DunJS — JIT-heavy backends
+(jsc/v8) see at most ~5-9% on framework workloads. QJS gains nothing
+because the interpreter dispatch loop dominates over auto-vectorizable
+code. Worth using when you're shipping to a known-v3 host; not worth
+making the `dub.json` default.
+
+**aarch64-generic** (Zig's default for ARM64, minimum NEON):
+```sh
+DFLAGS="--mcpu=generic -mattr=+enable-select-opt,+ete,+fp-armv8,+fuse-adrp-add,\
++fuse-aes,+neon,+trbe,+use-postra-scheduler" dub build -c quickjs -b release
+```
+
+8 features (NEON + scheduler tunings). Cross-verified with
+`ldc2 --mtriple=aarch64-linux-gnu -c -O3 ...` — produces a valid
+`ELF 64-bit LSB relocatable, ARM aarch64` object. Bench numbers
+require an actual aarch64 host (the project's Dockerfile builds
+`linux/arm64` via buildx and is the right place to measure this).
+
+**Inspection workflow before adding any `-mattr` set:**
+
+```sh
+echo 'void main(){}' > /tmp/empty.d
+ldc2 --mtriple=<your-triple> -mcpu=<your-cpu> -mattr=<your-flags> -vv \
+     /tmp/empty.d -of=/tmp/o 2>&1 | grep -i Targeting
+```
+
+Pin only what shows up in `features '...'`. If a flag is missing,
+LDC silently dropped it (different LLVM version, wrong dash-case,
+arch mismatch) — fix the flag, don't assume LLVM picked it up.
+
 Recommended workflow: leave `dub.json` `--mcpu` unset (current state),
 add `DFLAGS="--mcpu=… --mattr=+…"` per-build when you have a specific
 target in mind, and always verify via `-vv` first.
