@@ -3,7 +3,7 @@
 How DunJS performs against Node, Deno, and Bun — and how to get the
 best out of it.
 
-## Cross-runtime benchmarks (v1.1.23)
+## Cross-runtime benchmarks (v1.1.24)
 
 ### feature_bench.js — JS compute throughput
 
@@ -154,7 +154,7 @@ await Promise.all(workers.map((w, i) =>
   })));
 ```
 
-See [Workers](./workers.md).
+See `dun:worker_threads` in the [built-ins index](./builtins/index.md).
 
 ## Profiling
 
