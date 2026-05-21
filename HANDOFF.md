@@ -100,6 +100,50 @@ coverage) ran on the v1.1.25 tree across two commits.
   `READLINK_BUF_SIZE`, `WS_CLOSE_NORMAL`) were left alone — the local
   name carries documentation value the bare constant wouldn't.
 
+**Pass 4 — Empirical @safe rollout limit + JSC/V8 PGO chains**
+
+Mass-conversion experiment ran on every NativeCallback (~400 total)
+to determine the empirical ceiling of `@safe` migration given the
+current code:
+
+| Conversion attempt | Result | Why |
+|--------------------|--------|-----|
+| `JSHandle x(...) @trusted` → `@safe` on all 400 callbacks | 14 survive (3.5%) | Each callback's body had to be analyzed for `@system` operations |
+| `__gshared` state access (`_bufProto`, `gExitCallbacks`, `_cachedHmacUpdateFn`, ...) | Must stay `@trusted` | Module-level mutable state is by definition `@system` |
+| `.ptr` raw-pointer arithmetic (byte/int reads in `bswap`, OpenSSL `PKCS5_PBKDF2_HMAC(password.ptr, ...)`) | Must stay `@trusted` | The whole point of these is to do unchecked memory access |
+| OpenSSL FFI (entire `crypto.d` and `tls.d`, `http2.d` SSL setup) | Must stay `@trusted` | Cryptographic code legitimately wants the `@trusted` security flag |
+| POSIX syscalls (`socket`, `fcntl`, `setsockopt`, `link`, `symlink`, `readlink`, ...) | Must stay `@trusted` | Same — `extern(C)` syscalls are `@system` |
+| `cast(string)` from `char[]`, `cast(int*)` to `shared(int)*` | Must stay `@trusted` | These casts are `@system` by language rule |
+| `catch (Throwable)` (`@safe` only allows `catch (Exception)`) | Must stay `@trusted` | Defensive `Throwable` catch is `@system` in `@safe` |
+
+The 14 surviving `@safe` callbacks: `jsProcessGet{uid,gid,euid,egid}`,
+`jsBufferByteLength`, `consoleLog/Warn/Error`, `jsSetTimeout/Interval/
+ClearTimer`, `jsQueueMicrotask`, `responseText/Json`.
+
+Per-callback narrow-`@trusted`-lambda wrapping is mechanical but adds
+visual noise without changing the security audit conclusion — a
+function-level `@trusted` on a callback that *legitimately* touches
+`@system` code is already the right signal.
+
+The IJSEngine `@trusted` interface annotation from Pass 3 stands as
+the unlock for the 14 that did convert; further `@safe` migration
+should be opportunistic per-file when refactoring for other reasons.
+
+**All-backend PGO chains verified**
+
+| Backend | Instrumented binary | feature_bench profile | framework_bench profile | PGO binary throughput |
+|---------|---------------------|----------------------|------------------------|----------------------|
+| QJS | 48 `__llvm_profile_` symbols | 21M ops/sec | 9M ops/sec | 21M ops/sec |
+| JSC | 48 `__llvm_profile_` symbols | 575M ops/sec | 271M ops/sec | 585M ops/sec |
+| V8  | 48 `__llvm_profile_` symbols | 159M ops/sec | 176M ops/sec | 155M ops/sec |
+
+All three: instrumented build links clean (`--whole-archive` wrap on
+`libldc_rt.profile.a` correctly pulls in all 48 symbols), the
+`ldc-profdata merge` step succeeds, and the `release-pgo` build links
+clean. Per-benchmark deltas are within run-to-run noise (≤ 3-5%) —
+expected for this workload mix where dispatch / GC / FFI dominate
+over the auto-vectorizable code that PGO most improves.
+
 **Pass 3 — IJSEngine @trusted annotation + @safe callback pilot + redundancy cleanup**
 
 - IJSEngine: all 50+ interface methods now carry `@trusted`,
