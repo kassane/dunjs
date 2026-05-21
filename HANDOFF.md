@@ -80,11 +80,9 @@ runtime image — proposed fix is documented but deferred (see
 ## Rule-compliance audit (2026-05) — applied + deferred
 
 A three-track audit (`@trusted` overuse, magic-number duplicates, DIP
-coverage) ran on the v1.1.25 tree. The cheap surgical wins shipped in
-this branch; the broader refactors are documented here for a future
-focused pass so we don't take on too much churn at once.
+coverage) ran on the v1.1.25 tree across two commits.
 
-**Applied this PR**
+**Pass 1 — Cross-module constants + paths.canonicalizePath**
 
 - `dun.platform.paths.canonicalizePath`: dropped `@trusted` → `@safe`.
   This is the CVE-class fix gate (CVE-2023-32004 / CVE-2024-21896) and a
@@ -102,24 +100,59 @@ focused pass so we don't take on too much churn at once.
   `READLINK_BUF_SIZE`, `WS_CLOSE_NORMAL`) were left alone — the local
   name carries documentation value the bare constant wouldn't.
 
-**Deferred (do as a separate focused PR; too invasive in one batch)**
+**Pass 2 — ctxState consolidation + DIP1038 expansion + move semantics**
+
+- `dun.runtime.globals.ctxState(void* ctx)`: new
+  `@trusted nothrow @nogc` helper for the `cast(DunState*) ctx` pattern
+  that opened every NativeCallback (428 sites across 36 files). The
+  cast is the only `@system` operation in those callback prologues;
+  centralizing it means the audit grep surface for "where does ctx
+  get cast" is one place instead of 428. Mechanically replaced
+  via a single `sed -i` pass + import-list update. Build clean,
+  sweep at baseline.
+- DIP1038 `@mustuse` on `FetchResult`: every caller of `doFetch()`
+  consumes either `status` (for redirect chains) or `body_` (for the
+  JS-side `Response` wrapper); silently dropping the struct would
+  swallow an HTTP response. Build confirms no existing caller drops.
+- Move semantics — `@disable this(this)` on `StackFallback!N`: copying
+  it would alias the stack region across frames + the GC heap pointer,
+  defeating the type's purpose. Pass by `ref` instead. `BumpRegion`
+  inherits `@disable this(this)` from its `Region!Mallocator` alias
+  already.
+- `.gitignore` extended to `/dun-asan-*`, `/dun-tsan-*`, `/dun-pgo-*`
+  so audit-builds don't show up as untracked.
+
+**Sanitizer + debug verification**
+
+- ASan integration sweep: 153/158 (5 pre-existing npm-network FAILs).
+- TSan integration sweep: 153/158, zero data race warnings.
+- gdb reproducer covering Buffer / crypto / fs.existsSync canonicalization:
+  no SIGSEGV, no abort, heap stable. Verifies the `ctxState` helper
+  symbol (`_D3dun7runtime7globals8ctxStateFNbNiNePvZPSQBpQBoQBj8DunState`)
+  is reachable in the binary symbol table.
+- PGO chain: `release-pgo-gen` (instrumented, 48 `__llvm_profile_`
+  symbols) → 2 benchmark runs → `ldc-profdata merge` →
+  `release-pgo` (optimized). All stages link clean.
+
+**Still deferred — not applicable / would need its own focused PR**
 
 | Track | Module | Pattern | Why deferred |
 |-------|--------|---------|--------------|
-| `@trusted` reduction | `dun.modules.npm` | 24 `@trusted` annotations on functions that are pure D logic (HTTP fetch + tar extract). Likely 50%+ can drop to `@safe` after extracting the FFI-touching parts into separate helpers | Touches the dependency-installer hot path; needs its own integration sweep |
-| `@trusted` reduction | `dun.builtins.buffer` | ~30 native callbacks wide-annotated `@trusted`. A `ctxState(ctx)` helper that consolidates the `cast(DunState*)` + null-check would let most callbacks drop to `@safe` body | Mechanical but huge diff; would obscure unrelated PRs in `git blame` |
-| `@trusted` reduction | `dun.runtime.process_api` (`getuid`/`getgid` family) | Annotated `@trusted` whole-function — only the `extern(C)` call line itself needs it | Same pattern repeats in ~10 places; collect them in one pass |
-| DIP1038 `@mustuse` | `dun.builtins.tls.TlsSocket`, `dun.builtins.fetch.FetchResult`, `dun.platform.arena.StackFallback.allocate` | Currently droppable returns; dropping them is always a bug | Each adds compile-time errors at call sites that need auditing first |
+| `@trusted` reduction | `dun.modules.npm` | 24 whole-function `@trusted` on pure-D HTTP fetch + tar extract logic | Touches dependency-installer hot path; needs its own integration sweep |
+| `@trusted` reduction | `dun.builtins.buffer` callbacks | ~30 native callbacks still need `@trusted` because they call through `IJSEngine`, which is `@system`-by-default. Annotating the whole engine interface `@safe` is a much larger refactor (touches every backend). The `ctxState` helper from Pass 2 centralizes the cast — but the callback function annotation can't drop until the engine interface is safe-ified | Whole-engine surface change |
+| `@trusted` reduction | `process_api` getuid/getgid family | Same blocker — calling `engine.newInt` keeps the function `@trusted`. `ctxState` is in use; full `@safe` requires engine interface annotation | Same blocker |
+| DIP1038 `@mustuse` | `StackFallback.allocate` | D currently reserves `@mustuse on functions for future use`; only struct types accept it (compile error: `@mustuse on functions is reserved for future use`) | Compiler limitation; revisit when LDC/DMD lifts it |
 | DIP1000 `return scope` | `JSVal` constructor (engine-context lifetime), `Buffer` slice getters | Compiler-enforced lifetime tracking | Needs to walk callers; some legitimately need `.dup` |
-| Move semantics | `BumpRegion`, `StackFallback` in `dun.platform.arena` | `@disable this(this)` to forbid silent copy | Need to confirm no existing pass-by-value uses |
 | `@live` (DIP1021) | Not adopted anywhere yet | Could enforce single-owner semantics on `JSHandle`/`JSVal` lifetimes at compile time | Whole-program impact; pilot on one type first |
+| IJSEngine `@safe` annotation | All backend interface methods | Would unblock most `@trusted` reductions in callbacks (process_api, buffer.d, every other builtin) | Requires `@safe`/`@trusted` audit of every QJS/JSC/V8 backend method implementation |
 
 The audit notes confirmed: the codebase is broadly disciplined — magic
 numbers are mostly named local enums (intentional documentation), most
 `@trusted` blocks are at real FFI boundaries (legitimate), `@mustuse`
-is already wired on `JSResult` + `AsyncResult` (the two highest-value
-return types), and DIP1000 is annotated on every slice-returning
-engine method.
+is wired on `JSResult` + `AsyncResult` + `FetchResult` (the three
+highest-value return types), `@disable this(this)` covers `StackFallback`
++ `BumpRegion` + `TlsSocket`, and DIP1000 is annotated on every
+slice-returning engine method.
 
 ## Build & test recipe (canonical)
 
