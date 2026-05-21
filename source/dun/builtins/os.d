@@ -368,7 +368,6 @@ JSHandle jsOsEndianness(void* ctx, JSHandle thisVal, scope JSHandle[] args) @tru
 
 JSHandle jsOsNetworkInterfaces(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsOsNetworkInterfaces");
     auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in jsOsNetworkInterfaces");
     if (!checkPerm(state, Permission.sys, "networkInterfaces"))

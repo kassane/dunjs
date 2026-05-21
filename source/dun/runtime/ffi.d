@@ -90,7 +90,6 @@ private alias FnI32_Cstr_Ptr = extern(C) int function(const(char)*, void*) nothr
 
 private JSHandle jsDenoDlopen(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in Deno.dlopen");
     auto state = ctxState(ctx);
     auto engine = state.engine;
 
@@ -326,7 +325,6 @@ private bool _signatureSupported(string sig) @safe pure nothrow
 
 private JSHandle jsFfiDispatchById(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in FFI dispatch");
     auto state = ctxState(ctx);
     auto engine = state.engine;
 
@@ -454,7 +452,6 @@ private const(char)* _arg2cstr(IJSEngine engine, scope JSHandle[] args, size_t i
 
 private JSHandle jsDlopenClose(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in dlopen.close");
     auto state = ctxState(ctx);
     assert(state !is null && state.engine !is null, "Invalid DunState in dlopen.close");
     auto engine = state.engine;
@@ -474,7 +471,6 @@ private JSHandle jsDlopenClose(void* ctx, JSHandle thisVal, scope JSHandle[] arg
 
 private JSHandle jsUnsafePointer(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in Deno.UnsafePointer");
     auto state = ctxState(ctx);
     assert(state !is null && state.engine !is null, "Invalid DunState in Deno.UnsafePointer");
     auto engine = state.engine;

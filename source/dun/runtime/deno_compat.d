@@ -550,7 +550,6 @@ public import dun.security.permissions : checkPerm;
 
 JSHandle denoEnvGet(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in denoEnvGet");
     auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in denoEnvGet");
     auto engine = state.engine;
@@ -574,7 +573,6 @@ JSHandle denoEnvGet(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 
 JSHandle denoEnvSet(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in denoEnvSet");
     auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in denoEnvSet");
     auto engine = state.engine;
@@ -596,7 +594,6 @@ JSHandle denoEnvSet(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 
 JSHandle denoEnvDelete(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in denoEnvDelete");
     auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in denoEnvDelete");
     auto engine = state.engine;
@@ -618,7 +615,6 @@ JSHandle denoEnvDelete(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trus
 
 JSHandle denoEnvHas(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in denoEnvHas");
     auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in denoEnvHas");
     auto engine = state.engine;
@@ -639,7 +635,6 @@ JSHandle denoEnvHas(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 
 JSHandle denoEnvToObject(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in denoEnvToObject");
     auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in denoEnvToObject");
     auto engine = state.engine;
@@ -662,7 +657,6 @@ JSHandle denoEnvToObject(void* ctx, JSHandle thisVal, scope JSHandle[] args) @tr
 
 JSHandle denoReadTextFileSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in denoReadTextFileSync");
     auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in denoReadTextFileSync");
     auto engine = state.engine;
@@ -689,7 +683,6 @@ JSHandle denoReadTextFile(void* ctx, JSHandle thisVal, scope JSHandle[] args) @t
 {
     import dun.loop.async : asyncSubmit;
 
-    assert(ctx !is null, "Null ctx in denoReadTextFile");
     auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in denoReadTextFile");
     auto engine = state.engine;
@@ -717,7 +710,6 @@ JSHandle denoReadTextFile(void* ctx, JSHandle thisVal, scope JSHandle[] args) @t
 
 JSHandle denoWriteTextFileSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in denoWriteTextFileSync");
     auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in denoWriteTextFileSync");
     auto engine = state.engine;
@@ -747,7 +739,6 @@ JSHandle denoWriteTextFile(void* ctx, JSHandle thisVal, scope JSHandle[] args) @
 {
     import dun.loop.async : asyncSubmit;
 
-    assert(ctx !is null, "Null ctx in denoWriteTextFile");
     auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in denoWriteTextFile");
     auto engine = state.engine;
@@ -778,7 +769,6 @@ JSHandle denoWriteTextFile(void* ctx, JSHandle thisVal, scope JSHandle[] args) @
 
 JSHandle denoStatSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in denoStatSync");
     auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in denoStatSync");
     auto engine = state.engine;
@@ -838,7 +828,6 @@ JSHandle denoStatSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trust
 
 JSHandle denoMkdirSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in denoMkdirSync");
     auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in denoMkdirSync");
     auto engine = state.engine;
@@ -875,7 +864,6 @@ JSHandle denoMkdirSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trus
 
 JSHandle denoRemoveSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in denoRemoveSync");
     auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in denoRemoveSync");
     auto engine = state.engine;
@@ -915,7 +903,6 @@ JSHandle denoRemoveSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @tru
 
 JSHandle denoRenameSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in denoRenameSync");
     auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in denoRenameSync");
     auto engine = state.engine;
@@ -947,7 +934,6 @@ JSHandle denoRenameSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @tru
 
 JSHandle denoCopyFileSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in denoCopyFileSync");
     auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in denoCopyFileSync");
     auto engine = state.engine;
@@ -979,7 +965,6 @@ JSHandle denoCopyFileSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @t
 
 JSHandle denoReadDirSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in denoReadDirSync");
     auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in denoReadDirSync");
     auto engine = state.engine;
@@ -1024,7 +1009,6 @@ JSHandle denoReadDirSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @tr
 
 JSHandle denoRealPathSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in denoRealPathSync");
     auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in denoRealPathSync");
     auto engine = state.engine;
@@ -1052,7 +1036,6 @@ JSHandle denoRealPathSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @t
 
 JSHandle denoTruncateSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in denoTruncateSync");
     auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in denoTruncateSync");
     auto engine = state.engine;
@@ -1080,7 +1063,6 @@ JSHandle denoTruncateSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @t
 
 JSHandle denoCwd(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in denoCwd");
     auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in denoCwd");
     auto engine = state.engine;
@@ -1095,7 +1077,6 @@ JSHandle denoCwd(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 
 JSHandle denoChdir(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in denoChdir");
     auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in denoChdir");
     auto engine = state.engine;
@@ -1123,7 +1104,6 @@ JSHandle denoChdir(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 
 JSHandle denoExit(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in denoExit");
     auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in denoExit");
     auto engine = state.engine;
@@ -1141,7 +1121,6 @@ JSHandle denoExit(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 
 JSHandle denoHostname(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in denoHostname");
     auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in denoHostname");
     auto engine = state.engine;
@@ -1173,7 +1152,6 @@ JSHandle denoHostname(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trust
 
 JSHandle denoPermissionsQuery(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in denoPermissionsQuery");
     auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in denoPermissionsQuery");
     auto engine = state.engine;
@@ -1222,7 +1200,6 @@ makeResult:
 
 JSHandle denoInspect(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in denoInspect");
     auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in denoInspect");
     auto engine = state.engine;

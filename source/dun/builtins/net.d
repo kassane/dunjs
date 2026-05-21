@@ -189,7 +189,6 @@ int[] _freeSocketIds;
 
 JSHandle jsCreateServer(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsCreateServer");
     auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsCreateServer");
     auto engine = state.engine;
@@ -565,7 +564,6 @@ JSHandle jsServerClose(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trus
 
 JSHandle jsServerOn(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsServerOn");
     auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsServerOn");
     auto engine = state.engine;
@@ -590,7 +588,6 @@ JSHandle jsServerOn(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 
 JSHandle jsSocketOn(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsSocketOn");
     auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsSocketOn");
     auto engine = state.engine;
@@ -921,7 +918,6 @@ void readSocketData(int sockId) nothrow @trusted
 
 JSHandle jsNetIsIP(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in net.isIP");
     auto state = ctxState(ctx);
     auto engine = state.engine;
     if (args.length < 1 || !engine.isString(args[0]))
@@ -934,7 +930,6 @@ JSHandle jsNetIsIP(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 
 JSHandle jsNetIsIPv4(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in net.isIPv4");
     auto state = ctxState(ctx);
     auto engine = state.engine;
     if (args.length < 1 || !engine.isString(args[0]))
@@ -944,7 +939,6 @@ JSHandle jsNetIsIPv4(void* ctx, JSHandle thisVal, scope JSHandle[] args) @truste
 
 JSHandle jsNetIsIPv6(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in net.isIPv6");
     auto state = ctxState(ctx);
     auto engine = state.engine;
     if (args.length < 1 || !engine.isString(args[0]))

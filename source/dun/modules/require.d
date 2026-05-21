@@ -37,7 +37,6 @@ JSHandle jsRequireResolve(void* ctx, JSHandle thisVal, scope JSHandle[] args) @t
     import std.path : buildNormalizedPath, isAbsolute, dirName, absolutePath;
     import std.file : exists, isFile, isDir, getcwd;
 
-    assert(ctx !is null, "Null ctx in require.resolve");
     auto state = ctxState(ctx);
     auto engine = state.engine;
 
@@ -121,7 +120,6 @@ JSHandle jsRequire(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
     import std.algorithm : startsWith, endsWith;
     import std.path : buildNormalizedPath, isAbsolute, dirName;
 
-    assert(ctx !is null, "Null ctx in jsRequire");
     auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in jsRequire");
     auto engine = state.engine;

@@ -107,7 +107,6 @@ version (EngineQuickJS)
 /// + one root node. Doesn't walk the JS heap.
 private JSHandle jsWriteHeapSnapshot(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in v8.writeHeapSnapshot");
     auto state = ctxState(ctx);
     auto engine = state.engine;
 
@@ -156,7 +155,6 @@ private JSHandle jsWriteHeapSnapshot(void* ctx, JSHandle thisVal, scope JSHandle
 
 private JSHandle jsGetHeapSnapshot(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in v8.getHeapSnapshot");
     auto state = ctxState(ctx);
     // Returns a Readable stream in Node; we expose a fake object with
     // .read() returning the snapshot bytes once, then null.
@@ -166,7 +164,6 @@ private JSHandle jsGetHeapSnapshot(void* ctx, JSHandle thisVal, scope JSHandle[]
 
 private JSHandle jsGetHeapStatistics(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in v8.getHeapStatistics");
     auto state = ctxState(ctx);
     auto engine = state.engine;
     import core.memory : GC;

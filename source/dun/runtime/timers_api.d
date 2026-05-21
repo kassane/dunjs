@@ -23,11 +23,9 @@ void installTimers(IJSEngine engine) @trusted
 
 private:
 
-JSHandle jsSetTimeout(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
+JSHandle jsSetTimeout(void* ctx, JSHandle thisVal, scope JSHandle[] args) @safe
 {
-    assert(ctx !is null, "Null ctx in setTimeout");
     auto state = ctxState(ctx);
-    assert(state !is null, "Null DunState in setTimeout");
     auto engine = state.engine;
     assert(engine !is null, "Null engine in setTimeout");
 
@@ -49,11 +47,9 @@ JSHandle jsSetTimeout(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trust
     return makeTimerObject(engine, cast(int) id);
 }
 
-JSHandle jsSetInterval(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
+JSHandle jsSetInterval(void* ctx, JSHandle thisVal, scope JSHandle[] args) @safe
 {
-    assert(ctx !is null, "Null ctx in setInterval");
     auto state = ctxState(ctx);
-    assert(state !is null, "Null DunState in setInterval");
     auto engine = state.engine;
     assert(engine !is null, "Null engine in setInterval");
 
@@ -76,11 +72,9 @@ JSHandle jsSetInterval(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trus
     return makeTimerObject(engine, cast(int) id);
 }
 
-JSHandle jsClearTimer(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
+JSHandle jsClearTimer(void* ctx, JSHandle thisVal, scope JSHandle[] args) @safe
 {
-    assert(ctx !is null, "Null ctx in clearTimer");
     auto state = ctxState(ctx);
-    assert(state !is null, "Null DunState in clearTimer");
     auto engine = state.engine;
     assert(engine !is null, "Null engine in clearTimer");
 

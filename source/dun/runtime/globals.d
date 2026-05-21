@@ -997,7 +997,6 @@ private string unicodePropPolyfillSource() pure @safe nothrow
 
 private JSHandle jsGlobalGC(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsGlobalGC");
     auto state = ctxState(ctx);
     assert(state !is null && state.engine !is null, "Invalid DunState in jsGlobalGC");
     state.engine.collectGarbage();

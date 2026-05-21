@@ -137,7 +137,6 @@ JSHandle returnBytes(IJSEngine engine, const(ubyte)[] data) @trusted
 
 JSHandle doCompress(void* ctx, JSHandle[] args, int windowBits) @trusted
 {
-    assert(ctx !is null, "Null ctx in doCompress");
     auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in doCompress");
     auto engine = state.engine;
@@ -174,7 +173,6 @@ JSHandle doCompress(void* ctx, JSHandle[] args, int windowBits) @trusted
 
 JSHandle doDecompress(void* ctx, JSHandle[] args, int windowBits) @trusted
 {
-    assert(ctx !is null, "Null ctx in doDecompress");
     auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in doDecompress");
     auto engine = state.engine;
@@ -253,7 +251,6 @@ JSHandle jsInflateRawSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @t
 JSHandle jsBrotliCompressSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     import dun.platform.brotli;
-    assert(ctx !is null, "Null ctx in jsBrotliCompressSync");
     auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in jsBrotliCompressSync");
     auto engine = state.engine;
@@ -304,7 +301,6 @@ JSHandle jsBrotliCompressSync(void* ctx, JSHandle thisVal, scope JSHandle[] args
 JSHandle jsBrotliDecompressSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     import dun.platform.brotli;
-    assert(ctx !is null, "Null ctx in jsBrotliDecompressSync");
     auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in jsBrotliDecompressSync");
     auto engine = state.engine;

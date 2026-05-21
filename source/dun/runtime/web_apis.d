@@ -368,7 +368,6 @@ private void bindNativeCryptoOnGlobal(IJSEngine engine) @trusted
 
 private JSHandle jsNativeGetRandomValues(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in getRandomValues");
     auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in getRandomValues");
     auto engine = state.engine;

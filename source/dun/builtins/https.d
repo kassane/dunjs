@@ -68,7 +68,6 @@ private:
 
 JSHandle jsHttpsCreateServer(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsHttpsCreateServer");
     auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsHttpsCreateServer");
     auto engine = state.engine;

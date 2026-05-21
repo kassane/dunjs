@@ -537,7 +537,6 @@ package JSHandle createServerWithTls(IJSEngine engine, JSHandle cb, bool hasCb,
 
 JSHandle jsHttpCreateServer(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsHttpCreateServer");
     auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsHttpCreateServer");
     auto engine = state.engine;
@@ -816,7 +815,6 @@ JSHandle jsHttpServerClose(void* ctx, JSHandle thisVal, scope JSHandle[] args) @
 
 JSHandle jsHttpServerAddress(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsHttpServerAddress");
     auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsHttpServerAddress");
     auto engine = state.engine;
@@ -842,7 +840,6 @@ JSHandle jsHttpServerAddress(void* ctx, JSHandle thisVal, scope JSHandle[] args)
 
 JSHandle jsHttpServerOn(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsHttpServerOn");
     auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsHttpServerOn");
     auto engine = state.engine;
@@ -939,7 +936,6 @@ JSHandle makeReqObj(IJSEngine engine, int connId) @trusted
 
 JSHandle jsGetConnHeaders(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsGetConnHeaders");
     auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsGetConnHeaders");
     auto engine = state.engine;
@@ -959,7 +955,6 @@ JSHandle jsGetConnHeaders(void* ctx, JSHandle thisVal, scope JSHandle[] args) @t
 
 JSHandle jsReqOn(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsReqOn");
     auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsReqOn");
     auto engine = state.engine;
@@ -1036,7 +1031,6 @@ JSHandle makeResObj(IJSEngine engine, int connId) @trusted
 
 JSHandle jsResSetHeader(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsResSetHeader");
     auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsResSetHeader");
     auto engine = state.engine;
@@ -1075,7 +1069,6 @@ JSHandle jsResSetHeader(void* ctx, JSHandle thisVal, scope JSHandle[] args) @tru
 
 JSHandle jsResGetHeader(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsResGetHeader");
     auto state = ctxState(ctx);
     auto engine = state.engine;
     if (args.length < 1) return engine.newUndefined();
@@ -1115,7 +1108,6 @@ JSHandle jsResGetHeader(void* ctx, JSHandle thisVal, scope JSHandle[] args) @tru
 
 JSHandle jsResGetHeaders(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsResGetHeaders");
     auto state = ctxState(ctx);
     auto engine = state.engine;
     auto idProp = engine.getProperty(thisVal, "__cid");
@@ -1144,7 +1136,6 @@ JSHandle jsResGetHeaders(void* ctx, JSHandle thisVal, scope JSHandle[] args) @tr
 
 JSHandle jsResHasHeader(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsResHasHeader");
     auto state = ctxState(ctx);
     auto engine = state.engine;
     if (args.length < 1) return engine.newBool(false);
@@ -1167,7 +1158,6 @@ JSHandle jsResHasHeader(void* ctx, JSHandle thisVal, scope JSHandle[] args) @tru
 
 JSHandle jsResRemoveHeader(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsResRemoveHeader");
     auto state = ctxState(ctx);
     auto engine = state.engine;
     if (args.length < 1) return engine.newUndefined();
@@ -1205,7 +1195,6 @@ private string toLowerSimple(string s) @trusted pure nothrow
 
 JSHandle jsResWriteHead(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsResWriteHead");
     auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsResWriteHead");
     auto engine = state.engine;
@@ -1320,7 +1309,6 @@ void syncJsHeaders(IJSEngine engine, JSHandle thisVal, HttpConnState* conn) @tru
 
 JSHandle jsResWrite(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsResWrite");
     auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsResWrite");
     auto engine = state.engine;

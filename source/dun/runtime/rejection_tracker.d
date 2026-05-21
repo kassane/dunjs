@@ -156,7 +156,6 @@ private void installJSRejectionTracker(IJSEngine engine, DunState* state) @trust
 
 private JSHandle jsReportRejection(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsReportRejection");
     auto state = ctxState(ctx);
     auto engine = state.engine;
     assert(engine !is null, "Null engine in jsReportRejection");

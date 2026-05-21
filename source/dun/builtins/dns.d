@@ -159,7 +159,6 @@ version (Posix)
 
 JSHandle jsLookupSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsLookupSync");
     auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsLookupSync");
     auto engine = state.engine;
@@ -192,7 +191,6 @@ JSHandle jsLookupSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trust
 
 JSHandle jsLookup(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsLookup");
     auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsLookup");
     auto engine = state.engine;
@@ -242,7 +240,6 @@ JSHandle jsLookup(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 
 JSHandle jsResolve4(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsResolve4");
     auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsResolve4");
     auto engine = state.engine;
@@ -290,7 +287,6 @@ JSHandle jsResolve4(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 
 JSHandle jsResolve6(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsResolve6");
     auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsResolve6");
     auto engine = state.engine;
@@ -338,7 +334,6 @@ JSHandle jsResolve6(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 
 JSHandle jsResolve(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsResolve");
     auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsResolve");
     auto engine = state.engine;
@@ -451,7 +446,6 @@ JSHandle jsResolve(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 
 JSHandle jsGetServers(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsGetServers");
     auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsGetServers");
     auto engine = state.engine;

@@ -203,7 +203,6 @@ bool checkRunPerm(DunState* state) nothrow @trusted
 
 JSHandle jsClusterFork(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsClusterFork");
     auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsClusterFork");
     auto engine = state.engine;
@@ -293,7 +292,6 @@ JSHandle jsClusterFork(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trus
 
 JSHandle jsClusterOn(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsClusterOn");
     auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsClusterOn");
     auto engine = state.engine;

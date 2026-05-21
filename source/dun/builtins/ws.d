@@ -334,7 +334,6 @@ string computeAcceptKey(string clientKey) @trusted
 
 JSHandle jsWsCreateServer(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsWsCreateServer");
     auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsWsCreateServer");
     auto engine = state.engine;
@@ -494,7 +493,6 @@ JSHandle jsWsServerListen(void* ctx, JSHandle thisVal, scope JSHandle[] args) @t
 
 JSHandle jsWsServerOn(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsWsServerOn");
     auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsWsServerOn");
     auto engine = state.engine;
@@ -668,7 +666,6 @@ JSHandle makeWsClientObj(IJSEngine engine, int cid) @trusted
 
 JSHandle jsWsClientOn(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsWsClientOn");
     auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsWsClientOn");
     auto engine = state.engine;

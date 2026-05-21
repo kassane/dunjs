@@ -156,7 +156,6 @@ JSHandle jsFspReadFile(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trus
 {
     import dun.builtins.fs : extractEncoding, createBufferFromBytes;
 
-    assert(ctx !is null, "Null ctx in fs.promises.readFile");
     auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in fs.promises.readFile");
     auto engine = state.engine;
@@ -208,7 +207,6 @@ JSHandle jsFspReadFile(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trus
 
 JSHandle jsFspWriteFile(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in fs.promises.writeFile");
     auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in fs.promises.writeFile");
     auto engine = state.engine;
@@ -259,7 +257,6 @@ JSHandle jsFspWriteFile(void* ctx, JSHandle thisVal, scope JSHandle[] args) @tru
 
 JSHandle jsFspAppendFile(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in fs.promises.appendFile");
     auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in fs.promises.appendFile");
     auto engine = state.engine;
@@ -305,7 +302,6 @@ JSHandle jsFspAppendFile(void* ctx, JSHandle thisVal, scope JSHandle[] args) @tr
 
 JSHandle jsFspCopyFile(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in fs.promises.copyFile");
     auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in fs.promises.copyFile");
     auto engine = state.engine;
@@ -341,7 +337,6 @@ JSHandle jsFspCopyFile(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trus
 
 JSHandle jsFspRename(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in fs.promises.rename");
     auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in fs.promises.rename");
     auto engine = state.engine;
@@ -377,7 +372,6 @@ JSHandle jsFspRename(void* ctx, JSHandle thisVal, scope JSHandle[] args) @truste
 
 JSHandle jsFspUnlink(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in fs.promises.unlink");
     auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in fs.promises.unlink");
     auto engine = state.engine;
@@ -410,7 +404,6 @@ JSHandle jsFspUnlink(void* ctx, JSHandle thisVal, scope JSHandle[] args) @truste
 
 JSHandle jsFspRmdir(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in fs.promises.rmdir");
     auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in fs.promises.rmdir");
     auto engine = state.engine;
@@ -443,7 +436,6 @@ JSHandle jsFspRmdir(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 
 JSHandle jsFspRm(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in fs.promises.rm");
     auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in fs.promises.rm");
     auto engine = state.engine;
@@ -494,7 +486,6 @@ JSHandle jsFspRm(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 
 JSHandle jsFspMkdir(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in fs.promises.mkdir");
     auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in fs.promises.mkdir");
     auto engine = state.engine;
@@ -542,7 +533,6 @@ JSHandle jsFspMkdir(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 
 JSHandle jsFspReaddir(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in fs.promises.readdir");
     auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in fs.promises.readdir");
     auto engine = state.engine;
@@ -644,7 +634,6 @@ JSHandle jsFspReaddir(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trust
 
 JSHandle jsFspStat(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in fs.promises.stat");
     auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in fs.promises.stat");
     auto engine = state.engine;
@@ -666,7 +655,6 @@ JSHandle jsFspStat(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 
 JSHandle jsFspLstat(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in fs.promises.lstat");
     auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in fs.promises.lstat");
     auto engine = state.engine;
@@ -688,7 +676,6 @@ JSHandle jsFspLstat(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 
 JSHandle jsFspAccess(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in fs.promises.access");
     auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in fs.promises.access");
     auto engine = state.engine;
@@ -726,7 +713,6 @@ JSHandle jsFspAccess(void* ctx, JSHandle thisVal, scope JSHandle[] args) @truste
 
 JSHandle jsFspRealpath(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in fs.promises.realpath");
     auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in fs.promises.realpath");
     auto engine = state.engine;
@@ -777,7 +763,6 @@ JSHandle jsFspRealpath(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trus
 
 JSHandle jsFspChmod(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in fs.promises.chmod");
     auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in fs.promises.chmod");
     auto engine = state.engine;
@@ -811,7 +796,6 @@ JSHandle jsFspChmod(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 
 JSHandle jsFspChown(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in fs.promises.chown");
     auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in fs.promises.chown");
     auto engine = state.engine;
@@ -843,7 +827,6 @@ JSHandle jsFspChown(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 
 JSHandle jsFspTruncate(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in fs.promises.truncate");
     auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in fs.promises.truncate");
     auto engine = state.engine;
@@ -890,7 +873,6 @@ JSHandle jsFspTruncate(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trus
 
 JSHandle jsFspSymlink(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in fs.promises.symlink");
     auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in fs.promises.symlink");
     auto engine = state.engine;
@@ -927,7 +909,6 @@ JSHandle jsFspSymlink(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trust
 
 JSHandle jsFspOpen(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in fs.promises.open");
     auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in fs.promises.open");
     auto engine = state.engine;

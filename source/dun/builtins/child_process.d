@@ -185,7 +185,6 @@ string truncateToMaxBuffer(string s, int maxBuffer) @safe pure nothrow
 
 JSHandle jsExecSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsExecSync");
     auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsExecSync");
     auto engine = state.engine;
@@ -257,7 +256,6 @@ JSHandle jsExecSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 
 JSHandle jsSpawnSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsSpawnSync");
     auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsSpawnSync");
     auto engine = state.engine;
@@ -368,7 +366,6 @@ JSHandle jsExec(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     import dun.engine.iface : PromiseHandles;
 
-    assert(ctx !is null, "Null ctx in jsExec");
     auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsExec");
     auto engine = state.engine;
@@ -542,7 +539,6 @@ JSHandle jsSpawn(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     import dun.loop.agnostic_pending : pushAgnosticPending;
 
-    assert(ctx !is null, "Null ctx in jsSpawn");
     auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsSpawn");
     auto engine = state.engine;
@@ -729,7 +725,6 @@ JSHandle jsExecFile(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     import dun.engine.iface : PromiseHandles;
 
-    assert(ctx !is null, "Null ctx in jsExecFile");
     auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsExecFile");
     auto engine = state.engine;

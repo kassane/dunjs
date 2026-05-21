@@ -126,7 +126,6 @@ private:
 
 JSHandle jsPathJoin(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsPathJoin");
     auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsPathJoin");
     auto engine = state.engine;
@@ -145,7 +144,6 @@ JSHandle jsPathJoin(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 
 JSHandle jsPathBasename(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsPathBasename");
     auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsPathBasename");
     auto engine = state.engine;
@@ -163,7 +161,6 @@ JSHandle jsPathBasename(void* ctx, JSHandle thisVal, scope JSHandle[] args) @tru
 
 JSHandle jsPathDirname(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsPathDirname");
     auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsPathDirname");
     auto engine = state.engine;
@@ -178,7 +175,6 @@ JSHandle jsPathDirname(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trus
 
 JSHandle jsPathExtname(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsPathExtname");
     auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsPathExtname");
     auto engine = state.engine;
@@ -193,7 +189,6 @@ JSHandle jsPathExtname(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trus
 
 JSHandle jsPathIsAbsolute(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsPathIsAbsolute");
     auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsPathIsAbsolute");
     auto engine = state.engine;
@@ -208,7 +203,6 @@ JSHandle jsPathIsAbsolute(void* ctx, JSHandle thisVal, scope JSHandle[] args) @t
 
 JSHandle jsPathResolve(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsPathResolve");
     auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsPathResolve");
     auto engine = state.engine;
@@ -233,7 +227,6 @@ JSHandle jsPathResolve(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trus
 
 JSHandle jsPathNormalize(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsPathNormalize");
     auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsPathNormalize");
     auto engine = state.engine;
@@ -248,7 +241,6 @@ JSHandle jsPathNormalize(void* ctx, JSHandle thisVal, scope JSHandle[] args) @tr
 
 JSHandle jsPathRelative(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsPathRelative");
     auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsPathRelative");
     auto engine = state.engine;
@@ -264,7 +256,6 @@ JSHandle jsPathRelative(void* ctx, JSHandle thisVal, scope JSHandle[] args) @tru
 
 JSHandle jsPathParse(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsPathParse");
     auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsPathParse");
     auto engine = state.engine;
@@ -291,7 +282,6 @@ JSHandle jsPathParse(void* ctx, JSHandle thisVal, scope JSHandle[] args) @truste
 
 JSHandle jsPathFormat(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsPathFormat");
     auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsPathFormat");
     auto engine = state.engine;
@@ -328,7 +318,6 @@ JSHandle jsPathFormat(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trust
 
 JSHandle jsPathToNamespacedPath(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsPathToNamespacedPath");
     auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in jsPathToNamespacedPath");
     auto engine = state.engine;

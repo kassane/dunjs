@@ -87,7 +87,6 @@ private WorkerState _getWst(IJSEngine engine) nothrow @trusted
 
 private JSHandle _selfPostMessage(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in self.postMessage");
     auto state = ctxState(ctx);
     assert(state !is null && state.engine !is null, "Invalid DunState in self.postMessage");
     auto engine = state.engine;
@@ -111,7 +110,6 @@ private JSHandle _selfPostMessage(void* ctx, JSHandle thisVal, scope JSHandle[] 
 
 private JSHandle _selfClose(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in self.close");
     auto state = ctxState(ctx);
     assert(state !is null && state.engine !is null, "Invalid DunState in self.close");
 

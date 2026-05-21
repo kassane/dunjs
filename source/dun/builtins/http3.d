@@ -226,7 +226,6 @@ ubyte[] encodeH3Settings() pure @safe
 
 JSHandle jsH3CreateServer(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in http3.createServer");
     auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in http3.createServer");
     auto engine = state.engine;
@@ -243,7 +242,6 @@ JSHandle jsH3CreateServer(void* ctx, JSHandle thisVal, scope JSHandle[] args) @t
 
 JSHandle jsH3ServerListen(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in http3.server.listen");
     auto state = ctxState(ctx);
     assert(state.engine !is null);
     auto engine = state.engine;
@@ -332,7 +330,6 @@ JSHandle jsH3ServerListen(void* ctx, JSHandle thisVal, scope JSHandle[] args) @t
 
 JSHandle jsH3ServerClose(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in http3.server.close");
     auto state = ctxState(ctx);
     assert(state.engine !is null);
     auto engine = state.engine;
@@ -362,7 +359,6 @@ JSHandle jsH3ServerClose(void* ctx, JSHandle thisVal, scope JSHandle[] args) @tr
 
 JSHandle jsH3ServerOn(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in http3.server.on");
     auto state = ctxState(ctx);
     assert(state.engine !is null);
     return state.engine.dupValue(thisVal);
@@ -370,7 +366,6 @@ JSHandle jsH3ServerOn(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trust
 
 JSHandle jsH3Connect(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in http3.connect");
     auto state = ctxState(ctx);
     assert(state.engine !is null);
     auto engine = state.engine;

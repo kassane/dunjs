@@ -156,7 +156,6 @@ void installWorkerAPI(IJSEngine engine, DunState* state) @trusted
 
 private JSHandle _workerCtor(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in Worker constructor");
     auto state = ctxState(ctx);
     assert(state !is null && state.engine !is null, "Invalid DunState in Worker constructor");
     auto engine = state.engine;
@@ -203,7 +202,6 @@ private JSHandle _workerCtor(void* ctx, JSHandle thisVal, scope JSHandle[] args)
 
 private JSHandle _workerPostMessage(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in Worker.postMessage");
     auto state = ctxState(ctx);
     assert(state !is null && state.engine !is null, "Invalid DunState in Worker.postMessage");
     auto engine = state.engine;
@@ -241,7 +239,6 @@ private JSHandle _workerPostMessage(void* ctx, JSHandle thisVal, scope JSHandle[
 
 private JSHandle _sabCtor(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in SharedArrayBuffer constructor");
     auto state = ctxState(ctx);
     assert(state !is null && state.engine !is null, "Invalid DunState in SharedArrayBuffer");
     auto engine = state.engine;
@@ -267,7 +264,6 @@ private JSHandle _sabCtor(void* ctx, JSHandle thisVal, scope JSHandle[] args) @t
 
 private JSHandle _int32ArrayCtor(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in Int32Array constructor");
     auto state = ctxState(ctx);
     assert(state !is null && state.engine !is null, "Invalid DunState in Int32Array");
     auto engine = state.engine;
@@ -358,7 +354,6 @@ private int* _getAtomicPtr(IJSEngine engine, JSHandle ta, int idx) @trusted
 
 private JSHandle _atomicsLoad(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in Atomics.load");
     auto state = ctxState(ctx);
     auto engine = state.engine;
     if (args.length < 2) return engine.newUndefined();
@@ -370,7 +365,6 @@ private JSHandle _atomicsLoad(void* ctx, JSHandle thisVal, scope JSHandle[] args
 
 private JSHandle _atomicsStore(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in Atomics.store");
     auto state = ctxState(ctx);
     auto engine = state.engine;
     if (args.length < 3) return engine.newUndefined();
@@ -384,7 +378,6 @@ private JSHandle _atomicsStore(void* ctx, JSHandle thisVal, scope JSHandle[] arg
 
 private JSHandle _atomicsAdd(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in Atomics.add");
     auto state = ctxState(ctx);
     auto engine = state.engine;
     if (args.length < 3) return engine.newUndefined();
@@ -397,7 +390,6 @@ private JSHandle _atomicsAdd(void* ctx, JSHandle thisVal, scope JSHandle[] args)
 
 private JSHandle _atomicsSub(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in Atomics.sub");
     auto state = ctxState(ctx);
     auto engine = state.engine;
     if (args.length < 3) return engine.newUndefined();
@@ -410,7 +402,6 @@ private JSHandle _atomicsSub(void* ctx, JSHandle thisVal, scope JSHandle[] args)
 
 private JSHandle _atomicsAnd(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in Atomics.and");
     auto state = ctxState(ctx);
     auto engine = state.engine;
     if (args.length < 3) return engine.newUndefined();
@@ -427,7 +418,6 @@ private JSHandle _atomicsAnd(void* ctx, JSHandle thisVal, scope JSHandle[] args)
 
 private JSHandle _atomicsOr(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in Atomics.or");
     auto state = ctxState(ctx);
     auto engine = state.engine;
     if (args.length < 3) return engine.newUndefined();
@@ -444,7 +434,6 @@ private JSHandle _atomicsOr(void* ctx, JSHandle thisVal, scope JSHandle[] args) 
 
 private JSHandle _atomicsXor(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in Atomics.xor");
     auto state = ctxState(ctx);
     auto engine = state.engine;
     if (args.length < 3) return engine.newUndefined();
@@ -461,7 +450,6 @@ private JSHandle _atomicsXor(void* ctx, JSHandle thisVal, scope JSHandle[] args)
 
 private JSHandle _atomicsExchange(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in Atomics.exchange");
     auto state = ctxState(ctx);
     auto engine = state.engine;
     if (args.length < 3) return engine.newUndefined();
@@ -478,7 +466,6 @@ private JSHandle _atomicsExchange(void* ctx, JSHandle thisVal, scope JSHandle[] 
 
 private JSHandle _atomicsIsLockFree(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in Atomics.isLockFree");
     auto state = ctxState(ctx);
     auto engine = state.engine;
     if (args.length < 1) return engine.newBool(false);
@@ -488,7 +475,6 @@ private JSHandle _atomicsIsLockFree(void* ctx, JSHandle thisVal, scope JSHandle[
 
 private JSHandle _atomicsCmpXch(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in Atomics.compareExchange");
     auto state = ctxState(ctx);
     auto engine = state.engine;
     if (args.length < 4) return engine.newUndefined();
@@ -505,7 +491,6 @@ private JSHandle _atomicsCmpXch(void* ctx, JSHandle thisVal, scope JSHandle[] ar
 
 private JSHandle _atomicsWait(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in Atomics.wait");
     auto state = ctxState(ctx);
     auto engine = state.engine;
 
@@ -594,7 +579,6 @@ private JSHandle _atomicsWait(void* ctx, JSHandle thisVal, scope JSHandle[] args
 
 private JSHandle _atomicsNotify(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in Atomics.notify");
     auto state = ctxState(ctx);
     auto engine = state.engine;
     if (args.length < 2) return engine.newUndefined();
@@ -631,7 +615,6 @@ private JSHandle _atomicsNotify(void* ctx, JSHandle thisVal, scope JSHandle[] ar
 
 private JSHandle _atomicsWaitAsync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in Atomics.waitAsync");
     auto state = ctxState(ctx);
     auto engine = state.engine;
 

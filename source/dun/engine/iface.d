@@ -56,60 +56,67 @@ struct PromiseHandles
     JSHandle reject;
 }
 
+/// All interface methods are `@trusted` because every backend
+/// implementation touches a C/C++ FFI surface (QJS JSContext*, JSC
+/// JSContextRef, V8 v8shim handles). The backends already carry
+/// `@trusted` on each override — declaring it here lets `@safe`
+/// callers use the engine without an `@trusted` escape of their own.
+/// `rawRuntime` / `rawContext` stay `@system` because they hand the
+/// caller a raw FFI pointer they can do anything with.
 interface IJSEngine
 {
     // --- Lifecycle ---
-    void initialize(EngineConfig config);
-    void shutdown();
+    void initialize(EngineConfig config) @trusted;
+    void shutdown() @trusted;
 
     // --- Evaluation ---
-    JSResult eval(scope const(char)[] source, string filename);
+    JSResult eval(scope const(char)[] source, string filename) @trusted;
 
     // --- Value creation ---
-    JSHandle newUndefined();
-    JSHandle newNull();
-    JSHandle newString(scope const(char)[] s);
-    JSHandle newInt(int v);
-    JSHandle newFloat(double v);
-    JSHandle newBool(bool v);
-    JSHandle newObject();
-    JSHandle newArray();
-    JSHandle newFunction(NativeCallback cb, string name, int argc);
+    JSHandle newUndefined() @trusted;
+    JSHandle newNull() @trusted;
+    JSHandle newString(scope const(char)[] s) @trusted;
+    JSHandle newInt(int v) @trusted;
+    JSHandle newFloat(double v) @trusted;
+    JSHandle newBool(bool v) @trusted;
+    JSHandle newObject() @trusted;
+    JSHandle newArray() @trusted;
+    JSHandle newFunction(NativeCallback cb, string name, int argc) @trusted;
 
     // --- Value extraction ---
-    string extractString(JSHandle val);
-    int extractInt(JSHandle val);
-    double extractFloat(JSHandle val);
-    bool extractBool(JSHandle val);
+    string extractString(JSHandle val) @trusted;
+    int extractInt(JSHandle val) @trusted;
+    double extractFloat(JSHandle val) @trusted;
+    bool extractBool(JSHandle val) @trusted;
 
     // --- Properties ---
-    JSHandle getProperty(JSHandle obj, scope const(char)[] name);
-    void setProperty(JSHandle obj, scope const(char)[] name, JSHandle val);
-    JSHandle getGlobal();
+    JSHandle getProperty(JSHandle obj, scope const(char)[] name) @trusted;
+    void setProperty(JSHandle obj, scope const(char)[] name, JSHandle val) @trusted;
+    JSHandle getGlobal() @trusted;
 
     /// Set `obj.name = fn` without consuming `fn` — backends that
     /// would normally consume (QuickJS) dup internally. Use for
     /// cached __gshared method handles that outlive their call sites.
-    void bindMethod(JSHandle obj, scope const(char)[] name, JSHandle fn);
+    void bindMethod(JSHandle obj, scope const(char)[] name, JSHandle fn) @trusted;
 
     /// `Object.setPrototypeOf(obj, proto)`. Hot-path replacement for
     /// the JS-level factory we used to build Buffers with.
-    void setPrototype(JSHandle obj, JSHandle proto);
+    void setPrototype(JSHandle obj, JSHandle proto) @trusted;
 
     /// Fused `new Uint8Array(data) + setPrototypeOf(_, proto)` —
     /// one backend call per Buffer.from/alloc/concat. `data` may be
     /// null when `zeroed` and `len > 0` (Buffer.alloc semantics).
-    JSHandle newBufferWithProto(scope const(ubyte)[] data, JSHandle proto, bool zeroed);
+    JSHandle newBufferWithProto(scope const(ubyte)[] data, JSHandle proto, bool zeroed) @trusted;
 
     /// Fused `new Uint8Array(size) + setPrototypeOf(_, proto)` for
     /// `Buffer.alloc(size)` — V8 collapses to one Isolate/Context-Scope
     /// entry; QuickJS/JSC fall back to the 2-step path. Returns a
     /// zeroed buffer of `size` bytes with `proto` installed.
-    JSHandle newUint8ArrayZeroedWithProto(size_t size, JSHandle proto);
+    JSHandle newUint8ArrayZeroedWithProto(size_t size, JSHandle proto) @trusted;
 
     /// Fused `Buffer.from(jsString, "utf8")` — V8 writes UTF-8 directly;
     /// QuickJS/JSC fall back to the two-step path.
-    JSHandle newBufferFromUtf8String(JSHandle jsStr, JSHandle proto);
+    JSHandle newBufferFromUtf8String(JSHandle jsStr, JSHandle proto) @trusted;
 
     /// Fused `Buffer.concat(list, totalLen)` — V8 iterates the array of
     /// TypedArrays inside a single withContext scope, allocates one
@@ -118,72 +125,74 @@ interface IJSEngine
     /// if the backend can't accelerate (caller falls back to the generic
     /// engine-agnostic loop path).
     JSHandle bufferConcatFused(JSHandle arrayHandle, int count,
-        size_t totalLen, JSHandle proto);
+        size_t totalLen, JSHandle proto) @trusted;
 
     // --- Reference management ---
-    JSHandle dupValue(JSHandle val);
-    void freeValue(JSHandle val);
+    JSHandle dupValue(JSHandle val) @trusted;
+    void freeValue(JSHandle val) @trusted;
 
     // --- Typed arrays ---
-    JSHandle newUint8Array(scope const(ubyte)[] data);
-    JSHandle newUint8ArrayZeroed(size_t length);
+    JSHandle newUint8Array(scope const(ubyte)[] data) @trusted;
+    JSHandle newUint8ArrayZeroed(size_t length) @trusted;
 
     /// Engine-owned slice tied to `val`'s lifetime — `.dup` if you
     /// need it past the JSHandle. `return scope` is DIP1000-checked.
     ubyte[] getTypedArrayBytes(return scope JSHandle val) @trusted;
 
     // --- Indexed property access (O(1) for arrays) ---
-    void setPropertyIndex(JSHandle obj, uint idx, JSHandle val);
-    JSHandle getPropertyIndex(JSHandle obj, uint idx);
+    void setPropertyIndex(JSHandle obj, uint idx, JSHandle val) @trusted;
+    JSHandle getPropertyIndex(JSHandle obj, uint idx) @trusted;
 
     // --- Array operations ---
-    bool isArray(JSHandle val);
-    int getArrayLength(JSHandle val);
+    bool isArray(JSHandle val) @trusted;
+    int getArrayLength(JSHandle val) @trusted;
 
     // --- Type checks ---
-    bool isException(JSHandle val);
-    bool isUndefined(JSHandle val);
-    bool isNull(JSHandle val);
-    bool isString(JSHandle val);
-    bool isObject(JSHandle val);
-    bool isFunction(JSHandle val);
-    bool isBool(JSHandle val);
-    bool isNumber(JSHandle val);
+    bool isException(JSHandle val) @trusted;
+    bool isUndefined(JSHandle val) @trusted;
+    bool isNull(JSHandle val) @trusted;
+    bool isString(JSHandle val) @trusted;
+    bool isObject(JSHandle val) @trusted;
+    bool isFunction(JSHandle val) @trusted;
+    bool isBool(JSHandle val) @trusted;
+    bool isNumber(JSHandle val) @trusted;
 
     // --- Invocation ---
-    JSHandle callFunction(JSHandle func, JSHandle thisVal, JSHandle[] args);
+    JSHandle callFunction(JSHandle func, JSHandle thisVal, JSHandle[] args) @trusted;
 
     // --- Exceptions ---
-    string getException();
-    JSHandle throwTypeError(scope const(char)[] msg);
-    JSHandle throwRangeError(scope const(char)[] msg);
-    JSHandle throwValue(JSHandle val);
+    string getException() @trusted;
+    JSHandle throwTypeError(scope const(char)[] msg) @trusted;
+    JSHandle throwRangeError(scope const(char)[] msg) @trusted;
+    JSHandle throwValue(JSHandle val) @trusted;
 
     // --- Promises ---
-    PromiseHandles newPromise();
+    PromiseHandles newPromise() @trusted;
 
     // --- Microtasks / Promise jobs ---
-    bool hasPendingJobs();
-    bool executePendingJob();
-    void drainJobs();
+    bool hasPendingJobs() @trusted;
+    bool executePendingJob() @trusted;
+    void drainJobs() @trusted;
 
     // --- Opaque state ---
-    void setContextOpaque(void* ptr);
-    void* getContextOpaque();
+    void setContextOpaque(void* ptr) @trusted;
+    void* getContextOpaque() @trusted;
 
     // --- Modules ---
-    void setModuleLoader(ModuleLoaderCallback loader);
+    void setModuleLoader(ModuleLoaderCallback loader) @trusted;
     JSResult evalModule(scope const(char)[] source, string filename) @trusted;
     void registerNativeModule(string name, void* initFunc) @trusted;
 
     // --- Limits ---
-    void setMemoryLimit(size_t bytes);
-    void setMaxStackSize(size_t bytes);
+    void setMemoryLimit(size_t bytes) @trusted;
+    void setMaxStackSize(size_t bytes) @trusted;
 
     // --- Garbage collection ---
-    void collectGarbage();
+    void collectGarbage() @trusted;
 
     // --- Raw engine access (for backend-specific code) ---
+    // Stays @system: hands the caller a raw FFI pointer that anything
+    // can be done with — pretending it's `@trusted` would be a lie.
     void* rawRuntime();
     void* rawContext();
 }
