@@ -1,0 +1,8 @@
+OK: /proc/self/environ blocked
+OK: /proc/self/maps blocked
+OK: /etc/passwd blocked
+OK: /etc/hostname blocked
+OK: /dev/null blocked
+OK: /proc/cpuinfo blocked
+OK: /sys/devices blocked
+OK: /etc blocked

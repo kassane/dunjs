@@ -134,14 +134,36 @@ struct PermissionRegistry
         if (isDenied(perm, normResource))
             return false;
 
-        // Check global grant
-        if (auto s = perm in globalPerms)
+        /* CVE-class fix: privileged file paths (CVE-2024-34346 /
+           GHSA-23rx-c3g5-hv9w, Deno 1.43). A global `--allow-read`
+           or `--allow-write` MUST NOT grant access to /proc /sys
+           /dev /etc on POSIX or \\?\ \\.\ DOS device paths on
+           Windows — otherwise reading /proc/self/environ silently
+           escalates --allow-read to --allow-env (env-var leak),
+           and writing /proc/self/mem escalates to --allow-all
+           (process memory write). Explicit scoped grants
+           (`--allow-read=/etc/myapp.conf`) still work because
+           they're deliberate per-path user intent; the global
+           form is what we revoke. `--allow-all` (above) bypasses
+           this guard — the user has opted into the full sandbox
+           escape. */
+        immutable bool privAccess =
+            (perm == Permission.read || perm == Permission.write)
+            && normResource.length > 0
+            && isPrivilegedPath(normResource);
+
+        // Check global grant (skipped for privileged paths)
+        if (!privAccess)
         {
-            if (*s == PermissionState.granted)
-                return true;
+            if (auto s = perm in globalPerms)
+            {
+                if (*s == PermissionState.granted)
+                    return true;
+            }
         }
 
-        // Check scoped allow list
+        // Check scoped allow list (still honored for privileged paths
+        // — user explicitly scoped to that file)
         if (auto scopes = perm in scopedAllowList)
         {
             foreach (scope_; *scopes)
@@ -152,6 +174,37 @@ struct PermissionRegistry
         }
 
         return false; // Default deny
+    }
+
+    /// Privileged-path predicate (CVE-2024-34346 class).
+    /// POSIX: /proc, /sys, /dev, /etc and their subtrees.
+    /// Windows: DOS device paths beginning with \\?\ or \\.\
+    private static bool isPrivilegedPath(string canonical) @safe pure nothrow
+    {
+        if (canonical.length == 0) return false;
+        version (Posix)
+        {
+            static immutable string[] prefixes =
+                ["/proc/", "/sys/", "/dev/", "/etc/"];
+            static immutable string[] exact =
+                ["/proc", "/sys", "/dev", "/etc"];
+            foreach (p; prefixes)
+                if (canonical.length >= p.length && canonical[0 .. p.length] == p)
+                    return true;
+            foreach (e; exact)
+                if (canonical == e)
+                    return true;
+        }
+        else version (Windows)
+        {
+            if (canonical.length >= 4)
+            {
+                auto h = canonical[0 .. 4];
+                if (h == "\\\\?\\" || h == "\\\\.\\")
+                    return true;
+            }
+        }
+        return false;
     }
 
     /// Parse a CLI flag like --allow-read=./data,/tmp
