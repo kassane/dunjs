@@ -1226,17 +1226,27 @@ profiling. Not just an FFI demo. Documented in
 
 ---
 
-## 11. D ↔ C++ **TMP** FFI — `pragma(mangle)` over explicit instantiations
+## 11. D ↔ C++ **TMP** FFI — native D template syntax
 
 §10 validated `extern(C++, "ns")` for static-method classes. The
-follow-up question (raised after §10 landed): can D bind to a
-C++ **template** instantiation — e.g. `v8shim::TypedCounter<0>::
-increment()` or, ultimately, `cppgc::MakeGarbageCollected<T>`?
+follow-up question: can D bind to a C++ **template**
+instantiation — e.g. `v8shim::TypedCounter<0>::increment()` or,
+ultimately, `cppgc::MakeGarbageCollected<T>`?
 
-The case study §3 / §2.4½ noted this is *hard* because
-`extern(C++, "ns")` syntax can't carry template arguments. The
-canonical D escape hatch is `pragma(mangle, "<itanium mangled
-name>")`, which spells out the symbol exactly.
+**Yes, two ways**:
+
+1. **Native D template syntax (preferred)**: `extern(C++, class)
+   struct Name(int Slot)` declares a parameterized type whose
+   instantiations auto-mangle to the matching Itanium template-
+   instantiation symbols. Cleanest form; no string-keyed mangle
+   spelling.
+2. **`pragma(mangle, "<itanium>")` (fallback)**: spell the
+   mangled symbol literally. Use when D's TMP can't express the
+   C++ signature (overloads, defaulted args, SFINAE constraints,
+   partial specializations).
+
+DunJS uses (1) for the `v8shim::TypedCounter<Slot>` validation
+and keeps (2) in the test suite as the documented fallback.
 
 ### 11.1 The C++ side — explicit instantiation is mandatory
 
@@ -1274,23 +1284,40 @@ _ZN6v8shim12TypedCounterILi1EE4readEv       W
 
 The `ILi0EE` segment is the Itanium ABI encoding of `<0>`.
 
-### 11.2 The D side — `pragma(mangle)` spells the symbol
+### 11.2 The D side — native template syntax
 
 ```d
-extern (C++) nothrow @nogc
+extern (C++, "v8shim")
 {
-    pragma(mangle, "_ZN6v8shim12TypedCounterILi0EE9incrementEv")
-    int tmpCounter0Increment();
-
-    pragma(mangle, "_ZN6v8shim12TypedCounterILi1EE9incrementEv")
-    int tmpCounter1Increment();
+    extern (C++, class) struct TypedCounter(int Slot)
+    {
+        static int increment() nothrow @nogc;
+        static int read() nothrow @nogc;
+    }
+    alias TypedCounter0 = TypedCounter!0;
+    alias TypedCounter1 = TypedCounter!1;
 }
+
+// Caller:
+auto n = TypedCounter0.increment();    // → C++ TypedCounter<0>::increment
+auto m = TypedCounter!1.read();        // → C++ TypedCounter<1>::read
 ```
 
-`extern(C++)` tells D to not D-mangle the symbol;
-`pragma(mangle, ...)` then supplies the literal C++ Itanium
-mangling. The function body is implementation-supplied by the
-linked C++ object.
+`extern(C++, class)` is the right form because **C++ classes are
+value types**, and D's `struct` is also a value type. Using
+`extern(C++, class) struct` matches the C++ ABI; using D `class`
+(a reference type) would mismatch — the linker would resolve to
+the same symbol but the calling convention would be wrong.
+
+Verified: `nm` on the resulting object file shows D produced
+`_ZN6v8shim12TypedCounterILi0EE9incrementEv` exactly — the same
+symbol the C++ explicit instantiation emitted. Link + runtime
+test confirms the ABI matches (counter increments correctly,
+independent per `<Slot>`).
+
+The `pragma(mangle, "<itanium>")` form is also documented in the
+test suite (case 7b in `test_ffi_linkage.d`) for cases where D's
+TMP can't express the C++ signature shape.
 
 ### 11.3 End-to-end verification
 
@@ -1323,7 +1350,28 @@ Test in the standalone FFI suite:
 `tools/bindgen_tests/test_ffi_linkage.d` case 7. Symbol mangling
 verified via `nm`.
 
-### 11.4 Updated capability table (replaces §10.4)
+### 11.4 D ↔ C++ type-system mapping (critical for production)
+
+When binding C++ types from D, the value/reference distinction
+matters more than the C++ class/struct keyword:
+
+| C++ side | D-side binding | Notes |
+|----------|---------------|-------|
+| `class T { ... };` | `extern(C++, class) struct T { ... }` | C++ class is value-type; use D struct |
+| `struct T { ... };` | `extern(C++, class) struct T { ... }` | Same; `class` keyword in extern(C++, …) carries the access default |
+| `class T { virtual void f(); };` | `extern(C++) class T { void f(); }` | Reference type WITH vtable; D class matches. Risky — vtable layout must match exactly |
+| C++ template `T<X>` | `extern(C++, class) struct T(typename X) { ... }` | D template syntax; auto-mangles to `_ZN…IL…EE…Ev` |
+| Private/protected members | All visible to D | D has no per-member access; module-level access only |
+| Defaulted constructor in C++ | **Not expressible** in D struct | D struct can't have a default ctor at all |
+| Multiple inheritance | **Hard** | Bind to a flattened C++ wrapper instead |
+
+The key D-side constraint: D struct ≠ D class. C++ value-type
+classes need to map to D struct (with `extern(C++, class)`
+syntax). C++ reference-type classes (with virtual methods,
+i.e. anything you'd point at with a `T*`) map to D class —
+but you take on the vtable-layout compatibility risk.
+
+### 11.5 Updated capability table (replaces §10.4)
 
 | FFI pattern | D mechanism | DunJS evidence |
 |------------|-------------|----------------|
@@ -1331,12 +1379,12 @@ verified via `nm`.
 | `extern(C++)` free function | `extern(C++)` | `cpp_add`, `cpp_mul` (test_ffi_linkage:15) |
 | Namespaced free function | `extern(C++, "ns")` | `v8::platform::NewDefaultPlatform` |
 | Static method on class | `extern(C++, "ns") extern class { static: }` | `v8::V8::*`, `v8shim::Diagnostics::*` |
-| **C++ template instantiation (explicit)** | **`pragma(mangle, "<itanium>")`** | **`v8shim::TypedCounter<N>` (this PR, §11)** |
+| **C++ template instantiation (explicit)** | **`extern(C++, class) struct T(int N)` + `alias`** (preferred) **OR `pragma(mangle, "<itanium>")`** (fallback) | **`v8shim::TypedCounter<N>` (this PR, §11.2)** |
 | C++ instance method (non-virtual) | extern(C++, class) | Theoretical |
 | C++ instance method (virtual) | extern(C++, class) — vtable must match | High risk — ABI churn |
 | Template function D supplies type to | **Not possible directly** — wrap in C++ helper, then bind | This blocks cppgc::MakeGarbageCollected<T> bridge |
 
-### 11.5 What this changes for the cppgc verdict
+### 11.6 What this changes for the cppgc verdict
 
 `MakeGarbageCollected<T>` is a *function template* where the
 template parameter `T` is supplied by the caller. C++ can only

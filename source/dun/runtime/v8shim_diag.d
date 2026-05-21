@@ -9,9 +9,7 @@ module dun.runtime.v8shim_diag;
 version (EngineV8):
 
 import dun.engine.iface : IJSEngine, JSHandle;
-import dun.engine.v8.cppbindings : Diagnostics,
-    tmpCounter0Increment, tmpCounter0Read,
-    tmpCounter1Increment, tmpCounter1Read;
+import dun.engine.v8.cppbindings : Diagnostics, TypedCounter0, TypedCounter1;
 import std.string : fromStringz;
 
 void installV8ShimDiag(IJSEngine engine) @trusted
@@ -39,12 +37,12 @@ private JSHandle jsV8ShimDiag(void* ctx, JSHandle thisVal, scope JSHandle[] args
     auto verCstr    = Diagnostics.shimVersion();
     auto probe      = Diagnostics.probeBumpCounter();
 
-    // D ↔ C++ TMP FFI: each call resolves to
-    // `v8shim::TypedCounter<N>::increment()` — an explicit C++ template
-    // instantiation — via pragma(mangle). Validates the TMP path is
-    // live, not just declared. See research doc §11.
-    auto tmp0 = tmpCounter0Increment();
-    auto tmp1 = tmpCounter1Increment();
+    // D ↔ C++ TMP FFI: native D `TypedCounter!N` syntax auto-mangles
+    // to the C++ Itanium template-instantiation symbol the explicit
+    // `template class TypedCounter<N>;` in v8shim.cpp produced. Each
+    // call hits the corresponding C++ static method. See §11.
+    auto tmp0 = TypedCounter0.increment();
+    auto tmp1 = TypedCounter1.increment();
 
     string verStr = verCstr is null ? "" : cast(string) fromStringz(verCstr);
 

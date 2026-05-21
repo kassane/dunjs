@@ -43,20 +43,39 @@ extern(C++, "dun") extern(C++, class) struct TestWidget {
 // 6. extern(D) — default D mangling
 int d_add(int a, int b) { return a + b; }
 
-// 7. D ↔ C++ TMP FFI via pragma(mangle) — bind D to explicit C++ template
-// instantiations like `v8shim::TypedCounter<0>::increment()`.
-// extern(C++, "ns") alone can't express template arguments, so we spell
-// the full Itanium-mangled symbol via pragma(mangle). The C++ side must
-// explicitly instantiate the template (`template class TypedCounter<0>;`)
-// so the symbol exists at link time. This is the canonical pattern for
-// any C++ TMP API — cppgc::MakeGarbageCollected<T>, JSC::Heap::allocate<T>,
-// std::vector<T>::push_back, etc.
+// 7a. D ↔ C++ TMP FFI via NATIVE D TEMPLATE SYNTAX — the preferred form.
+// D's `extern(C++, class) struct Name(int Slot)` auto-mangles to the
+// Itanium template-instantiation symbol (e.g.
+// `_ZN6v8shim12TypedCounterILi0EE9incrementEv`). The C++ side must
+// explicitly instantiate (`template class TypedCounter<0>;`) so the
+// symbol exists at link time. Verified end-to-end: counters at
+// vendor/v8shim/v8shim.cpp, D bindings at engine/v8/cppbindings.d.
+//
+// IMPORTANT type-system mapping:
+//   - C++ class/struct are VALUE types
+//   - D struct is a VALUE type — use this for extern(C++, class) struct
+//   - D class is a REFERENCE type — would mismatch the C++ ABI
+//   - D has no private members, only module-level access
+extern(C++, "v8shim")
+{
+    extern(C++, class) struct TmpCounter(int Slot)
+    {
+        static int increment() nothrow @nogc;
+        static int read() nothrow @nogc;
+    }
+    alias TmpCounter0 = TmpCounter!0;
+    alias TmpCounter1 = TmpCounter!1;
+}
+
+// 7b. D ↔ C++ TMP FFI via pragma(mangle) — fallback when D's TMP can't
+// express the C++ template signature (overloads, defaulted args,
+// SFINAE constraints, partial specializations). Spell the full Itanium
+// mangled symbol literally. Useful for one-off bindings like
+// cppgc::MakeGarbageCollected<T> wrappers where only one T is needed.
 extern(C++) nothrow @nogc
 {
-    pragma(mangle, "_ZN6v8shim12TypedCounterILi0EE9incrementEv")
-    int tmp_counter0_increment();
-    pragma(mangle, "_ZN6v8shim12TypedCounterILi1EE9incrementEv")
-    int tmp_counter1_increment();
+    pragma(mangle, "_ZN6v8shim12TypedCounterILi0EE4readEv")
+    int tmp_counter0_read_via_pragma();
 }
 
 // Static assertions for size/alignment across ABI

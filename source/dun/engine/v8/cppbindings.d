@@ -137,25 +137,32 @@ version (EngineV8)
             // const inlined into the call site).
             int probeBumpCounter() nothrow @nogc;
         }
-    }
 
-    /// D ↔ C++ TMP FFI: bind to explicit instantiations of
-    /// `v8shim::TypedCounter<Slot>::increment()` via pragma(mangle).
-    /// extern(C++, "ns") alone can't express template arguments;
-    /// the mangled symbol must be spelled out. Both instantiations
-    /// (Slot=0, Slot=1) are emitted by `template class TypedCounter<N>;`
-    /// at the bottom of vendor/v8shim/v8shim.cpp.
-    /// Research doc §11 covers the design rationale.
-    extern (C++) nothrow @nogc
-    {
-        pragma(mangle, "_ZN6v8shim12TypedCounterILi0EE9incrementEv")
-        int tmpCounter0Increment();
-        pragma(mangle, "_ZN6v8shim12TypedCounterILi0EE4readEv")
-        int tmpCounter0Read();
-        pragma(mangle, "_ZN6v8shim12TypedCounterILi1EE9incrementEv")
-        int tmpCounter1Increment();
-        pragma(mangle, "_ZN6v8shim12TypedCounterILi1EE4readEv")
-        int tmpCounter1Read();
+        /// D ↔ C++ TMP FFI: native D template syntax mirroring C++
+        /// `v8shim::TypedCounter<Slot>`. D auto-mangles to the same
+        /// Itanium symbol the C++ side emits via
+        /// `template class TypedCounter<N>;`. Verified end-to-end:
+        ///   D writes `TypedCounter!0.increment()`
+        ///   → linker sees `_ZN6v8shim12TypedCounterILi0EE9incrementEv`
+        ///   → resolves to the C++ explicit instantiation in v8shim.cpp.
+        ///
+        /// CRITICAL: the template MUST live inside this
+        /// `extern(C++, "v8shim")` block — outside, D omits the
+        /// namespace prefix and the symbol becomes
+        /// `_ZN12TypedCounterIL...EE...Ev` (no `6v8shim`).
+        ///
+        /// `extern(C++, class) struct` is the right D-side form because
+        /// C++ classes are VALUE types; D struct matches. Using D class
+        /// (reference type) would resolve the same symbol but the
+        /// calling convention would mismatch. See research doc §11.4
+        /// for the full type-system mapping.
+        extern (C++, class) struct TypedCounter(int Slot)
+        {
+            static int increment() nothrow @nogc;
+            static int read() nothrow @nogc;
+        }
+        alias TypedCounter0 = TypedCounter!0;
+        alias TypedCounter1 = TypedCounter!1;
     }
 
     extern (C) nothrow @nogc
