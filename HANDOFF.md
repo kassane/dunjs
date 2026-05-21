@@ -100,6 +100,30 @@ coverage) ran on the v1.1.25 tree across two commits.
   `READLINK_BUF_SIZE`, `WS_CLOSE_NORMAL`) were left alone — the local
   name carries documentation value the bare constant wouldn't.
 
+**Pass 3 — IJSEngine @trusted annotation + @safe callback pilot + redundancy cleanup**
+
+- IJSEngine: all 50+ interface methods now carry `@trusted`,
+  matching what every backend implementation (QJS, JSC, V8) already
+  has on its overrides. Two stay `@system`: `rawRuntime()` /
+  `rawContext()` hand the caller a raw FFI pointer they can do
+  anything with — pretending those are `@trusted` would be a lie.
+- `@safe` callback pilot (8 functions converted as proof-of-pattern):
+  `jsProcessGetuid/getgid/geteuid/getegid`, `jsBufferByteLength`,
+  `consoleLog/consoleWarn/consoleError`, `jsSetTimeout/jsSetInterval/
+  jsClearTimer`, `jsQueueMicrotask`. About 400 callbacks remain
+  `@trusted`; most can now drop to `@safe` in follow-up commits.
+- npm.d: `resolveVersion` / `findBestMatch` (both overloads) /
+  `getTarballUrl` / `randomHex` dropped to `@safe`. The remaining
+  11 `@trusted` functions do real IO / `spawnShell` / HTTP fetch and
+  legitimately need the annotation as security flags.
+- "No redundancies" cleanup: 340 occurrences of
+  `assert(ctx !is null, "Null ctx in <name>");` followed by
+  `auto state = ctxState(ctx);` removed. `ctxState` already asserts
+  on null; combined with D's automatic function-name in assertion
+  stack traces the descriptive prefix added no actionable information.
+  Spread across 33 files (fs.d 54, crypto.d 47, buffer.d 45,
+  process_api.d 24, deno_compat.d 23, fs_promises.d 19, ...).
+
 **Pass 2 — ctxState consolidation + DIP1038 expansion + move semantics**
 
 - `dun.runtime.globals.ctxState(void* ctx)`: new
@@ -134,25 +158,39 @@ coverage) ran on the v1.1.25 tree across two commits.
   symbols) → 2 benchmark runs → `ldc-profdata merge` →
   `release-pgo` (optimized). All stages link clean.
 
-**Still deferred — not applicable / would need its own focused PR**
+**Still deferred — would need its own focused PR**
 
 | Track | Module | Pattern | Why deferred |
 |-------|--------|---------|--------------|
-| `@trusted` reduction | `dun.modules.npm` | 24 whole-function `@trusted` on pure-D HTTP fetch + tar extract logic | Touches dependency-installer hot path; needs its own integration sweep |
-| `@trusted` reduction | `dun.builtins.buffer` callbacks | ~30 native callbacks still need `@trusted` because they call through `IJSEngine`, which is `@system`-by-default. Annotating the whole engine interface `@safe` is a much larger refactor (touches every backend). The `ctxState` helper from Pass 2 centralizes the cast — but the callback function annotation can't drop until the engine interface is safe-ified | Whole-engine surface change |
-| `@trusted` reduction | `process_api` getuid/getgid family | Same blocker — calling `engine.newInt` keeps the function `@trusted`. `ctxState` is in use; full `@safe` requires engine interface annotation | Same blocker |
-| DIP1038 `@mustuse` | `StackFallback.allocate` | D currently reserves `@mustuse on functions for future use`; only struct types accept it (compile error: `@mustuse on functions is reserved for future use`) | Compiler limitation; revisit when LDC/DMD lifts it |
-| DIP1000 `return scope` | `JSVal` constructor (engine-context lifetime), `Buffer` slice getters | Compiler-enforced lifetime tracking | Needs to walk callers; some legitimately need `.dup` |
-| `@live` (DIP1021) | Not adopted anywhere yet | Could enforce single-owner semantics on `JSHandle`/`JSVal` lifetimes at compile time | Whole-program impact; pilot on one type first |
-| IJSEngine `@safe` annotation | All backend interface methods | Would unblock most `@trusted` reductions in callbacks (process_api, buffer.d, every other builtin) | Requires `@safe`/`@trusted` audit of every QJS/JSC/V8 backend method implementation |
+| `@safe` callback rollout | All builtins (~400 callbacks) | The interface annotation in Pass 3 unblocks this. Each callback drops to `@safe` if its body only calls IJSEngine methods + ctxState + safe Phobos. ~10 already piloted | Mechanical but huge diff; would obscure unrelated PRs in `git blame`. Best done in small per-file batches |
+| `@trusted` IO reduction | `dun.modules.npm` (11 remaining) | Functions that touch `spawnShell`, `doFetch`, `readText`, `writefln` — keeping `@trusted` annotated as security flags | Real IO surface; keep `@trusted` as the audit signal |
+| DIP1038 `@mustuse` on funcs | `StackFallback.allocate` and friends | D currently reserves `@mustuse on functions for future use`; only struct types accept it (compile error: `@mustuse on functions is reserved for future use`) | Compiler limitation; revisit when LDC/DMD lifts it |
+| DIP1000 `return scope` | `JSVal` constructor (engine-context lifetime), additional `Buffer` slice getters | Compiler-enforced lifetime tracking | Current `JSVal` ctor stores a raw `JSContext*` field — `scope` on a ctor parameter doesn't track lifetime through struct fields. Practical answer is `@disable this(this)` + doc comment, which is what the wrapper already does. `getTypedArrayBytes` + `extractBytes` are already annotated `return scope` |
+| `@live` (DIP1021) | Evaluated but not adopted | DMD/LDC support exists (`@live` attribute), but the feature has been in beta for years and isn't production-stable. Would enforce single-owner semantics on `JSHandle`/`JSVal` at compile time, with the same pattern as Rust borrow checking | Maturity risk. Re-evaluate when DMD/LDC marks it stable |
+| RAII expansion | `UdpSocketState` (dgram.d), `DnsResolver` state, other fd-holders | Currently managed via fixed-size pool arrays (`gUdpSockets[MAX_UDP_SOCKETS]`) with index-based access, so `@disable this(this)` would break `pool[idx] = X.init` reset semantics | Pool-based lifecycle is intentional — non-copyable annotation would conflict |
 
 The audit notes confirmed: the codebase is broadly disciplined — magic
 numbers are mostly named local enums (intentional documentation), most
 `@trusted` blocks are at real FFI boundaries (legitimate), `@mustuse`
-is wired on `JSResult` + `AsyncResult` + `FetchResult` (the three
-highest-value return types), `@disable this(this)` covers `StackFallback`
-+ `BumpRegion` + `TlsSocket`, and DIP1000 is annotated on every
-slice-returning engine method.
+is wired on `JSResult` + `AsyncResult` + `FetchResult` + `PromiseHandles`
+(the four highest-value return types), `@disable this(this)` covers
+`StackFallback` + `BumpRegion` + `TlsSocket` + `JSVal`, and DIP1000 is
+annotated on every slice-returning engine method.
+
+**Audit verification ledger (across all 3 commits)**
+
+- `dub build -c {quickjs,jsc,v8}`: all clean (debug + release +
+  release-pgo-gen + release-pgo + asan + tsan)
+- `dub test -c unittest`: 71/71
+- Integration sweep: QJS 153/158, V8 153/158, JSC 151/158
+  (deltas are pre-existing npm-network FAILs + the documented
+  `deno_deploy_compat` heap-load case — identical to baseline)
+- ASan sweep: 153/158 baseline, no leaks/UBs
+- TSan sweep: 153/158 baseline, zero data race warnings
+- gdb crash-check on `/tmp/repro_audit.js`: no SIGSEGV, no abort,
+  heap stable. Verifies the `ctxState` helper symbol is reachable
+- PGO chain: 48 `__llvm_profile_` symbols at gen stage, profdata
+  merge clean, optimized build links clean
 
 ## Build & test recipe (canonical)
 
