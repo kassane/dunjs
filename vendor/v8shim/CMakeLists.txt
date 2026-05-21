@@ -26,6 +26,14 @@ message(STATUS "V8 headers: ${V8_INCLUDE_DIR}")
 
 option(V8_POINTER_COMPRESSION "Enable V8 pointer compression defines" OFF)
 
+# DUN_VERSION is the canonical app version pulled from source/dun/app.d.
+# Embedded into the v8shim::Diagnostics::shimVersion() return so the
+# Diagnostics smoke fixture can't silently regress when app.d bumps.
+# build.d strips and passes -DDUN_VERSION_STR="...". Falls back to "dev"
+# if invoked outside the orchestrator.
+set(DUN_VERSION_STR "dev" CACHE STRING "App version embedded in v8shim::Diagnostics")
+add_definitions(-DDUN_VERSION_STR="${DUN_VERSION_STR}")
+
 add_library(v8shim STATIC
     v8shim.cpp
 )

@@ -1223,3 +1223,133 @@ The diagnostics global itself is useful operationally — Worker
 leak hunting, FFI rate measurement, allocator-pool depth
 profiling. Not just an FFI demo. Documented in
 `CLAUDE.md` (next §) for discovery.
+
+---
+
+## 11. D ↔ C++ **TMP** FFI — `pragma(mangle)` over explicit instantiations
+
+§10 validated `extern(C++, "ns")` for static-method classes. The
+follow-up question (raised after §10 landed): can D bind to a
+C++ **template** instantiation — e.g. `v8shim::TypedCounter<0>::
+increment()` or, ultimately, `cppgc::MakeGarbageCollected<T>`?
+
+The case study §3 / §2.4½ noted this is *hard* because
+`extern(C++, "ns")` syntax can't carry template arguments. The
+canonical D escape hatch is `pragma(mangle, "<itanium mangled
+name>")`, which spells out the symbol exactly.
+
+### 11.1 The C++ side — explicit instantiation is mandatory
+
+`v8shim::TypedCounter<Slot>` is a class template. Without an
+explicit instantiation, its member functions are never emitted —
+the linker has nothing to resolve against. The pattern:
+
+```cpp
+namespace v8shim {
+template <int Slot>
+class TypedCounter {
+public:
+    static int increment() noexcept;
+    static int read() noexcept;
+private:
+    static std::atomic<int> counter;
+};
+
+template <int Slot> std::atomic<int> TypedCounter<Slot>::counter{0};
+
+// CRITICAL: explicit instantiation forces symbol emission
+template class TypedCounter<0>;
+template class TypedCounter<1>;
+}
+```
+
+After this, `nm libv8shim.a` shows:
+
+```
+_ZN6v8shim12TypedCounterILi0EE9incrementEv  W
+_ZN6v8shim12TypedCounterILi0EE4readEv       W
+_ZN6v8shim12TypedCounterILi1EE9incrementEv  W
+_ZN6v8shim12TypedCounterILi1EE4readEv       W
+```
+
+The `ILi0EE` segment is the Itanium ABI encoding of `<0>`.
+
+### 11.2 The D side — `pragma(mangle)` spells the symbol
+
+```d
+extern (C++) nothrow @nogc
+{
+    pragma(mangle, "_ZN6v8shim12TypedCounterILi0EE9incrementEv")
+    int tmpCounter0Increment();
+
+    pragma(mangle, "_ZN6v8shim12TypedCounterILi1EE9incrementEv")
+    int tmpCounter1Increment();
+}
+```
+
+`extern(C++)` tells D to not D-mangle the symbol;
+`pragma(mangle, ...)` then supplies the literal C++ Itanium
+mangling. The function body is implementation-supplied by the
+linked C++ object.
+
+### 11.3 End-to-end verification
+
+DunJS wires this into the same `__dun_v8shim_diag__()` global:
+
+```sh
+$ ./dun-rel-v8 eval "
+const a = __dun_v8shim_diag__();
+const b = __dun_v8shim_diag__();
+console.log('tmp0:', a.tmpCounter0, '->', b.tmpCounter0);
+console.log('tmp1:', a.tmpCounter1, '->', b.tmpCounter1);"
+tmp0: 1 -> 2
+tmp1: 1 -> 2
+```
+
+Each diag call calls `TypedCounter<0>::increment()` and
+`TypedCounter<1>::increment()` once, so consecutive snapshots
+differ by exactly 1 on both counters. Proves:
+- D `pragma(mangle)` resolves to the real C++ template
+  instantiation symbol
+- Each call enters the C++ side (a constant-folded inline
+  would return the same value twice)
+- `<0>` and `<1>` instantiations are genuinely separate
+  (independent counters)
+
+Fixture: `tests/integration/fixtures/v8shim_extern_cpp.js`
+(2 new checks for the TMP counters).
+
+Test in the standalone FFI suite:
+`tools/bindgen_tests/test_ffi_linkage.d` case 7. Symbol mangling
+verified via `nm`.
+
+### 11.4 Updated capability table (replaces §10.4)
+
+| FFI pattern | D mechanism | DunJS evidence |
+|------------|-------------|----------------|
+| `extern(C)` free function | `extern(C)` | Everywhere — 1000+ symbols |
+| `extern(C++)` free function | `extern(C++)` | `cpp_add`, `cpp_mul` (test_ffi_linkage:15) |
+| Namespaced free function | `extern(C++, "ns")` | `v8::platform::NewDefaultPlatform` |
+| Static method on class | `extern(C++, "ns") extern class { static: }` | `v8::V8::*`, `v8shim::Diagnostics::*` |
+| **C++ template instantiation (explicit)** | **`pragma(mangle, "<itanium>")`** | **`v8shim::TypedCounter<N>` (this PR, §11)** |
+| C++ instance method (non-virtual) | extern(C++, class) | Theoretical |
+| C++ instance method (virtual) | extern(C++, class) — vtable must match | High risk — ABI churn |
+| Template function D supplies type to | **Not possible directly** — wrap in C++ helper, then bind | This blocks cppgc::MakeGarbageCollected<T> bridge |
+
+### 11.5 What this changes for the cppgc verdict
+
+`MakeGarbageCollected<T>` is a *function template* where the
+template parameter `T` is supplied by the caller. C++ can only
+emit the instantiation when it knows `T`. D's `pragma(mangle)`
+escape hatch works only when the caller picks `T` up front
+(e.g. `MakeGarbageCollected<DOpaqueBlock>` — D pins T to a
+single C++ type via a wrapper file). So we still need a thin
+C++ shim that explicitly instantiates each `T` we care about
+before D can bind to it.
+
+That's the same conclusion as §3 Design A — but with the
+mechanism now precisely characterized. The blocker is
+**explicit instantiation must happen on the C++ side**, not
+"extern(C++, ns) can't carry templates." The latter was the
+research doc's earlier wording; the former is the actual
+constraint.

@@ -1,26 +1,18 @@
-// V8-only diagnostics global — production validation of the
-// extern(C++, "v8shim") FFI path. Forces D → C++ static-method
-// calls without any extern(C) shim layer in between.
-//
-// Binding: `extern(C++, "v8shim")` in dun.engine.v8.cppbindings
-// declares the v8shim::Diagnostics class; the linker resolves
-// each static-method call to the Itanium-ABI-mangled symbol in
-// vendor/v8shim/libv8shim.a. Validated symbol form:
-//   _ZN6v8shim11Diagnostics18valuePoolFreeCountEv
-//
-// Exposes `globalThis.__dun_v8shim_diag__()` returning a plain JS
-// object with the live alloc / pool stats. Useful for:
-//   - regression testing (smoke fixture proves the C++ FFI works)
-//   - operational visibility (Worker leak hunting, see PR #61)
-//   - DunJS-specific perf observability (no Node.js equivalent)
+/// V8-only diagnostics global. Wires `v8shim::Diagnostics` (C++
+/// static-method class in `vendor/v8shim/v8shim.cpp`) to
+/// `globalThis.__dun_v8shim_diag__()` via direct
+/// `extern(C++, "v8shim")` — no `extern(C)` wrapper in between.
+/// Research doc §10 has the FFI rationale + symbol-mangling table.
 
 module dun.runtime.v8shim_diag;
 
 version (EngineV8):
 
 import dun.engine.iface : IJSEngine, JSHandle;
-import dun.engine.v8.cppbindings : Diagnostics;
-import core.stdc.string : strlen;
+import dun.engine.v8.cppbindings : Diagnostics,
+    tmpCounter0Increment, tmpCounter0Read,
+    tmpCounter1Increment, tmpCounter1Read;
+import std.string : fromStringz;
 
 void installV8ShimDiag(IJSEngine engine) @trusted
 {
@@ -36,13 +28,10 @@ private JSHandle jsV8ShimDiag(void* ctx, JSHandle thisVal, scope JSHandle[] args
     import dun.runtime.globals : DunState;
     assert(ctx !is null, "Null ctx in jsV8ShimDiag");
     auto state = cast(DunState*) ctx;
+    assert(state !is null, "Null DunState in jsV8ShimDiag");
     assert(state.engine !is null, "Null engine in jsV8ShimDiag");
     auto engine = state.engine;
 
-    // Direct extern(C++, "v8shim") calls — no shim wrapper.
-    // Each line below resolves to a mangled Itanium symbol at link
-    // time; the link succeeds iff the v8shim::Diagnostics class
-    // exists with matching signatures in libv8shim.a.
     auto poolFree   = Diagnostics.valuePoolFreeCount();
     auto totAlloc   = Diagnostics.totalAllocs();
     auto totRelease = Diagnostics.totalReleases();
@@ -50,8 +39,14 @@ private JSHandle jsV8ShimDiag(void* ctx, JSHandle thisVal, scope JSHandle[] args
     auto verCstr    = Diagnostics.shimVersion();
     auto probe      = Diagnostics.probeBumpCounter();
 
-    string verStr = verCstr is null ? "" :
-        cast(string) verCstr[0 .. strlen(verCstr)];
+    // D ↔ C++ TMP FFI: each call resolves to
+    // `v8shim::TypedCounter<N>::increment()` — an explicit C++ template
+    // instantiation — via pragma(mangle). Validates the TMP path is
+    // live, not just declared. See research doc §11.
+    auto tmp0 = tmpCounter0Increment();
+    auto tmp1 = tmpCounter1Increment();
+
+    string verStr = verCstr is null ? "" : cast(string) fromStringz(verCstr);
 
     auto obj = engine.newObject();
     setNum(engine, obj, "valuePoolFree", poolFree);
@@ -59,18 +54,19 @@ private JSHandle jsV8ShimDiag(void* ctx, JSHandle thisVal, scope JSHandle[] args
     setNum(engine, obj, "totalReleases", totRelease);
     setNum(engine, obj, "liveCount",     live);
     setNum(engine, obj, "probe",         cast(size_t) probe);
+    setNum(engine, obj, "tmpCounter0",   cast(size_t) tmp0);
+    setNum(engine, obj, "tmpCounter1",   cast(size_t) tmp1);
     auto verH = engine.newString(verStr);
     engine.setProperty(obj, "shimVersion", verH);
     engine.freeValue(verH);
     return obj;
 }
 
+/// size_t can exceed `int` range on long-running counters, so use
+/// `newFloat` (IEEE 754 double, exact for integers up to 2^53).
 private void setNum(IJSEngine engine, JSHandle obj, string key, size_t val) @trusted
 {
-    // size_t is 64-bit; D's newInt takes int. For pool depths /
-    // probe counters this is safe; long-running alloc/release
-    // counters will eventually saturate but that's deferred — the
-    // smoke fixture only verifies single-digit values.
+    assert(engine !is null, "Null engine in setNum");
     auto h = engine.newFloat(cast(double) val);
     engine.setProperty(obj, key, h);
     engine.freeValue(h);

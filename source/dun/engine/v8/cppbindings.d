@@ -139,6 +139,25 @@ version (EngineV8)
         }
     }
 
+    /// D ↔ C++ TMP FFI: bind to explicit instantiations of
+    /// `v8shim::TypedCounter<Slot>::increment()` via pragma(mangle).
+    /// extern(C++, "ns") alone can't express template arguments;
+    /// the mangled symbol must be spelled out. Both instantiations
+    /// (Slot=0, Slot=1) are emitted by `template class TypedCounter<N>;`
+    /// at the bottom of vendor/v8shim/v8shim.cpp.
+    /// Research doc §11 covers the design rationale.
+    extern (C++) nothrow @nogc
+    {
+        pragma(mangle, "_ZN6v8shim12TypedCounterILi0EE9incrementEv")
+        int tmpCounter0Increment();
+        pragma(mangle, "_ZN6v8shim12TypedCounterILi0EE4readEv")
+        int tmpCounter0Read();
+        pragma(mangle, "_ZN6v8shim12TypedCounterILi1EE9incrementEv")
+        int tmpCounter1Increment();
+        pragma(mangle, "_ZN6v8shim12TypedCounterILi1EE4readEv")
+        int tmpCounter1Read();
+    }
+
     extern (C) nothrow @nogc
     {
         const(char)* dun_v8_version();

@@ -1954,6 +1954,20 @@ bool buildV8Shim(ref const Toolchain tc, ref const BuildOptions opts)
         if (v8PtrCompress)
             cmakeArgs ~= "-DV8_POINTER_COMPRESSION=ON";
 
+        // Pass app.d's VERSION through to v8shim::Diagnostics::shimVersion()
+        // so it can't silently drift across version bumps. Grep instead of
+        // import so build.d stays a standalone orchestrator (no source/ dep).
+        import std.regex : matchFirst, regex;
+        immutable appDPath = buildPath(PACKAGE_DIR, "source", "dun", "app.d");
+        if (exists(appDPath))
+        {
+            auto src = readText(appDPath);
+            auto m = matchFirst(src,
+                regex(`public\s+enum\s+VERSION\s*=\s*"([^"]+)"`));
+            if (!m.empty)
+                cmakeArgs ~= "-DDUN_VERSION_STR=" ~ m[1];
+        }
+
         if (tc.platform == Platform.windows)
         {
             cmakeArgs ~= "-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded";
