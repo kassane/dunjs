@@ -317,7 +317,7 @@
 	"toolchainRequirements": {
 		"frontend": ">=2.112.0"
 	},
-	"version": "1.1.24",
+	"version": "1.1.25",
 	"description": "A secure JavaScript runtime written in D",
 	"dependencies": {},
 	"targetType": "executable",
@@ -361,7 +361,9 @@
 				"--fprofile-instr-generate=build/dun-%m.profraw"
 			],
 			"lflags-posix": [
-				"-lldc_rt.profile"
+				"--whole-archive",
+				"-lldc_rt.profile",
+				"--no-whole-archive"
 			]
 		},
 		"release-pgo": {
@@ -390,6 +392,16 @@
 			"dflags": [
 				"-g",
 				"--fsanitize=thread"
+			]
+		},
+		"fuzzer": {
+			"dflags": [
+				"-O1",
+				"-g",
+				"--fsanitize=fuzzer,address"
+			],
+			"lflags-posix": [
+				"-lpthread"
 			]
 		}
 	},

@@ -20,7 +20,7 @@ identically on all three.
 | **ES2025 support** | Full | Full | Full |
 | **Best for** | CLI tools, embedded, small bins | Throughput, HTTP servers, compute | Node.js compat, drop-in replacement |
 
-## Performance snapshot (v1.1.24)
+## Performance snapshot (v1.1.25)
 
 Per-bench, release builds, single-threaded:
 

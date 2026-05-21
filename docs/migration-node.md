@@ -79,7 +79,7 @@ Node returns `"v22.x.x"`; DunJS returns `"v22.0.0"` (we report
 the real DunJS version:
 
 ```js
-process.versions.dun     // "1.1.24"
+process.versions.dun     // "1.1.25"
 process.versions.node    // "22.0.0" (compat-reported)
 process.versions.v8      // "15.0.91" or the JSC/QJS version
 ```

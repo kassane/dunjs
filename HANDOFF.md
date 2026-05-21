@@ -5,7 +5,7 @@ and the gotchas that bite you on day one. Read alongside
 [`CLAUDE.md`](CLAUDE.md), [`SECURITY.md`](SECURITY.md), and
 [`TESTING.md`](TESTING.md).
 
-## Current state (v1.1.25 candidate)
+## Current state (v1.1.25)
 
 - Integration sweep: **155/155 + 1 new fixture** on QJS / V8
   (156/156), **154/154 + 1 SKIP + 1 new fixture** on JSC

@@ -72,7 +72,7 @@ cross-runtime testing.
 
 ```sh
 ./dun --version
-# dun 1.1.24
+# dun 1.1.25
 # engine: JavaScriptCore   (or QuickJS-NG / V8)
 
 ./dun eval "console.log('hello'); 42"
@@ -90,6 +90,7 @@ cross-runtime testing.
 | `-b debug` | Default — full assertions, slower runtime |
 | `-b asan` | AddressSanitizer instrumentation (memory bug hunting) |
 | `-b tsan` | ThreadSanitizer (race condition hunting) |
+| `-b fuzzer` | `-fsanitize=fuzzer,address` for libFuzzer harnesses (parser / TS-strip / JSON / URL fuzzing) |
 | `--force` | Force rebuild (useful when changing branches) |
 
 ## Troubleshooting

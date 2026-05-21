@@ -120,7 +120,7 @@ process.exit(0)
 process.platform   // "linux" | "darwin" | "win32"
 process.arch       // "x64" | "arm64" | ...
 process.version    // "v22.0.0" (set for Node parity)
-process.versions   // { node: "22.0.0", v8: "15.0.112", dun: "1.1.24", ... }
+process.versions   // { node: "22.0.0", v8: "15.0.112", dun: "1.1.25", ... }
 process.pid
 process.ppid
 process.uptime()
