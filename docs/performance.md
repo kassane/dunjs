@@ -3,38 +3,41 @@
 How DunJS performs against Node, Deno, and Bun — and how to get the
 best out of it.
 
-## Cross-runtime benchmarks (v1.1.16)
+## Cross-runtime benchmarks (v1.1.23)
 
 ### feature_bench.js — JS compute throughput
 
 | Runtime | ops/sec | vs Node |
 |---------|--------:|--------:|
-| **dun-jsc** | **552M** | 3.41× |
-| Bun 1.3 | 533M | 3.29× |
+| Bun 1.3 | 501M | 3.09× |
+| **dun-jsc** | **500M** | **3.09×** (par with Bun) |
 | Node 22 | 162M | 1.00× |
-| dun-v8 | 151M | 0.93× |
-| dun-qjs | 20M | 0.12× |
+| dun-v8 | 161M | 0.99× |
+| Deno 2.7 | 160M | 0.99× |
+| dun-qjs | 23M | 0.14× |
 
-DunJS JSC backend **beats Bun** on `feature_bench.js` (+4%) since
+DunJS JSC backend is at parity with Bun on `feature_bench.js` since
 the v1.1.7 cached Response builder + v1.1.9 handle pin landed.
-v1.1.16 added fs stream-method caching + `newUint8ArrayZeroedWithProto`
-fused Buffer.alloc primitive (V8 saves one `withContext` scope entry
-per call).
+v1.1.16 → v1.1.20 added fs stream-method caching,
+`newUint8ArrayZeroedWithProto` fused Buffer.alloc primitive, v8shim
+hot-path opts (Persistent::Reset elimination + Int32/Number fast
+paths), dgram + cluster method caching, and jscpd-driven dedup.
 
 ### framework_bench.js — real-world framework patterns
 
 | Runtime | ops/sec | vs Node |
 |---------|--------:|--------:|
-| **dun-jsc** | **292M** | 1.73× |
-| Bun 1.3 | 250M | 1.48× |
-| Node 22 | 169M | 1.00× |
-| dun-v8 | 163M | 0.96× |
-| dun-qjs | 16M | 0.09× |
+| Bun 1.3 | 300M | 1.69× |
+| **dun-jsc** | **266M** | 1.49× |
+| Node 22 | 178M | 1.00× |
+| dun-v8 | 164M | 0.92× |
+| Deno 2.7 | 159M | 0.89× |
+| dun-qjs | 17M | 0.10× |
 
 ### npm_compat — correctness
 
-All 5 runtimes pass **145/145** checks. Full cross-runtime
-correctness parity.
+All 6 runtimes pass **145/145** checks (Bun, Node, Deno, dun-jsc,
+dun-v8, dun-qjs). Full cross-runtime correctness parity.
 
 ### HTTP benchmarks (wrk, 64 conns, 10s)
 

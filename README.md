@@ -145,9 +145,9 @@ for 24 hours. `dun install` checks packages before download. See [SECURITY.md](S
 
 | Backend | Tests | Notes |
 |---------|-------|-------|
-| QuickJS-NG | 151/151 | Default. Interpreter, ES2025, smallest binary (9.8MB) |
-| JavaScriptCore | 151/151 | JIT. Same engine as Safari/Bun. v1.1.9 JSC handle-pin fix resolved the prior 1-SKIP gate; sweep stable 3/3 since |
-| V8 | 151/151 | JIT. Same engine as Chrome/Node.js (V8 15.0). Via C++ shim |
+| QuickJS-NG | 155/155 | Default. Interpreter, ES2025, smallest binary (9.8MB) |
+| JavaScriptCore | 154/154 + 1 SKIP | JIT. Same engine as Safari/Bun. SKIP is `bun_v7_additions` (handle-pressure conflict with `deno_deploy_compat` — pre-existing design constraint) |
+| V8 | 155/155 | JIT. Same engine as Chrome/Node.js (V8 15.0). Via C++ shim, ships full ICU by default |
 
 All 24 built-in modules, Workers, SharedArrayBuffer, Atomics, fetch, Deno compat, and web globals work identically on every backend.
 
@@ -177,7 +177,7 @@ BACKEND=jsc DUN=./dun-jsc bash tests/integration/run.sh
 BACKEND=v8  DUN=./dun-v8  bash tests/integration/run.sh
 ```
 
-151/151 integration on QJS / V8 / JSC, plus 145 npm-compat checks,
+155/155 integration on QJS / V8 (154/154 + 1 SKIP on JSC), plus 145 npm-compat checks,
 98/98 ECMAScript spec audit (all 3 backends — /v set-op gap on
 QJS / V8 closed via source rewriter), 81/81 react-compat,
 231/231 safe-features, 45/45 security audit, 35/35 TypeScript
@@ -241,21 +241,23 @@ Feature benchmarks (25 tests, ops/sec — higher is better, median of 3 runs):
 
 | Runtime | Total Throughput | Relative |
 |---------|-----------------|----------|
-| DunJS JSC | **552M** | **1.04x** |
-| Bun 1.3.14 | 533M | 1.00x |
-| Node.js 22.22.2 | 162M | 0.30x |
-| DunJS V8 | 151M | 0.28x |
-| DunJS QuickJS | 20M | 0.04x (interpreter-only) |
+| Bun 1.3 | 501M | 1.00x |
+| **DunJS JSC** | **500M** | **1.00x** (par with Bun) |
+| Node.js 22 | 162M | 0.32x |
+| DunJS V8 | 161M | 0.32x |
+| Deno 2.7 | 160M | 0.32x |
+| DunJS QuickJS | 23M | 0.05x (interpreter-only) |
 
 Framework benchmarks (39 tests, ops/sec — median of 3 runs):
 
 | Runtime | Total Throughput | Relative |
 |---------|-----------------|----------|
-| DunJS JSC | **292M** | **1.17x** |
-| Bun 1.3.14 | 250M | 1.00x |
-| Node.js 22.22.2 | 169M | 0.68x |
-| DunJS V8 | 163M | 0.65x |
-| DunJS QuickJS | 16M | 0.06x |
+| Bun 1.3 | 300M | 1.00x |
+| **DunJS JSC** | **266M** | **0.89x** |
+| Node.js 22 | 178M | 0.59x |
+| DunJS V8 | 164M | 0.55x |
+| Deno 2.7 | 159M | 0.53x |
+| DunJS QuickJS | 17M | 0.06x |
 
 HTTP stress (wrk, 128 connections, req/sec — higher is better):
 
@@ -268,7 +270,7 @@ HTTP stress (wrk, 128 connections, req/sec — higher is better):
 
 DunJS JSC is within 1% of Bun on `feature_bench.js` JS compute.
 DunJS V8 beats Node.js on all HTTP endpoints.
-npm compat: **146/146** pass across all 6 runtimes (full parity).
+npm compat: **145/145** pass across all 6 runtimes (Bun, Node, Deno, dun-jsc, dun-v8, dun-qjs; full parity).
 
 ## Can DunJS replace Node / Deno / Bun?
 
@@ -277,7 +279,7 @@ Partially. Honest assessment:
 **Where it works today** (CLI tools, build scripts, microservices,
 test harnesses, learning projects):
 
-- 151/151 integration sweep on QJS / V8 / JSC (sweep stable 3/3); 145/145 npm-compat,
+- 155/155 integration sweep on QJS / V8 (154/154 + 1 SKIP on JSC); 145/145 npm-compat,
   98/98 ES2025 spec, 12/12 `deno_deploy_compat` vs Deno 2.7,
   13/13 `bun_bundler_compat` vs Bun 1.3, 38/38 v0.6.0 web API
   audit.
@@ -301,10 +303,14 @@ test harnesses, learning projects):
 
 **Where it can't yet**:
 
-- **Maturity.** v1.1.16 stable — 151/151
-  integration sweep on QJS / V8 / JSC, ThreadSanitizer clean (modulo
-  intentional daemon worker threads), JSC handle leaks plugged
-  (v1.1.5 → v1.1.16 — fetch.d, child_process.d, fs.d, crypto.d),
+- **Maturity.** v1.1.23 stable — 155/155
+  integration sweep on QJS / V8 (154/154 + 1 SKIP on JSC),
+  ThreadSanitizer clean (modulo intentional daemon worker threads),
+  JSC handle leaks plugged (v1.1.5 → v1.1.20 — fetch.d, child_process.d,
+  fs.d, crypto.d, fs streams, cluster), QJS shape-table crash fix
+  (v1.1.22 — native valueOf callback), ESM/CJS condition order fix
+  (v1.1.23 — modern dual-format packages like zod / @opentelemetry/*
+  import correctly),
   4 lockfree-converted hot paths. But no production
   deployments tracked yet and no CVE history. Bun and Deno took
   years to harden under real traffic; DunJS is freshly stable.

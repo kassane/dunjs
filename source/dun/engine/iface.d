@@ -44,6 +44,11 @@ alias NativeCCallback = extern (C) JSHandle function(
 alias ModuleLoaderCallback = void* function(
     void* engineCtx, const(char)[] moduleName) nothrow;
 
+/// `@mustuse` (DIP 1038): `newPromise()` returns three owned JSHandles
+/// (promise + resolve + reject). Dropping the struct leaks all three —
+/// on JSC that's 3 leaked `JSValueProtect` slots per drop. Force the
+/// compiler to flag any caller that doesn't store + free.
+@mustuse
 struct PromiseHandles
 {
     JSHandle promise;
