@@ -436,6 +436,15 @@ class JSCEngine : IJSEngine
         return newBufferWithProto(cast(const(ubyte)[]) s, proto, false);
     }
 
+    JSHandle bufferConcatFused(JSHandle arrayHandle, int count,
+        size_t totalLen, JSHandle proto) @trusted
+    {
+        // JSC's getProperty/getTypedArrayBytes are already cheap; the
+        // V8 fused path would not help here. Return empty so the caller
+        // falls back to the generic loop in buffer.d.
+        return JSHandle.init;
+    }
+
     void setPropertyIndex(JSHandle obj, uint idx, JSHandle val) @trusted
     {
         assert(ctx !is null, "JSC context not initialized");

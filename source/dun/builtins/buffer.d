@@ -652,6 +652,28 @@ JSHandle jsBufferConcat(void* ctx, JSHandle thisVal, scope JSHandle[] args) @tru
     engine.freeValue(lenVal);
     if (count == 0) return makeBufferObj(engine, cast(ubyte[]) []);
 
+    // V8 fused fast-path: one withContext scope replaces the
+    // per-element getPropertyIndex + getTypedArrayBytes + freeValue
+    // calls. We pass count + optional totalLen override (SIZE_MAX
+    // sentinel = compute from elements). C++ does Get/As<TypedArray>/
+    // ByteLength sum + memcpy + setPrototype against v8::Local<>
+    // directly — zero FFI inside the loop. QuickJS/JSC return empty
+    // (per-call FFI overhead asymmetry doesn't reward fusing on
+    // those) and fall through to the generic path below.
+    ensureBufferFnsCached(engine);
+    size_t totalLenOverride = size_t.max; // sentinel: "compute it"
+    if (args.length >= 2 && engine.isNumber(args[1]))
+    {
+        int requestedLen = engine.extractInt(args[1]);
+        if (requestedLen >= 0)
+            totalLenOverride = cast(size_t) requestedLen;
+    }
+    auto fused = engine.bufferConcatFused(args[0], count, totalLenOverride, _bufProto);
+    if (fused != JSHandle.init)
+        return fused;
+
+    // --- Generic fallback (QuickJS / JSC) ---
+
     // Stack-allocate handles for small arrays, heap for large
     enum STACK_MAX = 16;
     JSHandle[STACK_MAX] stackHandles = void;
@@ -683,13 +705,8 @@ JSHandle jsBufferConcat(void* ctx, JSHandle thisVal, scope JSHandle[] args) @tru
         }
     }
 
-    // Apply totalLength parameter if provided
-    if (args.length >= 2 && engine.isNumber(args[1]))
-    {
-        int requestedLen = engine.extractInt(args[1]);
-        if (requestedLen >= 0)
-            totalLen = cast(size_t) requestedLen;
-    }
+    if (totalLenOverride != size_t.max)
+        totalLen = totalLenOverride;
 
     // Create result typed array directly and memcpy segments into it.
     // Allocate AFTER the size pass so we know the total length, then keep

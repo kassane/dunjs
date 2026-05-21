@@ -649,6 +649,91 @@ DunV8Value* dun_v8_buffer_from_utf8_string(DunV8Context* cw,
     });
 }
 
+// Buffer.concat fused fast-path. Replaces ~3N+5 FFI scope entries
+// (count probe, per-element getPropertyIndex/getTypedArrayBytes/
+// freeValue, newUint8ArrayZeroed, setPrototype) with one withContext
+// block. The size pass + memcpy loop all happen here against
+// v8::Local<TypedArray> directly. If `total_len == SIZE_MAX` the
+// function computes the total by summing ByteLength()s; otherwise
+// it uses the caller-supplied value (Node's `totalLength` optional
+// parameter or D-side clamping).
+DunV8Value* dun_v8_buffer_concat(DunV8Context* cw, DunV8Value* arrayHandle,
+    int count, size_t total_len, DunV8Value* proto)
+{
+    assert(cw && "dun_v8_buffer_concat: null context");
+    assert(arrayHandle && "dun_v8_buffer_concat: null array handle");
+    return dun::withContext(cw, [&](auto isolate, auto context, auto* iw) {
+        auto arrayLocal = getLocal(arrayHandle, isolate);
+        auto arrayObj = arrayLocal->IsObject()
+            ? arrayLocal.template As<v8::Object>()
+            : v8::Local<v8::Object>();
+
+        // Resolve each element to a TypedArray on the stack (avoids
+        // a second Get() pass during memcpy). count is bounded by D-
+        // side STACK_MAX (16) for short concats; fallback below uses
+        // heap.
+        constexpr int kStackMax = 16;
+        v8::Local<v8::TypedArray> stack_ta[kStackMax];
+        std::unique_ptr<v8::Local<v8::TypedArray>[]> heap_ta;
+        v8::Local<v8::TypedArray>* tas = nullptr;
+        if (count > 0) {
+            if (count <= kStackMax) {
+                tas = stack_ta;
+            } else {
+                heap_ta = std::make_unique<v8::Local<v8::TypedArray>[]>(
+                    static_cast<size_t>(count));
+                tas = heap_ta.get();
+            }
+        }
+
+        size_t computed_len = 0;
+        for (int i = 0; i < count; i++) {
+            tas[i] = v8::Local<v8::TypedArray>();
+            if (arrayObj.IsEmpty()) continue;
+            auto elemMaybe = arrayObj->Get(context, static_cast<uint32_t>(i));
+            if (elemMaybe.IsEmpty()) continue;
+            auto elem = elemMaybe.ToLocalChecked();
+            if (!elem->IsTypedArray()) continue;
+            tas[i] = elem.template As<v8::TypedArray>();
+            computed_len += tas[i]->ByteLength();
+        }
+
+        // SIZE_MAX sentinel = "no caller override, use computed total"
+        size_t result_len = (total_len == static_cast<size_t>(-1))
+            ? computed_len : total_len;
+
+        auto ab = v8::ArrayBuffer::New(isolate, result_len);
+        char* dst = result_len > 0
+            ? static_cast<char*>(ab->GetBackingStore()->Data())
+            : nullptr;
+        if (dst && count > 0) {
+            size_t pos = 0;
+            for (int i = 0; i < count && pos < result_len; i++) {
+                if (tas[i].IsEmpty()) continue;
+                auto ta = tas[i];
+                size_t offset = ta->ByteOffset();
+                size_t elemLen = ta->ByteLength();
+                if (elemLen == 0) continue;
+                if (pos + elemLen > result_len) elemLen = result_len - pos;
+                auto bs = ta->Buffer()->GetBackingStore();
+                if (bs) {
+                    memcpy(dst + pos,
+                        static_cast<const char*>(bs->Data()) + offset,
+                        elemLen);
+                    pos += elemLen;
+                }
+            }
+        }
+        auto result = v8::Uint8Array::New(ab, 0, result_len);
+        if (proto) {
+            result.template As<v8::Object>()
+                ->SetPrototype(context, getLocal(proto, isolate))
+                .FromMaybe(false);
+        }
+        return wrapValue(iw, result.template As<v8::Value>());
+    });
+}
+
 unsigned char* dun_v8_typed_array_data(DunV8Context* cw,
     DunV8Value* val, size_t* out_len)
 {

@@ -65,6 +65,8 @@ DunV8Value* dun_v8_new_uint8array_with_proto(DunV8Context* ctx,
     const(ubyte)* data, size_t len, DunV8Value* proto, int zeroed);
 DunV8Value* dun_v8_buffer_from_utf8_string(DunV8Context* ctx,
     DunV8Value* jsString, DunV8Value* proto);
+DunV8Value* dun_v8_buffer_concat(DunV8Context* ctx, DunV8Value* arrayHandle,
+    int count, size_t total_len, DunV8Value* proto);
 DunV8Value* dun_v8_get_property_index(DunV8Context* ctx, DunV8Value* obj,
     uint idx);
 void dun_v8_set_property_index(DunV8Context* ctx, DunV8Value* obj,

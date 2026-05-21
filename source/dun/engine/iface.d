@@ -111,6 +111,15 @@ interface IJSEngine
     /// QuickJS/JSC fall back to the two-step path.
     JSHandle newBufferFromUtf8String(JSHandle jsStr, JSHandle proto);
 
+    /// Fused `Buffer.concat(list, totalLen)` — V8 iterates the array of
+    /// TypedArrays inside a single withContext scope, allocates one
+    /// Uint8Array of the requested total length, memcpy's each element
+    /// in order, and sets the Buffer prototype. Returns an empty handle
+    /// if the backend can't accelerate (caller falls back to the generic
+    /// engine-agnostic loop path).
+    JSHandle bufferConcatFused(JSHandle arrayHandle, int count,
+        size_t totalLen, JSHandle proto);
+
     // --- Reference management ---
     JSHandle dupValue(JSHandle val);
     void freeValue(JSHandle val);

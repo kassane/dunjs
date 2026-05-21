@@ -250,6 +250,15 @@ class V8Engine : IJSEngine
         return toHandle(v);
     }
 
+    JSHandle bufferConcatFused(JSHandle arrayHandle, int count,
+        size_t totalLen, JSHandle proto) @trusted
+    {
+        assert(ctx !is null, "V8 context not initialized");
+        auto v = dun_v8_buffer_concat(ctx, fromHandle(arrayHandle), count,
+            totalLen, fromHandle(proto));
+        return toHandle(v);
+    }
+
     void setPropertyIndex(JSHandle obj, uint idx, JSHandle val) @trusted
     {
         assert(ctx !is null, "V8 context not initialized");
