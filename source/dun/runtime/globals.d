@@ -315,7 +315,49 @@ private void registerStubModules(IJSEngine engine) @trusted
     hasSubscribers: function(n) { return this._load().hasSubscribers(n); },
     subscribe: function(n, l) { return this._load().subscribe(n, l); },
     unsubscribe: function(n, l) { return this._load().unsubscribe(n, l); },
-    get Channel() { return this._load().Channel; }
+    get Channel() { return this._load().Channel; },
+    /* tracingChannel: Node v15+. pino tools.js calls
+       diagChan.tracingChannel("pino_asJson") at module-load AND
+       invokes traceSync/tracePromise at every log call with the
+       receiver-bound state. Without the stub, require("pino")
+       crashes immediately; with a broken stub (e.g. forgetting
+       to thread thisArg through to fn.apply), the first log call
+       fails with "cannot read property of null" because pino
+       _asJson reads this[stringifySym]. Node API contracts:
+         traceSync(fn, ctx, thisArg, ...args)
+           -> fn.apply(thisArg, args)
+         tracePromise(fn, ctx, thisArg, ...args)
+           -> same, wrapped in Promise.resolve().then
+         traceCallback(fn, position, ctx, thisArg, ...args)
+           -> injects callback at position
+       No subscribers attached -> just invoke fn; events do
+       not fire. */
+    tracingChannel: function(name) {
+      var dc = this;
+      var prefix = typeof name === 'string' ? name : 'tc';
+      return {
+        start:           dc.channel(prefix + ':start'),
+        end:             dc.channel(prefix + ':end'),
+        asyncStart:      dc.channel(prefix + ':asyncStart'),
+        asyncEnd:        dc.channel(prefix + ':asyncEnd'),
+        error:           dc.channel(prefix + ':error'),
+        subscribe:   function(handlers) { /* stub: no events fire */ },
+        unsubscribe: function(handlers) { return true; },
+        traceSync: function(fn, ctx, thisArg) {
+          var args = Array.prototype.slice.call(arguments, 3);
+          if (typeof fn === 'function') return fn.apply(thisArg, args);
+        },
+        tracePromise: function(fn, ctx, thisArg) {
+          var args = Array.prototype.slice.call(arguments, 3);
+          if (typeof fn !== 'function') return Promise.resolve();
+          return Promise.resolve().then(function() { return fn.apply(thisArg, args); });
+        },
+        traceCallback: function(fn, position, ctx, thisArg) {
+          var args = Array.prototype.slice.call(arguments, 4);
+          if (typeof fn === 'function') return fn.apply(thisArg, args);
+        }
+      };
+    }
   };
   var domain = {
     create: function() {

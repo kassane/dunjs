@@ -291,24 +291,28 @@ JSHandle jsRequire(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
     try
     {
         import std.file : exists, isDir, isFile;
-        if (!exists(resolved))
+        // Per Node CJS resolution (LOAD_AS_FILE → LOAD_AS_DIRECTORY): try
+        // `resolved + ext` before treating `resolved` as a directory.
+        // Without this, `require("./foo")` picks `foo/` (a directory
+        // missing index.js) over `foo.js` (the sibling file) — caught
+        // when loading `hono` whose `dist/cjs/request.js` lives next
+        // to a `dist/cjs/request/` directory.
+        static immutable cjsExts = [".js", ".ts", ".cjs", ".cts", ".json", ".node"];
+        bool fileFound = false;
+        foreach (ext; cjsExts)
         {
-            static immutable exts = [".js", ".ts", ".cjs", ".cts", ".json", ".node"];
-            bool found = false;
-            foreach (ext; exts)
+            if (exists(resolved ~ ext) && isFile(resolved ~ ext))
             {
-                if (exists(resolved ~ ext)) { resolved ~= ext; found = true; break; }
-            }
-            if (!found)
-            {
-                static immutable idxExts = ["/index.js", "/index.ts", "/index.cjs"];
-                foreach (ext; idxExts)
-                {
-                    if (exists(resolved ~ ext)) { resolved ~= ext; break; }
-                }
+                resolved ~= ext;
+                fileFound = true;
+                break;
             }
         }
-        else if (isDir(resolved))
+        if (!fileFound && exists(resolved) && isFile(resolved))
+        {
+            fileFound = true;  // exact match wins after extension fallthrough
+        }
+        if (!fileFound && exists(resolved) && isDir(resolved))
         {
             import std.path : buildNormalizedPath;
             import std.json : parseJSON;

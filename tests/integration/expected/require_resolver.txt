@@ -1,0 +1,5 @@
+OK file-beats-dir resolution
+OK explicit directory child resolution
+OK buffer.constants is an object
+OK buffer.constants.MAX_LENGTH > 1 GiB
+OK buffer.constants.MAX_STRING_LENGTH > 1 MiB

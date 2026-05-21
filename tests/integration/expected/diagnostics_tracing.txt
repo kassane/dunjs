@@ -1,0 +1,6 @@
+OK tracingChannel returns object
+OK 5 standard channel slots present
+OK trace{Sync,Promise,Callback} are functions
+OK traceSync threads thisArg to fn.apply
+OK traceSync passes trailing args
+OK tracePromise resolves with fn result
