@@ -121,17 +121,6 @@ void installGlobals(IJSEngine engine, DunState* state) @trusted
     import dun.runtime.web_apis : installWebAPIs;
     installWebAPIs(engine);
 
-    // V8-only: expose v8shim::Diagnostics via direct extern(C++)
-    // binding. Validates the FFI path described in
-    // docs/research/custom-gc-v8-jsc.md §2.4½. The global is
-    // intentionally non-standard — gated to V8 backend; QJS/JSC
-    // builds don't see it.
-    version (EngineV8)
-    {
-        import dun.runtime.v8shim_diag : installV8ShimDiag;
-        installV8ShimDiag(engine);
-    }
-
     // Tiny React shim so JSX-emitted React.createElement calls work
     // without an explicit `import React from 'react'`. Match Bun's
     // implicit-React behavior; if the user does `import React`, the

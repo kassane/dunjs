@@ -1,7 +1,0 @@
-OK shimVersion matches v8shim-<semver>
-OK probe bumped by 1
-OK totalAllocs grew between calls
-OK liveCount ≈ totalAllocs - totalReleases
-OK valuePoolFree in range [0, 512]
-OK D->C++ TMP counter<0> bumped by 1
-OK D->C++ TMP counter<1> bumped by 1

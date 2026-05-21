@@ -8,7 +8,6 @@
 #include <cstdlib>
 #include <cstring>
 #include <array>
-#include <atomic>
 #include <memory>
 #ifdef __linux__
 #include <unistd.h>
@@ -157,139 +156,7 @@ struct ValuePool {
 };
 
 static thread_local ValuePool g_value_pool;
-
-// Per-thread alloc/release counters — thread_local mirrors the value
-// pool (line above) so the diagnostic plumbing doesn't reintroduce
-// the cross-core cache-line bounce the pool was built to eliminate.
-// Aggregated across threads via a registry walked by Diagnostics::
-// totalAllocs / totalReleases. Hot-path cost: one non-atomic
-// increment per wrapValue / unref (vs ~5-7 cycles + bus traffic for
-// an atomic fetch_add).
-struct CounterCell {
-    size_t allocs = 0;
-    size_t releases = 0;
-    CounterCell* next = nullptr;
-};
-static thread_local CounterCell t_counters{};
-static std::atomic<CounterCell*> g_counter_head{nullptr};
-static thread_local bool t_counters_registered = false;
-
-static inline void ensureCountersRegistered() {
-    if (__builtin_expect(t_counters_registered, true)) return;
-    t_counters_registered = true;
-    auto* prev = g_counter_head.load(std::memory_order_relaxed);
-    do {
-        t_counters.next = prev;
-    } while (!g_counter_head.compare_exchange_weak(prev, &t_counters,
-        std::memory_order_release, std::memory_order_relaxed));
-}
 } // anon namespace
-
-// Bind-via-extern(C++, "v8shim") demonstration. This class is what D
-// code reaches via `extern(C++, "v8shim")` static-method declarations
-// in source/dun/engine/v8/cppbindings.d — no extern "C" shim wrapper
-// between them. Forces the Itanium ABI mangling path from D into a
-// real production C++ class. See docs/research/custom-gc-v8-jsc.md
-// §2.4½ for the FFI strategy rationale.
-namespace v8shim {
-
-class Diagnostics {
-public:
-    // Per-thread DunV8Value free-list depth (how many wrappers are
-    // recyclable without hitting `new`).
-    static size_t valuePoolFreeCount() noexcept;
-
-    // Lifetime allocation counters (atomic, may be > 2^32 on long runs).
-    static size_t totalAllocs() noexcept;
-    static size_t totalReleases() noexcept;
-    static size_t liveCount() noexcept;
-
-    // Shim version string. Constant — no allocation, no copy.
-    static const char* shimVersion() noexcept;
-
-    // Sentinel value used by the FFI smoke test in
-    // tests/integration/fixtures/v8shim_extern_cpp.js. Bumps every
-    // call to verify the linkage actually invokes this method on
-    // each call (not e.g. a constant inlined at the call site).
-    static int probeBumpCounter() noexcept;
-};
-
-size_t Diagnostics::valuePoolFreeCount() noexcept {
-    return g_value_pool.count;
-}
-
-size_t Diagnostics::totalAllocs() noexcept {
-    size_t total = 0;
-    for (auto* c = g_counter_head.load(std::memory_order_acquire);
-         c != nullptr; c = c->next)
-        total += c->allocs;
-    return total;
-}
-
-size_t Diagnostics::totalReleases() noexcept {
-    size_t total = 0;
-    for (auto* c = g_counter_head.load(std::memory_order_acquire);
-         c != nullptr; c = c->next)
-        total += c->releases;
-    return total;
-}
-
-size_t Diagnostics::liveCount() noexcept {
-    size_t a = 0, r = 0;
-    for (auto* c = g_counter_head.load(std::memory_order_acquire);
-         c != nullptr; c = c->next) {
-        a += c->allocs;
-        r += c->releases;
-    }
-    return a > r ? (a - r) : 0;
-}
-
-const char* Diagnostics::shimVersion() noexcept {
-    // Pulled at CMake-configure time from app.d's VERSION enum via the
-    // build.d orchestrator. Falls back to "dev" when v8shim is built
-    // out-of-tree (e.g. tests/v8shim/, see CMakeLists.txt).
-#ifndef DUN_VERSION_STR
-#define DUN_VERSION_STR "dev"
-#endif
-    return "v8shim-" DUN_VERSION_STR;
-}
-
-int Diagnostics::probeBumpCounter() noexcept {
-    static std::atomic<int> probe{0};
-    return probe.fetch_add(1, std::memory_order_relaxed) + 1;
-}
-
-// ─────────────────────────────────────────────────────────────────
-// D ↔ C++ TMP FFI demonstration. Template class with explicit
-// instantiations — each `template class TypedCounter<N>;` line
-// produces a unique Itanium-mangled symbol that D can bind to via
-// pragma(mangle). Pattern documented in research doc §11 and tested
-// in tools/bindgen_tests/test_ffi_linkage.d (case 7).
-// ─────────────────────────────────────────────────────────────────
-template <int Slot>
-class TypedCounter {
-public:
-    static int increment() noexcept {
-        return counter.fetch_add(1, std::memory_order_relaxed) + 1;
-    }
-    static int read() noexcept {
-        return counter.load(std::memory_order_relaxed);
-    }
-private:
-    static std::atomic<int> counter;
-};
-
-template <int Slot>
-std::atomic<int> TypedCounter<Slot>::counter{0};
-
-// Explicit instantiations — these emit the symbols D binds against:
-//   _ZN6v8shim12TypedCounterILi0EE9incrementEv
-//   _ZN6v8shim12TypedCounterILi0EE4readEv
-//   _ZN6v8shim12TypedCounterILi1EE9incrementEv  ... etc.
-template class TypedCounter<0>;
-template class TypedCounter<1>;
-
-} // namespace v8shim
 
 [[nodiscard]] static DunV8Value* wrapValue(DunV8Isolate* iw, v8::Local<v8::Value> val) {
     auto* wrapped = g_value_pool.acquire();
@@ -297,8 +164,6 @@ template class TypedCounter<1>;
     wrapped->isolate_wrapper = iw;
     wrapped->ref_count = 1;
     wrapped->is_borrowed = 0;
-    ensureCountersRegistered();
-    ++t_counters.allocs;
     return wrapped;
 }
 
@@ -912,8 +777,6 @@ void dun_v8_value_unref(DunV8Value* vw) {
             vw->value.Reset();
         }
         g_value_pool.release(vw);
-        ensureCountersRegistered();
-        ++t_counters.releases;
     }
 }
 

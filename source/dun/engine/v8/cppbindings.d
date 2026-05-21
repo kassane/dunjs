@@ -113,60 +113,6 @@ version (EngineV8)
         void* NewDefaultPlatform(int thread_pool_size = 0);
     }
 
-    // extern(C++, "v8shim") — DunJS's own C++ classes, bound directly
-    // via Itanium ABI mangling (no extern(C) shim wrapper). All
-    // declared as `extern(C++, class) struct` to match the C++
-    // value-type semantics — see research doc §11.4 for the
-    // type-system mapping. Implementations live in
-    // vendor/v8shim/v8shim.cpp under `namespace v8shim`.
-    extern (C++, "v8shim")
-    {
-        extern (C++, class) struct Diagnostics
-        {
-        static:
-            // Thread-local DunV8Value free-list depth.
-            size_t valuePoolFreeCount() nothrow @nogc;
-            // Cumulative wrapValue counter (≥ release count).
-            size_t totalAllocs() nothrow @nogc;
-            // Cumulative dun_v8_value_unref destroy-path counter.
-            size_t totalReleases() nothrow @nogc;
-            // alloc - release (in-flight DunV8Value count).
-            size_t liveCount() nothrow @nogc;
-            // Constant version string (no copy, no alloc).
-            const(char)* shimVersion() nothrow @nogc;
-            // Per-call bump — used by the FFI smoke fixture to prove
-            // the binding actually invokes the C++ method (not a
-            // const inlined into the call site).
-            int probeBumpCounter() nothrow @nogc;
-        }
-
-        /// D ↔ C++ TMP FFI: native D template syntax mirroring C++
-        /// `v8shim::TypedCounter<Slot>`. D auto-mangles to the same
-        /// Itanium symbol the C++ side emits via
-        /// `template class TypedCounter<N>;`. Verified end-to-end:
-        ///   D writes `TypedCounter!0.increment()`
-        ///   → linker sees `_ZN6v8shim12TypedCounterILi0EE9incrementEv`
-        ///   → resolves to the C++ explicit instantiation in v8shim.cpp.
-        ///
-        /// CRITICAL: the template MUST live inside this
-        /// `extern(C++, "v8shim")` block — outside, D omits the
-        /// namespace prefix and the symbol becomes
-        /// `_ZN12TypedCounterIL...EE...Ev` (no `6v8shim`).
-        ///
-        /// `extern(C++, class) struct` is the right D-side form because
-        /// C++ classes are VALUE types; D struct matches. Using D class
-        /// (reference type) would resolve the same symbol but the
-        /// calling convention would mismatch. See research doc §11.4
-        /// for the full type-system mapping.
-        extern (C++, class) struct TypedCounter(int Slot)
-        {
-            static int increment() nothrow @nogc;
-            static int read() nothrow @nogc;
-        }
-        alias TypedCounter0 = TypedCounter!0;
-        alias TypedCounter1 = TypedCounter!1;
-    }
-
     extern (C) nothrow @nogc
     {
         const(char)* dun_v8_version();

@@ -1,7 +1,6 @@
 # Custom D GC backed by V8 cppgc / JSC Heap — case study
 
-**Status**: Research + experimental prototype (`gc_arena.d`, behind
-`version (DunCustomGC)`). Not on the v1.x roadmap.
+**Status**: Research only. No prototype landed in-tree.
 
 **Audience**: maintainers considering whether to prototype a custom
 D GC that delegates allocation to the embedded JS engine's heap.
@@ -10,11 +9,10 @@ D GC that delegates allocation to the embedded JS engine's heap.
 
 | Question | Answer |
 |----------|--------|
-| Can D bind to V8 cppgc / JSC heap C++ APIs directly (no extern(C) shim)? | **Yes** — validated end-to-end via `v8shim::Diagnostics` + `TypedCounter<Slot>`. Patterns are documented in §3 and tested in `tools/bindgen_tests/test_ffi_linkage.d`. |
-| Should we route D allocations through cppgc / JSC heap? | **No** — see §4. Thread-affinity (cppgc heap is per-isolate; D GC is process-global) and the typed-Trace contract (cppgc requires `Trace(Visitor*)` per object; D allocates type-erased `void*`) are inherent to those designs, not FFI limitations. |
-| Is D-side GC even the bottleneck in DunJS today? | **No** — GC is < 1% of CPU on `feature_bench.js` (§5). The actual V8 backend bottleneck is FFI scope overhead, addressed by `v8::FastApiCallback` — orthogonal to GC routing. |
-| What about a faster D-side allocator (no engine involvement)? | **Yes, ship-worthy**. `std.experimental.allocator` Region/BorrowedRegion + `--DRT-gcopt=gc:precise` are practical. Expected +3-8% on URL/HTTP-heavy benches. See §7. |
-| If perf isn't the win, why land the prototype? | The factory-recursion bug class (§6.2) is gdb-trace gold — the inline comment in `gc_arena.d` lets the next maintainer skip the same hour-long debug session. Reproduced **twice** in this branch's history. |
+| Can D bind to V8 cppgc / JSC heap C++ APIs directly (no extern(C) shim)? | **Yes** — patterns documented in §3 and tested in `tools/bindgen_tests/test_ffi_linkage.d` |
+| Should we route D allocations through cppgc / JSC heap? | **No** — see §4. Thread-affinity (cppgc heap is per-isolate; D GC is process-global) and the typed-Trace contract (cppgc requires `Trace(Visitor*)` per object; D allocates type-erased `void*`) are inherent to those designs, not FFI limitations |
+| Is D-side GC even the bottleneck in DunJS today? | **No** — GC is < 1 % of CPU on `feature_bench.js` (§5). The V8 backend bottleneck is FFI scope overhead, addressed by `v8::FastApiCallback` — orthogonal to GC routing |
+| What about a faster D-side allocator (no engine involvement)? | **Yes, ship-worthy**. `std.experimental.allocator` Region/BorrowedRegion + `--DRT-gcopt=gc:precise` are practical. Expected +3–8 % on URL/HTTP-heavy benches. See §6 |
 
 ## 1. The two-heap problem
 
@@ -62,7 +60,7 @@ The `GC` interface is **32 methods** at `/opt/ldc/import/core/gc/gcinterface.d`:
 | Threading | `initThread`, `cleanupThread` | Per-thread state |
 | Arrays | `getArrayUsed`, `expandArrayUsed`, `reserveArrayCapacity`, `shrinkArrayUsed` | `~=` on slices hits these |
 
-Registration pattern (the original prompt):
+Registration pattern:
 
 ```d
 import core.gc.gcinterface, core.gc.registry;
@@ -72,13 +70,24 @@ extern (C) pragma(crt_constructor) void registerMyGC() {
 }
 
 GC createMyGC() {
-    /* MUST NOT use D's `new` here — see §6.2 */
+    /* MUST NOT use D's `new` here — see §6 */
     return /* malloc + emplace */;
 }
 ```
 
 `crt_constructor` runs before `rt_init` (before druntime initializes
 the GC). The user opts in with `dun "--DRT-gcopt=gc:mygc" run script.js`.
+The full passthrough-GC body is left as an exercise — druntime
+already ships an equivalent at
+`core.internal.gc.impl.manual.gc.ManualGC` (registered as
+`gc:manual`), so the simplest experiment is just:
+
+```sh
+dun "--DRT-gcopt=gc:manual" run script.js
+```
+
+…and compare profile output. No custom-GC implementation needed for
+the A/B perf measurement.
 
 ### 2.2 V8 cppgc (Oilpan)
 
@@ -162,24 +171,25 @@ GC summary:  105 MB,   12 GC    4 ms, Pauses    3 ms <    0 ms
 **4 ms total GC over a 14 s run = ~0.03 % of wall time**. D GC is
 not on the critical path.
 
-## 3. D ↔ C++ FFI patterns (validated end-to-end)
+## 3. D ↔ C++ FFI patterns (would-be cppgc bridge)
 
-Single capability table — supersedes earlier drafts that had this
-in §2.4½ + §10.4 + §11.5.
+Single capability table for binding C++ types from D. None of these
+patterns are blocked by language design — the cppgc bridge is killed
+by §4's architectural mismatches, not the FFI mechanism.
 
-| Pattern | D mechanism | DunJS evidence |
+| Pattern | D mechanism | DunJS evidence in-tree |
 |---------|-------------|----------------|
-| `extern(C)` free function | `extern(C) int f()` | 1000+ symbols across the v8shim, OpenSSL bindings, libc bindings |
+| `extern(C)` free function | `extern(C) int f()` | 1000+ symbols across v8shim, OpenSSL bindings |
 | `extern(C++)` free function | `extern(C++) int f()` | `cpp_add`, `cpp_mul` in `test_ffi_linkage.d` case 2 |
 | Namespaced free function | `extern(C++, "ns")` | `v8::platform::NewDefaultPlatform` |
-| Static method on class | `extern(C++, "ns") extern(C++, class) struct T { static: ... }` | `v8::V8::Initialize`; **`v8shim::Diagnostics::*` validated end-to-end this branch** |
-| **C++ template instantiation** | **`extern(C++, "ns") { extern(C++, class) struct T(int Slot) { static: ... } alias T0 = T!0; }`** — D auto-mangles to `_ZN<ns><T>IL<arg>EE<method>Ev` | **`v8shim::TypedCounter<Slot>` (this branch, §3.2)** |
+| Static method on class | `extern(C++, "ns") extern(C++, class) struct T { static: ... }` | `v8::V8::Initialize` |
+| **C++ template instantiation** | **`extern(C++, "ns") { extern(C++, class) struct T(int Slot) { static: ... } alias T0 = T!0; }`** — D auto-mangles to `_ZN<ns><T>IL<arg>EE<method>Ev` | `test_ffi_linkage.d` case 7a (compile-only mangling test) |
 | C++ template (fallback) | `pragma(mangle, "<full itanium>")` — when D's TMP can't express the signature | `test_ffi_linkage.d` case 7b |
-| C++ instance method (non-virtual) | `extern(C++, class) struct T { void f(); }` | Theoretical; ABI works for value types |
-| C++ instance method (virtual) | `extern(C++) class T { void f(); }` | High risk — vtable layout must match exactly across upstream versions |
+| C++ instance method (non-virtual) | `extern(C++, class) struct T { void f(); }` | Theoretical |
+| C++ instance method (virtual) | `extern(C++) class T { void f(); }` | High risk — vtable layout must match exactly |
 | Template function caller picks T | **Not possible directly** — write a C++ wrapper that does the instantiation, then bind via extern(C++) | Blocks `cppgc::MakeGarbageCollected<T>` direct bind |
 
-### 3.1 The D ↔ C++ type-system mapping (critical for getting this right)
+### 3.1 D ↔ C++ type-system mapping (critical for getting this right)
 
 | C++ side | D-side binding | Rationale |
 |----------|---------------|-----------|
@@ -191,63 +201,29 @@ in §2.4½ + §10.4 + §11.5.
 | C++ defaulted constructor | **Not expressible** in D struct | D structs can't have a default ctor — workaround: factory function |
 | Multiple inheritance | **Hard** | Bind to a flattened C++ wrapper instead |
 
-Pattern enforced across DunJS this branch: `extern(C++, "v8") extern(C++, class) struct V8`, `extern(C++, "v8shim") extern(C++, class) struct Diagnostics`, `JSC::SourceOrigin` — all converted from the older `extern class` (D reference type, wrong shape for static-method-only types).
+Pattern enforced across DunJS this branch: `extern(C++, "v8") extern(C++, class) struct V8`, `extern(C++, "JSC") extern(C++, class) struct SourceOrigin` — both converted from the older `extern class` form (D reference type, wrong shape for static-method-only C++ types).
 
-### 3.2 Runtime validation (this branch)
+### 3.2 Namespace-scope gotcha for template instantiations
 
-`vendor/v8shim/v8shim.cpp` ships `v8shim::Diagnostics` + `v8shim::TypedCounter<Slot>` (with explicit instantiations for `<0>` and `<1>`). `source/dun/engine/v8/cppbindings.d` binds them via the patterns above. `source/dun/runtime/v8shim_diag.d` wires them to `globalThis.__dun_v8shim_diag__()` (V8 backend only).
-
-End-to-end test:
-
-```sh
-$ ./dun-rel-v8 eval "
-const a = __dun_v8shim_diag__();
-const b = __dun_v8shim_diag__();
-console.log('shimVer:', a.shimVersion);
-console.log('probe:',   a.probe,        '->', b.probe);
-console.log('alloc:',   a.totalAllocs,  '->', b.totalAllocs);
-console.log('tmp0:',    a.tmpCounter0,  '->', b.tmpCounter0);
-console.log('tmp1:',    a.tmpCounter1,  '->', b.tmpCounter1);
-"
-shimVer: v8shim-1.1.25         # ← C++ string constant via D extern
-probe: 1 -> 2                   # ← Diagnostics::probeBumpCounter (each call hits C++)
-alloc: 663 -> 670               # ← per-thread CounterCell sum across worker threads
-tmp0: 1 -> 2                    # ← TypedCounter<0>::increment (independent counter)
-tmp1: 1 -> 2                    # ← TypedCounter<1>::increment (independent counter)
-```
-
-Permanent regression fixture: `tests/integration/fixtures/v8shim_extern_cpp.js` (7 checks, V8-only).
-
-Symbol-level verification (`nm`):
-
-```
-$ nm vendor/v8shim/libv8shim.a | grep TypedCounter
-W _ZN6v8shim12TypedCounterILi0EE9incrementEv     # explicit instantiation <0>
-W _ZN6v8shim12TypedCounterILi0EE4readEv
-W _ZN6v8shim12TypedCounterILi1EE9incrementEv     # explicit instantiation <1>
-W _ZN6v8shim12TypedCounterILi1EE4readEv
-```
-
-D's `TypedCounter!0.increment()` → `_ZN6v8shim12TypedCounterILi0EE9incrementEv` (matches). Verified at `-O0`, `-O3` (without `pragma(inline, false)` they're still emitted; the test file adds the pragma defensively against future LDC versions).
-
-### 3.3 Critical gotcha — namespace scope on template instantiations
-
-The template MUST live inside the `extern(C++, "v8shim")` block:
+The template MUST live inside the `extern(C++, "ns")` block:
 
 ```d
-extern(C++, "v8shim") {
+extern(C++, "myns") {
     extern(C++, class) struct TypedCounter(int Slot) { ... }   // ✓ correct
 }
 
 // vs.
 
-extern(C++, "v8shim") {
-    extern class Diagnostics { ... }
+extern(C++, "myns") {
+    extern(C++, class) struct OtherType { ... }
 }
 extern(C++, class) struct TypedCounter(int Slot) { ... }       // ✗ wrong: no namespace
 ```
 
-In the second form, D mangles `TypedCounter!0` as `_ZN12TypedCounter…` (no `6v8shim` namespace segment) → link error: `undefined symbol: TypedCounter<1>::increment()`. Caught during this branch's review pass; documented inline in `cppbindings.d`.
+In the second form, D mangles `TypedCounter!0` as `_ZN12TypedCounter…`
+(no namespace segment) → link error: `undefined symbol:
+TypedCounter<1>::increment()`. Easy mistake to make — caught during
+this branch's review pass.
 
 ## 4. The architectural blockers (why we don't ship the bridge)
 
@@ -270,7 +246,7 @@ D class destructors run during `runFinalizers`. cppgc finalizers run during swee
 
 ### 4.4 LDC ABI churn
 
-`interface GC` in druntime gains methods periodically (`getArrayUsed` / `expandArrayUsed` / `reserveArrayCapacity` / `shrinkArrayUsed` arrived ~druntime 2.107). A custom GC pinned to LDC 1.42's interface breaks the moment a newer LDC adds a method. Mitigation: pin LDC version + `version (DunCustomGC)` gate (which `gc_arena.d` already does).
+`interface GC` in druntime gains methods periodically (`getArrayUsed` / `expandArrayUsed` / `reserveArrayCapacity` / `shrinkArrayUsed` arrived ~druntime 2.107). A custom GC pinned to LDC 1.42's interface breaks the moment a newer LDC adds a method. Mitigation: pin LDC version + `version (DunCustomGC)` gate.
 
 ## 5. Where DunJS actually spends time
 
@@ -289,50 +265,24 @@ From the per-test bench delta on v1.1.25 (dun-v8 vs Node, cascadelake):
 
 GC-routed D allocations would not be on this list. Even a *perfect* cppgc bridge that turned D allocation free would save < 1 % of bench time.
 
-## 6. Experimental prototype — what actually happened
+## 6. The factory-recursion gotcha (do this before you write any custom GC)
 
-`source/dun/platform/gc_arena.d` (~300 LOC, gated behind `version (DunCustomGC)`). Strategy: every D allocation goes to `core.stdc.stdlib.malloc`; `collect()` is a no-op. Leaks everything (deliberately — measurement vehicle, not production).
+If you do attempt a custom GC despite §4 + §5, this is the bug class
+that will eat your first day. It hit twice during this branch's
+research even after the first fix landed.
 
-### 6.1 Bench data
-
-QuickJS backend, LDC 1.42, cascadelake:
-
-| Bench | Default conservative GC | Arena GC |
-|-------|------------------------:|---------:|
-| feature_bench (25 tests) | 16.6–17.0 M ops/sec | 16.6–17.1 M ops/sec |
-| framework_bench (39 tests) | 13.9–13.9 M ops/sec | 13.6–13.8 M ops/sec |
-
-GC implementation choice is **within noise**. Matches the §5 finding that GC < 1 % of bench time.
-
-### 6.2 Bug class caught: factory-recursion (gdb-traced, TWICE in this branch's history)
-
-First time: my initial factory used `new ArenaGC` (D's GC):
+**The pattern**:
 
 ```d
-GC createArenaGC() {
-    __gshared instance = new ArenaGC;   // ← triggers D GC
+GC createMyGC() {
+    __gshared instance = new MyGC;   // ← D's `new` triggers the GC
     ...
 }
 ```
 
-→ ProtoGC.malloc → gc_init → createArenaGC → `new` → ProtoGC.malloc → SpinLock hang.
+→ ProtoGC.malloc → gc_init → createMyGC → `new` → ProtoGC.malloc → SpinLock hang. The first allocation D's runtime needs (during `rt_init` shared-static-ctor processing) triggers `gc_init`, which calls our factory, which calls `new`, which calls back into `ProtoGC.malloc`, which calls `gc_init` again. The SpinLock detects recursion and spins forever.
 
-Fix per `core.gc.registry` docs: factory MUST C-heap-allocate.
-
-```d
-GC createArenaGC() @trusted {
-    import core.stdc.stdlib : malloc;
-    import core.lifetime : emplace;
-    enum size = __traits(classInstanceSize, ArenaGC);
-    auto raw = malloc(size);
-    if (raw is null) return null;
-    return emplace!ArenaGC(raw[0 .. size]);
-}
-```
-
-**Second time** (caught during this branch's review audit): a thread-safety fix added `new Mutex()` to `ArenaGC.initialize()` — same recursion, same SpinLock hang. The hot loop ran 11 minutes at 99 % CPU before the audit caught it.
-
-Stack from gdb (both occurrences look identical):
+Stack trace from gdb (verbatim — both occurrences look identical):
 
 ```
 Thread 1:
@@ -340,39 +290,46 @@ Thread 1:
   #1  core.internal.spinlock.SpinLock.lock() shared
   #2  gc_init ()                                    ← INNER
   #3  ProtoGC.malloc ()
-  #4  createArenaGC ()                              ← OUR CODE
+  #4  createMyGC ()                                 ← YOUR CODE
   #5  createGCInstance (immutable(char)[]) ()
   #6  gc_init ()                                    ← OUTER
   #7  ProtoGC.malloc ()
-  #8  _sharedStaticCtor (dun.workers.shared_memory)
+  #8  _sharedStaticCtor (any module that has one)
   #9  rt_init ()
 ```
 
-**The lesson**: anything D-allocated inside the factory recurses. Including `new Mutex()`, `new Object`, `new class { ... }`, lambda captures that allocate, format strings, etc. The fix is "no D heap allocation in the factory or in any function called by the factory before the GC is established."
+**The fix** per [`core.gc.registry`](https://dlang.org/phobos/core_gc_registry.html)
+docs (which say "the instance was allocated on the C heap, it is
+supposed to free itself upon calling its destructor"):
 
-`gc_arena.d` documents this inline at the class body so the next implementer doesn't re-introduce it for a third time.
-
-### 6.3 ManualGC already exists in druntime
-
-`/opt/ldc/import/core/internal/gc/impl/manual/gc.d` ships a malloc-passthrough GC registered as `gc:manual`. Same semantics as my `gc_arena`. **For pure A/B perf measurement just use that** — no custom code required:
-
-```sh
-dun "--DRT-gcopt=gc:manual" run script.js
+```d
+GC createMyGC() @trusted {
+    import core.stdc.stdlib : malloc;
+    import core.lifetime : emplace;
+    enum size = __traits(classInstanceSize, MyGC);
+    auto raw = malloc(size);
+    if (raw is null) return null;
+    return emplace!MyGC(raw[0 .. size]);
+}
 ```
 
-`gc_arena.d` is retained anyway because it carries the gdb-captured factory-recursion fix in its inline comment. The value is the lesson, not the GC.
+**The lesson** — anything D-allocated inside the factory recurses.
+This includes:
+- `new ClassName`
+- `new Mutex()` (the second occurrence in this branch — added during
+  a "thread-safety" review fix; same recursion)
+- Lambda captures that allocate
+- Format strings (`format!"%s"`, `text(...)`)
+- D arrays (`[1, 2, 3]`)
 
-### 6.4 Other bugs the prototype surfaced
-
-- **`console.log` AssertError**: arena returns `false`/`0` from `expandArrayUsed`/`reserveArrayCapacity`. D's array invariant check fails. Production custom GC needs ~50 LOC of side-table capacity tracking to satisfy this. Skipped for the experiment.
-- **`allocatedInCurrentThread` returns bytes not count**: caught by the §3-style review. Fixed.
-- **Dead state**: `_roots[]` / `_ranges[]` arrays declared but never written. Deleted.
+If your custom GC needs synchronization, use a pthread mutex value
+(no D heap) or `core.atomic.cas` for lock-free linked-list ops.
 
 ## 7. Recommendation
 
-**Don't ship the cppgc / JSC heap bridge.** The FFI mechanism is fully expressible (§3), but §4's architectural mismatches are inherent.
+**Don't ship a cppgc / JSC heap bridge.** The FFI mechanism is fully expressible (§3), but §4's architectural mismatches are inherent.
 
-**Don't ship a custom D GC as default either.** GC is < 1 % of bench time (§5). The C3-lite arena (`gc_arena.d`) is retained as a documented sketch + bug-fix archive, gated behind `version (DunCustomGC)`.
+**Don't ship a custom D GC as default either.** GC is < 1 % of bench time (§5). If you want to measure the upper bound of "no GC overhead", use `--DRT-gcopt=gc:manual` (ships in druntime) instead of writing your own.
 
 ### What to ship instead, prioritized
 
@@ -404,7 +361,6 @@ If `mark + sweep + pause` ever exceeds 10 % of wall time on a representative wor
 - [`v8::CppHeap` class reference](https://v8.github.io/api/head/classv8_1_1CppHeap.html)
 - [Oilpan library blog post (V8 9.4+)](https://v8.dev/blog/oilpan-library)
 - [High-performance C++ GC](https://v8.dev/blog/high-performance-cpp-gc)
-- [`include/cppgc/` source](https://chromium.googlesource.com/v8/v8.git/+/HEAD/include/cppgc/)
 - [Cloudflare workerd cppgc migration PR](https://github.com/cloudflare/workerd/pull/199) — real-world embedder switch
 
 ### JavaScriptCore
@@ -418,6 +374,7 @@ If `mark + sweep + pause` ever exceeds 10 % of wall time on a representative wor
 - [`core.gc.registry`](https://dlang.org/phobos/core_gc_registry.html)
 - [Configuring the GC (D spec)](https://dlang.org/spec/garbage.html#gc_config)
 - [druntime swappable-GC PR #1581](https://github.com/dlang/druntime/pull/1581/files)
+- [`core.internal.gc.impl.manual.gc`](https://github.com/dlang/druntime/blob/master/src/core/internal/gc/impl/manual/gc.d) — already-shipped `gc:manual` reference
 
 ### Phobos `std.experimental.allocator`
 
@@ -429,11 +386,8 @@ If `mark + sweep + pause` ever exceeds 10 % of wall time on a representative wor
 
 ### DunJS internals (in-tree)
 
-- `source/dun/engine/v8/cppbindings.d` — `extern(C++, "v8")` + `extern(C++, "v8shim")` patterns
-- `source/dun/runtime/v8shim_diag.d` — `globalThis.__dun_v8shim_diag__()` wiring
-- `source/dun/platform/gc_arena.d` — experimental arena GC + factory-recursion comment
-- `vendor/v8shim/v8shim.cpp` — `v8shim::Diagnostics` + `v8shim::TypedCounter<Slot>` C++ side
-- `tools/bindgen_tests/test_ffi_linkage.d` — extern(C) / extern(C++) / extern(C++, ns) / `pragma(mangle)` symbol-mangling reference (cases 1-7)
-- `tests/integration/fixtures/v8shim_extern_cpp.js` — end-to-end FFI smoke test
-- `.claude/commands/debug-native-callback.md` — the gdb workflow that caught the factory recursion (both times)
+- `source/dun/engine/v8/cppbindings.d` — `extern(C++, "v8")` static-method bindings (V8 + platform)
+- `source/dun/engine/jsc/cppbindings.d` — `extern(C++, "JSC")` SourceOrigin binding
+- `tools/bindgen_tests/test_ffi_linkage.d` — extern(C) / extern(C++) / extern(C++, ns) / template-instantiation / `pragma(mangle)` symbol-mangling reference (cases 1-7)
+- `.claude/commands/debug-native-callback.md` — gdb workflow used to capture the factory-recursion trace (§6)
 - `CLAUDE.md` "D Runtime GC Tuning" — current profile data
