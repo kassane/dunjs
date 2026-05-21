@@ -1,7 +1,7 @@
 module dun.builtins.async_hooks;
 
 import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
-import dun.runtime.globals : DunState;
+import dun.runtime.globals : DunState, ctxState;
 
 /// Maximum nesting depth for AsyncLocalStorage.run() calls.
 private enum MAX_ALS_STACK_DEPTH = 256;
@@ -118,7 +118,7 @@ string asyncHooksSource() pure @safe nothrow
 JSHandle jsAlsRun(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsAlsRun");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsAlsRun");
     auto engine = state.engine;
     assert(engine !is null, "Null engine in jsAlsRun");
@@ -171,7 +171,7 @@ JSHandle jsAlsRun(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 JSHandle jsAlsGetStore(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsAlsGetStore");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsAlsGetStore");
     auto engine = state.engine;
     assert(engine !is null, "Null engine in jsAlsGetStore");
@@ -186,7 +186,7 @@ JSHandle jsAlsGetStore(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trus
 JSHandle jsAlsEnterWith(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsAlsEnterWith");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsAlsEnterWith");
     auto engine = state.engine;
     assert(engine !is null, "Null engine in jsAlsEnterWith");
@@ -205,7 +205,7 @@ JSHandle jsAlsEnterWith(void* ctx, JSHandle thisVal, scope JSHandle[] args) @tru
 JSHandle jsAlsDisable(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsAlsDisable");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsAlsDisable");
     auto engine = state.engine;
     assert(engine !is null, "Null engine in jsAlsDisable");

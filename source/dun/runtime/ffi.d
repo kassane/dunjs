@@ -1,7 +1,7 @@
 module dun.runtime.ffi;
 
 import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
-import dun.runtime.globals : DunState;
+import dun.runtime.globals : DunState, ctxState;
 import dun.security.permissions : Permission;
 
 // Bun.FFI / Deno.dlopen compat — basic dlopen + dlsym dispatch with a
@@ -91,7 +91,7 @@ private alias FnI32_Cstr_Ptr = extern(C) int function(const(char)*, void*) nothr
 private JSHandle jsDenoDlopen(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in Deno.dlopen");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     auto engine = state.engine;
 
     if (args.length < 2)
@@ -327,7 +327,7 @@ private bool _signatureSupported(string sig) @safe pure nothrow
 private JSHandle jsFfiDispatchById(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in FFI dispatch");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     auto engine = state.engine;
 
     if (args.length < 1 || !engine.isString(args[0]))
@@ -455,7 +455,7 @@ private const(char)* _arg2cstr(IJSEngine engine, scope JSHandle[] args, size_t i
 private JSHandle jsDlopenClose(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in dlopen.close");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state !is null && state.engine !is null, "Invalid DunState in dlopen.close");
     auto engine = state.engine;
     auto h = engine.getProperty(thisVal, "__handle__");
@@ -475,7 +475,7 @@ private JSHandle jsDlopenClose(void* ctx, JSHandle thisVal, scope JSHandle[] arg
 private JSHandle jsUnsafePointer(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in Deno.UnsafePointer");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state !is null && state.engine !is null, "Invalid DunState in Deno.UnsafePointer");
     auto engine = state.engine;
     if (args.length < 1) return engine.newFloat(0);

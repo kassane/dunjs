@@ -1,7 +1,7 @@
 module dun.builtins.crypto;
 
 import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
-import dun.runtime.globals : DunState;
+import dun.runtime.globals : DunState, ctxState;
 
 private enum {
     SCRYPT_DEFAULT_N      = 16_384,
@@ -333,7 +333,7 @@ version (EngineQuickJS)
 JSHandle jsCryptoRandomUUID(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsCryptoRandomUUID");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsCryptoRandomUUID");
     auto engine = state.engine;
     try
@@ -364,7 +364,7 @@ JSHandle jsCryptoRandomBytes(void* ctx, JSHandle thisVal, scope JSHandle[] args)
     import core.stdc.stdlib : malloc, free;
 
     assert(ctx !is null, "Null ctx in jsCryptoRandomBytes");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsCryptoRandomBytes");
     auto engine = state.engine;
     if (args.length < 1) return engine.throwTypeError("randomBytes requires a length argument");
@@ -469,7 +469,7 @@ enum MAX_HASH_SLOTS = 32_767;
 JSHandle jsCryptoCreateHash(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsCryptoCreateHash");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsCryptoCreateHash");
     auto engine = state.engine;
     if (args.length < 1) return engine.throwTypeError("createHash requires an algorithm argument");
@@ -507,7 +507,7 @@ JSHandle jsCryptoCreateHash(void* ctx, JSHandle thisVal, scope JSHandle[] args) 
 JSHandle jsHashUpdate(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsHashUpdate");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsHashUpdate");
     auto engine = state.engine;
     if (args.length < 1) return engine.dupValue(thisVal);
@@ -552,7 +552,7 @@ JSHandle jsHashUpdate(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trust
 JSHandle jsHashDigest(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsHashDigest");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsHashDigest");
     auto engine = state.engine;
     try
@@ -612,7 +612,7 @@ private __gshared int[] _freeHmacIds;
 JSHandle jsCryptoCreateHmac(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsCryptoCreateHmac");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsCryptoCreateHmac");
     auto engine = state.engine;
     if (args.length < 2)
@@ -696,7 +696,7 @@ JSHandle jsCryptoCreateHmac(void* ctx, JSHandle thisVal, scope JSHandle[] args) 
 JSHandle jsHmacUpdate(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsHmacUpdate");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsHmacUpdate");
     auto engine = state.engine;
     if (args.length < 1) return engine.dupValue(thisVal);
@@ -733,7 +733,7 @@ JSHandle jsHmacUpdate(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trust
 JSHandle jsHmacDigest(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsHmacDigest");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsHmacDigest");
     auto engine = state.engine;
     try
@@ -790,7 +790,7 @@ JSHandle jsHmacDigest(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trust
 JSHandle jsCryptoTimingSafeEqual(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsCryptoTimingSafeEqual");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsCryptoTimingSafeEqual");
     auto engine = state.engine;
     if (args.length < 2)
@@ -833,7 +833,7 @@ private const(ubyte)[] extractArgBytes(IJSEngine engine, JSHandle arg) @trusted
 JSHandle jsCryptoRandomInt(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsCryptoRandomInt");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsCryptoRandomInt");
     auto engine = state.engine;
     int minVal = 0;
@@ -869,7 +869,7 @@ JSHandle jsCryptoRandomInt(void* ctx, JSHandle thisVal, scope JSHandle[] args) @
 JSHandle jsCryptoPbkdf2Sync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsCryptoPbkdf2Sync");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsCryptoPbkdf2Sync");
     auto engine = state.engine;
     if (args.length < 5)
@@ -909,7 +909,7 @@ JSHandle jsCryptoPbkdf2Sync(void* ctx, JSHandle thisVal, scope JSHandle[] args) 
 JSHandle jsCryptoScryptSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsCryptoScryptSync");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsCryptoScryptSync");
     auto engine = state.engine;
     if (args.length < 3)
@@ -1020,7 +1020,7 @@ private void ensureCipherFnsCached(IJSEngine engine) @trusted
 JSHandle jsCryptoCreateCipheriv(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in createCipheriv");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     auto engine = state.engine;
     if (args.length < 3)
         return engine.throwTypeError("createCipheriv requires algorithm, key, iv");
@@ -1070,7 +1070,7 @@ JSHandle jsCryptoCreateCipheriv(void* ctx, JSHandle thisVal, scope JSHandle[] ar
 JSHandle jsCipherUpdate(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in cipher.update");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     auto engine = state.engine;
     if (args.length < 1) return engine.newString("");
 
@@ -1157,7 +1157,7 @@ JSHandle jsCipherUpdate(void* ctx, JSHandle thisVal, scope JSHandle[] args) @tru
 JSHandle jsCipherFinal(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in cipher.final");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     auto engine = state.engine;
 
     auto ctxProp = engine.getProperty(thisVal, "_evpCtx");
@@ -1218,7 +1218,7 @@ JSHandle jsCipherFinal(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trus
 JSHandle jsCipherGetAuthTag(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in cipher.getAuthTag");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     auto engine = state.engine;
     auto tagProp = engine.getProperty(thisVal, "_authTag");
     if (engine.isUndefined(tagProp) || engine.isNull(tagProp))
@@ -1234,7 +1234,7 @@ JSHandle jsCipherGetAuthTag(void* ctx, JSHandle thisVal, scope JSHandle[] args) 
 JSHandle jsCryptoCreateDecipheriv(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in createDecipheriv");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     auto engine = state.engine;
     if (args.length < 3)
         return engine.throwTypeError("createDecipheriv requires algorithm, key, iv");
@@ -1284,7 +1284,7 @@ JSHandle jsCryptoCreateDecipheriv(void* ctx, JSHandle thisVal, scope JSHandle[] 
 JSHandle jsDecipherUpdate(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in decipher.update");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     auto engine = state.engine;
     if (args.length < 1) return engine.newString("");
 
@@ -1355,7 +1355,7 @@ JSHandle jsDecipherUpdate(void* ctx, JSHandle thisVal, scope JSHandle[] args) @t
 JSHandle jsDecipherFinal(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in decipher.final");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     auto engine = state.engine;
 
     auto ctxProp = engine.getProperty(thisVal, "_evpCtx");
@@ -1399,7 +1399,7 @@ JSHandle jsDecipherFinal(void* ctx, JSHandle thisVal, scope JSHandle[] args) @tr
 JSHandle jsDecipherSetAuthTag(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in decipher.setAuthTag");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     auto engine = state.engine;
     if (args.length < 1) return engine.throwTypeError("setAuthTag requires a tag");
 
@@ -1477,7 +1477,7 @@ private void ensureSignFnsCached(IJSEngine engine) @trusted
 JSHandle jsCryptoCreateSign(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsCryptoCreateSign");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsCryptoCreateSign");
     auto engine = state.engine;
     if (args.length < 1) return engine.throwTypeError("createSign requires an algorithm argument");
@@ -1498,7 +1498,7 @@ JSHandle jsCryptoCreateSign(void* ctx, JSHandle thisVal, scope JSHandle[] args) 
 JSHandle jsSignUpdate(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsSignUpdate");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsSignUpdate");
     auto engine = state.engine;
     if (args.length < 1) return engine.dupValue(thisVal);
@@ -1517,7 +1517,7 @@ JSHandle jsSignUpdate(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trust
 JSHandle jsSignSign(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsSignSign");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsSignSign");
     auto engine = state.engine;
     if (args.length < 1)
@@ -1563,7 +1563,7 @@ JSHandle jsSignSign(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 JSHandle jsCryptoCreateVerify(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsCryptoCreateVerify");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsCryptoCreateVerify");
     auto engine = state.engine;
     if (args.length < 1) return engine.throwTypeError("createVerify requires an algorithm argument");
@@ -1584,7 +1584,7 @@ JSHandle jsCryptoCreateVerify(void* ctx, JSHandle thisVal, scope JSHandle[] args
 JSHandle jsVerifyUpdate(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsVerifyUpdate");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsVerifyUpdate");
     auto engine = state.engine;
     if (args.length < 1) return engine.dupValue(thisVal);
@@ -1603,7 +1603,7 @@ JSHandle jsVerifyUpdate(void* ctx, JSHandle thisVal, scope JSHandle[] args) @tru
 JSHandle jsVerifyVerify(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsVerifyVerify");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsVerifyVerify");
     auto engine = state.engine;
     if (args.length < 2)
@@ -1787,7 +1787,7 @@ private ubyte[] decodeInput(string input, string encoding) @trusted
 JSHandle jsCryptoGetHashes(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsCryptoGetHashes");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsCryptoGetHashes");
     auto engine = state.engine;
     auto arr = engine.newArray();
@@ -1802,7 +1802,7 @@ JSHandle jsCryptoGetHashes(void* ctx, JSHandle thisVal, scope JSHandle[] args) @
 JSHandle jsCryptoGetCiphers(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsCryptoGetCiphers");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsCryptoGetCiphers");
     auto engine = state.engine;
     auto arr = engine.newArray();
@@ -1997,7 +1997,7 @@ private bool evpGenerateKeyPair(string type, int modulusLength, string namedCurv
 JSHandle jsCryptoGenerateKeyPairSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsCryptoGenerateKeyPairSync");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsCryptoGenerateKeyPairSync");
     auto engine = state.engine;
 
@@ -2084,7 +2084,7 @@ private string bnToHex(const(BIGNUM)* bn) @trusted nothrow
 JSHandle jsCryptoCreateDiffieHellman(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsCryptoCreateDiffieHellman");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsCryptoCreateDiffieHellman");
     auto engine = state.engine;
 
@@ -2130,7 +2130,7 @@ private DH* extractDH(IJSEngine engine, JSHandle thisVal) @trusted
 JSHandle jsDHGenerateKeys(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in DH.generateKeys");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     auto engine = state.engine;
     auto dh = extractDH(engine, thisVal);
     if (dh is null) return engine.throwTypeError("Invalid DH object");
@@ -2146,7 +2146,7 @@ JSHandle jsDHGenerateKeys(void* ctx, JSHandle thisVal, scope JSHandle[] args) @t
 JSHandle jsDHGetPublicKey(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in DH.getPublicKey");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     auto engine = state.engine;
     auto dh = extractDH(engine, thisVal);
     if (dh is null) return engine.throwTypeError("Invalid DH object");
@@ -2159,7 +2159,7 @@ JSHandle jsDHGetPublicKey(void* ctx, JSHandle thisVal, scope JSHandle[] args) @t
 JSHandle jsDHGetPrivateKey(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in DH.getPrivateKey");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     auto engine = state.engine;
     auto dh = extractDH(engine, thisVal);
     if (dh is null) return engine.throwTypeError("Invalid DH object");
@@ -2172,7 +2172,7 @@ JSHandle jsDHGetPrivateKey(void* ctx, JSHandle thisVal, scope JSHandle[] args) @
 JSHandle jsDHComputeSecret(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in DH.computeSecret");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     auto engine = state.engine;
     auto dh = extractDH(engine, thisVal);
     if (dh is null) return engine.throwTypeError("Invalid DH object");
@@ -2210,7 +2210,7 @@ JSHandle jsDHComputeSecret(void* ctx, JSHandle thisVal, scope JSHandle[] args) @
 JSHandle jsDHGetPrime(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in DH.getPrime");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     auto engine = state.engine;
     auto dh = extractDH(engine, thisVal);
     if (dh is null) return engine.throwTypeError("Invalid DH object");
@@ -2223,7 +2223,7 @@ JSHandle jsDHGetPrime(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trust
 JSHandle jsDHGetGenerator(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in DH.getGenerator");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     auto engine = state.engine;
     auto dh = extractDH(engine, thisVal);
     if (dh is null) return engine.throwTypeError("Invalid DH object");
@@ -2489,7 +2489,7 @@ private string escapeJsStr(string s) @safe pure nothrow
 JSHandle jsSubtleDigest(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in subtle.digest");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in subtle.digest");
     auto engine = state.engine;
     assert(engine !is null, "Null engine in subtle.digest");
@@ -2530,7 +2530,7 @@ JSHandle jsSubtleDigest(void* ctx, JSHandle thisVal, scope JSHandle[] args) @tru
 JSHandle jsSubtleImportKey(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in subtle.importKey");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in subtle.importKey");
     auto engine = state.engine;
     assert(engine !is null, "Null engine in subtle.importKey");
@@ -2609,7 +2609,7 @@ private string subtleHashName(string algo) @safe pure nothrow
 JSHandle jsSubtleSign(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in subtle.sign");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in subtle.sign");
     auto engine = state.engine;
     assert(engine !is null, "Null engine in subtle.sign");
@@ -2684,7 +2684,7 @@ JSHandle jsSubtleSign(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trust
 JSHandle jsSubtleVerify(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in subtle.verify");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in subtle.verify");
     auto engine = state.engine;
     assert(engine !is null, "Null engine in subtle.verify");
@@ -2768,7 +2768,7 @@ JSHandle jsSubtleVerify(void* ctx, JSHandle thisVal, scope JSHandle[] args) @tru
 JSHandle jsSubtleEncrypt(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in subtle.encrypt");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in subtle.encrypt");
     auto engine = state.engine;
     assert(engine !is null, "Null engine in subtle.encrypt");
@@ -2803,7 +2803,7 @@ JSHandle jsSubtleEncrypt(void* ctx, JSHandle thisVal, scope JSHandle[] args) @tr
 JSHandle jsSubtleDecrypt(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in subtle.decrypt");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in subtle.decrypt");
     auto engine = state.engine;
     assert(engine !is null, "Null engine in subtle.decrypt");
@@ -3087,7 +3087,7 @@ private JSHandle subtleAesCbcDecrypt(IJSEngine engine, scope JSHandle[] args) @t
 JSHandle jsSubtleGenerateKey(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in subtle.generateKey");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in subtle.generateKey");
     auto engine = state.engine;
     assert(engine !is null, "Null engine in subtle.generateKey");
@@ -3178,7 +3178,7 @@ JSHandle jsSubtleGenerateKey(void* ctx, JSHandle thisVal, scope JSHandle[] args)
 JSHandle jsSubtleExportKey(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in subtle.exportKey");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in subtle.exportKey");
     auto engine = state.engine;
     assert(engine !is null, "Null engine in subtle.exportKey");
@@ -3210,7 +3210,7 @@ JSHandle jsSubtleExportKey(void* ctx, JSHandle thisVal, scope JSHandle[] args) @
 JSHandle jsSubtleDeriveBits(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in subtle.deriveBits");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in subtle.deriveBits");
     auto engine = state.engine;
     assert(engine !is null, "Null engine in subtle.deriveBits");
@@ -3355,7 +3355,7 @@ JSHandle jsSubtleDeriveBits(void* ctx, JSHandle thisVal, scope JSHandle[] args) 
 JSHandle jsSubtleDeriveKey(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in subtle.deriveKey");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in subtle.deriveKey");
     auto engine = state.engine;
     assert(engine !is null, "Null engine in subtle.deriveKey");
@@ -3468,7 +3468,7 @@ JSHandle jsSubtleDeriveKey(void* ctx, JSHandle thisVal, scope JSHandle[] args) @
 JSHandle jsSubtleNotImplemented(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in subtle stub");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in subtle stub");
     auto engine = state.engine;
     assert(engine !is null, "Null engine in subtle stub");

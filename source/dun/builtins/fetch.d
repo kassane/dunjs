@@ -1,7 +1,8 @@
 module dun.builtins.fetch;
 
+import core.attribute : mustuse;
 import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
-import dun.runtime.globals : DunState;
+import dun.runtime.globals : DunState, ctxState;
 import dun.platform.arena : Appender;
 import std.conv : to;
 
@@ -28,7 +29,7 @@ private JSHandle jsFetch(void* ctx, JSHandle thisVal, scope JSHandle[] args) @tr
     import dun.loop.async : asyncSubmit;
 
     assert(ctx !is null, "Null ctx in jsFetch");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in jsFetch");
     auto engine = state.engine;
 
@@ -197,6 +198,11 @@ FetchResult deserializeFetchResult(string s) @safe
     return r;
 }
 
+/// `@mustuse` (DIP 1038): silently dropping a fetch result swallows
+/// the HTTP status + body. Every caller in this codebase consumes
+/// either `status` (for redirect chains) or `body_` (for the JS-side
+/// `Response` wrapper) — none legitimately ignores the whole struct.
+@mustuse
 struct FetchResult
 {
     int status;
@@ -796,7 +802,7 @@ JSHandle makeResponseFallback(IJSEngine engine, FetchResult r) @trusted
 JSHandle responseText(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in responseText");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in responseText");
     auto engine = state.engine;
     auto body_ = engine.getProperty(thisVal, "__body");
@@ -806,7 +812,7 @@ JSHandle responseText(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trust
 JSHandle responseJson(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in responseJson");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in responseJson");
     auto engine = state.engine;
     auto body_ = engine.getProperty(thisVal, "__body");

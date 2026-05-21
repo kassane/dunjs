@@ -1,7 +1,7 @@
 module dun.runtime.worker_self;
 
 import dun.engine.iface : IJSEngine, JSHandle;
-import dun.runtime.globals : DunState;
+import dun.runtime.globals : DunState, ctxState;
 import dun.workers.worker : WorkerState, jsonStringify;
 
 void installWorkerSelf(IJSEngine engine, DunState* state, WorkerState wst) @trusted
@@ -88,7 +88,7 @@ private WorkerState _getWst(IJSEngine engine) nothrow @trusted
 private JSHandle _selfPostMessage(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in self.postMessage");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state !is null && state.engine !is null, "Invalid DunState in self.postMessage");
     auto engine = state.engine;
 
@@ -112,7 +112,7 @@ private JSHandle _selfPostMessage(void* ctx, JSHandle thisVal, scope JSHandle[] 
 private JSHandle _selfClose(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in self.close");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state !is null && state.engine !is null, "Invalid DunState in self.close");
 
     auto wst = _getWst(state.engine);

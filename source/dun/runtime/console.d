@@ -1,7 +1,7 @@
 module dun.runtime.console;
 
 import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
-import dun.runtime.globals : DunState;
+import dun.runtime.globals : DunState, ctxState;
 
 void installConsole(IJSEngine engine) @trusted
 {
@@ -30,7 +30,7 @@ private:
 JSHandle consoleLog(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in console.log");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in console.log");
     writeArgs(state.engine, args, false);
     forwardToInspector(state.engine, "log", args);
@@ -40,7 +40,7 @@ JSHandle consoleLog(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 JSHandle consoleWarn(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in console.warn");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     writeArgs(state.engine, args, true);
     forwardToInspector(state.engine, "warning", args);
     return state.engine.newUndefined();
@@ -49,7 +49,7 @@ JSHandle consoleWarn(void* ctx, JSHandle thisVal, scope JSHandle[] args) @truste
 JSHandle consoleError(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in console.error");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     writeArgs(state.engine, args, true);
     forwardToInspector(state.engine, "error", args);
     return state.engine.newUndefined();
@@ -84,7 +84,7 @@ private void forwardToInspector(IJSEngine engine, string level, scope JSHandle[]
 JSHandle consoleAssert(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in console.assert");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     auto engine = state.engine;
 
     if (args.length > 0 && engine.extractBool(args[0]))

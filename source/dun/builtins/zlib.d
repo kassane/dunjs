@@ -1,7 +1,7 @@
 module dun.builtins.zlib;
 
 import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
-import dun.runtime.globals : DunState;
+import dun.runtime.globals : DunState, ctxState;
 
 private enum {
     ZLIB_DEFLATE_WINDOW = 15,
@@ -138,7 +138,7 @@ JSHandle returnBytes(IJSEngine engine, const(ubyte)[] data) @trusted
 JSHandle doCompress(void* ctx, JSHandle[] args, int windowBits) @trusted
 {
     assert(ctx !is null, "Null ctx in doCompress");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in doCompress");
     auto engine = state.engine;
     if (args.length < 1) return engine.throwTypeError("Expected data argument");
@@ -175,7 +175,7 @@ JSHandle doCompress(void* ctx, JSHandle[] args, int windowBits) @trusted
 JSHandle doDecompress(void* ctx, JSHandle[] args, int windowBits) @trusted
 {
     assert(ctx !is null, "Null ctx in doDecompress");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in doDecompress");
     auto engine = state.engine;
     if (args.length < 1) return engine.throwTypeError("Expected data argument");
@@ -254,7 +254,7 @@ JSHandle jsBrotliCompressSync(void* ctx, JSHandle thisVal, scope JSHandle[] args
 {
     import dun.platform.brotli;
     assert(ctx !is null, "Null ctx in jsBrotliCompressSync");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in jsBrotliCompressSync");
     auto engine = state.engine;
     if (args.length < 1) return engine.throwTypeError("Expected data argument");
@@ -305,7 +305,7 @@ JSHandle jsBrotliDecompressSync(void* ctx, JSHandle thisVal, scope JSHandle[] ar
 {
     import dun.platform.brotli;
     assert(ctx !is null, "Null ctx in jsBrotliDecompressSync");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in jsBrotliDecompressSync");
     auto engine = state.engine;
     if (args.length < 1) return engine.throwTypeError("Expected data argument");

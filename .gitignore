@@ -47,7 +47,10 @@ build/
 /dun-rel-jsc
 /dun-rel-v8
 /dun-asan
+/dun-asan-*
 /dun-tsan
+/dun-tsan-*
+/dun-pgo-*
 
 .omc/
 

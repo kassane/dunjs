@@ -1,7 +1,7 @@
 module dun.builtins.sqlite;
 
 import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
-import dun.runtime.globals : DunState;
+import dun.runtime.globals : DunState, ctxState;
 import dun.platform.sqlite3;
 
 void registerSqliteModule(IJSEngine engine) @trusted
@@ -87,7 +87,7 @@ sqlite3* getDbHandle(IJSEngine engine, JSHandle thisVal) @trusted
 JSHandle jsSqliteOpen(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsSqliteOpen");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in jsSqliteOpen");
     auto engine = state.engine;
 
@@ -135,7 +135,7 @@ JSHandle jsSqliteOpen(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trust
 JSHandle jsSqliteExec(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsSqliteExec");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in jsSqliteExec");
     auto engine = state.engine;
 
@@ -164,7 +164,7 @@ JSHandle jsSqliteExec(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trust
 JSHandle jsSqliteRun(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsSqliteRun");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in jsSqliteRun");
     auto engine = state.engine;
 
@@ -202,7 +202,7 @@ JSHandle jsSqliteRun(void* ctx, JSHandle thisVal, scope JSHandle[] args) @truste
 JSHandle jsSqliteGet(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsSqliteGet");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in jsSqliteGet");
     auto engine = state.engine;
 
@@ -241,7 +241,7 @@ JSHandle jsSqliteGet(void* ctx, JSHandle thisVal, scope JSHandle[] args) @truste
 JSHandle jsSqliteAll(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsSqliteAll");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in jsSqliteAll");
     auto engine = state.engine;
 
@@ -280,7 +280,7 @@ JSHandle jsSqliteAll(void* ctx, JSHandle thisVal, scope JSHandle[] args) @truste
 JSHandle jsSqliteClose(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsSqliteClose");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in jsSqliteClose");
     auto engine = state.engine;
 
@@ -299,7 +299,7 @@ JSHandle jsSqliteClose(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trus
 JSHandle jsSqliteVersion(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsSqliteVersion");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in jsSqliteVersion");
     auto engine = state.engine;
 

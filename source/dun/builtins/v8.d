@@ -1,7 +1,7 @@
 module dun.builtins.v8;
 
 import dun.engine.iface : IJSEngine, JSHandle;
-import dun.runtime.globals : DunState;
+import dun.runtime.globals : DunState, ctxState;
 
 // Default heap limit we report to JS callers. Real DunJS heap usage is
 // gated by `--max-memory`; this is just the "what would V8 say" number
@@ -108,7 +108,7 @@ version (EngineQuickJS)
 private JSHandle jsWriteHeapSnapshot(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in v8.writeHeapSnapshot");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     auto engine = state.engine;
 
     string path;
@@ -157,7 +157,7 @@ private JSHandle jsWriteHeapSnapshot(void* ctx, JSHandle thisVal, scope JSHandle
 private JSHandle jsGetHeapSnapshot(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in v8.getHeapSnapshot");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     // Returns a Readable stream in Node; we expose a fake object with
     // .read() returning the snapshot bytes once, then null.
     return state.engine.throwTypeError(
@@ -167,7 +167,7 @@ private JSHandle jsGetHeapSnapshot(void* ctx, JSHandle thisVal, scope JSHandle[]
 private JSHandle jsGetHeapStatistics(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in v8.getHeapStatistics");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     auto engine = state.engine;
     import core.memory : GC;
     auto stats = GC.stats;
@@ -209,13 +209,13 @@ private JSHandle jsGetHeapStatistics(void* ctx, JSHandle thisVal, scope JSHandle
 
 private JSHandle jsGetHeapSpaceStatistics(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     return state.engine.newArray();  // Node returns a per-space array; empty is acceptable.
 }
 
 private JSHandle jsGetHeapCodeStatistics(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     auto engine = state.engine;
     auto obj = engine.newObject();
     engine.setProperty(obj, "code_and_metadata_size", engine.newInt(0));
@@ -226,20 +226,20 @@ private JSHandle jsGetHeapCodeStatistics(void* ctx, JSHandle thisVal, scope JSHa
 
 private JSHandle jsCachedDataVersionTag(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     return state.engine.newInt(0);
 }
 
 private JSHandle jsSetFlagsFromString(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     return state.engine.newUndefined();  // no-op; we don't expose V8 flags.
 }
 
 private JSHandle jsSerialize(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null);
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     auto engine = state.engine;
     // Fallback: JSON-encode the value into a Buffer-like Uint8Array.
     if (args.length < 1) return engine.throwTypeError("serialize requires a value");
@@ -259,7 +259,7 @@ private JSHandle jsSerialize(void* ctx, JSHandle thisVal, scope JSHandle[] args)
 private JSHandle jsDeserialize(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null);
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     auto engine = state.engine;
     if (args.length < 1) return engine.throwTypeError("deserialize requires a buffer");
     auto res = engine.eval(

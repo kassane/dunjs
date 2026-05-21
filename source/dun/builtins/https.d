@@ -1,7 +1,7 @@
 module dun.builtins.https;
 
 import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
-import dun.runtime.globals : DunState;
+import dun.runtime.globals : DunState, ctxState;
 
 void registerHttpsModule(IJSEngine engine) @trusted
 {
@@ -69,7 +69,7 @@ private:
 JSHandle jsHttpsCreateServer(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsHttpsCreateServer");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsHttpsCreateServer");
     auto engine = state.engine;
 

@@ -1,7 +1,7 @@
 module dun.builtins.cluster;
 
 import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
-import dun.runtime.globals : DunState;
+import dun.runtime.globals : DunState, ctxState;
 import dun.security.permissions : Permission;
 
 /// Maximum number of tracked worker processes.
@@ -204,7 +204,7 @@ bool checkRunPerm(DunState* state) nothrow @trusted
 JSHandle jsClusterFork(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsClusterFork");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsClusterFork");
     auto engine = state.engine;
     assert(engine !is null, "Null engine in jsClusterFork");
@@ -294,7 +294,7 @@ JSHandle jsClusterFork(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trus
 JSHandle jsClusterOn(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsClusterOn");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsClusterOn");
     auto engine = state.engine;
     assert(engine !is null, "Null engine in jsClusterOn");
@@ -330,7 +330,7 @@ JSHandle jsClusterOn(void* ctx, JSHandle thisVal, scope JSHandle[] args) @truste
 JSHandle jsClusterSetupPrimary(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null);
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     auto engine = state.engine;
     auto global = engine.getGlobal();
     auto clusterObj = engine.getProperty(global, "__dun_cjs_cluster__");
@@ -344,7 +344,7 @@ JSHandle jsClusterSetupPrimary(void* ctx, JSHandle thisVal, scope JSHandle[] arg
 JSHandle jsClusterDisconnect(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null);
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     return state.engine.newUndefined();
 }
 
@@ -370,41 +370,41 @@ JSHandle makeWorkerSelf(IJSEngine engine) @trusted
 JSHandle jsWorkerSend(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null);
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     return state.engine.newBool(true);
 }
 
 JSHandle jsWorkerOn(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null);
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     return state.engine.dupValue(thisVal);
 }
 
 JSHandle jsWorkerDisconnect(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null);
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     return state.engine.newUndefined();
 }
 
 JSHandle jsWorkerKill(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null);
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     return state.engine.newUndefined();
 }
 
 JSHandle jsWorkerIsConnected(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null);
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     return state.engine.newBool(true);
 }
 
 JSHandle jsWorkerIsDead(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null);
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     return state.engine.newBool(false);
 }

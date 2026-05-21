@@ -1,7 +1,7 @@
 module dun.builtins.fs_promises;
 
 import dun.engine.iface : IJSEngine, JSHandle, JSResult, NativeCallback;
-import dun.runtime.globals : DunState;
+import dun.runtime.globals : DunState, ctxState;
 import dun.security.permissions : Permission;
 import dun.builtins.fs : errnoMsg;
 import dun.declarations : FILE_MODE_DEFAULT_FILE;
@@ -157,7 +157,7 @@ JSHandle jsFspReadFile(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trus
     import dun.builtins.fs : extractEncoding, createBufferFromBytes;
 
     assert(ctx !is null, "Null ctx in fs.promises.readFile");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in fs.promises.readFile");
     auto engine = state.engine;
     if (args.length < 1) return engine.throwTypeError("readFile requires a path argument");
@@ -209,7 +209,7 @@ JSHandle jsFspReadFile(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trus
 JSHandle jsFspWriteFile(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in fs.promises.writeFile");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in fs.promises.writeFile");
     auto engine = state.engine;
     if (args.length < 2) return engine.throwTypeError("writeFile requires path and data");
@@ -260,7 +260,7 @@ JSHandle jsFspWriteFile(void* ctx, JSHandle thisVal, scope JSHandle[] args) @tru
 JSHandle jsFspAppendFile(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in fs.promises.appendFile");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in fs.promises.appendFile");
     auto engine = state.engine;
     if (args.length < 2) return engine.throwTypeError("appendFile requires path and data");
@@ -306,7 +306,7 @@ JSHandle jsFspAppendFile(void* ctx, JSHandle thisVal, scope JSHandle[] args) @tr
 JSHandle jsFspCopyFile(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in fs.promises.copyFile");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in fs.promises.copyFile");
     auto engine = state.engine;
     if (args.length < 2) return engine.throwTypeError("copyFile requires src and dest");
@@ -342,7 +342,7 @@ JSHandle jsFspCopyFile(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trus
 JSHandle jsFspRename(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in fs.promises.rename");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in fs.promises.rename");
     auto engine = state.engine;
     if (args.length < 2) return engine.throwTypeError("rename requires oldPath and newPath");
@@ -378,7 +378,7 @@ JSHandle jsFspRename(void* ctx, JSHandle thisVal, scope JSHandle[] args) @truste
 JSHandle jsFspUnlink(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in fs.promises.unlink");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in fs.promises.unlink");
     auto engine = state.engine;
     if (args.length < 1) return engine.throwTypeError("unlink requires a path argument");
@@ -411,7 +411,7 @@ JSHandle jsFspUnlink(void* ctx, JSHandle thisVal, scope JSHandle[] args) @truste
 JSHandle jsFspRmdir(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in fs.promises.rmdir");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in fs.promises.rmdir");
     auto engine = state.engine;
     if (args.length < 1) return engine.throwTypeError("rmdir requires a path argument");
@@ -444,7 +444,7 @@ JSHandle jsFspRmdir(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 JSHandle jsFspRm(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in fs.promises.rm");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in fs.promises.rm");
     auto engine = state.engine;
     if (args.length < 1) return engine.throwTypeError("rm requires a path argument");
@@ -495,7 +495,7 @@ JSHandle jsFspRm(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 JSHandle jsFspMkdir(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in fs.promises.mkdir");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in fs.promises.mkdir");
     auto engine = state.engine;
     if (args.length < 1) return engine.throwTypeError("mkdir requires a path argument");
@@ -543,7 +543,7 @@ JSHandle jsFspMkdir(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 JSHandle jsFspReaddir(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in fs.promises.readdir");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in fs.promises.readdir");
     auto engine = state.engine;
     if (args.length < 1) return engine.throwTypeError("readdir requires a path argument");
@@ -645,7 +645,7 @@ JSHandle jsFspReaddir(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trust
 JSHandle jsFspStat(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in fs.promises.stat");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in fs.promises.stat");
     auto engine = state.engine;
     if (args.length < 1) return engine.throwTypeError("stat requires a path argument");
@@ -667,7 +667,7 @@ JSHandle jsFspStat(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 JSHandle jsFspLstat(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in fs.promises.lstat");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in fs.promises.lstat");
     auto engine = state.engine;
     if (args.length < 1) return engine.throwTypeError("lstat requires a path argument");
@@ -689,7 +689,7 @@ JSHandle jsFspLstat(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 JSHandle jsFspAccess(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in fs.promises.access");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in fs.promises.access");
     auto engine = state.engine;
     if (args.length < 1) return engine.throwTypeError("access requires a path argument");
@@ -727,7 +727,7 @@ JSHandle jsFspAccess(void* ctx, JSHandle thisVal, scope JSHandle[] args) @truste
 JSHandle jsFspRealpath(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in fs.promises.realpath");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in fs.promises.realpath");
     auto engine = state.engine;
     if (args.length < 1) return engine.throwTypeError("realpath requires a path argument");
@@ -778,7 +778,7 @@ JSHandle jsFspRealpath(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trus
 JSHandle jsFspChmod(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in fs.promises.chmod");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in fs.promises.chmod");
     auto engine = state.engine;
     if (args.length < 2) return engine.throwTypeError("chmod requires path and mode");
@@ -812,7 +812,7 @@ JSHandle jsFspChmod(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 JSHandle jsFspChown(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in fs.promises.chown");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in fs.promises.chown");
     auto engine = state.engine;
     if (args.length < 3) return engine.throwTypeError("chown requires path, uid, gid");
@@ -844,7 +844,7 @@ JSHandle jsFspChown(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 JSHandle jsFspTruncate(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in fs.promises.truncate");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in fs.promises.truncate");
     auto engine = state.engine;
     if (args.length < 1) return engine.throwTypeError("truncate requires a path argument");
@@ -891,7 +891,7 @@ JSHandle jsFspTruncate(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trus
 JSHandle jsFspSymlink(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in fs.promises.symlink");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in fs.promises.symlink");
     auto engine = state.engine;
     if (args.length < 2) return engine.throwTypeError("symlink requires target and path");
@@ -928,7 +928,7 @@ JSHandle jsFspSymlink(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trust
 JSHandle jsFspOpen(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in fs.promises.open");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in fs.promises.open");
     auto engine = state.engine;
     if (args.length < 1) return engine.throwTypeError("open requires a path argument");

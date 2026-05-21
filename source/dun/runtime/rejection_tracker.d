@@ -2,7 +2,7 @@ module dun.runtime.rejection_tracker;
 
 import dun.engine.iface : IJSEngine, JSHandle;
 import dun.loop.eventloop : RejectedPromise;
-import dun.runtime.globals : DunState;
+import dun.runtime.globals : DunState, ctxState;
 
 void installRejectionTracker(IJSEngine engine, DunState* state) @trusted
 {
@@ -157,7 +157,7 @@ private void installJSRejectionTracker(IJSEngine engine, DunState* state) @trust
 private JSHandle jsReportRejection(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsReportRejection");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     auto engine = state.engine;
     assert(engine !is null, "Null engine in jsReportRejection");
 

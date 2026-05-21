@@ -1,7 +1,7 @@
 module dun.builtins.http;
 
 import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
-import dun.runtime.globals : DunState;
+import dun.runtime.globals : DunState, ctxState;
 import dun.loop.agnostic_pending : pushAgnosticPending;
 import dun.declarations : DEFAULT_LISTEN_BACKLOG;
 
@@ -538,7 +538,7 @@ package JSHandle createServerWithTls(IJSEngine engine, JSHandle cb, bool hasCb,
 JSHandle jsHttpCreateServer(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsHttpCreateServer");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsHttpCreateServer");
     auto engine = state.engine;
 
@@ -593,7 +593,7 @@ JSHandle makeHttpServerObj(IJSEngine engine, int id) @trusted
 JSHandle jsHttpServerSetTimeout(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null);
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state.engine !is null);
     auto engine = state.engine;
     /* `engine.setProperty(thisVal, "timeout", engine.dupValue(args[0]))`
@@ -616,7 +616,7 @@ JSHandle jsHttpServerListen(void* ctx, JSHandle thisVal, scope JSHandle[] args) 
         import core.sys.posix.fcntl : fcntl, F_SETFL, F_GETFL, O_NONBLOCK;
         import core.stdc.string : memset;
 
-        auto state = cast(DunState*) ctx;
+        auto state = ctxState(ctx);
         assert(state !is null, "Null DunState in jsHttpServerListen");
         auto engine = state.engine;
 
@@ -710,7 +710,7 @@ JSHandle jsHttpServerListen(void* ctx, JSHandle thisVal, scope JSHandle[] args) 
     }
     else
     {
-        auto state = cast(DunState*) ctx;
+        auto state = ctxState(ctx);
         return state.engine.throwTypeError("http server not supported on this platform");
     }
 }
@@ -721,7 +721,7 @@ JSHandle jsHttpServerClose(void* ctx, JSHandle thisVal, scope JSHandle[] args) @
     version (Posix)
     {
         import core.sys.posix.unistd : close;
-        auto state = cast(DunState*) ctx;
+        auto state = ctxState(ctx);
         assert(state !is null, "Null DunState in jsHttpServerClose");
         auto engine = state.engine;
 
@@ -809,7 +809,7 @@ JSHandle jsHttpServerClose(void* ctx, JSHandle thisVal, scope JSHandle[] args) @
     }
     else
     {
-        auto state = cast(DunState*) ctx;
+        auto state = ctxState(ctx);
         return state.engine.newUndefined();
     }
 }
@@ -817,7 +817,7 @@ JSHandle jsHttpServerClose(void* ctx, JSHandle thisVal, scope JSHandle[] args) @
 JSHandle jsHttpServerAddress(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsHttpServerAddress");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsHttpServerAddress");
     auto engine = state.engine;
 
@@ -843,7 +843,7 @@ JSHandle jsHttpServerAddress(void* ctx, JSHandle thisVal, scope JSHandle[] args)
 JSHandle jsHttpServerOn(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsHttpServerOn");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsHttpServerOn");
     auto engine = state.engine;
     if (args.length < 2 || !engine.isFunction(args[1])) return engine.dupValue(thisVal);
@@ -940,7 +940,7 @@ JSHandle makeReqObj(IJSEngine engine, int connId) @trusted
 JSHandle jsGetConnHeaders(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsGetConnHeaders");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsGetConnHeaders");
     auto engine = state.engine;
     if (args.length < 1) return engine.newObject();
@@ -960,7 +960,7 @@ JSHandle jsGetConnHeaders(void* ctx, JSHandle thisVal, scope JSHandle[] args) @t
 JSHandle jsReqOn(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsReqOn");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsReqOn");
     auto engine = state.engine;
     if (args.length < 2 || !engine.isFunction(args[1])) return engine.dupValue(thisVal);
@@ -1037,7 +1037,7 @@ JSHandle makeResObj(IJSEngine engine, int connId) @trusted
 JSHandle jsResSetHeader(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsResSetHeader");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsResSetHeader");
     auto engine = state.engine;
     if (args.length < 2) return engine.newUndefined();
@@ -1076,7 +1076,7 @@ JSHandle jsResSetHeader(void* ctx, JSHandle thisVal, scope JSHandle[] args) @tru
 JSHandle jsResGetHeader(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsResGetHeader");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     auto engine = state.engine;
     if (args.length < 1) return engine.newUndefined();
     auto idProp = engine.getProperty(thisVal, "__cid");
@@ -1116,7 +1116,7 @@ JSHandle jsResGetHeader(void* ctx, JSHandle thisVal, scope JSHandle[] args) @tru
 JSHandle jsResGetHeaders(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsResGetHeaders");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     auto engine = state.engine;
     auto idProp = engine.getProperty(thisVal, "__cid");
     int connId = engine.extractInt(idProp);
@@ -1145,7 +1145,7 @@ JSHandle jsResGetHeaders(void* ctx, JSHandle thisVal, scope JSHandle[] args) @tr
 JSHandle jsResHasHeader(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsResHasHeader");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     auto engine = state.engine;
     if (args.length < 1) return engine.newBool(false);
     auto idProp = engine.getProperty(thisVal, "__cid");
@@ -1168,7 +1168,7 @@ JSHandle jsResHasHeader(void* ctx, JSHandle thisVal, scope JSHandle[] args) @tru
 JSHandle jsResRemoveHeader(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsResRemoveHeader");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     auto engine = state.engine;
     if (args.length < 1) return engine.newUndefined();
     auto idProp = engine.getProperty(thisVal, "__cid");
@@ -1206,7 +1206,7 @@ private string toLowerSimple(string s) @trusted pure nothrow
 JSHandle jsResWriteHead(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsResWriteHead");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsResWriteHead");
     auto engine = state.engine;
 
@@ -1321,7 +1321,7 @@ void syncJsHeaders(IJSEngine engine, JSHandle thisVal, HttpConnState* conn) @tru
 JSHandle jsResWrite(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null, "Null ctx in jsResWrite");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsResWrite");
     auto engine = state.engine;
     if (args.length < 1) return engine.newBool(false);
@@ -1364,7 +1364,7 @@ JSHandle jsResEnd(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
     {
         import core.sys.posix.unistd : close;
 
-        auto state = cast(DunState*) ctx;
+        auto state = ctxState(ctx);
         assert(state !is null, "Null DunState in jsResEnd");
         auto engine = state.engine;
 
@@ -1526,7 +1526,7 @@ JSHandle jsResEnd(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
     }
     else
     {
-        auto state = cast(DunState*) ctx;
+        auto state = ctxState(ctx);
         return state.engine.newUndefined();
     }
 }

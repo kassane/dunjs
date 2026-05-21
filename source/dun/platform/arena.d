@@ -61,6 +61,11 @@ struct StackFallback(size_t N)
 {
     static assert(N > 0, "StackFallback!N requires N > 0");
 
+    /// Non-copyable: copying would alias the stack region across
+    /// frames and the GC heap pointer, defeating the whole point
+    /// of the type. Pass by `ref` if you need to share.
+    @disable this(this);
+
     InSituRegion!N primary;
 
     /// Returns a slice of `bytes` from the stack region when it
