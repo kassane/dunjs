@@ -85,9 +85,14 @@ unittest
 // Static-method-only C++ bindings (instance methods need V8 linkage).
 version (EngineV8)
 {
+    // C++ `class V8` is a static-method-only namespace-like type
+    // (no instance state, no vtable). The right D binding is
+    // `extern(C++, class) struct` — value type, no Object overhead.
+    // Using `extern class` would make it a D reference type that
+    // we never instantiate — wastes a vtable slot + class init data.
     extern (C++, "v8")
     {
-        extern class V8
+        extern (C++, class) struct V8
         {
         static:
             void SetFlagsFromString(const(char)* str, size_t length);

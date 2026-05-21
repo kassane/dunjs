@@ -1,89 +1,66 @@
-# Custom D GC backed by V8 cppgc / JSC Heap — feasibility case study
+# Custom D GC backed by V8 cppgc / JSC Heap — case study
 
-**Status**: Research only. Not on the v1.x roadmap.
-**Branch**: `claude/custom-gc-research` (this commit).
+**Status**: Research only. No prototype landed in-tree.
+
 **Audience**: maintainers considering whether to prototype a custom
-D GC inside DunJS that delegates allocation to the embedded JS
-engine's GC.
+D GC that delegates allocation to the embedded JS engine's heap.
 
-This document answers four questions:
+## TL;DR
 
-1. **What would it look like?** — The shape of a `MyGC : GC` class
-   that delegates to V8's `cppgc::Heap` or JSC's `JSC::Heap`.
-2. **Where would it help?** — Realistic perf model: which D
-   allocations actually become free, which stay the same, which
-   regress.
-3. **What are the hard problems?** — Roots, finalization, threading,
-   ABI compat, dual-runtime coordination.
-4. **Should we ship it?** — Recommendation + suggested next step.
+| Question | Answer |
+|----------|--------|
+| Can D bind to V8 cppgc / JSC heap C++ APIs directly (no extern(C) shim)? | **Yes** — patterns documented in §3 and tested in `tools/bindgen_tests/test_ffi_linkage.d` |
+| Should we route D allocations through cppgc / JSC heap? | **No** — see §4. Thread-affinity (cppgc heap is per-isolate; D GC is process-global) and the typed-Trace contract (cppgc requires `Trace(Visitor*)` per object; D allocates type-erased `void*`) are inherent to those designs, not FFI limitations |
+| Is D-side GC even the bottleneck in DunJS today? | **No** — GC is < 1 % of CPU on `feature_bench.js` (§5). The V8 backend bottleneck is FFI scope overhead, addressed by `v8::FastApiCallback` — orthogonal to GC routing |
+| What about a faster D-side allocator (no engine involvement)? | **Yes, ship-worthy**. `std.experimental.allocator` Region/BorrowedRegion + `--DRT-gcopt=gc:precise` are practical. Expected +3–8 % on URL/HTTP-heavy benches. See §6 |
 
-TL;DR up front: **don't do it for V8, possibly do it for JSC** —
-but only after measuring that D-side allocation is actually on the
-critical path (current data says it isn't).
+## 1. The two-heap problem
 
----
-
-## 1. The 30-second pitch
-
-DunJS has two heaps in every process:
+DunJS has two collectors in every process:
 
 ```
 ┌─────────────────────────────────────────┐
 │  D runtime                              │
-│  ┌──────────────────────────────────┐   │
-│  │ druntime conservative GC (CMS)   │   │  ~16 MB initial pool
-│  │ - Appender buffers               │   │  ~2-5% CPU under feature_bench
-│  │ - String / array allocations     │   │
-│  │ - Closures, IJSEngine instances  │   │
-│  │ - DunState, EventLoop, Workers   │   │
+│  ┌──────────────────────────────────┐   │  ~16 MB initial pool
+│  │ druntime conservative GC (CMS)   │   │  < 1% CPU under bench
+│  │ - Appender buffers / Strings     │   │
+│  │ - IJSEngine instances, DunState  │   │
+│  │ - Closures, Workers, EventLoop   │   │
 │  └──────────────────────────────────┘   │
 └─────────────────────────────────────────┘
 ┌─────────────────────────────────────────┐
 │  V8 / JSC / QuickJS-NG                  │
-│  ┌──────────────────────────────────┐   │
-│  │ V8 GC (Orinoco) / JSC GC (Riptide)│  │  ~few hundred MB live
-│  │ - All JS objects, strings, arrays │  │  ~5-10% CPU
-│  │ - DunV8Value* wrappers (via       │  │  Already optimized
-│  │   thread-local value pool)        │  │
+│  ┌──────────────────────────────────┐   │  ~few hundred MB live
+│  │ V8 GC (Orinoco) / JSC GC (Riptide)│  │  5-10% CPU
+│  │ - All JS objects, strings, arrays │  │  Already optimized
+│  │ - DunV8Value wrappers (pooled)    │  │  (per-thread pool)
 │  └──────────────────────────────────┘   │
 └─────────────────────────────────────────┘
 ```
 
-The user's `pragma(crt_constructor)` skeleton would let us register
-a `mygc` factory that, when selected via `--DRT-gcopt=gc:mygc`, makes
-D's `new`/`malloc`/array-append allocate inside the JS engine's
-heap. The idea: **collapse the two heaps into one**, so any
-intrinsic synergy (single GC pass, shared marking, shared
-write-barrier infrastructure) becomes a real perf win.
-
----
+If we routed D allocations through the JS engine's GC — via [V8 cppgc](https://v8.github.io/api/head/namespacecppgc.html)
+or the JSC heap — we'd have **one mark cycle covering both heaps**.
+Same architectural payoff Blink gets from cppgc → DOM nodes ↔ JS
+wrappers. That's the question this case study answers.
 
 ## 2. Background
 
-### 2.1 D's `core.gc.gcinterface.GC`
+### 2.1 D's `core.gc.gcinterface.GC` (verified against LDC 1.42)
 
-Verified against LDC 1.42.0 (`/opt/ldc/import/core/gc/gcinterface.d`,
-[upstream docs](https://dlang.org/library/core/gc/gcinterface.html)):
-
-The `GC` interface is **32 methods**, partitioned roughly as:
+The `GC` interface is **32 methods** at `/opt/ldc/import/core/gc/gcinterface.d`:
 
 | Category | Methods | Notes |
 |----------|---------|-------|
 | Lifecycle | `enable`, `disable`, `collect`, `minimize` | Map to `cppgc::Heap::ForceGarbageCollectionSlow` / `JSC::Heap::collectAllGarbage` |
-| Allocation | `malloc`, `qalloc`, `calloc`, `realloc`, `extend`, `reserve`, `free` | Hot path. Returns raw pointer + `BlkAttr` bits |
-| Block metadata | `getAttr`/`setAttr`/`clrAttr`, `addrOf`, `sizeOf`, `query` | Lets D's runtime recover type info from a pointer mid-collection |
-| Stats | `stats`, `profileStats` | Reported by `--DRT-gcopt=profile:1` |
-| Root tracking | `addRoot`/`removeRoot`/`rootIter`, `addRange`/`removeRange`/`rangeIter` | The bit that's hardest to bridge — D's roots are NOT V8/JSC roots and vice versa |
-| Finalization | `runFinalizers`, `inFinalizer` | Class destructors run here |
-| Thread hooks | `initThread`, `cleanupThread`, plus the registry-level `GCThreadInitFunction` | Per-thread state setup |
-| Arrays | `getArrayUsed`, `expandArrayUsed`, `reserveArrayCapacity`, `shrinkArrayUsed` | Druntime's `~=` operator hits these; expensive paths use `expandArrayUsed` |
-| Self-stats | `allocatedInCurrentThread` | Per-thread allocation counter |
+| Allocation | `malloc`, `qalloc`, `calloc`, `realloc`, `extend`, `reserve`, `free` | Hot path; returns raw `void*` + `BlkAttr` bits — **D's contract is type-erased** |
+| Block metadata | `getAttr` / `setAttr` / `clrAttr`, `addrOf`, `sizeOf`, `query` | Recover info from a pointer mid-collection |
+| Stats | `stats`, `profileStats`, `allocatedInCurrentThread` | The contract for `allocatedInCurrentThread` is **bytes, not count** — easy to get wrong |
+| Roots | `addRoot` / `removeRoot` / `rootIter`, `addRange` / `removeRange` / `rangeIter` | The hardest bridge — D roots aren't cppgc/JSC roots and vice versa |
+| Finalization | `runFinalizers`, `inFinalizer` | Class destructors |
+| Threading | `initThread`, `cleanupThread` | Per-thread state |
+| Arrays | `getArrayUsed`, `expandArrayUsed`, `reserveArrayCapacity`, `shrinkArrayUsed` | `~=` on slices hits these |
 
-druntime ships two stock implementations:
-- **Conservative** (default) — mark-sweep, scans entire reachable memory looking for pointer-shaped values. Type info ignored.
-- **Precise** — uses `TypeInfo` bitmaps to scan only pointer-typed fields. Slower allocation, less false retention.
-
-The user's `MyGC` skeleton:
+Registration pattern:
 
 ```d
 import core.gc.gcinterface, core.gc.registry;
@@ -93,724 +70,324 @@ extern (C) pragma(crt_constructor) void registerMyGC() {
 }
 
 GC createMyGC() {
-    __gshared instance = new MyGC;
-    instance.initialize();
-    return instance;
+    /* MUST NOT use D's `new` here — see §6 */
+    return /* malloc + emplace */;
 }
-
-class MyGC : GC { /* 32 method overrides */ }
 ```
 
-`pragma(crt_constructor)` ensures `registerMyGC` runs **before**
-druntime initialization, so by the time `rt_init` looks at
-`--DRT-gcopt=gc:mygc` the factory is in the registry. User opts in
-with `dun "--DRT-gcopt=gc:mygc" run script.js`.
+`crt_constructor` runs before `rt_init` (before druntime initializes
+the GC). The user opts in with `dun "--DRT-gcopt=gc:mygc" run script.js`.
+The full passthrough-GC body is left as an exercise — druntime
+already ships an equivalent at
+`core.internal.gc.impl.manual.gc.ManualGC` (registered as
+`gc:manual`), so the simplest experiment is just:
 
-### 2.2 V8's cppgc (Oilpan)
+```sh
+dun "--DRT-gcopt=gc:manual" run script.js
+```
 
-V8 ships [cppgc](https://v8.github.io/api/head/namespacecppgc.html)
-as a standalone embedder library that the JavaScript engine uses
-internally for Blink/DOM nodes ([Oilpan library blog post](https://v8.dev/blog/oilpan-library)).
-The API surface:
+…and compare profile output. No custom-GC implementation needed for
+the A/B perf measurement.
+
+### 2.2 V8 cppgc (Oilpan)
+
+V8 ships [`cppgc`](https://v8.dev/blog/oilpan-library) as a standalone
+embedder library that Blink uses for DOM nodes. The relevant API:
 
 ```cpp
 namespace cppgc {
-    void InitializeProcess(PageAllocator* page_allocator = nullptr);
-    void ShutdownProcess();
+    void InitializeProcess(PageAllocator* = nullptr);
 
     class Heap {
         static std::unique_ptr<Heap> Create(
-            std::shared_ptr<Platform> platform,
-            HeapOptions options = HeapOptions::Default());
+            std::shared_ptr<Platform>, HeapOptions = HeapOptions::Default());
         AllocationHandle& GetAllocationHandle();
-        void ForceGarbageCollectionSlow(...);
     };
 
     template <typename T, typename... Args>
     T* MakeGarbageCollected(AllocationHandle& h, Args&&... args);
 
-    template <typename T> class Persistent { ... };  // strong cross-heap ref
-    template <typename T> class WeakPersistent { ... };
+    template <typename T> class Persistent { ... };  // cross-heap root
     template <typename T> class Member { ... };       // intra-heap field
-    template <typename T> class WeakMember { ... };
 }
 ```
 
-Two critical constraints:
+Two design constraints that show up later as blockers:
 
-1. **`MakeGarbageCollected<T>` requires `T : GarbageCollected<T>`** —
-   the object must have a vtable header that cppgc recognizes,
-   and a `Trace(Visitor*) const` method that walks outgoing
-   pointers. **You cannot point cppgc at arbitrary `void*` blobs.**
-2. **Pointer hygiene** — every cross-object pointer inside a
-   managed object must be a `Member<T>`. Bare `T*` won't be
-   scanned and will dangle. Off-heap → on-heap pointers must be
-   `Persistent<T>`.
+1. **`MakeGarbageCollected<T>` requires `T : GarbageCollected<T>`**.
+   Every allocated object has a header + a `Trace(Visitor*) const`
+   method that walks outgoing pointers. **Cannot bind to arbitrary
+   `void*` bytes** the way D's `GC.malloc` requires.
 
-For DunJS this means we can't just say "give me 64 bytes" and use
-the result as a `string[]`. We'd need to wrap every D allocation
-in a synthetic `GarbageCollected<T>` shell with a `Trace` that
-makes cppgc aware of the D-side internal pointers. **D's GC
-interface is type-erased** (you get a `void*`, you cast it to
-whatever); cppgc's API is **type-driven** (you get a `T*` of a
-specific traced type).
+2. **Pointer hygiene**. Cross-object pointers inside managed objects
+   must be `Member<T>`; off-heap → on-heap pointers must be
+   `Persistent<T>`. Bare `T*` won't be scanned. D's GC contract gives
+   you a raw `void*` you can put anywhere.
 
-That mismatch is the fundamental friction. Workarounds exist (a
-single `class DOpaque : GarbageCollected<DOpaque>` with a raw
-byte buffer plus a `Trace` that calls into druntime's
-`rt.lifetime` machinery) but the layering inversion makes the GC
-contract hard to honor.
-
-### 2.3 V8's `v8::CppHeap` — the integration point
-
-`CppHeap` is the bridge that makes a `cppgc::Heap` collaborate
-with the V8 JS heap ([`v8::CppHeap`](https://v8.github.io/api/head/classv8_1_1CppHeap.html)):
+`v8::CppHeap` is the integration glue:
 
 ```cpp
 auto cpp_heap = v8::CppHeap::Create(platform, CppHeapCreateParams{});
 isolate->AttachCppHeap(cpp_heap.get());
-// Now major V8 GCs walk the C++ heap too; one mark phase covers both.
+// Now major V8 GCs walk the C++ heap; one mark phase covers both.
 ```
 
-This is what Blink uses — Blink DOM nodes are `cppgc`-managed,
-JS wrappers point at them via embedder slots, and a single
-mark cycle walks both heaps. **This is the synergy that could
-actually help DunJS** if we managed to route D allocations
-through cppgc.
+This is the synergy that would in principle pay off for DunJS — IF
+we could route D allocations through it. §4 covers why we can't.
 
-### 2.4 JavaScriptCore's heap
+### 2.3 JavaScriptCore's heap
 
-JSC's heap ([WebKit blog](https://webkit.org/blog/12967/understanding-gc-in-jsc-from-scratch/))
-is a generational, non-compacting, mostly-concurrent mark-sweep
-collector. The **public C API exposed to embedders is
-intentionally minimal**:
+JSC's heap is generational, non-compacting, mostly-concurrent. The
+**public C API is intentionally minimal** ([WebKit blog](https://webkit.org/blog/12967/understanding-gc-in-jsc-from-scratch/)):
 
 | C API | Purpose |
 |-------|---------|
-| `JSValueProtect(ctx, val)` | Keep a JSValueRef alive across GC |
+| `JSValueProtect(ctx, val)` | Keep alive across GC |
 | `JSValueUnprotect(ctx, val)` | Allow collection |
-| `JSGarbageCollect(ctx)` | Hint a GC cycle |
+| `JSGarbageCollect(ctx)` | GC hint |
 
-That's it. JSC's `Heap` class (the actual allocator interface) is
-**not part of the C API** — `Heap::allocate`, `WeakSet`, `Strong<T>`
-are all internal to WebKit's C++ source. Using them requires either:
+`JSC::Heap::allocate` is internal WebKit C++ — not exposed via the C
+API. Bridging would mean linking against unstable WebKit headers, on
+a per-point-release treadmill. **Reject up front**.
 
-- linking against the C++ library + an unstable header set, or
-- writing a custom shim that exposes them via `extern "C"` (like
-  DunJS does for V8 in `vendor/v8shim/`).
+### 2.4 Where DunJS actually allocates D memory today
 
-So for the JSC route, we'd need a `vendor/jscshim/` library
-analogous to v8shim.
+Surveyed via the hot paths plus `--DRT-gcopt=profile:1`:
 
-### 2.5 Where DunJS allocates D memory today
+| Site | Frequency | Cost | GC pressure |
+|------|-----------|------|-------------|
+| `extractString` (JS → D string) | per-FFI | small | medium (per-call alloc) |
+| `Appender!(char[])` for HTTP / JSON / TS strip | per-request | small | small (reused) |
+| `new ubyte[N]` for `Buffer.from(arrayBuffer)` | per-Buffer | medium | medium |
+| Worker thread state | per-Worker | one-shot | none |
+| TypeScript transpile cache | per-file (cached) | one-shot | one-shot |
 
-Surveyed via `grep -rn "new " source/dun/ | wc -l` and pattern-spotted
-the hot paths:
+Measured on `feature_bench.js` (25 tests, dun-v8, cascadelake):
 
-| Allocation site | Frequency | Cost | GC pressure |
-|-----------------|-----------|------|-------------|
-| `engine.eval(...)` source string `idup` | per-eval | small | small (already cached for fetch) |
-| `extractString(...)` (JS→D string) | per-FFI | small-medium | medium (per-call alloc) |
-| `Appender!(char[])` for HTTP / JSON / TS strip | per-request | small | small (Appender reuses) |
-| `new ubyte[N]` for `Buffer.from(arrayBuffer)` | per-Buffer-from | medium | medium |
-| `JSHandle[]` arrays for trampoline arg packs | per-callback | small (stack-allocated in v8shim) | none |
-| Worker thread state | per-Worker creation | one-shot | none |
-| Permission scope arrays | one-shot at startup | one-shot | none |
-| TypeScript transpile cache | per-file (cached) | one-shot per file | one-shot |
-| EventLoop microtask queue | per-tick burst | small | small |
+```
+GC summary:  105 MB,   12 GC    4 ms, Pauses    3 ms <    0 ms
+```
 
-The aggregate D-side allocation rate on `feature_bench.js` is
-**~2-5% of CPU** per `--DRT-gcopt=profile:1` runs. Most allocation
-is short-lived and the conservative GC's bump allocator handles
-it cheaply. **D-side allocation is NOT on the critical path for
-DunJS's current bottlenecks** (which are FFI scope overhead and
-V8 inline-cache misses on indirect calls).
+**4 ms total GC over a 14 s run = ~0.03 % of wall time**. D GC is
+not on the critical path.
 
----
+## 3. D ↔ C++ FFI patterns (would-be cppgc bridge)
 
-## 3. Three possible designs
+Single capability table for binding C++ types from D. None of these
+patterns are blocked by language design — the cppgc bridge is killed
+by §4's architectural mismatches, not the FFI mechanism.
 
-### Design A — Naive: delegate every D `malloc` to `cppgc`
+| Pattern | D mechanism | DunJS evidence in-tree |
+|---------|-------------|----------------|
+| `extern(C)` free function | `extern(C) int f()` | 1000+ symbols across v8shim, OpenSSL bindings |
+| `extern(C++)` free function | `extern(C++) int f()` | `cpp_add`, `cpp_mul` in `test_ffi_linkage.d` case 2 |
+| Namespaced free function | `extern(C++, "ns")` | `v8::platform::NewDefaultPlatform` |
+| Static method on class | `extern(C++, "ns") extern(C++, class) struct T { static: ... }` | `v8::V8::Initialize` |
+| **C++ template instantiation** | **`extern(C++, "ns") { extern(C++, class) struct T(int Slot) { static: ... } alias T0 = T!0; }`** — D auto-mangles to `_ZN<ns><T>IL<arg>EE<method>Ev` | `test_ffi_linkage.d` case 7a (compile-only mangling test) |
+| C++ template (fallback) | `pragma(mangle, "<full itanium>")` — when D's TMP can't express the signature | `test_ffi_linkage.d` case 7b |
+| C++ instance method (non-virtual) | `extern(C++, class) struct T { void f(); }` | Theoretical |
+| C++ instance method (virtual) | `extern(C++) class T { void f(); }` | High risk — vtable layout must match exactly |
+| Template function caller picks T | **Not possible directly** — write a C++ wrapper that does the instantiation, then bind via extern(C++) | Blocks `cppgc::MakeGarbageCollected<T>` direct bind |
+
+### 3.1 D ↔ C++ type-system mapping (critical for getting this right)
+
+| C++ side | D-side binding | Rationale |
+|----------|---------------|-----------|
+| `class T { ... };` (no virtual methods) | `extern(C++, class) struct T { ... }` | **C++ class is value-type by default; D struct is value-type → match.** Using D class (reference type) silently mismatches the ABI |
+| `struct T { ... };` | `extern(C++, class) struct T { ... }` | Same |
+| `class T { virtual void f(); };` | `extern(C++) class T { void f(); }` | Reference type WITH vtable; D class matches — but vtable layout must be exact across C++ point releases |
+| Template `T<X>` (explicitly instantiated on C++ side) | `extern(C++, class) struct T(typename X) { ... }` | D template instantiation produces matching Itanium symbol |
+| Private/protected C++ members | All visible to D | D has no per-member access; module-level access only |
+| C++ defaulted constructor | **Not expressible** in D struct | D structs can't have a default ctor — workaround: factory function |
+| Multiple inheritance | **Hard** | Bind to a flattened C++ wrapper instead |
+
+Pattern enforced across DunJS this branch: `extern(C++, "v8") extern(C++, class) struct V8`, `extern(C++, "JSC") extern(C++, class) struct SourceOrigin` — both converted from the older `extern class` form (D reference type, wrong shape for static-method-only C++ types).
+
+### 3.2 Namespace-scope gotcha for template instantiations
+
+The template MUST live inside the `extern(C++, "ns")` block:
 
 ```d
-class MyGC : GC {
-    void* malloc(size_t size, uint bits, const TypeInfo ti) nothrow {
-        // Calls into v8shim
-        return dun_v8_cppgc_alloc(_cpp_heap, size, ti);
-    }
-    void free(void* p) nothrow @nogc { /* no-op — GC reclaims */ }
-    void collect() nothrow { dun_v8_cppgc_force_gc(_cpp_heap); }
-    // ... 29 more methods
+extern(C++, "myns") {
+    extern(C++, class) struct TypedCounter(int Slot) { ... }   // ✓ correct
 }
-```
 
-```cpp
-// vendor/v8shim/v8shim.cpp additions
-class DOpaqueBlock : public cppgc::GarbageCollected<DOpaqueBlock> {
-public:
-    DOpaqueBlock(size_t size) : size_(size), data_(new uint8_t[size]) {}
-    void Trace(cppgc::Visitor* v) const {
-        // Conservative: scan data_ for pointer-shaped words
-        // and report each as a possible Member<DOpaqueBlock>.
-        // This is what druntime's conservative GC already does.
-    }
-    uint8_t* data() { return data_.get(); }
-private:
-    size_t size_;
-    std::unique_ptr<uint8_t[]> data_;
-};
+// vs.
 
-void* dun_v8_cppgc_alloc(v8::CppHeap* h, size_t size, ...) {
-    auto& ah = h->GetHeapHandle();
-    auto* block = cppgc::MakeGarbageCollected<DOpaqueBlock>(ah, size);
-    return block->data();
+extern(C++, "myns") {
+    extern(C++, class) struct OtherType { ... }
 }
+extern(C++, class) struct TypedCounter(int Slot) { ... }       // ✗ wrong: no namespace
 ```
 
-**Problems**:
-- **Stat invariants broken**: druntime tracks `BlkInfo` per allocation (base address, size, attrs). cppgc returns an opaque managed object, not a `BlkInfo`. We'd need a side-table `void* → BlkInfo`.
-- **Conservative scan inside Trace**: cppgc expects you to walk outgoing pointers explicitly via `visitor->Trace(member)`. A "scan this byte range conservatively" mode exists (`v8::EmbedderRootsHandler::ResetRoot`) but isn't an `AllocationHandle` operation. Conservative scanning inside a `Trace` method is **not supported** — cppgc will treat your `DOpaqueBlock` as opaque and miss pointers into other GC blocks.
-- **Allocation rate**: cppgc's `MakeGarbageCollected` includes a header (16-32 bytes) per object. D allocates **lots** of small objects (Appender chunks, closure environments, etc.). Per-allocation overhead would dominate.
-- **Thread model mismatch**: cppgc heaps are **isolate-affinity** — calls must come from the thread that owns the isolate. D code allocates from many threads (Worker threads, async pool). Crossing isolates requires `Locker` + scope entry.
+In the second form, D mangles `TypedCounter!0` as `_ZN12TypedCounter…`
+(no namespace segment) → link error: `undefined symbol:
+TypedCounter<1>::increment()`. Easy mistake to make — caught during
+this branch's review pass.
 
-**Verdict**: Doesn't work. The mismatch between D's "give me bytes,
-I'll handle types" model and cppgc's "I track typed objects with
-Trace methods" model is fundamental.
+## 4. The architectural blockers (why we don't ship the bridge)
 
-### Design B — Hybrid: cppgc for D objects that point at JS values
+The FFI mechanism works. These don't:
 
-```d
-class MyGC : GC {
-    void* malloc(size_t size, uint bits, const TypeInfo ti) nothrow {
-        // Default path: druntime conservative
-        if (!(bits & BlkAttr.HAS_JS_REFS))
-            return _fallback.malloc(size, bits, ti);
-        // Special path: cppgc-allocated, traced for JS refs
-        return dun_v8_cppgc_alloc(_cpp_heap, size, ti);
-    }
-}
-```
+### 4.1 Type-erasure vs typed-Trace mismatch
 
-The premise: only D objects that **hold JSHandles** need cppgc.
-Everything else stays in druntime's conservative GC.
+D's `GC.malloc(size, bits, ti)` is type-erased — caller gets `void*` and uses it for whatever. cppgc requires `MakeGarbageCollected<T>` where `T : GarbageCollected<T>` with a `Trace(Visitor*)` method that walks outgoing pointers. **You cannot put arbitrary D-allocated bytes inside cppgc**; you'd need a synthetic `class DOpaque : GarbageCollected<DOpaque>` wrapper with a `Trace` that calls into druntime's internal scanner. That's invasive and fragile (druntime internals aren't a public ABI).
 
-**Problems**:
-- **`BlkAttr.HAS_JS_REFS` doesn't exist** — we'd need to add a new
-  attribute and teach every allocation site to set it. Could be a
-  type-info trait (`__traits(hasJSHandle, T)`) at the call site.
-- **Cross-heap roots still needed**: a D-heap object pointing at a
-  cppgc object still needs `Persistent<T>`. Same problem, smaller
-  scope.
-- **Marginal benefit**: the objects that hold JSHandles are
-  basically `DunState`, builtin module state, and Workers — a
-  handful of per-process / per-Worker singletons. Moving these to
-  cppgc saves ~0 µs.
+### 4.2 Thread-affinity mismatch (the V8 showstopper)
 
-**Verdict**: Engineering cost is high for ~no measurable win.
+- **cppgc heap is per-isolate** — each V8 `Isolate` gets a separate `v8::CppHeap`.
+- **D's GC is process-global** — one `MyGC` instance for the entire process.
 
-### Design C — Replace druntime CMS with a faster D-side allocator (no engine involvement)
+DunJS spawns one isolate per Worker. With `N` workers we'd need `N` heaps. D's `MyGC.malloc` would have to route to the right per-thread cppgc heap, with thread-locking on thread migration. This is structurally impossible without redesigning the D GC interface itself.
 
-Instead of bridging to the JS engine, write a faster D-side
-allocator that targets DunJS's specific allocation patterns. This
-is the **only** of the three designs with a clear path to
-measurable wins. Three sub-options, in increasing order of
-engineering cost:
+### 4.3 Finalization order
 
-#### C1 — `std.experimental.allocator` building-blocks (already in DunJS)
+D class destructors run during `runFinalizers`. cppgc finalizers run during sweep on the cppgc thread. A D object whose destructor references a JSHandle owned by a cppgc-managed wrapper finalizes after the wrapper is gone → use-after-free.
 
-DunJS already has `source/dun/platform/arena.d`:
+### 4.4 LDC ABI churn
 
-```d
-public import std.experimental.allocator.building_blocks.region :
-    Region, BorrowedRegion, InSituRegion;
-public import std.experimental.allocator.mallocator : Mallocator;
-public import std.array : Appender;
+`interface GC` in druntime gains methods periodically (`getArrayUsed` / `expandArrayUsed` / `reserveArrayCapacity` / `shrinkArrayUsed` arrived ~druntime 2.107). A custom GC pinned to LDC 1.42's interface breaks the moment a newer LDC adds a method. Mitigation: pin LDC version + `version (DunCustomGC)` gate.
 
-alias BumpRegion = Region!Mallocator;
-```
+## 5. Where DunJS actually spends time
 
-Phobos's `std.experimental.allocator` ([reference](https://dlang.org/phobos/std_experimental_allocator.html))
-is a composable allocator framework — pick the building blocks
-that match your lifetime pattern:
+From the per-test bench delta on v1.1.25 (dun-v8 vs Node, cascadelake):
 
-| Block | Use case |
-|-------|----------|
-| `Mallocator` ([docs](https://dlang.org/phobos/std_experimental_allocator_mallocator.html)) | Wraps `core.stdc.stdlib.malloc/free`. No GC, no scanning. Use for raw byte buffers that outlive the request scope |
-| `Region!Mallocator` (== `BumpRegion`) ([docs](https://dlang.org/phobos/std_experimental_allocator_building_blocks_region.html)) | Bump-pointer arena. Pre-allocate `N` MB; alloc returns next slot; **dispose all at once** at request end. The fastest allocator that exists for short-lived data |
-| `BorrowedRegion` (no owning) | Bump arena that points at memory you own elsewhere (e.g. stack `ubyte[16384]`). Doesn't free on destruction |
-| `InSituRegion!(N)` | Region whose backing storage is a struct field of size N — entirely stack-allocated for `N` ≤ a few KiB |
-| `FallbackAllocator!(Primary, Secondary)` ([docs](https://dlang.org/phobos/std_experimental_allocator_building_blocks_fallback_allocator.html)) | Try fast primary, fall back to secondary on OOM. Pattern: `FallbackAllocator!(InSituRegion!8192, Mallocator)` |
-| `Segregator!(threshold, Small, Large)` ([docs](https://dlang.org/phobos/std_experimental_allocator_building_blocks_segregator.html)) | Route small allocs to one allocator, large to another. Pattern: small → bump region, large → Mallocator |
-| `AllocatorList!(factory)` ([docs](https://dlang.org/phobos/std_experimental_allocator_building_blocks_allocator_list.html)) | Scalable list of regions; each gets `≥ 1 MB` at a time |
-| `FreeList!(parent, sizeOrRange)` | Returns objects of a specific size to a free list on `deallocate`. Combine with `AllocatorList` for libpas-style sized buckets |
-
-`dun.platform.arena` re-exports the building blocks DunJS uses
-today (`Region`, `BorrowedRegion`, `InSituRegion`, `Mallocator`).
-The current adoption is **uneven**: some hot paths in
-`source/dun/builtins/{fetch,http,ts/strip}.d` already use
-`makeAppender(reserve)` + `Region`, but most builtins still hit
-the GC.
-
-**Where to apply for measurable wins** (looking at the bench
-delta data from §5.1):
-
-- **HTTP request parsing** — `req.headers`, `req.body`, the per-request URL/query parse: route through a per-request `Region` that resets at response close. Same pattern Bun uses.
-- **URL parser** (`new URL()` is 1282ns dun-v8 vs 429ns node, 853ns lag) — the host/path/query split currently `idup`s into the GC. Move to `BorrowedRegion` over the original input bytes.
-- **URLSearchParams** — same.
-- **TextEncoder/Decoder** — currently goes through `engine.newString`; the intermediate UTF-8 buffer can be `InSituRegion` for messages ≤ 8 KB.
-- **TS-stripper tokenization** — `dun.ts.parser.lexer` already takes a slice over the input; the type-erasure output buffer would benefit from a `Region` sized to `input.length`.
-
-Expected aggregate impact: **+3-8% on URL-heavy benches**, ~0%
-on benches that don't allocate D-side (Promise, Object.keys).
-
-#### C2 — LDC's precise GC (`--DRT-gcopt=gc:precise`)
-
-druntime ships a precise GC that uses TypeInfo pointer bitmaps
-instead of conservative scanning ([PR #2418](https://github.com/dlang/druntime/pull/2418)).
-**Zero engineering cost** — just set the runtime flag. Per the
-CLAUDE.md GC tuning table:
-
-| Config | dun-jsc M ops/sec | GCs |
-|--------|------------------:|----:|
-| Default | 513 | 6-25 |
-| `gc:precise` | 497 | 6-23 |
-
-So today: ~3% regression on bench throughput, comparable GC count.
-The win is **reduced false retention** (no spurious pointer
-matches in stack-allocated integers) — relevant for memory
-footprint and long-running servers, NOT throughput.
-
-#### C3 — Custom region-bumper GC behind `registerGCFactory`
-
-The user's `crt_constructor` skeleton, but pointing at a D-side
-implementation rather than cppgc. Implement the 32-method `GC`
-interface on top of a `Region`-of-`Region`s (AllocatorList style).
-This is what mir's runtime allocator does. Engineering cost is
-~1-2 weeks but the resulting allocator can be ~2-3× faster than
-druntime's conservative GC on bench-style allocation patterns
-(many small short-lived blocks).
-
-**Verdict on Design C**: **C1 is the highest-leverage**, lowest-risk
-direction. C2 is one flag away — just measure and decide. C3 is
-the "next step" if C1 + C2 aren't enough. **None of these
-involves V8 or JSC**, which is exactly what makes them
-practical.
-
----
-
-## 4. Hard problems
-
-### 4.1 Cross-heap roots
-
-D's GC roots:
-- `__gshared` and TLS variables
-- C stack of every D thread (conservative)
-- Pinned via `GC.addRoot(p)` / `GC.addRange(p, len)`
-
-cppgc's roots:
-- `Persistent<T>` objects (live anywhere off-heap)
-- `EmbedderRootsHandler` callback
-
-If a D object holds a `Persistent<cppgc::Heap object>`, cppgc keeps
-the target alive. Fine. But if a cppgc object holds a raw `void*`
-that points back into the D heap, **cppgc won't scan that pointer
-during its mark phase** unless the cppgc object's `Trace` calls
-into druntime's machinery via a custom `EmbedderRootsHandler`.
-
-The handler shape:
-
-```cpp
-class DRuntimeRootsHandler : public v8::EmbedderRootsHandler {
-public:
-    void ResetRoot(const v8::TracedReference<v8::Value>& handle) override {
-        // Called when V8 wants to drop a wrapper.
-        // We'd need to ask druntime: is this still rooted in D?
-    }
-    bool TryResetRoot(...) override { ... }
-};
-```
-
-This is solvable but requires writing the D-side `is this rooted?`
-query, which is **not part of the public `core.gc.gcinterface.GC`
-contract**. We'd need to escape into `core.memory.GC.addrOf` and
-the conservative scanner's internal state — fragile across LDC
-versions.
-
-### 4.2 Finalization order
-
-D class destructors run during `runFinalizers`. cppgc finalizers
-run during its sweep phase, on the cppgc thread. **The orderings
-don't compose.** A D object whose destructor references a
-JSHandle owned by a cppgc'd wrapper can finalize after the
-wrapper is gone → use-after-free.
-
-Workaround: register cppgc PreFinalizer callbacks that move D
-references out before cppgc reclaims. Complex.
-
-### 4.3 Threading
-
-DunJS spawns one V8 `Isolate` per main process (single isolate),
-but each Worker has its own engine instance and its own isolate.
-cppgc heaps are 1:1 with isolates (`v8::CppHeap` attaches to a
-specific isolate). So we'd need **N heaps for N workers**.
-
-D's GC is process-global. There's one `MyGC` instance for the
-entire process. The implementation would need to route every
-`malloc` to the right per-thread cppgc heap — which means
-`thread_local` state and locking when threads migrate.
-
-**This is the showstopper for V8.** D's process-global GC model
-fundamentally mismatches V8's per-isolate cppgc model. Workers
-make it intractable.
-
-### 4.4 LDC ABI compat
-
-The `interface GC` definition lives in druntime, which LDC pins
-to a specific commit per release. The interface gained
-`getArrayUsed` / `expandArrayUsed` / `reserveArrayCapacity` /
-`shrinkArrayUsed` somewhere around druntime 2.107+. If we ship
-a custom GC that implements the LDC 1.42 interface, then a future
-LDC version adds a method, our class no longer satisfies the
-interface and the build breaks.
-
-Mitigation: pin LDC version, mark in `dub.json`, and gate the
-custom GC behind a `version (DunCustomGC)` block so the default
-build still works on any LDC.
-
-### 4.5 The `--DRT-gcopt=gc:mygc` selection happens after dlopen
-
-`pragma(crt_constructor)` runs **before** `main`, but it runs
-**after** the binary's dynamic libraries have been loaded.
-V8 (statically linked into DunJS, but with its own static C++
-initializers) initializes its global allocator state before
-our `crt_constructor` runs. By the time `registerMyGC` is called,
-the cppgc process state is **already set up** with the default
-PageAllocator. We can still create heaps after this point, but
-the initial `cppgc::InitializeProcess(custom_allocator)` window
-has closed.
-
-For DunJS this is fine (we don't need a custom PageAllocator), but
-it constrains designs that wanted to share an allocator between
-D and cppgc.
-
----
-
-## 5. Perf model
-
-What would actually get faster?
-
-### 5.1 Hot paths today
-
-From the v1.1.25 bench grid on cascadelake (LDC 1.42 / V8 15.0.112):
-
-| Bench | dun-v8 ns/op | Node ns/op | Limiter |
-|-------|-------------:|-----------:|---------|
-| Promise.resolve | 11 | 13 | engine-bound (V8 microtask queue) |
-| Object.keys/values/entries | 74 | 86 | engine-bound |
-| string replace (regex) | 125 | 166 | engine-bound (V8 regex JIT) |
+| Test | dun-v8 ns/op | Node ns/op | Limiter |
+|------|-------------:|-----------:|---------|
+| Promise.resolve | 11 | 13 | engine (V8 microtask queue) |
+| Object.keys/values/entries | 74 | 86 | engine |
+| string replace (regex) | 125 | 166 | engine (V8 regex JIT) |
 | Buffer.from string | 885 | 64 | **FFI scope overhead** |
-| Buffer.concat | 1500-3500 | 215-300 | **FFI scope overhead** (improved 2× in v1.1.25 via fused shim) |
-| crypto.createHash SHA-256 | 5051 | 1183 | OpenSSL via D, but native digest cost similar to Node — **D-side allocation per call** in update/digest paths |
-| URLSearchParams | 587 | 179 | **D-side parser allocation** |
-| new URL() | 1282 | 429 | **D-side parser + setProperty calls** |
+| Buffer.concat (after v1.1.25 fused shim) | 1500-3500 | 215-300 | **FFI scope overhead** (improved 2×) |
+| crypto.createHash SHA-256 | 5051 | 1183 | OpenSSL + per-call D allocation |
 
-The places where D-side allocation IS on the critical path are
-URL parsing, crypto.createHash, TextEncoder/Decoder, and HTTP
-request parsing. Those allocations are small (`Appender!(char[])`
-typically), in the **10-100 byte range per allocation**, and
-**already cheap** via druntime's bump allocator.
+**The V8 backend's real bottleneck is FFI scope-entry overhead** (each `dun_v8_*` call enters `withContext<F>` — Isolate::Scope + HandleScope + Context::Scope). The fix is `v8::FastApiCallback`, **not** GC routing. Closing it via FastApi closes 5-30% per bench item.
 
-### 5.2 Where a cppgc-backed GC would help
+GC-routed D allocations would not be on this list. Even a *perfect* cppgc bridge that turned D allocation free would save < 1 % of bench time.
 
-If routed through cppgc:
+## 6. The factory-recursion gotcha (do this before you write any custom GC)
 
-| Allocation pattern | cppgc cost | Druntime cost | Win? |
-|--------------------|-----------:|--------------:|------|
-| Small short-lived (`Appender` chunks) | High (header overhead, GarbageCollected base class) | Low (free bump) | **Regression** |
-| Long-lived (DunState, builtin module state) | Medium (one-shot) | Low | Negligible |
-| Holding JSHandles, needing root tracking | Medium with `Persistent<T>` | High (GC.addRoot per slot) | **Win, maybe ~5%** in worker-heavy workloads |
-| Mass deallocation (cache invalidation) | High (full GC cycle to free) | Low (free explicitly) | **Regression** |
-| Cross-thread allocations | Locking | Locking | Even |
+If you do attempt a custom GC despite §4 + §5, this is the bug class
+that will eat your first day. It hit twice during this branch's
+research even after the first fix landed.
 
-**Expected aggregate impact**: -5% to +5% on feature_bench. **Not
-worth the engineering cost.**
-
-### 5.3 Where a cppgc-backed GC would NOT help
-
-Looking at the actual bottlenecks measured above:
-
-- **FFI scope overhead** (per-call `withContext<F>` setup at ~300ns) — fixed by `v8::FastApiCallback` adoption, NOT GC routing.
-- **V8 inline-cache misses on object allocation/property set** — fixed by JS-side patterns, NOT D-side allocation.
-- **Buffer.concat per-element loop** — fixed by `dun_v8_buffer_concat` in v1.1.25 (PR #62).
-- **HTTP per-request handle protect-count growth on JSC** — needs the v1.2.x worker-lifecycle pass, NOT a custom GC.
-
-None of DunJS's actual perf bottlenecks are GC-bound on the D
-side. **The premise that custom GC routing is the next perf win
-is incorrect** — it's about ~10-20× lower priority than fixing
-the FastApi gap.
-
----
-
-## 6. Implementation sketch (if we were to do it anyway)
-
-Just enough to make the scope concrete. **Do not implement this
-without first running `--DRT-gcopt=profile:1` and confirming GC is
-≥ 10% of CPU**, which it currently isn't.
-
-### 6.1 D side
+**The pattern**:
 
 ```d
-// source/dun/platform/gc_cppgc.d
-module dun.platform.gc_cppgc;
-
-import core.gc.gcinterface;
-import core.gc.registry;
-import core.memory : GC = core.memory.GC;  // disambiguate
-import core.thread.threadbase : ThreadBase;
-import core.stdc.string : memset;
-
-// extern(C) into vendor/v8shim/cppgc_bridge.cpp
-extern (C) {
-    void* dun_cppgc_init();             // returns opaque heap handle
-    void  dun_cppgc_shutdown(void*);
-    void* dun_cppgc_alloc(void* heap, size_t size, uint bits);
-    void  dun_cppgc_free(void* heap, void* p);   // hint only
-    void  dun_cppgc_collect(void* heap);
-    size_t dun_cppgc_size_of(void* heap, void* p);
-}
-
-extern (C) pragma(crt_constructor) void registerMyGC() {
-    registerGCFactory("cppgc", &createCppGC);
-}
-
-GC createCppGC() nothrow {
-    import core.stdc.stdio : fprintf, stderr;
-    try {
-        __gshared instance = new CppGCBackend;
-        instance.initialize();
-        return instance;
-    } catch (Exception e) {
-        fprintf(stderr, "cppgc backend init failed: %.*s\n",
-            cast(int) e.msg.length, e.msg.ptr);
-        return null;
-    }
-}
-
-class CppGCBackend : GC {
-    private void* _heap;
-    private GC _fallback;  // druntime conservative for unsupported paths
-
-    void initialize() {
-        _heap = dun_cppgc_init();
-        // We can't easily get a reference to druntime's conservative GC
-        // from here — `core.gc.registry` doesn't expose it. Practical
-        // mitigation: implement everything ourselves OR build druntime
-        // with the conservative GC as a separate exported symbol.
-    }
-
-    void* malloc(size_t size, uint bits, const TypeInfo ti) nothrow {
-        return dun_cppgc_alloc(_heap, size, bits);
-    }
-
-    void free(void* p) nothrow @nogc {
-        // cppgc doesn't have a manual free — this is a no-op hint.
-    }
-
-    void collect() nothrow {
-        dun_cppgc_collect(_heap);
-    }
-
-    // ... 29 more methods stubbing out the rest
+GC createMyGC() {
+    __gshared instance = new MyGC;   // ← D's `new` triggers the GC
+    ...
 }
 ```
 
-### 6.2 C++ side
+→ ProtoGC.malloc → gc_init → createMyGC → `new` → ProtoGC.malloc → SpinLock hang. The first allocation D's runtime needs (during `rt_init` shared-static-ctor processing) triggers `gc_init`, which calls our factory, which calls `new`, which calls back into `ProtoGC.malloc`, which calls `gc_init` again. The SpinLock detects recursion and spins forever.
 
-```cpp
-// vendor/v8shim/cppgc_bridge.cpp
-#include <cppgc/heap.h>
-#include <cppgc/garbage-collected.h>
-#include <cppgc/allocation.h>
+Stack trace from gdb (verbatim — both occurrences look identical):
 
-namespace {
-class DAllocBlock : public cppgc::GarbageCollected<DAllocBlock> {
-public:
-    DAllocBlock(size_t size) : data_(::operator new(size)), size_(size) {
-        memset(data_, 0, size);
-    }
-    ~DAllocBlock() { ::operator delete(data_); }
-    void Trace(cppgc::Visitor*) const {
-        // CONSERVATIVE SCAN NOT SUPPORTED — would need druntime hook
-    }
-    void* data() { return data_; }
-private:
-    void* data_;
-    size_t size_;
-};
-}  // namespace
+```
+Thread 1:
+  #0  __GI_sched_yield ()
+  #1  core.internal.spinlock.SpinLock.lock() shared
+  #2  gc_init ()                                    ← INNER
+  #3  ProtoGC.malloc ()
+  #4  createMyGC ()                                 ← YOUR CODE
+  #5  createGCInstance (immutable(char)[]) ()
+  #6  gc_init ()                                    ← OUTER
+  #7  ProtoGC.malloc ()
+  #8  _sharedStaticCtor (any module that has one)
+  #9  rt_init ()
+```
 
-extern "C" {
-    void* dun_cppgc_init() {
-        // Caller must have called cppgc::InitializeProcess() — V8 does it
-        // for us when the isolate is created.
-        // ... return new heap
-    }
-    void* dun_cppgc_alloc(void* heap_opaque, size_t size, uint32_t bits) {
-        auto* heap = static_cast<cppgc::Heap*>(heap_opaque);
-        auto& ah = heap->GetAllocationHandle();
-        auto* block = cppgc::MakeGarbageCollected<DAllocBlock>(ah, size);
-        return block->data();
-    }
+**The fix** per [`core.gc.registry`](https://dlang.org/phobos/core_gc_registry.html)
+docs (which say "the instance was allocated on the C heap, it is
+supposed to free itself upon calling its destructor"):
+
+```d
+GC createMyGC() @trusted {
+    import core.stdc.stdlib : malloc;
+    import core.lifetime : emplace;
+    enum size = __traits(classInstanceSize, MyGC);
+    auto raw = malloc(size);
+    if (raw is null) return null;
+    return emplace!MyGC(raw[0 .. size]);
 }
 ```
 
-### 6.3 Wire-up
+**The lesson** — anything D-allocated inside the factory recurses.
+This includes:
+- `new ClassName`
+- `new Mutex()` (the second occurrence in this branch — added during
+  a "thread-safety" review fix; same recursion)
+- Lambda captures that allocate
+- Format strings (`format!"%s"`, `text(...)`)
+- D arrays (`[1, 2, 3]`)
 
-`dub.json`:
-
-```json
-"sourceFiles-cppgc": [
-    "vendor/v8shim/cppgc_bridge.cpp"
-],
-"versions": ["DunCustomGC"]
-```
-
-Compile-only by default. User opts in via:
-
-```sh
-dun "--DRT-gcopt=gc:cppgc" run script.js
-```
-
-If they don't pass that flag, druntime falls back to its built-in
-conservative GC and the `cppgc_bridge` is just dead code in the
-binary.
-
-### 6.4 Debug & profile
-
-How you'd verify (or falsify) this is worth shipping:
-
-```sh
-# Baseline: druntime conservative GC
-dun "--DRT-gcopt=profile:1" run tests/benchmarks/feature_bench.js 2>&1 | tail -20
-
-# Custom: cppgc-backed
-dun "--DRT-gcopt=gc:cppgc profile:1" run tests/benchmarks/feature_bench.js 2>&1 | tail -20
-```
-
-Both runs print:
-
-```
-Number of collections:  N
-Total GC prep time:     X ms
-Total mark time:        Y ms
-Total sweep time:       Z ms
-Total page release:     W ms
-Max Pause Time:         P ms
-Total Pause Time:       Q ms
-```
-
-Acceptance criteria for landing: **mark + sweep + pause time
-drops by ≥ 20% AND total throughput in feature_bench /
-framework_bench improves by ≥ 5%** (the latter being the
-externally-visible metric).
-
-Use the new `-b fuzzer` + ASan (v1.1.25) to verify
-no use-after-free across the D ↔ cppgc boundary. The CVE-class
-risk is HIGH here — finalization order bugs in the bridge are
-exactly the kind of memory corruption ASan catches at runtime.
-
----
+If your custom GC needs synchronization, use a pthread mutex value
+(no D heap) or `core.atomic.cas` for lock-free linked-list ops.
 
 ## 7. Recommendation
 
-**Don't ship this. Specifically:**
+**Don't ship a cppgc / JSC heap bridge.** The FFI mechanism is fully expressible (§3), but §4's architectural mismatches are inherent.
 
-1. **V8 / cppgc route** — Reject. The thread-affinity (one
-   cppgc heap per isolate, but D's GC is process-global) and the
-   conservative-scan-vs-typed-Trace mismatch make this an
-   intractable bridge. Even if we built it, the perf win is
-   in the noise (D-side allocation is ~2-5% of CPU on the
-   current bench, and most of that is unavoidable string FFI).
+**Don't ship a custom D GC as default either.** GC is < 1 % of bench time (§5). If you want to measure the upper bound of "no GC overhead", use `--DRT-gcopt=gc:manual` (ships in druntime) instead of writing your own.
 
-2. **JSC route** — Reject for the same architectural reasons
-   plus an additional one: JSC's heap C API is `JSValueProtect`/
-   `Unprotect` only. The actual allocator (`JSC::Heap::allocate`)
-   isn't exposed and would require an unstable WebKit
-   internal-header build. We'd be on a private API treadmill.
-
-3. **The user's `crt_constructor` skeleton itself** — Confirmed
-   working. We can ship a CHANGELOG note that
-   `registerGCFactory` is available and lay out the **interface
-   shape** (the 32-method `GC` contract documented above) so a
-   future maintainer with a concrete need can implement it.
-
-**What we WOULD ship if perf was the real ask**:
+### What to ship instead, prioritized
 
 | Option | Effort | Expected win | Why |
 |--------|-------:|-------------:|-----|
-| `v8::FastApiCallback` adoption in v8shim | Large | **5-30% per bench item** | The actual bottleneck. Closes the per-call FFI overhead gap to Node. |
-| Roll `std.experimental.allocator` (Region/BorrowedRegion/InSituRegion) into the URL parser, URLSearchParams, TextEnc/Dec, HTTP request | Small-medium | **+3-8% on URL/HTTP-heavy benches** | `dun.platform.arena` already re-exports the building blocks; current adoption is uneven. See Design C1 in §3 |
-| `Segregator` + `FreeList` for trampoline arg-array slots | Small | ~1-2% on FFI-heavy benches | `JSHandle[]` packs in trampolines could use a sized free-list (libpas-style) |
-| `--DRT-gcopt=gc:precise` ship as default | Tiny | -3% throughput / +less false retention | One-flag; trade-off, not a clear win. Worth measuring on long-running servers |
-| Custom region-bumper GC via `registerGCFactory` (mir-style) | Medium-large | **~2-3× faster on D-side allocation** | Design C3. Only after C1 is exhausted |
-| GC.disable() during hot benches | Tiny | ~1-2% noise reduction | Already documented in CLAUDE.md "GC tuning" |
-| Continued JSC handle-leak fix campaign | Medium | Closes `bun_v7_additions` SKIP | Already on roadmap for v1.2.x |
+| `v8::FastApiCallback` adoption in `v8shim` | Large | **5-30 % per bench item** | The actual V8 bottleneck (§5). Closes per-call FFI overhead vs Node native built-ins |
+| Roll `std.experimental.allocator` (Region / BorrowedRegion / InSituRegion) into URL parser, URLSearchParams, TextEnc/Dec, HTTP request scope | Small-medium | **+3-8 % on URL/HTTP-heavy benches** | `dun.platform.arena` already re-exports the building blocks; adoption is uneven |
+| `Segregator` + `FreeList` for trampoline arg-array slots | Small | ~1-2 % on FFI-heavy benches | libpas-style sized free-list for `JSHandle[]` packs |
+| `--DRT-gcopt=gc:precise` ship as default | Tiny | -3 % throughput / less false retention | Trade-off, not a clear win |
+| Custom region-bumper GC via `registerGCFactory` (mir-style) | Medium-large | ~2-3× on D-side allocation | Only after `std.experimental.allocator` rollout is exhausted |
+| Continued JSC handle-leak fix campaign | Medium | Closes `bun_v7_additions` SKIP | Already on v1.2.x roadmap |
 
-### Suggested next step
+### How to falsify this recommendation
 
-If a concrete perf problem motivates revisiting this:
+```sh
+dun "--DRT-gcopt=profile:1" run tests/benchmarks/feature_bench.js 2>&1 | tail -10
+# Look for: Grand total GC time > 100 ms on a 14 s run
+# If yes → re-evaluate. Currently 4 ms (0.03 % of wall).
+```
 
-1. Confirm via `--DRT-gcopt=profile:1` that **mark + sweep**
-   actually consume ≥ 10% of wall time. Today they're <5%.
-2. If yes — try the [precise GC](https://github.com/dlang/druntime/pull/2418)
-   first (already in druntime, just needs `--DRT-gcopt=gc:precise`).
-3. If precise GC isn't enough — write a region-bumper backed by
-   `mmap` (NOT cppgc) tuned for DunJS's allocation lifetimes.
-4. Only after exhausting #1-3 should the cppgc bridge be
-   re-evaluated.
-
----
+If `mark + sweep + pause` ever exceeds 10 % of wall time on a representative workload, the GC discussion reopens. Until then, the FFI / allocator paths are 10-100× higher leverage.
 
 ## 8. References
 
-### V8 cppgc / Oilpan
+### V8 / cppgc
 
-- [V8 cppgc namespace reference (head)](https://v8.github.io/api/head/namespacecppgc.html)
-- [cppgc::Heap class reference](https://v8.github.io/api/head/classcppgc_1_1Heap.html)
-- [v8::CppHeap class reference](https://v8.github.io/api/head/classv8_1_1CppHeap.html)
+- [cppgc namespace reference (head)](https://v8.github.io/api/head/namespacecppgc.html)
+- [`cppgc::Heap` class reference](https://v8.github.io/api/head/classcppgc_1_1Heap.html)
+- [`v8::CppHeap` class reference](https://v8.github.io/api/head/classv8_1_1CppHeap.html)
 - [Oilpan library blog post (V8 9.4+)](https://v8.dev/blog/oilpan-library)
 - [High-performance C++ GC](https://v8.dev/blog/high-performance-cpp-gc)
-- [`include/cppgc/` source](https://chromium.googlesource.com/v8/v8.git/+/HEAD/include/cppgc/)
 - [Cloudflare workerd cppgc migration PR](https://github.com/cloudflare/workerd/pull/199) — real-world embedder switch
 
 ### JavaScriptCore
 
-- [Understanding GC in JSC from scratch (WebKit blog)](https://webkit.org/blog/12967/understanding-gc-in-jsc-from-scratch/)
-- [JSC `Heap.cpp` source](https://github.com/WebKit/WebKit/blob/main/Source/JavaScriptCore/heap/Heap.cpp)
+- [Understanding GC in JSC from scratch — WebKit blog](https://webkit.org/blog/12967/understanding-gc-in-jsc-from-scratch/)
 - [`JSValueProtect` Apple docs](https://developer.apple.com/documentation/javascriptcore/1395978-jsvalueprotect)
-- [Notes on JavaScriptCore — Gianluca Pacchiella](https://ktln2.org/2020/08/25/javascriptcore/)
 
 ### D garbage collection
 
 - [`core.gc.gcinterface` reference](https://dlang.org/library/core/gc/gcinterface.html)
 - [`core.gc.registry`](https://dlang.org/phobos/core_gc_registry.html)
 - [Configuring the GC (D spec)](https://dlang.org/spec/garbage.html#gc_config)
-- [druntime swappable-GC PR #1581](https://github.com/dlang/druntime/pull/1581/files) — the original swappable-GC plumbing
-- [LDC druntime GC source layout](https://github.com/ldc-developers/druntime/tree/ldc/src/core/gc) — for the verbatim interface
+- [druntime swappable-GC PR #1581](https://github.com/dlang/druntime/pull/1581/files)
+- [`core.internal.gc.impl.manual.gc`](https://github.com/dlang/druntime/blob/master/src/core/internal/gc/impl/manual/gc.d) — already-shipped `gc:manual` reference
 
 ### Phobos `std.experimental.allocator`
 
-- [`std.experimental.allocator` package](https://dlang.org/phobos/std_experimental_allocator.html) — overview + theallocator
-- [`building_blocks`](https://dlang.org/phobos/std_experimental_allocator_building_blocks.html) — composition primitives index
-- [`Region` / `BorrowedRegion` / `InSituRegion`](https://dlang.org/phobos/std_experimental_allocator_building_blocks_region.html) — bump arenas
-- [`Mallocator`](https://dlang.org/phobos/std_experimental_allocator_mallocator.html) — `core.stdc.stdlib` wrapper
-- [`AllocatorList`](https://dlang.org/phobos/std_experimental_allocator_building_blocks_allocator_list.html) — scalable arena list
-- [`Segregator`](https://dlang.org/phobos/std_experimental_allocator_building_blocks_segregator.html) — size-class routing
-- [`FallbackAllocator`](https://dlang.org/phobos/std_experimental_allocator_building_blocks_fallback_allocator.html) — primary/secondary failover
+- [Package overview](https://dlang.org/phobos/std_experimental_allocator.html)
+- [`building_blocks` index](https://dlang.org/phobos/std_experimental_allocator_building_blocks.html)
+- [`Region` / `BorrowedRegion` / `InSituRegion`](https://dlang.org/phobos/std_experimental_allocator_building_blocks_region.html)
+- [`Segregator`](https://dlang.org/phobos/std_experimental_allocator_building_blocks_segregator.html)
+- [`AllocatorList`](https://dlang.org/phobos/std_experimental_allocator_building_blocks_allocator_list.html)
 
-### DunJS internals (for context)
+### DunJS internals (in-tree)
 
-- `source/dun/engine/v8/backend.d` — current `DunV8Value*` lifecycle
-- `vendor/v8shim/v8shim.cpp` — thread-local value pool (lines 100-180) — the pattern a cppgc bridge would integrate with
-- `.claude/commands/debug-native-callback.md` — `--DRT-gcopt=profile:1` workflow
-- `CLAUDE.md` "D Runtime GC Tuning" — current GC profile-based numbers
+- `source/dun/engine/v8/cppbindings.d` — `extern(C++, "v8")` static-method bindings (V8 + platform)
+- `source/dun/engine/jsc/cppbindings.d` — `extern(C++, "JSC")` SourceOrigin binding
+- `tools/bindgen_tests/test_ffi_linkage.d` — extern(C) / extern(C++) / extern(C++, ns) / template-instantiation / `pragma(mangle)` symbol-mangling reference (cases 1-7)
+- `.claude/commands/debug-native-callback.md` — gdb workflow used to capture the factory-recursion trace (§6)
+- `CLAUDE.md` "D Runtime GC Tuning" — current profile data
