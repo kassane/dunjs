@@ -25,8 +25,12 @@ extern(C++, "v8") nothrow @nogc
         void free_page(void* ptr);
     }
 
-    // Static methods via extern(C++, class)
-    extern(C++, class) class V8 {
+    // Static methods via extern(C++, class) — declared as struct
+    // (value type) to match C++ class semantics. D `class` would
+    // be a reference type with vtable, which mismatches the C++
+    // class layout for static-method-only types. See research doc
+    // §11.4 for the full type-system mapping.
+    extern(C++, class) struct V8 {
     static:
         const(char)* GetVersion() @nogc nothrow;
         bool Initialize() @nogc nothrow;
