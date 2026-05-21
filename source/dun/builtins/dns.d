@@ -43,6 +43,17 @@ version (EngineQuickJS)
             JS_AddModuleExport(ctx, m, name.ptr);
 
         JS_AddModuleExport(ctx, m, "default");
+
+        // dun:dns/promises — Node.js compat sub-module. Exposes the
+        // promisified variants as named exports (lookup, resolve4,
+        // resolve6, resolve) plus a default export pointing to the
+        // promises object. Backed by the same dns.promises object
+        // populated in dnsExtensionSource().
+        auto mp = JS_NewCModule(ctx, "dun:dns/promises", &dnsPromisesModuleInit);
+        if (mp is null) return;
+        foreach (name; ["lookup", "resolve4", "resolve6", "resolve"])
+            JS_AddModuleExport(ctx, mp, name.ptr);
+        JS_AddModuleExport(ctx, mp, "default");
     }
 
     private extern (C) int dnsModuleInit(JSContext* ctx, JSModuleDef* m) nothrow @trusted
@@ -57,6 +68,22 @@ version (EngineQuickJS)
             JS_SetModuleExport(ctx, m, name.ptr, fn);
         }
         JS_SetModuleExport(ctx, m, "default", dnsObj);
+        JS_FreeValue(ctx, global);
+        return 0;
+    }
+
+    private extern (C) int dnsPromisesModuleInit(JSContext* ctx, JSModuleDef* m) nothrow @trusted
+    {
+        assert(ctx !is null, "Null JSContext in dnsPromisesModuleInit");
+        assert(m !is null, "Null JSModuleDef in dnsPromisesModuleInit");
+        auto global = JS_GetGlobalObject(ctx);
+        auto promisesObj = JS_GetPropertyStr(ctx, global, "__dun_cjs_dns_promises__");
+        foreach (name; ["lookup", "resolve4", "resolve6", "resolve"])
+        {
+            auto fn = JS_GetPropertyStr(ctx, promisesObj, name.ptr);
+            JS_SetModuleExport(ctx, m, name.ptr, fn);
+        }
+        JS_SetModuleExport(ctx, m, "default", promisesObj);
         JS_FreeValue(ctx, global);
         return 0;
     }
@@ -528,5 +555,9 @@ string dnsExtensionSource() pure @safe nothrow
             });
         }
     };
+    /* Also expose dns.promises as a top-level global so the ESM
+       loader can satisfy import dns from 'node:dns/promises'
+       (added v1.1.23 when @agentmemory/agentmemory tested it). */
+    globalThis.__dun_cjs_dns_promises__ = dns.promises;
 })()`;
 }

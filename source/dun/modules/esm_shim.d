@@ -766,6 +766,7 @@ private string builtinGlobalProp(string specifier) @safe pure nothrow
     if (specifier == "dun:string_decoder" || specifier == "node:string_decoder" || specifier == "string_decoder") return "__dun_cjs_string_decoder__";
     if (specifier == "dun:timers/promises" || specifier == "node:timers/promises" || specifier == "timers/promises") return "__dun_cjs_timers_promises__";
     if (specifier == "dun:fs/promises" || specifier == "node:fs/promises" || specifier == "fs/promises") return "__dun_cjs_fs_promises__";
+    if (specifier == "dun:dns/promises" || specifier == "node:dns/promises" || specifier == "dns/promises") return "__dun_cjs_dns_promises__";
     if (specifier == "dun:tls" || specifier == "node:tls" || specifier == "tls") return "__dun_cjs_tls__";
     if (specifier == "dun:dgram" || specifier == "node:dgram" || specifier == "dgram") return "__dun_cjs_dgram__";
     if (specifier == "dun:perf_hooks" || specifier == "node:perf_hooks" || specifier == "perf_hooks") return "__dun_cjs_perf_hooks__";

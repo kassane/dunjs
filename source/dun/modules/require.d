@@ -54,12 +54,12 @@ JSHandle jsRequireResolve(void* ctx, JSHandle thisVal, scope JSHandle[] args) @t
 
     // Static immutable so the array lives in rodata, not stack-rebuilt
     // per call. resolve() runs on every `require(...)` call.
-    static immutable string[44] builtins = ["fs", "path", "crypto", "net", "http", "https",
+    static immutable string[45] builtins = ["fs", "path", "crypto", "net", "http", "https",
         "http2", "http3", "os", "buffer", "events", "url", "child_process",
         "stream", "zlib", "dns", "ws", "sqlite", "util", "assert",
         "querystring", "string_decoder", "timers/promises", "tls", "dgram",
         "vm", "cluster", "async_hooks", "worker_threads", "perf_hooks",
-        "fs/promises", "readline", "punycode", "diagnostics_channel", "domain",
+        "fs/promises", "dns/promises", "readline", "punycode", "diagnostics_channel", "domain",
         "tty", "constants", "module", "timers", "process", "console", "v8", "wasi",
         "yaml"];
     foreach (b; builtins)
@@ -171,6 +171,7 @@ JSHandle jsRequire(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
     else if (specifier == "string_decoder") specifier = "dun:string_decoder";
     else if (specifier == "timers/promises") specifier = "dun:timers/promises";
     else if (specifier == "fs/promises") specifier = "dun:fs/promises";
+    else if (specifier == "dns/promises") specifier = "dun:dns/promises";
     else if (specifier == "vm") specifier = "dun:vm";
     else if (specifier == "cluster") specifier = "dun:cluster";
     else if (specifier == "async_hooks") specifier = "dun:async_hooks";
@@ -235,6 +236,7 @@ JSHandle jsRequire(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
         else if (specifier == "dun:string_decoder") propName = "__dun_cjs_string_decoder__";
         else if (specifier == "dun:timers/promises") propName = "__dun_cjs_timers_promises__";
         else if (specifier == "dun:fs/promises") propName = "__dun_cjs_fs_promises__";
+        else if (specifier == "dun:dns/promises") propName = "__dun_cjs_dns_promises__";
         else if (specifier == "dun:vm") propName = "__dun_cjs_vm__";
         else if (specifier == "dun:cluster") propName = "__dun_cjs_cluster__";
         else if (specifier == "dun:async_hooks") propName = "__dun_cjs_async_hooks__";
@@ -733,7 +735,7 @@ private string resolvePackageImports(string specifier, string fromDir) @trusted
     return "";
 }
 
-public string findNodeModule(string specifier, string fromDir) @trusted
+public string findNodeModule(string specifier, string fromDir, bool esm = false) @trusted
 {
     import std.path : buildNormalizedPath;
     import std.file : exists, isFile, isDir, readText;
@@ -790,7 +792,7 @@ public string findNodeModule(string specifier, string fromDir) @trusted
             {
                 if (hasPkgJson)
                 {
-                    auto exported = resolveExports(j, "./" ~ sub, nmDir);
+                    auto exported = resolveExports(j, "./" ~ sub, nmDir, esm);
                     if (exported.length > 0) return exported;
                 }
                 static immutable subExts = ["", ".js", ".cjs", ".mjs",
@@ -806,7 +808,7 @@ public string findNodeModule(string specifier, string fromDir) @trusted
             {
                 if (hasPkgJson)
                 {
-                    auto exported = resolveExports(j, ".", nmDir);
+                    auto exported = resolveExports(j, ".", nmDir, esm);
                     if (exported.length > 0) return exported;
 
                     auto entry = resolveMainEntry(j, nmDir);
@@ -874,7 +876,14 @@ public string findNodeModule(string specifier, string fromDir) @trusted
     return "";
 }
 
-private string resolveExports(JSONValue j, string subpath, string pkgDir) @trusted
+public string resolveExportsForContext(JSONValue j, string subpath, string pkgDir,
+    bool esm = false) @trusted
+{
+    return resolveExports(j, subpath, pkgDir, esm);
+}
+
+private string resolveExports(JSONValue j, string subpath, string pkgDir,
+    bool esm = false) @trusted
 {
     import std.path : buildNormalizedPath;
     import std.file : exists, isFile;
@@ -908,19 +917,19 @@ private string resolveExports(JSONValue j, string subpath, string pkgDir) @trust
         }
     }
     if (!hasSubpathKey && subpath == ".")
-        return resolveExportTarget(exports, pkgDir);
+        return resolveExportTarget(exports, pkgDir, null, esm);
 
     if (subpath in obj)
     {
         auto target = obj[subpath];
-        return resolveExportTarget(target, pkgDir);
+        return resolveExportTarget(target, pkgDir, null, esm);
     }
 
     if ("." in obj)
     {
         auto dotExport = obj["."];
         if (subpath == ".")
-            return resolveExportTarget(dotExport, pkgDir);
+            return resolveExportTarget(dotExport, pkgDir, null, esm);
     }
 
     // Wildcard pattern matching: "./*" -> "./dist/*.js"
@@ -936,7 +945,7 @@ private string resolveExports(JSONValue j, string subpath, string pkgDir) @trust
             && (suffix.length == 0 || subpath[$ - suffix.length .. $] == suffix))
         {
             auto matched = subpath[prefix.length .. $ - suffix.length];
-            auto resolved = resolveExportTarget(val, pkgDir, matched);
+            auto resolved = resolveExportTarget(val, pkgDir, matched, esm);
             if (resolved.length > 0) return resolved;
         }
     }
@@ -945,7 +954,7 @@ private string resolveExports(JSONValue j, string subpath, string pkgDir) @trust
 }
 
 private string resolveExportTarget(JSONValue target, string pkgDir,
-    string wildcardMatch = null) @trusted
+    string wildcardMatch = null, bool esm = false) @trusted
 {
     import std.path : buildNormalizedPath;
     import std.file : exists, isFile;
@@ -966,12 +975,30 @@ private string resolveExportTarget(JSONValue target, string pkgDir,
     if (target.type == JSONType.object)
     {
         auto obj = target.object;
-        static immutable conditions = ["dun", "require", "node", "import", "default"];
+        // Condition order: ESM context (`import` from a `.mjs` or
+        // `type:module` file) prefers `import` over `require`; CJS
+        // context (`require()` from `.cjs` / `type:commonjs`) prefers
+        // `require` over `import`. Without this branch, `zod` resolves
+        // to its `.cjs` entry from an ESM import — then the loader
+        // throws "Cannot import a CommonJS module from ESM" because
+        // the path ends in `.cjs`. Mirrors Node.js documented
+        // resolution: ESM/CJS pick the matching condition first.
+        // `dun`/`node` always come before either format; `default` is
+        // the universal fallback.
+        // `module` is the legacy ESM condition some packages use
+        // instead of `import` (e.g. @opentelemetry/* — the exports
+        // map has `{ module, esnext, types, default }` with no
+        // `import` key). Node treats `module` as an ESM-context
+        // condition. We try it after `import` so packages that have
+        // both prefer the modern `import` field.
+        static immutable esmConditions = ["dun", "node", "import", "module", "require", "default"];
+        static immutable cjsConditions = ["dun", "node", "require", "import", "module", "default"];
+        auto conditions = esm ? esmConditions : cjsConditions;
         foreach (cond; conditions)
         {
             if (cond in obj)
             {
-                auto resolved = resolveExportTarget(obj[cond], pkgDir, wildcardMatch);
+                auto resolved = resolveExportTarget(obj[cond], pkgDir, wildcardMatch, esm);
                 if (resolved.length > 0) return resolved;
             }
         }
@@ -981,7 +1008,7 @@ private string resolveExportTarget(JSONValue target, string pkgDir,
     {
         foreach (ref alt; target.array)
         {
-            auto resolved = resolveExportTarget(alt, pkgDir, wildcardMatch);
+            auto resolved = resolveExportTarget(alt, pkgDir, wildcardMatch, esm);
             if (resolved.length > 0) return resolved;
         }
     }

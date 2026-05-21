@@ -74,9 +74,14 @@ version (EngineQuickJS)
             {
                 // Bare specifier that didn't match a builtin: try
                 // node_modules lookup the same way require() does.
+                // esm=true so resolveExportTarget prefers `import` over
+                // `require` in exports condition matching — without it,
+                // zod (which has both) returns its `.cjs` entry from an
+                // ESM import context, then the loader rejects it as
+                // "Cannot import CommonJS from ESM".
                 import dun.modules.require : findNodeModule;
                 auto fromDir = base.length > 0 ? dirName(base) : ".";
-                auto resolved = findNodeModule(name, fromDir);
+                auto resolved = findNodeModule(name, fromDir, /*esm:*/ true);
                 if (resolved.length > 0)
                     name = resolved;
             }
@@ -533,6 +538,7 @@ private bool isBareBuiltin(string name) @safe pure nothrow @nogc
         "stream", "zlib", "child_process", "worker_threads", "cluster",
         "vm", "assert", "querystring", "string_decoder", "readline",
         "perf_hooks", "async_hooks", "timers/promises", "fs/promises",
+        "dns/promises",
         "ws", "sqlite", "tty", "module", "test",
     ];
     foreach (b; builtins)
