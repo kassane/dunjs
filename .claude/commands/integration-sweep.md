@@ -86,3 +86,36 @@ mark as a flake, investigate immediately.
 ```sh
 /integration-sweep raw
 ```
+
+## Sanitizer sweep (memory / race regression check)
+
+Before a release tag or after a non-trivial refactor in
+`source/dun/engine/` or `source/dun/builtins/`, run the
+integration suite under LDC's ASan and TSan runtimes. Either
+sanitizer firing on a previously-clean sweep means a real
+regression — they don't false-positive on the kind of bugs
+they target.
+
+```sh
+# AddressSanitizer sweep (memory bugs: UAF, OOB, double-free)
+dub build -c quickjs -b asan
+ASAN_OPTIONS=detect_leaks=0 bash tests/integration/run.sh   # 155/155 expected
+
+# ThreadSanitizer sweep (data races, esp. Worker / SAB / Atomics paths)
+dub build -c quickjs -b tsan
+bash tests/integration/run.sh
+```
+
+Reference: Johan Engelen's ASan + fuzzing writeups —
+https://johanengelen.github.io/posts/2017-12-25-ldc-and-addresssanitizer/
+and https://johanengelen.github.io/posts/2018-01-14-fuzzing-with-ldc/.
+
+ASan adds ~2-3× runtime; the full sweep takes ~3-4 min instead of
+~60s. TSan only meaningfully covers worker / SAB / atomics tests
+(single-threaded fixtures pass trivially). Both build types live
+in `dub.json` under `buildTypes`.
+
+The DunJS baseline: **155/155 ASan-clean on QJS** (caught the original
+v1.1.3 Latin-1 high-byte UB before release). TSan-clean modulo
+intentional daemon worker threads (those use audited lockfree
+primitives).

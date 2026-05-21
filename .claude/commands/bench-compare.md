@@ -48,6 +48,33 @@ done
 - **`feature_bench`** auto-calibrates iters; total wall time ~30s per runtime.
 - **`npm_compat_test`** loads 15 simulated npm packages; ~5s per runtime.
 
+## Tighter numbers via PGO
+
+For headline numbers (e.g. updating a CHANGELOG release table or
+README perf section), rebuild the DunJS binaries with PGO before
+running the comparison. PGO gives the LDC front-end itself ~7%
+on D-heavy code per Johan Engelen's measurement; expect a similar
+or better lift on `dun`'s native trampolines.
+
+```sh
+# Per backend:
+for B in quickjs jsc v8; do
+  dub build -c $B -b release-pgo-gen
+  ./build/dun run --allow-all tests/benchmarks/feature_bench.js   > /dev/null
+  ./build/dun run --allow-all tests/benchmarks/framework_bench.js > /dev/null
+  ldc-profdata merge -o build/dun.profdata build/dun-*.profraw
+  dub build -c $B -b release-pgo
+  cp build/dun ./dun-pgo-${B/quickjs/qjs}
+  rm -f build/dun-*.profraw
+done
+```
+
+Then run `/bench-compare` using `./dun-pgo-{qjs,jsc,v8}` in place of
+the plain `./dun-rel-*` binaries. Note PGO-built binaries are tuned
+for the specific workload you trained them on — use the same bench
+suite for training as for measurement, or you'll measure noise from
+mispredicted code paths.
+
 ## Reference numbers
 
 See [TESTING.md](../../TESTING.md) for the canonical perf tables — numbers

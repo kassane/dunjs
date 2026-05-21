@@ -42,6 +42,94 @@ dub build -c v8                   # V8 debug
 dub build -c quickjs -b release   # QuickJS release (optimized + stripped)
 ```
 
+#### Release flag breakdown (from `dub.json` `release` buildType)
+
+LDC-specific flags applied on `-b release` (`dflags-ldc`):
+
+| Flag | Effect |
+|------|--------|
+| `-O3` | LLVM aggressive optimization |
+| `--release` | Strip contracts / invariants / asserts |
+| `--boundscheck=off` | No `RangeError` instrumentation in array indexing |
+| `--mcpu=native` | Tune for the host CPU. **Prefer an explicit CPU name** (`x86-64-v3`, `znver4`, `apple-m2`, …) — `native` ties the binary to the build host and can produce surprising / under-specified feature sets, especially on WASM and embedded targets ([ldc-developers/ldc#4919](https://github.com/ldc-developers/ldc/issues/4919)). To see exactly what features LDC will emit for a given target, run `ldc2 --mtriple=<triple> -mcpu=<cpu> -vv` first — its output shows the resolved feature set so you can lock it in via `-mattr=+feature1,-feature2` if anything's missing |
+| `--flto=thin` | ThinLTO — cross-module inlining at link time. Faster than full LTO, far less memory; nearly the same optimization quality |
+| `--fno-plt` | Skip PLT indirection on shared-lib calls |
+| `--frame-pointer=none` | Free a register on AMD64 |
+| `--linkonce-templates` | Merge identical template instantiations across TUs |
+| `--inline-threshold=350` | Larger inline budget (default 225) |
+| `--hot-cold-split` | Move rarely-executed code to `.text.unlikely` to keep the icache hot |
+
+**Override `--mcpu=native` with an explicit baseline before shipping** —
+`native` is meant for local benches, not release artifacts. First
+inspect the feature set LDC will emit, then pick the lowest CPU
+that still has everything you need:
+
+```sh
+# Inspect what LDC sees for a given target (no compile)
+ldc2 --mtriple=x86_64-linux-gnu  -mcpu=x86-64-v3 -vv | grep -E '^(Target|Features:)'
+ldc2 --mtriple=aarch64-linux-gnu -mcpu=neoverse-n1 -vv | grep -E '^(Target|Features:)'
+
+# Lock in an explicit CPU + optional extra features
+DFLAGS="--mcpu=x86-64-v3" dub build -c quickjs -b release                 # AVX2 baseline (2013+)
+DFLAGS="--mcpu=x86-64    --mattr=+sse4.2,+aes,+pclmul" dub build -c quickjs -b release
+DFLAGS="--mcpu=x86-64-v2" dub build -c quickjs -b release                 # SSE4.2 baseline (2009+)
+```
+
+Reference: https://github.com/ldc-developers/ldc/issues/4919 — illustrates
+how `--mcpu=native` (and even named CPUs on under-defined targets) can
+silently emit an empty or under-specified feature set, so always
+verify via `-vv` before relying on the codegen.
+
+### 2b. PGO release (`-b release-pgo-gen` → `-b release-pgo`)
+
+Profile-Guided Optimization recipe. Real-world gain on the LDC
+front-end itself was ~7% per the LDC-author writeup; expect similar
+or better on a JIT-heavy embedder like `dun`.
+
+```sh
+# 1. Instrumented build (writes build/dun-<pid>.profraw at runtime)
+dub build -c quickjs -b release-pgo-gen
+
+# 2. Run representative workloads to collect profile data
+./build/dun run --allow-all tests/benchmarks/feature_bench.js
+./build/dun run --allow-all tests/benchmarks/framework_bench.js
+bash tests/benchmarks/http_bench/stress.sh
+
+# 3. Merge .profraw files into build/dun.profdata
+ldc-profdata merge -o build/dun.profdata build/dun-*.profraw
+
+# 4. Final optimized build using the profile
+dub build -c quickjs -b release-pgo
+```
+
+PGO build types are defined in `dub.json`:
+- `release-pgo-gen`: `-O3 --release --boundscheck=off --mcpu=native --fprofile-instr-generate=build/dun-%m.profraw` + `-lldc_rt.profile`
+- `release-pgo`: same release flags + ThinLTO + `--fprofile-instr-use=build/dun.profdata`
+
+Only profile what you want optimized — PGO only speeds up paths it sees.
+
+### 2c. Incremental builds with `--ir2obj-cache`
+
+LDC can skip codegen for unchanged modules. The author measured
+5m50 → 2m30 on the LDC front-end with 100% cache hit (optimization
+and codegen both skip; only linking runs).
+
+```sh
+DFLAGS="--ir2obj-cache=$HOME/.cache/dun-ldc-cache" dub build -c quickjs
+```
+
+Prune (avoid the cache eating multiple GiB):
+
+```sh
+ldc-prune-cache --max-bytes=2147483648 $HOME/.cache/dun-ldc-cache  # cap to 2 GiB
+# OR
+ldc-prune-cache --max-percentage-of-avail=75 $HOME/.cache/dun-ldc-cache  # default
+```
+
+The cache lives outside the DUB build tree and survives `dub clean`.
+Reference: https://johanengelen.github.io/ldc/2016/09/17/LDC-object-file-caching.html
+
+
 ### 3. Test
 
 ```sh

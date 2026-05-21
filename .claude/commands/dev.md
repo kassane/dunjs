@@ -102,6 +102,81 @@ Uses the C++ TMP <-> D TMP bridge pattern:
 2. D: add to `JSCTypeChecks.init()` table (or handle specially like Function)
 3. D: add binding declaration in `bindings.d` if needed
 
+## LDC-only hot-path primitives (`version (LDC)`)
+
+When `version (LDC)` is true, three D modules expose LLVM-backed
+primitives that DMD/GDC can't match. DunJS already uses these in
+`source/dun/platform/simd.d`; reach for them when writing a new
+hot-path built-in.
+
+### `ldc.simd`
+
+| Import | Effect |
+|--------|--------|
+| `loadUnaligned!ubyte16(ptr)` | Single-instruction unaligned load (avoids UB from raw pointer cast) |
+| `storeUnaligned!ubyte16(v, ptr)` | Single-instruction unaligned store |
+| `shufflevector!(T16, mask...)(a, b)` | LLVM `shufflevector` — zero-copy interleave / permute. Used in `hexEncodeBuf` for byte → 2-hex-char expansion at 16 B/cycle |
+
+### `ldc.intrinsics`
+
+| Intrinsic | Lowers to | Use case |
+|-----------|-----------|----------|
+| `llvm_cttz(x)` | `tzcnt` / `bsf` / `rbit+clz` | O(1) first-set-bit extraction after a SIMD compare → `findByte` hot path |
+| `llvm_bswap(x)` | `bswap` / `rev` | 1-cycle byte-swap. Used by `bswap16/32/64` in Buffer BE read/write ops (vs. 4 shifts + ORs scalar) |
+| `llvm_prefetch(ptr, rw, locality, kind)` | `prefetcht0` / `pld` | Data cache warming on large buffer ops |
+| `llvm_expect(val, expected)` | LLVM `__builtin_expect` | Branch hint for hot/cold split |
+
+### `ldc.attributes`
+
+| Attribute | Effect |
+|-----------|--------|
+| `@fastmath` | Relax floating-point math (associative, reciprocal, no-NaN, no-Inf). Lets LDC vectorize float loops. Don't use on code that depends on IEEE 754 (fp bit-pattern parsing, hash tables keyed on doubles). Mir uses this to beat OpenBLAS / Eigen |
+| `@target("avx2")` / `@target("+sse4.2,-avx512f")` | Per-function CPU feature override — emit AVX2 codegen for one function without bumping the module's `--mcpu` floor |
+| `@cold` | Tell LLVM this function rarely runs; pairs with `--hot-cold-split` to move it off the hot icache path |
+| `@naked` | No prologue/epilogue — for inline-asm fast paths |
+| `@noplt` | Skip PLT for this call (per-function `--fno-plt`) |
+| `@optStrategy("none")` / `@optStrategy("optsize")` / `@optStrategy("polly")` | Per-function optimization level override |
+| `@section(".my_section")` | Emit to a custom object-file section (useful for self-modifying lookup tables) |
+| `@weak` | Weak symbol — overridable by another TU's strong definition |
+| `@llvmAttr("attr", "value")` | Set any LLVM function attribute directly |
+
+Pattern DunJS uses:
+
+```d
+version (LDC)
+{
+    import ldc.simd : loadUnaligned, storeUnaligned, shufflevector;
+    import ldc.intrinsics : llvm_cttz, llvm_prefetch, llvm_bswap;
+    import ldc.attributes : fastmath, target;
+}
+
+@fastmath
+double dotProduct(const(double)[] a, const(double)[] b) pure @nogc nothrow
+{
+    double s = 0;
+    foreach (i; 0 .. a.length) s += a[i] * b[i];
+    return s;
+}
+```
+
+Full attribute list:
+https://github.com/ldc-developers/ldc/blob/master/runtime/druntime/src/ldc/attributes.d
+
+### CTFE target queries (`__traits(targetCPU)` / `__traits(targetHasFeature)`)
+
+Available since LDC 1.1.0. Useful for static dispatch at compile time:
+
+```d
+import std.stdio;
+void main() {
+    writeln("CPU = ", __traits(targetCPU));               // e.g. "broadwell"
+    static if (__traits(targetHasFeature, "avx2")) { ... }
+}
+```
+
+DunJS doesn't currently use these — but they're the right tool when
+adding a SIMD path that needs a feature gate without runtime CPUID.
+
 ## Adding a New Builtin Module
 
 1. Create `source/dun/builtins/<name>.d`
