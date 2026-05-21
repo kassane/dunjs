@@ -336,7 +336,6 @@
 				"-O3",
 				"--release",
 				"--boundscheck=off",
-				"--mcpu=native",
 				"--flto=thin",
 				"--fno-plt",
 				"--frame-pointer=none",
@@ -359,7 +358,6 @@
 				"-O3",
 				"--release",
 				"--boundscheck=off",
-				"--mcpu=native",
 				"--fprofile-instr-generate=build/dun-%m.profraw"
 			],
 			"lflags-posix": [
@@ -371,7 +369,6 @@
 				"-O3",
 				"--release",
 				"--boundscheck=off",
-				"--mcpu=native",
 				"--flto=thin",
 				"--fno-plt",
 				"--frame-pointer=none",
