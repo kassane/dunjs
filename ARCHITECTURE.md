@@ -6,7 +6,7 @@ DunJS is a 7-layer JavaScript/TypeScript runtime with a **pluggable engine archi
 (IJSEngine interface), a cross-platform I/O poller (epoll/kqueue/poll), and a Deno-inspired permission system.
 
 Three backends are fully functional: QuickJS-NG (default), JavaScriptCore, and V8.
-155/155 integration tests pass on QuickJS / V8; 154/154 + 1 SKIP on JSC (the SKIP is `bun_v7_additions`, a known JSC handle-pressure constraint with `deno_deploy_compat`).
+156/156 integration tests pass on QuickJS / V8; 155/155 + 1 SKIP on JSC (the SKIP is `bun_v7_additions`, a known JSC handle-pressure constraint with `deno_deploy_compat`).
 All built-in modules (see CLAUDE.md for the canonical list — 30+ including fs, path,
 crypto, net, http, http2, http3, buffer, events, url, os, fetch, child_process, stream,
 zlib, dns, ws, sqlite, util, assert, querystring, string_decoder, timers/promises, vm,
@@ -438,11 +438,17 @@ both V8 12.x (Node.js 22 headers) and V8 14.9 (kassane/libv8).
 
 ### D extern(C++, "v8") Direct Bindings
 
-For V8's all-static `V8` class (no vtable, safe to bind directly):
+For V8's all-static `V8` class (no vtable, safe to bind directly).
+**Use `extern(C++, class) struct`** — C++ class without virtual
+methods is a value type; D struct matches. Using D `class` (reference
+type) silently mismatches the ABI by reserving a vtable slot the C++
+side never participates in. See [`docs/research/custom-gc-v8-jsc.md`
+§3.1](docs/research/custom-gc-v8-jsc.md) for the full type-system
+mapping (value vs reference, vtable risk, template instantiations).
 
 ```d
 extern(C++, "v8") {
-    extern class V8 {
+    extern(C++, class) struct V8 {
     static:
         const(char)* GetVersion();
         bool Initialize();
@@ -604,4 +610,4 @@ tests/benchmarks/http_bench/
 HTTP server optimizations: TCP_NODELAY, buffered single-write response, CTFE pre-computed
 status lines, connection slot pooling, fd→connId hashmap (O(1) lookup), JS-level dispatch
 for reduced FFI overhead, lazy header loading, MSG_NOSIGNAL, EOF detection with RAII cleanup.
-**QuickJS 155/155, V8 155/155, JSC 154/154 + 1 SKIP** (`bun_v7_additions` — JSC handle-pressure conflict with `deno_deploy_compat`; cumulative v1.1.5 → v1.1.20 JSC handle-leak fix campaign reduced but didn't eliminate the per-request listener-chain leak that tips the threshold).
+**QuickJS 156/156, V8 156/156, JSC 155/155 + 1 SKIP** (`bun_v7_additions` — JSC handle-pressure conflict with `deno_deploy_compat`; cumulative v1.1.5 → v1.1.20 JSC handle-leak fix campaign reduced but didn't eliminate the per-request listener-chain leak that tips the threshold).
