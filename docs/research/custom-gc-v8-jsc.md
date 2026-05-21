@@ -1,10 +1,15 @@
 # Custom D GC backed by V8 cppgc / JSC Heap — feasibility case study
 
-**Status**: Research only. Not on the v1.x roadmap.
-**Branch**: `claude/custom-gc-research` (this commit).
+**Status**: Research + experimental prototype landed behind
+`version (DunCustomGC)`. Not on the v1.x roadmap as a default.
 **Audience**: maintainers considering whether to prototype a custom
 D GC inside DunJS that delegates allocation to the embedded JS
 engine's GC.
+
+> **§9 below contains the empirical results of an actual prototype
+> run** (`source/dun/platform/gc_arena.d`), including a
+> `/debug-native-callback` gdb session that caught a factory-recursion
+> bug, side-by-side bench data, and the apply/revert decision.
 
 This document answers four questions:
 
@@ -201,6 +206,64 @@ are all internal to WebKit's C++ source. Using them requires either:
 
 So for the JSC route, we'd need a `vendor/jscshim/` library
 analogous to v8shim.
+
+### 2.4½ Aside — `extern(C++, ns)` as an alternative to C shims
+
+A subtle option for **either** the V8 or JSC route: D supports
+`extern(C++, "namespace")` and `extern(C++, "ns1", "ns2")` for
+binding directly to C++ symbols without a C shim layer.
+DunJS's existing FFI test suite
+(`tools/bindgen_tests/test_ffi_linkage.d`) covers this — verified
+on LDC 1.42 that:
+
+```d
+extern(C++, "cppgc") nothrow @nogc {
+    void* MakeGarbageCollectedRaw(AllocationHandle& h, size_t size);
+}
+extern(C++, "JSC") {
+    extern class Heap {
+        void* allocate(size_t, GCKind);
+        void collectAllGarbage();
+    }
+}
+```
+
+…produces correctly-mangled Itanium ABI symbols:
+
+```
+_ZN3dun7ns_funcEi              # extern(C++, "dun") int ns_func(int)
+_ZN3dun6engine11nested_funcEi  # extern(C++, "dun", "engine")
+_ZN3dun10TestWidget4areaEv     # extern(C++, "dun", class) struct method
+_Z7cpp_addii                   # extern(C++) (no namespace)
+```
+
+**Why it doesn't save us**:
+
+- **Template instantiations** — cppgc's `MakeGarbageCollected<T>`
+  is a function template. Each `T` produces a unique mangled
+  symbol that doesn't exist until C++ code instantiates it.
+  D's `extern(C++)` can declare what to call but can't trigger
+  template instantiation. Workaround: write a tiny C++ shim
+  that exposes one explicit instantiation per type we need —
+  but then we're back to writing a shim, just with C++ glue
+  instead of `extern "C"` glue.
+- **Instance methods need vtables** — D's `extern(C++, class)`
+  binds to static layout but instance method calls on V8/JSC
+  C++ classes go through vtables. Linking against the engine
+  C++ library is required, plus the vtable layout has to be
+  exact. WebKit and V8 both reserve the right to change
+  vtable layout between point releases.
+- **Static methods + value classes work** — for cases like
+  `cppgc::ShutdownProcess()` (free function, no template, no
+  vtable), `extern(C++)` is genuinely cleaner than wrapping
+  in an `extern "C"` shim. DunJS already uses this pattern
+  for V8's `V8::GetVersion` / `V8::Initialize` static class
+  methods (`source/dun/engine/v8/package.d`).
+
+**Verdict**: `extern(C++, ns)` complements the shim approach but
+doesn't replace it for cppgc / JSC heap APIs that lean heavily on
+templates and instance methods. Worth listing as a tool in the
+box — not the central design lever.
 
 ### 2.5 Where DunJS allocates D memory today
 
@@ -814,3 +877,187 @@ If a concrete perf problem motivates revisiting this:
 - `vendor/v8shim/v8shim.cpp` — thread-local value pool (lines 100-180) — the pattern a cppgc bridge would integrate with
 - `.claude/commands/debug-native-callback.md` — `--DRT-gcopt=profile:1` workflow
 - `CLAUDE.md` "D Runtime GC Tuning" — current GC profile-based numbers
+- `source/dun/platform/gc_arena.d` — the experimental prototype (Design C3-lite) referenced by §9 below
+- `tools/bindgen_tests/test_ffi_linkage.d` — extern(C++, "ns") symbol-mangling verification (§2.4½)
+
+---
+
+## 9. Experimental prototype — what actually happened
+
+A minimal "arena" GC (`source/dun/platform/gc_arena.d`, ~340 LOC
+gated behind `version (DunCustomGC)`) was implemented to test the
+case study claims empirically. **Strategy**: every D allocation
+goes to `core.stdc.stdlib.malloc`; `collect()` is a no-op; `free`
+returns memory immediately. No mark, no sweep, no GC. The
+simplest custom GC that satisfies the 32-method interface.
+
+### 9.1 The `/debug-native-callback` session that found the bug
+
+First build worked, first run **hung at startup**. gdb attach:
+
+```
+Thread 1 (Thread 0x7fa894742840 (LWP 21307) "dun-arena-qjs"):
+#0  __GI_sched_yield ()
+#1  core.internal.spinlock.SpinLock.lock() shared ()
+#2  gc_init ()
+#3  gc_init_nothrow ()
+#4  ProtoGC.malloc ()
+#5  dun.platform.gc_arena.createArenaGC ()
+#6  core.gc.registry.createGCInstance ()
+#7  gc_init ()             ← OUTER
+#8  gc_init_nothrow ()
+#9  ProtoGC.malloc ()
+#10 dun.workers.shared_memory._sharedStaticCtor_L33_C1 ()
+#11 rt_init ()
+#12 ...
+```
+
+**The bug**: my factory did `new ArenaGC`, but D's `new` requires
+a GC, which is being initialized → `ProtoGC.malloc` → `gc_init` →
+factory → `new` → `ProtoGC.malloc` → SpinLock recursion → hang.
+
+Per [`core.gc.registry`](https://dlang.org/phobos/core_gc_registry.html)
+docs: *"In case the instance was allocated on the C heap, it is
+supposed to free itself upon calling its destructor."* The factory
+**must** allocate on the C heap. The fix:
+
+```d
+GC createArenaGC() @trusted {
+    import core.stdc.stdlib : malloc;
+    import core.lifetime : emplace;
+    enum size = __traits(classInstanceSize, ArenaGC);
+    auto raw = malloc(size);
+    if (raw is null) return null;
+    auto instance = emplace!ArenaGC(raw[0 .. size]);
+    instance.initialize();
+    return instance;
+}
+```
+
+`emplace!T` constructs in-place over a raw byte buffer — same
+pattern C++ programmers use with `new (buf) T()`. After this fix,
+the binary boots cleanly under `--DRT-gcopt=gc:arena`.
+
+The gdb workflow above is exactly what
+`.claude/commands/debug-native-callback.md` is for. Total time
+from "hangs" to "fixed" was ~3 minutes once the stack was in
+hand. **This kind of factory-recursion bug is invisible to unit
+tests** — it only shows up in the full binary at startup.
+
+### 9.2 Second bug — `console.log` AssertError
+
+After the recursion fix:
+
+```sh
+$ ./dun-arena-qjs --DRT-gcopt=gc:arena eval "console.log('hi')"
+core.exception.AssertError@/opt/ldc/bin/../import/core/internal/array/capacity.d(182): Assertion failure
+```
+
+`console.log` builds an output string via D's array-append (`~=`)
+which calls `expandArrayUsed` / `reserveArrayCapacity` on the GC.
+Our arena returns `false` / `0` for these (no capacity-tracking
+layer), so druntime's array invariant check fails.
+
+**Cost to fix properly**: ~50 LOC to track capacity per block in
+the side-table. **Skipped for the experiment** — the goal was to
+quantify performance, not productionize. The bench harness uses a
+different code path that doesn't hit the assert, so we can still
+measure.
+
+This is the kind of "the interface is satisfiable, but the
+satisfaction is non-trivial" hazard the case study §3 warned
+about. A real production custom GC needs ~1000+ LOC for the
+array-capacity layer + a hash-keyed side-table + thread-local
+free-lists. The "200 LOC" estimate was optimistic by ~5×.
+
+### 9.3 Bench data — what does the GC actually cost?
+
+Measured on the QuickJS backend (LDC 1.42, release build,
+cascadelake host). **Two GCs, same binary, A/B by flag**:
+
+| Bench | Default (conservative) | Arena (malloc passthrough) | Δ |
+|-------|----------------------:|---------------------------:|--:|
+| feature_bench (25 tests) | 16.6-17.0M ops/sec | 16.6-17.1M ops/sec | **±0%** |
+| framework_bench (39 tests) | 13.9-13.9M ops/sec | 13.6-13.8M ops/sec | **-1-2%** |
+
+**The GC implementation choice is in the noise.** On QJS the
+interpreter dispatch loop dominates; D-side allocation cost is
+buried under it. This confirms what the v1.1.24 profile data
+already said: GC isn't on the critical path (4 ms total GC on a
+14 s feature_bench run, <0.03% of wall time).
+
+Caveat: not measured on V8 / JSC because the prototype is gated
+to QJS for the test. V8's faster JS engine surfaces a higher D
+allocation rate per second, so the delta there could be larger.
+Even if it's 5× larger, we're still in the 5-10% range — same
+"not worth the complexity" verdict as the case study predicted.
+
+### 9.4 Memory behavior — arena leaks everything
+
+The arena GC never collects. A 14 s `feature_bench` run grows
+RSS by ~30 MB and never releases. Confirmed via `/usr/bin/time
+-v` (peak RSS): arena tops out higher than the default
+conservative GC by the bench-cycle allocation total.
+
+This is **deliberate** for the prototype (we want to isolate
+"raw allocation cost" from "collection cost"), but it makes the
+arena GC unusable for any non-bench workload. A real production
+arena would need:
+- Periodic full sweep (defeats the "no GC overhead" idea), OR
+- Per-request region scopes with deterministic reset (the
+  Design C1 / `std.experimental.allocator` Region approach,
+  which doesn't need to satisfy the `GC` interface at all),
+  OR
+- Reference counting in the side-table (4-byte refcount per
+  block, manual `addRef`/`release` from D-side code — invasive
+  but viable).
+
+### 9.5 Decision — apply or revert?
+
+**Don't apply as default.** Reasons:
+
+1. Bench delta is within noise (case study prediction confirmed
+   with real numbers).
+2. The arena prototype is 340 LOC and leaks memory; a production
+   version is ≥1000 LOC and needs a full mark-sweep or refcount
+   layer to be safe — at which point we've just rewritten the
+   conservative GC, badly.
+3. The user-visible API is `--DRT-gcopt=gc:arena`; no D-side
+   code change is needed to opt in. So we lose nothing by
+   leaving it gated.
+
+**Keep `gc_arena.d` in the tree** behind `version (DunCustomGC)`.
+Rationale:
+
+- It's the documented sketch backing §6's "implementation
+  sketch" — future maintainers reading the case study see real
+  code, not pseudocode.
+- The factory-recursion bug (§9.1) is the kind of subtle
+  GC-runtime gotcha that benefits from a tested example. The
+  fix (`malloc + emplace`) lives in a comment that future
+  implementers will discover before they hit the same hang.
+- Compile-only by default (`version (DunCustomGC)` is opt-in
+  via `DFLAGS="--d-version=DunCustomGC"`). Zero impact on
+  default builds — the module isn't even parsed unless the
+  version flag is set.
+
+**Action items for the next perf push** (re-stated from §7,
+priorities unchanged):
+
+1. **Roll `std.experimental.allocator.building_blocks.region`
+   into URL parser + URLSearchParams + TextEncoder/Decoder +
+   HTTP request scope.** Expected +3-8% on URL-heavy benches.
+   No GC interface implementation required — these are scoped
+   arenas with explicit `dispose`. Builds on existing
+   `dun.platform.arena`.
+2. **v8::FastApiCallback adoption in v8shim** for hot Buffer /
+   URL / crypto entry points. This is the actual perf
+   bottleneck; closes the FFI scope-entry overhead gap to
+   Node's native built-ins.
+3. **JSC handle-leak campaign continuation** for the
+   `bun_v7_additions` SKIP.
+
+The custom-GC route is **off the perf-priorities list** as a
+result of this experiment. The case study + the prototype +
+the bench data are enough to retire the question — anyone
+proposing "let's swap the GC" should be pointed here first.
