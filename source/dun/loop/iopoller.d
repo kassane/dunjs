@@ -1,5 +1,7 @@
 module dun.loop.iopoller;
 
+import dun.declarations : MS_PER_SEC, NS_PER_MS;
+
 private enum MAX_FD_WATCHES = 64;
 
 /// IORING_OP_POLL_REMOVE ignores the SQE.fd field — the kernel
@@ -790,8 +792,8 @@ version (Kqueue)
         if (kqfd < 0 || watchCount == 0) return null;
         kevent_t[64] events;
         timespec ts;
-        ts.tv_sec  = timeoutMs / 1000;
-        ts.tv_nsec = (timeoutMs % 1000) * 1_000_000;
+        ts.tv_sec  = timeoutMs / MS_PER_SEC;
+        ts.tv_nsec = (timeoutMs % MS_PER_SEC) * NS_PER_MS;
         int n = kevent(kqfd, null, 0, events.ptr, 64, &ts);
         if (n <= 0) return null;
 

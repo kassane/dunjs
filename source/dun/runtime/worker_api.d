@@ -1,5 +1,6 @@
 module dun.runtime.worker_api;
 
+import dun.declarations : MS_PER_SEC, NS_PER_MS;
 import dun.engine.iface : IJSEngine, JSHandle, mustEval;
 import dun.runtime.globals : DunState;
 import core.atomic : atomicLoad, atomicStore, atomicFetchAdd, cas, MemoryOrder;
@@ -535,8 +536,8 @@ private JSHandle _atomicsWait(void* ctx, JSHandle thisVal, scope JSHandle[] args
         {
             import core.sys.posix.time : timespec;
             timespec ts;
-            ts.tv_sec  = timeoutMs / 1000;
-            ts.tv_nsec = (timeoutMs % 1000) * 1_000_000;
+            ts.tv_sec  = timeoutMs / MS_PER_SEC;
+            ts.tv_nsec = (timeoutMs % MS_PER_SEC) * NS_PER_MS;
             syscall(SYS_futex, ptr, FUTEX_WAIT, expected, &ts, null, 0);
         }
     }

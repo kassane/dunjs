@@ -77,6 +77,50 @@ runtime image — proposed fix is documented but deferred (see
 | 3 | QJS `Worker(src, {eval:true})` + `setTimeout`-deferred `terminate` race | Edge-case crash | gdb-traced to QJS internal `add_shape_property`. Documented in CHANGELOG #58d/#59e. JSC/V8 don't hit it. Real apps use `await terminate(); process.exit()` rather than the racy pattern |
 | 4 | No fuzzer harness for parser / type-stripper / Buffer roundtrip | Theoretical | LDC supports `-fsanitize=fuzzer` since 1.4 (see `.claude/commands/debug-native-callback.md`). Template is documented but no harness lives in the tree |
 
+## Rule-compliance audit (2026-05) — applied + deferred
+
+A three-track audit (`@trusted` overuse, magic-number duplicates, DIP
+coverage) ran on the v1.1.25 tree. The cheap surgical wins shipped in
+this branch; the broader refactors are documented here for a future
+focused pass so we don't take on too much churn at once.
+
+**Applied this PR**
+
+- `dun.platform.paths.canonicalizePath`: dropped `@trusted` → `@safe`.
+  This is the CVE-class fix gate (CVE-2023-32004 / CVE-2024-21896) and a
+  security primitive should not need an `@trusted` escape — Phobos'
+  `absolutePath` + `buildNormalizedPath` are both `@safe`, no FFI, no
+  pointer arithmetic. Doc-comment now cites the CVE and the audit date
+  so the next reader doesn't think the `@safe` is accidental.
+- `dun.declarations`: hoisted six cross-module duplicates —
+  `PAGE_SIZE_BYTES` / `NETWORK_READ_BUF_BYTES` / `STACK_BUFFER_BUDGET` /
+  `MS_PER_SEC` / `NS_PER_MS` / `NS_PER_SEC`. Re-pointed the
+  `LINUX_PAGE_SIZE` literal in `runtime.process_api.d:9` and the
+  `timeoutMs / 1000 + (timeoutMs % 1000) * 1_000_000` math in
+  `loop.iopoller.d:794` and `runtime.worker_api.d:539`. Other local
+  enums (`SOCKET_READ_BUF_SIZE`, `HTTP_READ_BUF`, `TLS_READ_BUF_SIZE`,
+  `READLINK_BUF_SIZE`, `WS_CLOSE_NORMAL`) were left alone — the local
+  name carries documentation value the bare constant wouldn't.
+
+**Deferred (do as a separate focused PR; too invasive in one batch)**
+
+| Track | Module | Pattern | Why deferred |
+|-------|--------|---------|--------------|
+| `@trusted` reduction | `dun.modules.npm` | 24 `@trusted` annotations on functions that are pure D logic (HTTP fetch + tar extract). Likely 50%+ can drop to `@safe` after extracting the FFI-touching parts into separate helpers | Touches the dependency-installer hot path; needs its own integration sweep |
+| `@trusted` reduction | `dun.builtins.buffer` | ~30 native callbacks wide-annotated `@trusted`. A `ctxState(ctx)` helper that consolidates the `cast(DunState*)` + null-check would let most callbacks drop to `@safe` body | Mechanical but huge diff; would obscure unrelated PRs in `git blame` |
+| `@trusted` reduction | `dun.runtime.process_api` (`getuid`/`getgid` family) | Annotated `@trusted` whole-function — only the `extern(C)` call line itself needs it | Same pattern repeats in ~10 places; collect them in one pass |
+| DIP1038 `@mustuse` | `dun.builtins.tls.TlsSocket`, `dun.builtins.fetch.FetchResult`, `dun.platform.arena.StackFallback.allocate` | Currently droppable returns; dropping them is always a bug | Each adds compile-time errors at call sites that need auditing first |
+| DIP1000 `return scope` | `JSVal` constructor (engine-context lifetime), `Buffer` slice getters | Compiler-enforced lifetime tracking | Needs to walk callers; some legitimately need `.dup` |
+| Move semantics | `BumpRegion`, `StackFallback` in `dun.platform.arena` | `@disable this(this)` to forbid silent copy | Need to confirm no existing pass-by-value uses |
+| `@live` (DIP1021) | Not adopted anywhere yet | Could enforce single-owner semantics on `JSHandle`/`JSVal` lifetimes at compile time | Whole-program impact; pilot on one type first |
+
+The audit notes confirmed: the codebase is broadly disciplined — magic
+numbers are mostly named local enums (intentional documentation), most
+`@trusted` blocks are at real FFI boundaries (legitimate), `@mustuse`
+is already wired on `JSResult` + `AsyncResult` (the two highest-value
+return types), and DIP1000 is annotated on every slice-returning
+engine method.
+
 ## Build & test recipe (canonical)
 
 ```sh

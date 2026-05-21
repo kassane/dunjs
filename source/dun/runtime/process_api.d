@@ -1,12 +1,12 @@
 module dun.runtime.process_api;
 
+import dun.declarations : PAGE_SIZE_BYTES;
 import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
 import dun.runtime.globals : DunState;
 import dun.security.permissions : Permission;
 
 private enum STDIN_READ_BUF_SIZE = 65_536;
 private enum DEFAULT_TERMINAL_COLUMNS = 80;
-private enum LINUX_PAGE_SIZE = 4096;
 
 private __gshared JSHandle gUncaughtHandler;
 private __gshared IJSEngine gUncaughtEngine;
@@ -818,7 +818,7 @@ JSHandle jsMemoryUsage(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trus
             auto statm = readText("/proc/self/statm");
             auto parts = statm.split(" ");
             if (parts.length >= 2)
-                rss = to!double(parts[1]) * LINUX_PAGE_SIZE;
+                rss = to!double(parts[1]) * PAGE_SIZE_BYTES;
         }
         catch (Exception) {}
     }
