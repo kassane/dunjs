@@ -798,7 +798,7 @@ JSHandle makeResponseFallback(IJSEngine engine, FetchResult r) @trusted
     return obj;
 }
 
-JSHandle responseText(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
+JSHandle responseText(void* ctx, JSHandle thisVal, scope JSHandle[] args) @safe
 {
     auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in responseText");
@@ -807,7 +807,7 @@ JSHandle responseText(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trust
     return body_;
 }
 
-JSHandle responseJson(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
+JSHandle responseJson(void* ctx, JSHandle thisVal, scope JSHandle[] args) @safe
 {
     auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in responseJson");
