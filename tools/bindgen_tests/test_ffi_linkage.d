@@ -5,30 +5,38 @@
 
 module tools.bindgen_tests.test_ffi_linkage;
 
+// `pragma(inline, false)` on the bodies below: this file's purpose is
+// to LET `nm` inspect the mangled symbols. Without the pragma, LDC at
+// -O3 + ThinLTO may inline trivial bodies (e.g. `return a + b`) and
+// elide the symbol entirely — defeating the test. Verified at LDC
+// 1.42 the symbols ARE emitted even without the pragma, but it's a
+// defensive measure against future LDC versions where the optimizer
+// gets more aggressive about leaf-function elision.
+
 // 1. extern(C) — flat C symbol names
 extern(C) nothrow @nogc
 {
-    int c_add(int a, int b) { return a + b; }
-    void c_noop() {}
+    pragma(inline, false) int c_add(int a, int b) { return a + b; }
+    pragma(inline, false) void c_noop() {}
 }
 
 // 2. extern(C++) — C++ mangled symbols (no namespace)
 extern(C++) nothrow @nogc
 {
-    int cpp_add(int a, int b) { return a + b; }
-    double cpp_mul(double x, double y) { return x * y; }
+    pragma(inline, false) int cpp_add(int a, int b) { return a + b; }
+    pragma(inline, false) double cpp_mul(double x, double y) { return x * y; }
 }
 
 // 3. extern(C++, namespace) — C++ mangled in namespace
 extern(C++, "dun") nothrow @nogc
 {
-    int ns_func(int x) { return x * 2; }
+    pragma(inline, false) int ns_func(int x) { return x * 2; }
 }
 
 // 4. extern(C++, nested namespace)
 extern(C++, "dun", "engine") nothrow @nogc
 {
-    int nested_func(int x) { return x + 1; }
+    pragma(inline, false) int nested_func(int x) { return x + 1; }
 }
 
 // 5. extern(C++, class) struct — C++ class ABI
@@ -36,12 +44,12 @@ extern(C++, "dun") extern(C++, class) struct TestWidget {
     int x;
     int y;
     @disable this();
-    this(int x, int y) @nogc nothrow { this.x = x; this.y = y; }
-    int area() @nogc nothrow { return x * y; }
+    pragma(inline, false) this(int x, int y) @nogc nothrow { this.x = x; this.y = y; }
+    pragma(inline, false) int area() @nogc nothrow { return x * y; }
 }
 
 // 6. extern(D) — default D mangling
-int d_add(int a, int b) { return a + b; }
+pragma(inline, false) int d_add(int a, int b) { return a + b; }
 
 // 7a. D ↔ C++ TMP FFI via NATIVE D TEMPLATE SYNTAX — the preferred form.
 // D's `extern(C++, class) struct Name(int Slot)` auto-mangles to the

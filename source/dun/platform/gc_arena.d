@@ -22,7 +22,6 @@ import core.thread.threadbase : ThreadBase;
 import core.stdc.stdlib : cmalloc = malloc, cfree = free, crealloc = realloc;
 import core.stdc.string : memcpy, memset;
 import core.atomic : atomicOp, atomicLoad;
-import core.sync.mutex : Mutex;
 
 alias BlkAttr = core.memory.GC.BlkAttr;
 alias BlkInfo = core.memory.GC.BlkInfo;
@@ -63,13 +62,25 @@ class ArenaGC : GC
     private static shared size_t _allocCount;
     private static shared size_t _bytesLive;
     private __gshared Block* _head;
-    private __gshared Mutex _listMutex;
 
-    void initialize() nothrow @trusted
-    {
-        if (_listMutex is null)
-            _listMutex = new Mutex();
-    }
+    // No mutex on the block list — the experimental GC documents itself
+    // as single-threaded only (the module header says "experimental
+    // measurement vehicle, not a production GC"). The reasons:
+    //   - `new Mutex()` here recurses through ProtoGC.malloc → gc_init
+    //     → createArenaGC → initialize → new Mutex → ... → SpinLock hang.
+    //     Same gotcha as §9.1 in the research doc (factory-recursion).
+    //     Caught via /debug-native-callback audit after a prior review-
+    //     fix attempt introduced exactly that recursion.
+    //   - A `pthread_mutex_t` value would work (no D heap), but adding
+    //     POSIX-only code to a research module isn't worth the surface.
+    //   - Counter writes use `atomicOp!"+="` against `shared size_t`,
+    //     so the most-visible stats remain correct under contention.
+    //     Only the doubly-linked-list mutations race, and the experiment
+    //     bench runs single-threaded.
+    // Production successor (research doc §9.5) needs a hash-keyed side-
+    // table; pthread_mutex_t or lock-free CAS layout solves the
+    // thread-safety on the way to that.
+    void initialize() nothrow @trusted {}
 
     void enable() {}
     void disable() {}
@@ -103,13 +114,11 @@ class ArenaGC : GC
         if (b is null) return null;
         auto fresh = crealloc(p, size);
         if (fresh is null) return null;
-        (cast() _listMutex).lock_nothrow();
-        atomicOp!"+="(_bytesLive, size > b.size ? size - b.size : 0);
-        if (size < b.size) atomicOp!"-="(_bytesLive, b.size - size);
+        if (size > b.size) atomicOp!"+="(_bytesLive, size - b.size);
+        else if (size < b.size) atomicOp!"-="(_bytesLive, b.size - size);
         b.ptr = fresh;
         b.size = size;
         b.attr = bits;
-        (cast() _listMutex).unlock_nothrow();
         return fresh;
     }
 
@@ -259,37 +268,27 @@ class ArenaGC : GC
 
     private void linkBlock(Block* b) nothrow @trusted
     {
-        (cast() _listMutex).lock_nothrow();
         b.prev = null;
         b.next = _head;
         if (_head !is null) _head.prev = b;
         _head = b;
-        (cast() _listMutex).unlock_nothrow();
     }
 
     private void unlinkBlock(Block* b) nothrow @nogc @trusted
     {
-        // @nogc but Mutex.lock() isn't @nogc. The lock is short and we
-        // can't afford to allocate here — use the raw spinlock idiom
-        // instead. For an experiment-only GC this is acceptable; a
-        // production version would use a fully @nogc lock primitive.
-        () @trusted { (cast() _listMutex).lock_nothrow(); }();
         atomicOp!"-="(_bytesLive, b.size);
         if (b.prev !is null) b.prev.next = b.next;
         else _head = b.next;
         if (b.next !is null) b.next.prev = b.prev;
-        () @trusted { (cast() _listMutex).unlock_nothrow(); }();
     }
 
+    /// O(n) linear scan — production arena would use a hash-keyed
+    /// side-table (research doc §9.5). Acceptable for the experiment
+    /// because the smoke fixture allocates few blocks; production use
+    /// regresses quadratically.
     private Block* findBlock(void* p) nothrow @nogc @trusted
     {
         if (p is null) return null;
-        // O(n) linear scan — see research doc §9.5 "production
-        // arena would need a hash-keyed side-table". Acceptable
-        // for the experiment because the smoke fixture allocates
-        // few blocks; production use would regress quadratically.
-        () @trusted { (cast() _listMutex).lock_nothrow(); }();
-        scope (exit) () @trusted { (cast() _listMutex).unlock_nothrow(); }();
         for (auto b = _head; b !is null; b = b.next)
         {
             if (b.ptr <= p && p < b.ptr + b.size)
