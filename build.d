@@ -1208,16 +1208,10 @@ bool buildBrotli(ref const Toolchain tc, ref const BuildOptions opts)
         return false;
     }
 
-    // Mirror the public headers to vendor/brotli/include/brotli/ so dub's
-    // importPath/cImportPath always points at a directory that exists --
-    // the actual source tree is gitignored and may be absent before the
-    // first build, which triggers an "Invalid import path" warning.
-    import std.file : copy;
-    immutable headerSrc = buildPath(brotliSrcDir(), "c", "include", "brotli");
-    immutable headerDest = buildPath(brotliDir(), "include", "brotli");
-    mkdirRecurse(headerDest);
-    foreach (h; dirEntries(headerSrc, "*.h", SpanMode.shallow))
-        copy(h.name, buildPath(headerDest, h.name.baseName));
+    // dub reads brotli headers directly from `vendor/brotli/src/c/include/`
+    // (the extracted tarball) — no in-tree mirror to keep in sync. The
+    // ordering invariant is: `ldc2 -run build.d --backend=quickjs` must
+    // complete before any `dub build` so src/ is materialized first.
 
     logInfo(tag, "Built brotlicommon + brotlidec + brotlienc static libs");
     return true;

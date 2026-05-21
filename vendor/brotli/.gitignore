@@ -1,5 +1,18 @@
-# Source tree + build artifacts downloaded by build.d::buildBrotli.
-# Only the ImportC bridge stays in version control.
+# Everything under vendor/brotli/ is downloaded by build.d::buildBrotli
+# from the upstream tarball. Only the ImportC bridge (`brotli_api.c`)
+# and this .gitignore stay in version control.
+#
+# Headers are read directly from `vendor/brotli/src/c/include/brotli/`
+# (the extracted tarball) — dub's cImportPath points there, not at a
+# separate in-tree snapshot. Eliminates the header-drift bug class
+# that earlier audit caught (mirror step ran only on first build, so
+# version bumps could silently mis-describe the linked-against libs).
+#
+# Ordering invariant: `ldc2 -run build.d --backend=quickjs` MUST run
+# before `dub build`, otherwise dub will warn about the missing
+# import path. Same flow already documented in README / CLAUDE.md.
+
 src/
 build/
+include/
 *.tar.gz
