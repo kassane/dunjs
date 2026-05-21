@@ -1,0 +1,5 @@
+OK shimVersion = v8shim-1.1.25
+OK probe bumped (1 -> 2)
+OK totalAllocs grew (664 -> 671)
+OK liveCount ≈ totalAllocs - totalReleases (within race window)
+OK valuePoolFree in range [0, 512]: 1

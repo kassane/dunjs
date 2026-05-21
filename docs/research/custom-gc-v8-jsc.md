@@ -1061,3 +1061,165 @@ The custom-GC route is **off the perf-priorities list** as a
 result of this experiment. The case study + the prototype +
 the bench data are enough to retire the question — anyone
 proposing "let's swap the GC" should be pointed here first.
+
+---
+
+## 10. `extern(C++, "v8shim")` — production validation
+
+Follow-up to §2.4½. The original case study claimed
+`extern(C++, "ns")` works in DunJS but doesn't replace the C
+shim layer because template instantiations + instance methods
+need C++ glue. To pin down the claim with a real production
+path, we added a `v8shim::Diagnostics` class and bound it from
+D via `extern(C++, "v8shim")` — no `extern "C"` wrapper in
+between.
+
+### 10.1 The C++ side
+
+`vendor/v8shim/v8shim.cpp`:
+
+```cpp
+namespace v8shim {
+class Diagnostics {
+public:
+    static size_t valuePoolFreeCount() noexcept;
+    static size_t totalAllocs() noexcept;
+    static size_t totalReleases() noexcept;
+    static size_t liveCount() noexcept;
+    static const char* shimVersion() noexcept;
+    static int probeBumpCounter() noexcept;
+};
+}
+```
+
+All static methods, all `noexcept` for the D `nothrow @nogc`
+contract. The class hooks into the existing `g_value_pool` +
+two new `std::atomic<size_t>` counters (`g_alloc_count`,
+`g_release_count`) bumped from the shim's `wrapValue` /
+`dun_v8_value_unref` paths. So the data is real — not a stub.
+
+Symbol mangling (verified `nm libv8shim.a`):
+
+```
+_ZN6v8shim11Diagnostics18valuePoolFreeCountEv  T
+_ZN6v8shim11Diagnostics11totalAllocsEv         T
+_ZN6v8shim11Diagnostics13totalReleasesEv       T
+_ZN6v8shim11Diagnostics9liveCountEv            T
+_ZN6v8shim11Diagnostics11shimVersionEv         T
+_ZN6v8shim11Diagnostics16probeBumpCounterEv    T
+```
+
+Standard Itanium ABI — `N6v8shim` = namespace, `11Diagnostics`
+= class, then the method name + arg signature.
+
+### 10.2 The D side
+
+`source/dun/engine/v8/cppbindings.d`:
+
+```d
+extern (C++, "v8shim")
+{
+    extern class Diagnostics
+    {
+    static:
+        size_t valuePoolFreeCount() nothrow @nogc;
+        size_t totalAllocs() nothrow @nogc;
+        size_t totalReleases() nothrow @nogc;
+        size_t liveCount() nothrow @nogc;
+        const(char)* shimVersion() nothrow @nogc;
+        int probeBumpCounter() nothrow @nogc;
+    }
+}
+```
+
+LDC 1.42 emits matching calls — `_ZN6v8shim11Diagnostics18valuePoolFreeCountEv`
+as a `call` instruction from `source/dun/runtime/v8shim_diag.d`,
+which becomes `globalThis.__dun_v8shim_diag__()` on the V8
+backend only (gated via `version (EngineV8)`).
+
+### 10.3 End-to-end test — does it actually run?
+
+```sh
+$ ./dun-rel-v8 eval "console.log(JSON.stringify(__dun_v8shim_diag__(), null, 2))"
+{
+  "valuePoolFree": 1,
+  "totalAllocs": 663,
+  "totalReleases": 94,
+  "liveCount": 569,
+  "probe": 1,
+  "shimVersion": "v8shim-1.1.25"
+}
+
+$ ./dun-rel-v8 eval "
+const a = __dun_v8shim_diag__();
+const b = __dun_v8shim_diag__();
+console.log('a.probe=' + a.probe + ' b.probe=' + b.probe);
+console.log('a.totalAllocs=' + a.totalAllocs + ' b.totalAllocs=' + b.totalAllocs);
+"
+a.probe=1 b.probe=2
+a.totalAllocs=663 b.totalAllocs=670
+```
+
+What this proves:
+- **`shimVersion()` returns the C++ string constant** — the
+  D side reads `v8shim-1.1.25` from the C++ literal, no
+  copy, no allocation.
+- **`probeBumpCounter()` actually invokes the method** —
+  consecutive calls return 1, then 2. If LDC had inlined a
+  constant at the call site (instead of emitting the
+  Itanium-mangled call), both calls would return the same
+  value.
+- **`totalAllocs()` returns live counter state** —
+  663 → 670 in 7 allocs of D→V8 traffic (the `console.log`
+  string + JSON output + the diag object itself).
+- **No `extern "C"` shim wrapper exists** — the call chain
+  is `D (jsV8ShimDiag) → extern(C++) call → C++ Diagnostics::*`.
+  Verified by `nm dun-rel-v8 | grep dun_v8shim_diag` returning
+  nothing (no shim symbol).
+
+Permanent regression fixture:
+`tests/integration/fixtures/v8shim_extern_cpp.js` (5 checks,
+V8-only via `.backends` sidecar).
+
+### 10.4 What this updates in §2.4½
+
+The "extern(C++, ns) doesn't save us" claim still stands, but
+the boundaries are sharper than the original case study admitted:
+
+| Case | Works with extern(C++, ns) alone? | DunJS evidence |
+|------|----------------------------------|----------------|
+| Free function in namespace | **Yes** | `v8::platform::NewDefaultPlatform` already used |
+| Static method on class | **Yes** | `v8::V8::GetVersion` already used; **`v8shim::Diagnostics::*` validated end-to-end this PR** |
+| Static method calling templates **internally** | **Yes** (as long as the C++ side does the instantiation) | This PR — `Diagnostics::*` calls `g_value_pool.count` (a templated struct field), works fine because the C++ side resolves the template |
+| Instance method (non-virtual) | Yes in theory; vtable layout match required | Not validated — DunJS doesn't need it |
+| Instance method (virtual) | **Hard** — vtable layout must match exactly; ABI compat across V8/JSC point releases is not guaranteed | Documented hazard; not attempted |
+| Template function (D supplies type) | **No** — D can't trigger C++ template instantiation | Confirmed by case study; pattern: write a C++ wrapper that does the instantiation, then bind to the wrapper via extern(C++) |
+| `MakeGarbageCollected<T>` from D directly | **No** — see template-function row above | This is what blocks the cppgc bridge |
+
+**Net for the cppgc question**: the FFI path itself is not the
+blocker. We can call `cppgc::Heap` static methods from D today
+via `extern(C++, "cppgc")`. The blocker remains the typed-Trace
+contract (§2.2) and the thread-affinity model (§4.3), both of
+which are inherent to cppgc's design and orthogonal to the
+binding mechanism.
+
+### 10.5 Code added in this PR
+
+- `vendor/v8shim/v8shim.cpp` — `namespace v8shim { class
+  Diagnostics { ... }; }`, plus 2 `std::atomic` counters
+  hooked into `wrapValue` / `dun_v8_value_unref`.
+- `source/dun/engine/v8/cppbindings.d` — `extern(C++, "v8shim")
+  extern class Diagnostics { static: ... }` binding block.
+- `source/dun/runtime/v8shim_diag.d` — new module installing
+  `globalThis.__dun_v8shim_diag__()` on the V8 backend.
+- `source/dun/runtime/globals.d` — `version (EngineV8)` calls
+  `installV8ShimDiag(engine)`.
+- `tests/integration/fixtures/v8shim_extern_cpp.{js,backends}`
+  + `expected/v8shim_extern_cpp.txt` — permanent regression
+  fixture; 5 checks; V8-only (the `.backends` sidecar tells
+  the integration runner to skip on QJS/JSC).
+
+The diagnostics global itself is useful operationally — Worker
+leak hunting, FFI rate measurement, allocator-pool depth
+profiling. Not just an FFI demo. Documented in
+`CLAUDE.md` (next §) for discovery.

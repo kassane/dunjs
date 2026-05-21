@@ -8,6 +8,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <array>
+#include <atomic>
 #include <memory>
 #ifdef __linux__
 #include <unistd.h>
@@ -156,7 +157,70 @@ struct ValuePool {
 };
 
 static thread_local ValuePool g_value_pool;
+
+// Allocation counters — used by v8shim::Diagnostics below. Atomic so a
+// concurrent diagnostic read across worker threads is well-defined.
+static std::atomic<size_t> g_alloc_count{0};
+static std::atomic<size_t> g_release_count{0};
 } // anon namespace
+
+// Bind-via-extern(C++, "v8shim") demonstration. This class is what D
+// code reaches via `extern(C++, "v8shim")` static-method declarations
+// in source/dun/engine/v8/cppbindings.d — no extern "C" shim wrapper
+// between them. Forces the Itanium ABI mangling path from D into a
+// real production C++ class. See docs/research/custom-gc-v8-jsc.md
+// §2.4½ for the FFI strategy rationale.
+namespace v8shim {
+
+class Diagnostics {
+public:
+    // Per-thread DunV8Value free-list depth (how many wrappers are
+    // recyclable without hitting `new`).
+    static size_t valuePoolFreeCount() noexcept;
+
+    // Lifetime allocation counters (atomic, may be > 2^32 on long runs).
+    static size_t totalAllocs() noexcept;
+    static size_t totalReleases() noexcept;
+    static size_t liveCount() noexcept;
+
+    // Shim version string. Constant — no allocation, no copy.
+    static const char* shimVersion() noexcept;
+
+    // Sentinel value used by the FFI smoke test in
+    // tests/integration/fixtures/v8shim_extern_cpp.js. Bumps every
+    // call to verify the linkage actually invokes this method on
+    // each call (not e.g. a constant inlined at the call site).
+    static int probeBumpCounter() noexcept;
+};
+
+size_t Diagnostics::valuePoolFreeCount() noexcept {
+    return g_value_pool.count;
+}
+
+size_t Diagnostics::totalAllocs() noexcept {
+    return g_alloc_count.load(std::memory_order_relaxed);
+}
+
+size_t Diagnostics::totalReleases() noexcept {
+    return g_release_count.load(std::memory_order_relaxed);
+}
+
+size_t Diagnostics::liveCount() noexcept {
+    auto a = g_alloc_count.load(std::memory_order_relaxed);
+    auto r = g_release_count.load(std::memory_order_relaxed);
+    return a > r ? (a - r) : 0;
+}
+
+const char* Diagnostics::shimVersion() noexcept {
+    return "v8shim-1.1.25";
+}
+
+int Diagnostics::probeBumpCounter() noexcept {
+    static std::atomic<int> probe{0};
+    return probe.fetch_add(1, std::memory_order_relaxed) + 1;
+}
+
+} // namespace v8shim
 
 [[nodiscard]] static DunV8Value* wrapValue(DunV8Isolate* iw, v8::Local<v8::Value> val) {
     auto* wrapped = g_value_pool.acquire();
@@ -164,6 +228,7 @@ static thread_local ValuePool g_value_pool;
     wrapped->isolate_wrapper = iw;
     wrapped->ref_count = 1;
     wrapped->is_borrowed = 0;
+    g_alloc_count.fetch_add(1, std::memory_order_relaxed);
     return wrapped;
 }
 
@@ -777,6 +842,7 @@ void dun_v8_value_unref(DunV8Value* vw) {
             vw->value.Reset();
         }
         g_value_pool.release(vw);
+        g_release_count.fetch_add(1, std::memory_order_relaxed);
     }
 }
 

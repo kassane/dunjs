@@ -108,6 +108,37 @@ version (EngineV8)
         void* NewDefaultPlatform(int thread_pool_size = 0);
     }
 
+    // ─────────────────────────────────────────────────────────────
+    // extern(C++, "v8shim") — DunJS's own C++ class, called from D
+    // without an extern(C) shim layer. Validates the FFI path
+    // documented in docs/research/custom-gc-v8-jsc.md §2.4½:
+    // static-method-only C++ classes bind directly via Itanium ABI
+    // mangling (verified in tools/bindgen_tests/test_ffi_linkage.d).
+    // The implementation lives in vendor/v8shim/v8shim.cpp under
+    // `namespace v8shim { class Diagnostics { ... }; }`.
+    // ─────────────────────────────────────────────────────────────
+    extern (C++, "v8shim")
+    {
+        extern class Diagnostics
+        {
+        static:
+            // Thread-local DunV8Value free-list depth.
+            size_t valuePoolFreeCount() nothrow @nogc;
+            // Cumulative wrapValue counter (≥ release count).
+            size_t totalAllocs() nothrow @nogc;
+            // Cumulative dun_v8_value_unref destroy-path counter.
+            size_t totalReleases() nothrow @nogc;
+            // alloc - release (in-flight DunV8Value count).
+            size_t liveCount() nothrow @nogc;
+            // Constant version string (no copy, no alloc).
+            const(char)* shimVersion() nothrow @nogc;
+            // Per-call bump — used by the FFI smoke fixture to prove
+            // the binding actually invokes the C++ method (not a
+            // const inlined into the call site).
+            int probeBumpCounter() nothrow @nogc;
+        }
+    }
+
     extern (C) nothrow @nogc
     {
         const(char)* dun_v8_version();
