@@ -613,6 +613,27 @@ production-blockers list is empty as of v0.4.0; every blocker
 has either landed or has a documented design-level rationale
 below.
 
+## Handoff
+
+[HANDOFF.md](HANDOFF.md) is the living handoff document — read
+it first if you're new to the project or returning after a gap.
+It cross-links to this file, [SECURITY.md](SECURITY.md), and
+[TESTING.md](TESTING.md), and tracks:
+
+- The CVE classes recently reviewed (with verdict per class —
+  fixed, not vulnerable, deferred)
+- The exact build & test recipe (also matches `/all-backends
+  release` + `/integration-sweep` + `/bench-compare`)
+- Known issues / deferred work (JSC `bun_v7_additions` SKIP,
+  Dockerfile `icudtl.dat` staging, QJS Worker+setTimeout race,
+  fuzzer harness gap)
+- Open questions for the next maintainer (CVE intake cadence,
+  N-API stability gate, Bun parity drift, LDC version pin)
+
+When you finish a session that touches production-relevant
+state — CVE-class fix, new builtin, version bump — append to
+HANDOFF.md and update the "Current state" table at the top.
+
 ## Won't-fix design constraints
 
 - **Native `.node` addons that bypass N-API.** Things that
