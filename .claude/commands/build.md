@@ -51,7 +51,7 @@ LDC-specific flags applied on `-b release` (`dflags-ldc`):
 | `-O3` | LLVM aggressive optimization |
 | `--release` | Strip contracts / invariants / asserts |
 | `--boundscheck=off` | No `RangeError` instrumentation in array indexing |
-| `--mcpu=native` | Tune for the host CPU (makes the binary non-portable; strip for shipping) |
+| `--mcpu=native` | Tune for the host CPU. **Prefer an explicit CPU name** (`x86-64-v3`, `znver4`, `apple-m2`, …) — `native` ties the binary to the build host and can produce surprising / under-specified feature sets, especially on WASM and embedded targets ([ldc-developers/ldc#4919](https://github.com/ldc-developers/ldc/issues/4919)). To see exactly what features LDC will emit for a given target, run `ldc2 --mtriple=<triple> -mcpu=<cpu> -vv` first — its output shows the resolved feature set so you can lock it in via `-mattr=+feature1,-feature2` if anything's missing |
 | `--flto=thin` | ThinLTO — cross-module inlining at link time. Faster than full LTO, far less memory; nearly the same optimization quality |
 | `--fno-plt` | Skip PLT indirection on shared-lib calls |
 | `--frame-pointer=none` | Free a register on AMD64 |
@@ -59,11 +59,26 @@ LDC-specific flags applied on `-b release` (`dflags-ldc`):
 | `--inline-threshold=350` | Larger inline budget (default 225) |
 | `--hot-cold-split` | Move rarely-executed code to `.text.unlikely` to keep the icache hot |
 
-Strip `--mcpu=native` before shipping a release binary:
+**Override `--mcpu=native` with an explicit baseline before shipping** —
+`native` is meant for local benches, not release artifacts. First
+inspect the feature set LDC will emit, then pick the lowest CPU
+that still has everything you need:
 
 ```sh
-DFLAGS="--mcpu=x86-64-v3" dub build -c quickjs -b release  # AVX2 baseline
+# Inspect what LDC sees for a given target (no compile)
+ldc2 --mtriple=x86_64-linux-gnu  -mcpu=x86-64-v3 -vv | grep -E '^(Target|Features:)'
+ldc2 --mtriple=aarch64-linux-gnu -mcpu=neoverse-n1 -vv | grep -E '^(Target|Features:)'
+
+# Lock in an explicit CPU + optional extra features
+DFLAGS="--mcpu=x86-64-v3" dub build -c quickjs -b release                 # AVX2 baseline (2013+)
+DFLAGS="--mcpu=x86-64    --mattr=+sse4.2,+aes,+pclmul" dub build -c quickjs -b release
+DFLAGS="--mcpu=x86-64-v2" dub build -c quickjs -b release                 # SSE4.2 baseline (2009+)
 ```
+
+Reference: https://github.com/ldc-developers/ldc/issues/4919 — illustrates
+how `--mcpu=native` (and even named CPUs on under-defined targets) can
+silently emit an empty or under-specified feature set, so always
+verify via `-vv` before relying on the codegen.
 
 ### 2b. PGO release (`-b release-pgo-gen` → `-b release-pgo`)
 

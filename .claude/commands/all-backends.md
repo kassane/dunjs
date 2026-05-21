@@ -50,9 +50,15 @@ times during the runtime-parity session.
 - **JSC linker order:** adding libs to top-level `libs-linux` in `dub.json` reorders the JSC config's libs, breaking ICU resolution. Use `lflags-linux: ["-l<name>"]` instead.
 - **V8 needs `--link-internally`:** V8 14.9 monolith uses CREL relocations; only LDC's internal LLVM21 linker handles them.
 - **ICU mismatch on Ubuntu noble:** system has libicu74 but JSC needs symbols `_75`. The static `libicu*.a` in `vendor/jsc/lib/` provide them — they must be linked before libWTF (JSC config's `libs-linux` order matters).
-- **Release binaries are non-portable.** `dub build -b release` passes `--mcpu=native` (see `/build` for the full release-flag breakdown). The staged `./dun-rel-{qjs,jsc,v8}` only run on the build host's CPU family. If you need a tarball for a different machine, override:
+- **Avoid `--mcpu=native` for anything you'll ship.** The default `release` buildType in `dub.json` uses `--mcpu=native` so the side-by-side `./dun-rel-{qjs,jsc,v8}` binaries are tuned to the build host — fine for local benches, wrong for distribution. `native` can also silently produce under-specified feature sets on cross or embedded targets (see [ldc-developers/ldc#4919](https://github.com/ldc-developers/ldc/issues/4919)). Always inspect what LDC will actually emit, then pin an explicit CPU:
   ```sh
-  DFLAGS="--mcpu=x86-64-v3" dub build -c quickjs -b release  # AVX2 baseline
-  DFLAGS="--mcpu=x86-64"    dub build -c quickjs -b release  # generic AMD64
+  # Inspect first — shows resolved Target + Features list, no codegen
+  ldc2 --mtriple=x86_64-linux-gnu -mcpu=x86-64-v3 -vv | grep -E '^(Target|Features:)'
+
+  # Then pin the explicit CPU
+  DFLAGS="--mcpu=x86-64-v3" dub build -c quickjs -b release   # AVX2 baseline (2013+)
+  DFLAGS="--mcpu=x86-64-v2" dub build -c quickjs -b release   # SSE4.2 baseline (2009+)
+  DFLAGS="--mcpu=x86-64"    dub build -c quickjs -b release   # generic AMD64
   ```
+  See `/build` for the full release-flag breakdown.
 - **PGO binaries are even less portable** — `release-pgo` binaries are tuned for the workload that produced `build/dun.profdata`. Don't rebuild PGO with a stale `.profdata` from a different DunJS commit, or `ldc-profdata merge` will silently produce a profile that misses your new code paths. See `/build` for the full PGO recipe.
