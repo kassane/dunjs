@@ -414,7 +414,7 @@
 	"cImportPaths": [
 		"vendor/sqlite",
 		"vendor/brotli",
-		"vendor/brotli/include",
+		"vendor/brotli/src/c/include",
 		"vendor/lsquic"
 	]
 }
