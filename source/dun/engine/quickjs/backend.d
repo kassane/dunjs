@@ -256,6 +256,15 @@ class QuickJSEngine : IJSEngine
         return newBufferWithProto(cast(const(ubyte)[]) s, proto, false);
     }
 
+    JSHandle bufferConcatFused(JSHandle arrayHandle, int count,
+        size_t totalLen, JSHandle proto) @trusted
+    {
+        // QuickJS doesn't have an FFI-overhead asymmetry the V8 fused
+        // path is built to compensate for. Return empty so the caller
+        // falls back to the generic engine-agnostic loop in buffer.d.
+        return JSHandle.init;
+    }
+
     void setPropertyIndex(JSHandle obj, uint idx, JSHandle val) @trusted
     {
         assert(ctx !is null, "Engine not initialized");

@@ -75,6 +75,14 @@ void dun_v8_set_property(DunV8Context* ctx, DunV8Value* obj, const char* name, D
 void dun_v8_set_prototype(DunV8Context* ctx, DunV8Value* obj, DunV8Value* proto);
 DunV8Value* dun_v8_new_uint8array_with_proto(DunV8Context* ctx, const unsigned char* data, size_t len, DunV8Value* proto, int zeroed);
 DunV8Value* dun_v8_buffer_from_utf8_string(DunV8Context* ctx, DunV8Value* jsString, DunV8Value* proto);
+/* Buffer.concat fused fast-path: iterates a JS array of Buffer/Uint8Array
+   elements, allocates a single Uint8Array of `total_len` bytes, memcpy's
+   each element's backing store in order, sets the Buffer prototype, and
+   returns the result. Replaces ~3+2N FFI scope entries with one — the
+   per-element work (getPropertyIndex + getTypedArrayBytes + freeValue)
+   stays inside a single withContext. */
+DunV8Value* dun_v8_buffer_concat(DunV8Context* ctx, DunV8Value* arrayHandle,
+    int count, size_t total_len, DunV8Value* proto);
 DunV8Value* dun_v8_get_property_index(DunV8Context* ctx, DunV8Value* obj, unsigned int idx);
 void dun_v8_set_property_index(DunV8Context* ctx, DunV8Value* obj, unsigned int idx, DunV8Value* val);
 DunV8Value* dun_v8_global(DunV8Context* ctx);
