@@ -338,9 +338,14 @@ Applied across all 7 layers (~290 assertions in 25 files).
 ### C++ FFI with D
 
 ```d
-// Direct C++ interop via extern(C++) -- only safe for static methods
+// Direct C++ interop via extern(C++) — `extern(C++, class) struct`
+// matches C++ class-as-value-type semantics. D class would emit a
+// vtable slot that C++ static-method classes don't have. See
+// docs/research/custom-gc-v8-jsc.md §3.1 for the full mapping +
+// the template-instantiation pattern (extern(C++, class) struct T(int N)
+// + alias TN = T!N;).
 extern(C++, "v8") {
-    extern class V8 {
+    extern(C++, class) struct V8 {
     static:
         const(char)* GetVersion();
         bool Initialize();

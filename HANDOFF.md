@@ -7,10 +7,9 @@ and the gotchas that bite you on day one. Read alongside
 
 ## Current state (v1.1.25)
 
-- Integration sweep: **155/155 + 1 new fixture** on QJS / V8
-  (156/156), **154/154 + 1 SKIP + 1 new fixture** on JSC
-  (155/155 + 1 SKIP). New fixture is `cve_priv_files.js` (8/8
-  on every backend) for the v1.1.25 sandbox-bypass fix below.
+- Integration sweep: **156/156** on QJS / V8, **155/155 + 1 SKIP**
+  on JSC. The `cve_priv_files.js` fixture (8/8) added in v1.1.25
+  regression-tests the sandbox-bypass fix (CVE-2024-34346 class).
 - Unit tests: **71/71** clean.
 - Backends: QuickJS-NG **0.14.0**, JavaScriptCore (prebuilt
   WebKit), V8 **15.0.91** (via `vendor/v8shim/`). All three
