@@ -5,13 +5,6 @@ import dun.loop.timers : TimerID;
 import dun.runtime.globals : DunState;
 import core.time : dur;
 
-// Cached `(o,id) => { o.valueOf=...; o[Symbol.toPrimitive]=...; }`
-// for numeric-coercion of timer-id objects. Used by every
-// setTimeout / setInterval call -- caching eliminates an
-// `engine.eval()` per timer creation.
-private __gshared JSHandle _cachedTimerSetupFn;
-private __gshared bool _timerSetupCached = false;
-
 void installTimers(IJSEngine engine) @trusted
 {
     assert(engine !is null, "Null engine");
@@ -26,17 +19,6 @@ void installTimers(IJSEngine engine) @trusted
         engine.newFunction(&jsClearTimer, "clearTimeout", 1));
     engine.setProperty(global, "clearInterval",
         engine.newFunction(&jsClearTimer, "clearInterval", 1));
-
-    auto setupRes = engine.eval(
-        "(function(o,id){o.valueOf=function(){return id};"
-        ~ "o[Symbol.toPrimitive]=function(){return id};})", "<timer-setup>");
-    if (!setupRes.isError)
-    {
-        _cachedTimerSetupFn = setupRes.value;
-        _timerSetupCached = true;
-    }
-    else
-        engine.freeValue(setupRes.value);
 }
 
 private:
@@ -135,19 +117,23 @@ JSHandle makeTimerObject(IJSEngine engine, int id) @trusted
     // valueOf + Symbol.toPrimitive for numeric coercion (clearTimeout(timer) compat).
     // Uses the cached setup fn registered in installTimers -- avoids an
     // engine.eval per call (this path runs on every setTimeout/setInterval).
-    if (_timerSetupCached)
-    {
-        auto idVal = engine.newInt(id);
-        auto undef = engine.newUndefined();
-        // dupValue: keep the cached function alive for the next call.
-        // The result handle is undefined; free it to avoid the
-        // per-timer leak the audit flagged.
-        auto rv = engine.callFunction(engine.dupValue(_cachedTimerSetupFn),
-            undef, [obj, idVal]);
-        engine.freeValue(rv);
-        engine.freeValue(idVal);
-        engine.freeValue(undef);
-    }
+    /* valueOf: native D callback that reads `this._id`. Replaces the
+       v1.1.5-v1.1.21 cached JS setup-fn approach which reliably crashed
+       QJS's `add_shape_property` when invoked from a setTimeout
+       callback that creates another setTimeout AND a Worker had been
+       constructed earlier (gdb-traced — the cached fn's bytecode
+       referenced a `Function.prototype` shape ID that QJS's shape
+       table had reorged after the Worker installer's heavy install-
+       time JS eval). Native callback works on all 3 backends + doesn't
+       depend on JS-side shape state. clearTimeout also accepts the raw
+       timer object directly (see jsClearTimer at line 105), so most
+       code doesn't even need this; valueOf is for Node compat where
+       `+timer === id` is observable. Symbol.toPrimitive is skipped on
+       QJS for the same QJS-specific shape-fragility reason; the rare
+       caller that explicitly invokes `[Symbol.toPrimitive]('number')`
+       on a timer hits the valueOf fallback through Number() coercion. */
+    engine.setProperty(obj, "valueOf",
+        engine.newFunction(&jsTimerValueOf, "valueOf", 0));
 
     return obj;
 }
@@ -171,4 +157,18 @@ JSHandle jsTimerHasRef(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trus
     assert(ctx !is null);
     auto state = cast(DunState*) ctx;
     return state.engine.newBool(true);
+}
+
+/// `+timer` → reads `this._id` via a native fast path. Replaces the
+/// crash-prone cached JS setup-fn (see comment at makeTimerObject).
+JSHandle jsTimerValueOf(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
+{
+    assert(ctx !is null);
+    auto state = cast(DunState*) ctx;
+    auto engine = state.engine;
+    auto idProp = engine.getProperty(thisVal, "_id");
+    scope(exit) engine.freeValue(idProp);
+    if (!engine.isNumber(idProp))
+        return engine.newInt(0);
+    return engine.newInt(engine.extractInt(idProp));
 }
