@@ -50,3 +50,9 @@ times during the runtime-parity session.
 - **JSC linker order:** adding libs to top-level `libs-linux` in `dub.json` reorders the JSC config's libs, breaking ICU resolution. Use `lflags-linux: ["-l<name>"]` instead.
 - **V8 needs `--link-internally`:** V8 14.9 monolith uses CREL relocations; only LDC's internal LLVM21 linker handles them.
 - **ICU mismatch on Ubuntu noble:** system has libicu74 but JSC needs symbols `_75`. The static `libicu*.a` in `vendor/jsc/lib/` provide them — they must be linked before libWTF (JSC config's `libs-linux` order matters).
+- **Release binaries are non-portable.** `dub build -b release` passes `--mcpu=native` (see `/build` for the full release-flag breakdown). The staged `./dun-rel-{qjs,jsc,v8}` only run on the build host's CPU family. If you need a tarball for a different machine, override:
+  ```sh
+  DFLAGS="--mcpu=x86-64-v3" dub build -c quickjs -b release  # AVX2 baseline
+  DFLAGS="--mcpu=x86-64"    dub build -c quickjs -b release  # generic AMD64
+  ```
+- **PGO binaries are even less portable** — `release-pgo` binaries are tuned for the workload that produced `build/dun.profdata`. Don't rebuild PGO with a stale `.profdata` from a different DunJS commit, or `ldc-profdata merge` will silently produce a profile that misses your new code paths. See `/build` for the full PGO recipe.

@@ -86,28 +86,11 @@ cross-runtime testing.
 
 | Flag | Purpose |
 |------|---------|
-| `-b release` | Optimized build (`-O3 --release --boundscheck=off --mcpu=native --flto=thin --hot-cold-split` …) |
+| `-b release` | Optimized build (recommended for any non-debug use) |
 | `-b debug` | Default — full assertions, slower runtime |
-| `-b release-pgo-gen` | Instrumented build that writes `build/dun-<pid>.profraw` at runtime ([PGO recipe](./performance.md#profile-guided-optimization-pgo)) |
-| `-b release-pgo` | Final optimized build that consumes `build/dun.profdata` (merge via `ldc-profdata merge`) |
 | `-b asan` | AddressSanitizer instrumentation (memory bug hunting) |
 | `-b tsan` | ThreadSanitizer (race condition hunting) |
 | `--force` | Force rebuild (useful when changing branches) |
-
-LDC-only options that aren't tied to a build type:
-
-```sh
-# Speed up incremental rebuilds with the IR-level object cache
-DFLAGS="--ir2obj-cache=$HOME/.cache/dun-ldc-cache" dub build -c quickjs
-
-# Strip --mcpu=native to ship a portable release binary
-DFLAGS="--mcpu=x86-64-v3" dub build -c quickjs -b release
-```
-
-See [Performance — LDC compiler features](./performance.md#ldc-compiler-features)
-for the rationale behind each release flag, the PGO recipe, and the
-`ldc.attributes` / `ldc.intrinsics` / `ldc.simd` patterns DunJS uses
-in hot paths.
 
 ## Troubleshooting
 

@@ -136,6 +136,70 @@ If the bug only triggers in a multi-benchmark sequence:
   pattern. Same warning for headers flattener, JSON parse paths,
   and any other "eval per call" code.
 
+## LDC sanitizers — when gdb isn't enough
+
+LDC ships AddressSanitizer + ThreadSanitizer + libFuzzer (LLVM-backed,
+same flags as Clang). DunJS pre-wires ASan/TSan as DUB build types.
+
+### AddressSanitizer (`-b asan`)
+
+Use when gdb shows a segfault but no useful stack — ASan turns
+buffer overflows / use-after-free / double-free into a precise
+"READ/WRITE of size N at address X, allocated here / freed here"
+report with stack traces on both sides. Same flag as Clang/GCC:
+`-fsanitize=address`. Reference: Johan Engelen's writeup at
+https://johanengelen.github.io/posts/2017-12-25-ldc-and-addresssanitizer/
+(found a real bug in `core/atomic.d`, fixed in LDC 1.4.0).
+
+```sh
+dub build -c quickjs -b asan
+# LSan often false-positives on D's GC roots — disable on integration sweeps
+ASAN_OPTIONS=detect_leaks=0 ./build/dun run --allow-all /tmp/repro.js
+ASAN_OPTIONS=detect_leaks=0 bash tests/integration/run.sh   # full 155/155 sweep
+```
+
+ASan symbolicates D mangled names automatically. The runtime-overhead
+is ~2-3× — usable for repros, too slow for benchmarks.
+
+### ThreadSanitizer (`-b tsan`)
+
+Use when a Worker / SAB / Atomics test crashes intermittently or
+the test passes solo but fails under sweep heap-load. TSan reports
+data races between threads with both stack traces.
+
+```sh
+dub build -c quickjs -b tsan
+./build/dun run --allow-all /tmp/repro_workers.js
+```
+
+DunJS's worker pool is TSan-clean modulo intentional daemon worker
+threads (the daemon threads use lockfree primitives audited by hand).
+A new TSan failure means a real race in your change.
+
+### libFuzzer (`-fsanitize=fuzzer`, LDC 1.4.0+)
+
+For finding parser / type-stripper / JSON / URL / regex inputs that
+crash. Not pre-wired as a DUB build type — add to a target's
+`dflags-ldc` ad hoc:
+
+```d
+// /tmp/fuzz_strip.d
+import dun.ts.strip;
+extern(C) int LLVMFuzzerTestOneInput(const(ubyte)* data, size_t len) {
+    auto src = cast(const(char)[]) data[0 .. len];
+    try { auto _ = stripTypes(src.idup); } catch (Exception) {}
+    return 0;
+}
+```
+
+```sh
+ldc2 -fsanitize=fuzzer -fsanitize=address -O1 -g \
+     -of=fuzz_strip /tmp/fuzz_strip.d source/dun/ts/strip.d
+./fuzz_strip -max_len=4096 corpus/
+```
+
+Reference: https://johanengelen.github.io/posts/2018-01-14-fuzzing-with-ldc/
+
 ## CVE-class fixes (regression-tested)
 
 Whenever you fix a CVE-class bug or correctness root cause:

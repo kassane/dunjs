@@ -42,6 +42,79 @@ dub build -c v8                   # V8 debug
 dub build -c quickjs -b release   # QuickJS release (optimized + stripped)
 ```
 
+#### Release flag breakdown (from `dub.json` `release` buildType)
+
+LDC-specific flags applied on `-b release` (`dflags-ldc`):
+
+| Flag | Effect |
+|------|--------|
+| `-O3` | LLVM aggressive optimization |
+| `--release` | Strip contracts / invariants / asserts |
+| `--boundscheck=off` | No `RangeError` instrumentation in array indexing |
+| `--mcpu=native` | Tune for the host CPU (makes the binary non-portable; strip for shipping) |
+| `--flto=thin` | ThinLTO — cross-module inlining at link time. Faster than full LTO, far less memory; nearly the same optimization quality |
+| `--fno-plt` | Skip PLT indirection on shared-lib calls |
+| `--frame-pointer=none` | Free a register on AMD64 |
+| `--linkonce-templates` | Merge identical template instantiations across TUs |
+| `--inline-threshold=350` | Larger inline budget (default 225) |
+| `--hot-cold-split` | Move rarely-executed code to `.text.unlikely` to keep the icache hot |
+
+Strip `--mcpu=native` before shipping a release binary:
+
+```sh
+DFLAGS="--mcpu=x86-64-v3" dub build -c quickjs -b release  # AVX2 baseline
+```
+
+### 2b. PGO release (`-b release-pgo-gen` → `-b release-pgo`)
+
+Profile-Guided Optimization recipe. Real-world gain on the LDC
+front-end itself was ~7% per the LDC-author writeup; expect similar
+or better on a JIT-heavy embedder like `dun`.
+
+```sh
+# 1. Instrumented build (writes build/dun-<pid>.profraw at runtime)
+dub build -c quickjs -b release-pgo-gen
+
+# 2. Run representative workloads to collect profile data
+./build/dun run --allow-all tests/benchmarks/feature_bench.js
+./build/dun run --allow-all tests/benchmarks/framework_bench.js
+bash tests/benchmarks/http_bench/stress.sh
+
+# 3. Merge .profraw files into build/dun.profdata
+ldc-profdata merge -o build/dun.profdata build/dun-*.profraw
+
+# 4. Final optimized build using the profile
+dub build -c quickjs -b release-pgo
+```
+
+PGO build types are defined in `dub.json`:
+- `release-pgo-gen`: `-O3 --release --boundscheck=off --mcpu=native --fprofile-instr-generate=build/dun-%m.profraw` + `-lldc_rt.profile`
+- `release-pgo`: same release flags + ThinLTO + `--fprofile-instr-use=build/dun.profdata`
+
+Only profile what you want optimized — PGO only speeds up paths it sees.
+
+### 2c. Incremental builds with `--ir2obj-cache`
+
+LDC can skip codegen for unchanged modules. The author measured
+5m50 → 2m30 on the LDC front-end with 100% cache hit (optimization
+and codegen both skip; only linking runs).
+
+```sh
+DFLAGS="--ir2obj-cache=$HOME/.cache/dun-ldc-cache" dub build -c quickjs
+```
+
+Prune (avoid the cache eating multiple GiB):
+
+```sh
+ldc-prune-cache --max-bytes=2147483648 $HOME/.cache/dun-ldc-cache  # cap to 2 GiB
+# OR
+ldc-prune-cache --max-percentage-of-avail=75 $HOME/.cache/dun-ldc-cache  # default
+```
+
+The cache lives outside the DUB build tree and survives `dub clean`.
+Reference: https://johanengelen.github.io/ldc/2016/09/17/LDC-object-file-caching.html
+
+
 ### 3. Test
 
 ```sh
