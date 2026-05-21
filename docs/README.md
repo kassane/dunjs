@@ -134,16 +134,16 @@ const greet = (name: string): string => `Hello, ${name}!`;
 console.log(greet("DunJS"));
 ```
 
-## Performance snapshot (v1.1.16)
+## Performance snapshot (v1.1.23)
 
-| Bench | Bun 1.3 | Node 22 | dun-jsc | dun-v8 | dun-qjs |
-|---|---:|---:|---:|---:|---:|
-| feature_bench | 533M | 162M | **552M (+4%)** | 151M | 20M |
-| framework_bench | 250M | 169M | **292M (+17%)** | 163M | 16M |
-| npm_compat | 145/145 | 145/145 | 145/145 | 145/145 | 145/145 |
+| Bench | Bun 1.3 | Node 22 | Deno 2.7 | dun-jsc | dun-v8 | dun-qjs |
+|---|---:|---:|---:|---:|---:|---:|
+| feature_bench | 501M | 162M | 160M | **500M (~par)** | 161M | 23M |
+| framework_bench | 300M | 178M | 159M | **266M** | 164M | 17M |
+| npm_compat | 145/145 | 145/145 | 145/145 | 145/145 | 145/145 | 145/145 |
 
-DunJS JSC beats Bun on `feature_bench.js` since the v1.1.7 cached
-Response builder + v1.1.9 handle pin landed; v1.1.16 fs stream
-caching + `newUint8ArrayZeroedWithProto` fused primitive add
-incremental wins. See
+DunJS JSC is at parity with Bun on `feature_bench.js` since the
+v1.1.7 cached Response builder + v1.1.9 handle pin. v1.1.16-v1.1.20
+added fs stream caching + dgram cache + cluster cache + v8shim
+hot-path opts + jscpd-driven dedup. See
 [performance.md](./performance.md) for the per-endpoint breakdown.

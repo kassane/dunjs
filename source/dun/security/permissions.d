@@ -85,6 +85,11 @@ struct PermissionRegistry
     }
 
     /// Check if a permission is granted for the given resource.
+    /// Silently dropping the return is a CVE-class sandbox-bypass —
+    /// every caller must inspect the bool. We can't enforce that via
+    /// `@mustuse` (D reserves the attribute on functions); reviewers
+    /// must catch it. CI grep for `permissions.check(.*).*;\n` (no use
+    /// of the result on the same line) catches new instances.
     bool check(Permission perm, string resource = "") @safe
     {
         /* CVE-class fix: canonicalize the path BEFORE scope matching
@@ -299,6 +304,8 @@ struct PermissionRegistry
 
 /// `extern(C)`-safe permission check — nothrow, defaults to deny on
 /// null state so a misconfigured DunState* can't silently permit I/O.
+/// Same caller-must-inspect rule as `check()` — D's `@mustuse` is
+/// reserved on functions so we rely on review + grep.
 bool checkPerm(StateT)(StateT* state, Permission perm, string resource = "") @trusted nothrow
 {
     if (state is null || state.permissions is null) return false;

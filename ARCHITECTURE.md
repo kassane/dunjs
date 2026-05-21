@@ -6,7 +6,7 @@ DunJS is a 7-layer JavaScript/TypeScript runtime with a **pluggable engine archi
 (IJSEngine interface), a cross-platform I/O poller (epoll/kqueue/poll), and a Deno-inspired permission system.
 
 Three backends are fully functional: QuickJS-NG (default), JavaScriptCore, and V8.
-All 151 integration tests pass on QuickJS / V8 / JSC (sweep stable 3/3 since v1.1.9 JSC handle-pin fix).
+155/155 integration tests pass on QuickJS / V8; 154/154 + 1 SKIP on JSC (the SKIP is `bun_v7_additions`, a known JSC handle-pressure constraint with `deno_deploy_compat`).
 All built-in modules (see CLAUDE.md for the canonical list — 30+ including fs, path,
 crypto, net, http, http2, http3, buffer, events, url, os, fetch, child_process, stream,
 zlib, dns, ws, sqlite, util, assert, querystring, string_decoder, timers/promises, vm,
@@ -486,7 +486,7 @@ release builds, ops/sec — median of 3 runs):
 
 | Runtime | Total Throughput | Relative |
 |---------|-----------------|----------|
-| **DunJS JSC** | **552M** | **1.04x** |
+| **DunJS JSC** | **500M** | **1.00x** (par with Bun) |
 | Bun 1.3.14 | 533M | 1.00x |
 | Node.js 22.22.2 | 162M | 0.30x |
 | DunJS V8 | 151M | 0.28x |
@@ -497,13 +497,13 @@ tests, release builds, ops/sec — median of 3 runs):
 
 | Runtime | Total Throughput | Relative |
 |---------|-----------------|----------|
-| **DunJS JSC** | **292M** | **1.17x** |
+| **DunJS JSC** | **266M** | **0.89x** |
 | Bun 1.3.14 | 250M | 1.00x |
 | Node.js 22.22.2 | 169M | 0.68x |
 | DunJS V8 | 163M | 0.65x |
 | DunJS QuickJS | 16M | 0.06x |
 
-npm compat: **145/145** pass across all 5 runtimes (Bun, Node, dun-v8, dun-jsc, dun-qjs; full parity).
+npm compat: **145/145** pass across all 6 runtimes (Bun, Node, Deno, dun-v8, dun-jsc, dun-qjs; full parity).
 
 ## Design Decisions
 
@@ -604,4 +604,4 @@ tests/benchmarks/http_bench/
 HTTP server optimizations: TCP_NODELAY, buffered single-write response, CTFE pre-computed
 status lines, connection slot pooling, fd→connId hashmap (O(1) lookup), JS-level dispatch
 for reduced FFI overhead, lazy header loading, MSG_NOSIGNAL, EOF detection with RAII cleanup.
-**QuickJS 151/151, JSC 151/151, V8 151/151** (sweep stable 3/3 since v1.1.9 JSC cached-handle double-dup fix; `bun_v7_additions` SKIP resolved — `deno_deploy_compat` no longer flakes under sweep heap-load).
+**QuickJS 155/155, V8 155/155, JSC 154/154 + 1 SKIP** (`bun_v7_additions` — JSC handle-pressure conflict with `deno_deploy_compat`; cumulative v1.1.5 → v1.1.20 JSC handle-leak fix campaign reduced but didn't eliminate the per-request listener-chain leak that tips the threshold).

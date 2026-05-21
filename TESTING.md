@@ -23,7 +23,7 @@ dub test -c unittest    # All unit tests
 | V8 TMP bridge | `source/dun/engine/v8/cppbindings.d` | compile-time | V8TypeName coverage, tag->name mapping |
 | JSC TMP bridge | `source/dun/engine/jsc/cppbindings.d` | compile-time | JSCTypeName coverage, kJSType* alignment |
 
-### Integration Tests (151 tests, 145 npm-compat checks)
+### Integration Tests (155 tests on QJS/V8; 154 + 1 SKIP on JSC; 145 npm-compat checks)
 
 ```sh
 # Run against a specific backend
@@ -87,7 +87,7 @@ dub build -c v8  && BACKEND=v8  ./tests/integration/run.sh
 | **SIMD encoder audit (v1.1.3)** | `audit_simd` | 25 checks: hex boundary at 15/16/17 bytes (SIMD 16-byte cycle), 1MB hex content, GCM 16-byte tag, randomUUID format, HMAC hex, Buffer hex round-trip, latin1 high bytes 0x80-0xFF preserved |
 | **Round-trip correctness (v1.1.4)** | `audit_roundtrip` | 16 checks: extractString NUL handling, Buffer.from / Buffer.write / Buffer.toString round-trips for utf8 / latin1 / binary across all 256 byte values, JSON NUL round-trip, JSC source NUL handling |
 
-Backend test scores: **QuickJS 151/151**, **JSC 151/151**, **V8 151/151** — **0 failures** across all 3 backends. The historical `bun_v7_additions` SKIP on JSC was resolved by the v1.1.9 cached-handle pin fix (double-`dupValue` before `freeValue` of cached `__gshared` handles, eliminating the JSC protect-counter underflow that surfaced as `await fetch()` returning `undefined` under sweep heap-load); sweep stable 3/3 since.
+Backend test scores: **QuickJS 155/155**, **V8 155/155**, **JSC 154/154 + 1 SKIP** (`bun_v7_additions` — pre-existing JSC handle-pressure conflict with `deno_deploy_compat`; cumulative v1.1.5 → v1.1.20 handle-leak fix campaign reduced the per-request listener-chain leak but didn't fully eliminate it. Standalone `bun_v7_additions` passes 24/24 on JSC with the gate removed, but `deno_deploy_compat`'s 15 sequential `Deno.serve` cycles still tip the JSC concurrent-GC threshold. Documented in CHANGELOG #43a/#58d/#59a/#60d for a future v1.2.x worker-lifecycle pass).
 
 Test pattern: fixtures in `tests/integration/fixtures/*.{js,mjs,ts}`, expected stdout in `tests/integration/expected/*.txt`.
 
@@ -118,7 +118,7 @@ Cross-runtime comparison (feature_bench.js, 25 tests, release builds, ops/sec):
 
 | Runtime | Total Throughput | vs Bun |
 |---------|-----------------|--------|
-| **DunJS JSC** | **552M** | **1.04x** ⭐ |
+| **DunJS JSC** | **500M** | **1.00x** ⭐ (par with Bun) |
 | Bun 1.3.14 | 533M | 1.00x |
 | Node.js v22 | 162M | 0.30x |
 | DunJS V8 | 151M | 0.28x |
@@ -134,13 +134,13 @@ Framework benchmarks (framework_bench.js, 39 tests, release builds, ops/sec):
 
 | Runtime | Total Throughput | vs Bun |
 |---------|-----------------|--------|
-| **DunJS JSC** | **292M** | **1.17x** ⭐ |
+| **DunJS JSC** | **266M** | **0.89x** |
 | Bun 1.3.14 | 250M | 1.00x |
 | Node.js v22 | 169M | 0.68x |
 | DunJS V8 | 163M | 0.65x |
 | DunJS QuickJS | 16M | 0.06x |
 
-npm compat test (npm_compat_test.js, 145 assertions): **All 5 runtimes: 145/145 pass** (Bun, Node, dun-v8, dun-jsc, dun-qjs)
+npm compat test (npm_compat_test.js, 145 assertions): **All 6 runtimes: 145/145 pass** (Bun, Node, Deno, dun-v8, dun-jsc, dun-qjs)
 
 HTTP benchmarks (wrk, 2 threads, 128 connections, 5s per endpoint, release builds):
 
