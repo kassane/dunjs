@@ -51,7 +51,7 @@ LDC-specific flags applied on `-b release` (`dflags-ldc`):
 | `-O3` | LLVM aggressive optimization |
 | `--release` | Strip contracts / invariants / asserts |
 | `--boundscheck=off` | No `RangeError` instrumentation in array indexing |
-| `--mcpu=native` | Tune for the host CPU. **Prefer an explicit CPU name** (`x86-64-v3`, `znver4`, `apple-m2`, …) — `native` ties the binary to the build host and can produce surprising / under-specified feature sets, especially on WASM and embedded targets ([ldc-developers/ldc#4919](https://github.com/ldc-developers/ldc/issues/4919)). To see exactly what features LDC will emit for a given target, run `ldc2 --mtriple=<triple> -mcpu=<cpu> -vv` first — its output shows the resolved feature set so you can lock it in via `-mattr=+feature1,-feature2` if anything's missing |
+| (no `--mcpu=`) | `dub.json` deliberately does NOT set `--mcpu` on any release buildType. `--mcpu=native` ties the binary to the build host's exact CPU (`cascadelake`, `znver4`, …) and on cross / WASM / embedded targets even named CPUs like `x86-64-v3` or `wasm32 generic` can resolve to `features ''` ([ldc-developers/ldc#4919](https://github.com/ldc-developers/ldc/issues/4919) — reproduced on 1.42.0). LLVM picks a safe baseline by default. If you need a specific instruction set, add it ad-hoc via `DFLAGS="--mcpu=… --mattr=+…"` and inspect via `-vv` first (see below) |
 | `--flto=thin` | ThinLTO — cross-module inlining at link time. Faster than full LTO, far less memory; nearly the same optimization quality |
 | `--fno-plt` | Skip PLT indirection on shared-lib calls |
 | `--frame-pointer=none` | Free a register on AMD64 |
@@ -59,26 +59,46 @@ LDC-specific flags applied on `-b release` (`dflags-ldc`):
 | `--inline-threshold=350` | Larger inline budget (default 225) |
 | `--hot-cold-split` | Move rarely-executed code to `.text.unlikely` to keep the icache hot |
 
-**Override `--mcpu=native` with an explicit baseline before shipping** —
-`native` is meant for local benches, not release artifacts. First
-inspect the feature set LDC will emit, then pick the lowest CPU
-that still has everything you need:
+**Inspect what LDC will emit before adding `--mcpu` or `--mattr`** —
+`-vv` prints one line per target showing the resolved CPU + every
+feature it will (and won't) emit. This is how you avoid the empty-
+feature trap from #4919.
 
 ```sh
-# Inspect what LDC sees for a given target (no compile)
-ldc2 --mtriple=x86_64-linux-gnu  -mcpu=x86-64-v3 -vv | grep -E '^(Target|Features:)'
-ldc2 --mtriple=aarch64-linux-gnu -mcpu=neoverse-n1 -vv | grep -E '^(Target|Features:)'
+# Print the line that shows what LDC will codegen — single-line format:
+#   "Targeting '<triple>' (CPU '<cpu>' with features '<list>')"
+echo 'void main(){}' > /tmp/empty.d
+ldc2 --mcpu=native -vv /tmp/empty.d -of=/tmp/o 2>&1 | grep -i Targeting
 
-# Lock in an explicit CPU + optional extra features
-DFLAGS="--mcpu=x86-64-v3" dub build -c quickjs -b release                 # AVX2 baseline (2013+)
-DFLAGS="--mcpu=x86-64    --mattr=+sse4.2,+aes,+pclmul" dub build -c quickjs -b release
-DFLAGS="--mcpu=x86-64-v2" dub build -c quickjs -b release                 # SSE4.2 baseline (2009+)
+ldc2 --mtriple=x86_64-linux-gnu   -mcpu=x86-64-v3   -vv /tmp/empty.d -of=/tmp/o 2>&1 | grep -i Targeting
+ldc2 --mtriple=aarch64-linux-gnu  -mcpu=neoverse-n1 -vv /tmp/empty.d -of=/tmp/o 2>&1 | grep -i Targeting
+ldc2 --mtriple=wasm32-unknown-emscripten -mcpu=generic -vv /tmp/empty.d -of=/tmp/o 2>&1 | grep -i Targeting
 ```
 
-Reference: https://github.com/ldc-developers/ldc/issues/4919 — illustrates
-how `--mcpu=native` (and even named CPUs on under-defined targets) can
-silently emit an empty or under-specified feature set, so always
-verify via `-vv` before relying on the codegen.
+Reproduced on LDC 1.42.0:
+
+```
+Targeting 'x86_64-unknown-linux-gnu' (CPU 'cascadelake' with features '+prfchw,-cldemote,+avx,+aes,...')
+Targeting 'x86_64-unknown-linux-gnu' (CPU 'x86-64-v3' with features '')   # <-- empty!
+Targeting 'aarch64-unknown-linux-gnu' (CPU 'neoverse-n1' with features '') # <-- empty!
+Targeting 'wasm32-unknown-emscripten' (CPU 'generic' with features '')     # <-- empty! (#4919)
+```
+
+`--mcpu=native` expands to the host's full feature list explicitly.
+Named generic profiles report empty features — LLVM emits sensible
+defaults but you can't tell from `-vv` what those are. If you need
+specific instructions, add them with `--mattr` (they DO show up):
+
+```sh
+ldc2 --mtriple=x86_64-linux-gnu -mcpu=x86-64-v3 -mattr=+aes,+pclmul -vv /tmp/empty.d -of=/tmp/o 2>&1 | grep -i Targeting
+# -> Targeting '...' (CPU 'x86-64-v3' with features '+aes,+pclmul')
+```
+
+Recommended workflow: leave `dub.json` `--mcpu` unset (current state),
+add `DFLAGS="--mcpu=… --mattr=+…"` per-build when you have a specific
+target in mind, and always verify via `-vv` first.
+
+Reference: https://github.com/ldc-developers/ldc/issues/4919
 
 ### 2b. PGO release (`-b release-pgo-gen` → `-b release-pgo`)
 
