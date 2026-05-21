@@ -3,7 +3,7 @@
 How DunJS performs against Node, Deno, and Bun — and how to get the
 best out of it.
 
-## Cross-runtime benchmarks (v1.1.24)
+## Cross-runtime benchmarks (v1.1.25)
 
 ### feature_bench.js — JS compute throughput
 

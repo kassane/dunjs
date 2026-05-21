@@ -178,8 +178,17 @@ dub build -c quickjs -b release-pgo
 ```
 
 PGO build types are defined in `dub.json`:
-- `release-pgo-gen`: `-O3 --release --boundscheck=off --mcpu=native --fprofile-instr-generate=build/dun-%m.profraw` + `-lldc_rt.profile`
+- `release-pgo-gen`: `-O3 --release --boundscheck=off --fprofile-instr-generate=build/dun-%m.profraw` + lflags `--whole-archive -lldc_rt.profile --no-whole-archive`
 - `release-pgo`: same release flags + ThinLTO + `--fprofile-instr-use=build/dun.profdata`
+
+**Critical**: the `--whole-archive` wrapping around `-lldc_rt.profile` is
+required with LDC 1.42's internal linker. Without it the LLD pulls in
+only `__llvm_profile_instrument_target` (the symbol referenced by
+compile-time instrumentation calls) but not the 47 other symbols that
+make up the runtime — `__llvm_profile_begin_data`, `__llvm_profile_filename`,
+the registry, etc. The binary then runs but writes no `.profraw` file
+on exit. Verify with `nm build/dun | grep -c __llvm_profile_` — should
+be ≥ 48.
 
 Only profile what you want optimized — PGO only speeds up paths it sees.
 
