@@ -73,7 +73,18 @@ RUN mkdir -p vendor/sqlite vendor/v8/lib vendor/v8/include
 # Download and compile vendor deps (build.d selects linux-x64 or linux-arm64 prebuilt automatically)
 RUN ldc2 -run build.d --backend=${BACKEND} --force
 
-RUN dub build -c ${BACKEND} -b release \
+# Per-arch -mcpu / -mattr baselines. Mirrors Zig std.Target defaults
+# on LLVM 21 so we get a deterministic, portable CPU floor instead of
+# leaving features '' (per ldc-developers/ldc#4919, named generic
+# CPUs like x86-64-v3 resolve to empty feature sets).
+#   amd64: Haswell+ baseline (AVX2 + FMA + BMI2)
+#   arm64: ARMv8.0 + NEON, Cortex-A53 / Apple Silicon compatible
+RUN case "${TARGETARCH:-amd64}" in \
+      arm64) export DFLAGS="--mcpu=generic -mattr=+enable-select-opt,+ete,+fp-armv8,+fuse-adrp-add,+fuse-aes,+neon,+trbe,+use-postra-scheduler" ;; \
+      *)     export DFLAGS="--mcpu=x86-64-v3 -mattr=+64bit,+avx,+avx2,+bmi,+bmi2,+cmov,+crc32,+cx16,+cx8,+f16c,+fma,+fxsr,+lzcnt,+mmx,+movbe,+popcnt,+sahf,+sse,+sse2,+sse3,+sse4.1,+sse4.2,+ssse3,+x87,+xsave,+allow-light-256-bit,+false-deps-lzcnt-tzcnt,+false-deps-popcnt,+fast-15bytenop,+fast-scalar-fsqrt,+fast-shld-rotate,+fast-variable-crosslane-shuffle,+fast-variable-perlane-shuffle,+idivq-to-divl,+macrofusion,+nopl,+slow-3ops-lea,+vzeroupper" ;; \
+    esac \
+    && echo "DFLAGS=${DFLAGS}" \
+    && dub build -c ${BACKEND} -b release \
     && strip build/dun \
     && ls -la build/dun
 
