@@ -120,7 +120,7 @@ process.exit(0)
 process.platform   // "linux" | "darwin" | "win32"
 process.arch       // "x64" | "arm64" | ...
 process.version    // "v22.0.0" (set for Node parity)
-process.versions   // { node: "22.0.0", v8: "15.0.112", dun: "1.1.23", ... }
+process.versions   // { node: "22.0.0", v8: "15.0.112", dun: "1.1.24", ... }
 process.pid
 process.ppid
 process.uptime()
@@ -191,6 +191,8 @@ real Node.js apps that work on DunJS today.
 
 - [Deno compat](./deno-compat.md) — `Deno.*` APIs
 - [Bun compat](./bun-compat.md) — `Bun.*` APIs
-- [Web APIs](./web-apis.md) — the full WHATWG surface
+- [Built-ins index](./builtins/index.md) — full WHATWG surface
+  (`fetch`, `URL`, Web Streams, `crypto.subtle`, etc.) and Node-style
+  modules
 - [tests/benchmarks/npm_compat_test.js](../tests/benchmarks/npm_compat_test.js)
   — 145-check parity suite

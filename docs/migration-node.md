@@ -39,8 +39,8 @@ If your code uses:
   [TypeScript Support](./typescript.md))
 - npm packages installed via `npm install` (DunJS reads
   `node_modules/` and `package.json`)
-- N-API native addons (sharp, bcrypt, etc. — see
-  [N-API addons](./napi.md))
+- N-API native addons (sharp, bcrypt, etc. — 91 N-API functions
+  implemented)
 
 …then DunJS runs it. Drop in `dun run` + the right `--allow-*` flags.
 
@@ -79,7 +79,7 @@ Node returns `"v22.x.x"`; DunJS returns `"v22.0.0"` (we report
 the real DunJS version:
 
 ```js
-process.versions.dun     // "1.1.23"
+process.versions.dun     // "1.1.24"
 process.versions.node    // "22.0.0" (compat-reported)
 process.versions.v8      // "15.0.91" or the JSC/QJS version
 ```
@@ -226,6 +226,5 @@ emulated one (no Rosetta-style transparent platform translation).
 ## See also
 
 - [Permissions](./permissions.md) — full security model
-- [N-API addons](./napi.md) — native addon details
 - [TypeScript Support](./typescript.md) — `.ts` files directly
 - [Node compat](./node-compat.md) — module-by-module status

@@ -21,15 +21,15 @@ architecture (QuickJS-NG / JavaScriptCore / V8).
   inherited from Deno. `--allow-read`, `--allow-write`, `--allow-net`,
   `--allow-env`, `--allow-run`, `--allow-ffi`, `--allow-all`. Scoped
   grants. `--deny-*` overrides
-- [**Module System**](./modules.md) — ES modules + CommonJS interop.
-  Package resolution. npm install (with CVE audit). `dun:*` built-in
-  modules
 
 ### Built-in Modules
 - [**Built-ins Index**](./builtins/index.md) — all 30+ built-in modules
-- [**Web APIs**](./web-apis.md) — `fetch`, `Request`, `Response`, `Headers`,
-  `Blob`, `URL`, `TextEncoder`/`TextDecoder`, `AbortController`,
-  `EventTarget`, `Web Streams`, `crypto.subtle` (WebCrypto)
+  (fs, path, net, http, http2, http3, crypto, os, buffer, events, url,
+  zlib, dns, ws, sqlite, child_process, stream, util, vm, cluster,
+  async_hooks, worker_threads, fs/promises, readline, tls, dgram,
+  perf_hooks, wasi, yaml, ...), plus web globals (`fetch`, `Request`,
+  `Response`, `Headers`, `Blob`, `URL`, `TextEncoder`/`TextDecoder`,
+  `AbortController`, `EventTarget`, `Web Streams`, `crypto.subtle`)
 - [**Node compat**](./node-compat.md) — which Node.js APIs work, which
   don't, the won't-fix list (`.node` native addons that bypass N-API)
 - [**Deno compat**](./deno-compat.md) — `Deno.serve`, `Deno.Command`,
@@ -42,45 +42,24 @@ architecture (QuickJS-NG / JavaScriptCore / V8).
   optional `tsc` transpile, transpile cache, JSX, decorators
 
 ### Tooling
-- [**`dun test`**](./testing.md) — test runner (`*.test.{js,ts}`), Deno
-  test API, `--filter`, `--concurrent`
-- [**`dun bench`**](./bench.md) — benchmark runner (`*.bench.{js,ts}`),
-  auto-calibrating iterations
-- [**`dun lint`**](./lint.md) — lexer-based linter (no-eval, eqeqeq,
-  no-debugger, no-var, no-empty-block, --fix)
-- [**`dun fmt`**](./fmt.md) — code formatter
-- [**`dun bundle`**](./bundle.md) — bundler with source maps + optional
-  `--compile=PATH` for self-contained executables
-- [**`dun audit`**](./audit.md) — npm CVE audit via OSV API
-- [**`dun init`**](./init.md) — project scaffold
+The [CLI Reference](./cli-reference.md) covers every subcommand in
+detail: `dun run`, `dun test`, `dun bench`, `dun lint`, `dun fmt`,
+`dun bundle`, `dun audit`, `dun install`, `dun init`, `dun clean`,
+`dun repl`, `dun eval`.
 
 ### Operations
-- [**Configuration**](./config.md) — `package.json`, `tsconfig.json`,
-  `dun.json` (future), env variables (`DUN_HOME`, `DUN_DISABLE_TSC`,
-  `DUN_REPL_HISTORY`, etc.)
 - [**GC Tuning**](./gc-tuning.md) — D-runtime GC options, when to bump
   `minPoolSize`, profile via `--DRT-gcopt=profile:1`
 - [**Performance**](./performance.md) — backend selection, hot-path
   patterns, when to use Workers
 - [**Migration from Node**](./migration-node.md) — running existing
   Node.js code, known incompatibilities
-- [**Migration from Deno**](./migration-deno.md) — running existing
-  Deno code
-
-### Advanced
-- [**N-API addons**](./napi.md) — Node-API support, 91 functions
-  implemented, sharp + similar real addons work
-- [**Workers**](./workers.md) — Web Workers, SharedArrayBuffer, Atomics
-- [**HTTP/2 + HTTP/3**](./http2-http3.md) — server + client support,
-  ALPN, QUIC
-- [**TLS**](./tls.md) — OpenSSL bindings, cert/key loading, custom CA
 
 ### Project Internals (developer docs)
 - [**Architecture Overview**](../ARCHITECTURE.md) — 7-layer design
-- [**Engine Abstraction**](../CLAUDE.md#engine-abstraction-layer-2) —
-  `IJSEngine` interface
-- [**Contributing**](../CONTRIBUTING.md) — building, testing,
-  PR workflow *(coming soon)*
+- [**Engine Abstraction**](../CLAUDE.md) — `IJSEngine` interface,
+  development guide, code style, GC tuning, won't-fix design
+  constraints
 - [**Security Policy**](../SECURITY.md) — permission model, fixed CVE
   classes, `/security-review` workflow
 - [**Testing**](../TESTING.md) — full test inventory, integration
@@ -134,7 +113,7 @@ const greet = (name: string): string => `Hello, ${name}!`;
 console.log(greet("DunJS"));
 ```
 
-## Performance snapshot (v1.1.23)
+## Performance snapshot (v1.1.24)
 
 | Bench | Bun 1.3 | Node 22 | Deno 2.7 | dun-jsc | dun-v8 | dun-qjs |
 |---|---:|---:|---:|---:|---:|---:|

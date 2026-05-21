@@ -117,4 +117,6 @@ protect-counted on JSC, refcounted-via-shim on V8).
   upstream docs
 - `core.memory.GC` — D's runtime GC API (used internally by DunJS)
 - [Performance](./performance.md) — broader perf guide
-- [Workers](./workers.md) — multi-process / multi-thread patterns
+- [Built-ins index](./builtins/index.md) — `dun:worker_threads`,
+  `dun:cluster`, `dun:async_hooks` for multi-process / multi-thread
+  patterns
