@@ -36,6 +36,19 @@ void registerBufferModule(IJSEngine engine) @trusted
     engine.bindMethod(bufModule, "SlowBuffer", bufferClass);
     engine.setProperty(bufModule, "INSPECT_MAX_BYTES", engine.newInt(50));
     engine.setProperty(bufModule, "kMaxLength", engine.newInt(0x7FFFFFFF));
+
+    // `buffer.constants.{MAX_LENGTH, MAX_STRING_LENGTH}` — Node has these
+    // since v8.x. Required by thread-stream (→ pino) at module-load
+    // time. Values mirror Node v22 on x86_64 (4 GiB buffer cap, 0.5 GiB
+    // string cap). Use newFloat so JS sees a clean Number even when the
+    // value exceeds int32 range.
+    auto constsObj = engine.newObject();
+    engine.setProperty(constsObj, "MAX_LENGTH",
+        engine.newFloat(4_294_967_296.0));      // 2^32 (Node v22 buffer cap)
+    engine.setProperty(constsObj, "MAX_STRING_LENGTH",
+        engine.newFloat(536_870_888.0));         // ~512 MiB (V8 string cap)
+    engine.setProperty(bufModule, "constants", constsObj);
+
     engine.setProperty(global, "__dun_cjs_buffer__", bufModule);
     engine.freeValue(global);
 
