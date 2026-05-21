@@ -152,7 +152,10 @@ version (EngineJSC)
             LargeHeap = 1,
         }
 
-        extern class SourceOrigin
+        // C++ `class SourceOrigin` carries no D-side state — bind as
+        // value-type struct (matches the C++ class layout) rather
+        // than D reference class.
+        extern (C++, class) struct SourceOrigin
         {
         }
 

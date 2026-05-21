@@ -85,9 +85,14 @@ unittest
 // Static-method-only C++ bindings (instance methods need V8 linkage).
 version (EngineV8)
 {
+    // C++ `class V8` is a static-method-only namespace-like type
+    // (no instance state, no vtable). The right D binding is
+    // `extern(C++, class) struct` — value type, no Object overhead.
+    // Using `extern class` would make it a D reference type that
+    // we never instantiate — wastes a vtable slot + class init data.
     extern (C++, "v8")
     {
-        extern class V8
+        extern (C++, class) struct V8
         {
         static:
             void SetFlagsFromString(const(char)* str, size_t length);
@@ -108,18 +113,15 @@ version (EngineV8)
         void* NewDefaultPlatform(int thread_pool_size = 0);
     }
 
-    // ─────────────────────────────────────────────────────────────
-    // extern(C++, "v8shim") — DunJS's own C++ class, called from D
-    // without an extern(C) shim layer. Validates the FFI path
-    // documented in docs/research/custom-gc-v8-jsc.md §2.4½:
-    // static-method-only C++ classes bind directly via Itanium ABI
-    // mangling (verified in tools/bindgen_tests/test_ffi_linkage.d).
-    // The implementation lives in vendor/v8shim/v8shim.cpp under
-    // `namespace v8shim { class Diagnostics { ... }; }`.
-    // ─────────────────────────────────────────────────────────────
+    // extern(C++, "v8shim") — DunJS's own C++ classes, bound directly
+    // via Itanium ABI mangling (no extern(C) shim wrapper). All
+    // declared as `extern(C++, class) struct` to match the C++
+    // value-type semantics — see research doc §11.4 for the
+    // type-system mapping. Implementations live in
+    // vendor/v8shim/v8shim.cpp under `namespace v8shim`.
     extern (C++, "v8shim")
     {
-        extern class Diagnostics
+        extern (C++, class) struct Diagnostics
         {
         static:
             // Thread-local DunV8Value free-list depth.
