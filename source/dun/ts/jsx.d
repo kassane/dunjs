@@ -4,6 +4,14 @@
 /// positions (e.g. `a < b`, `a / b`) parses unchanged.
 module dun.ts.jsx;
 
+
+/// `@trusted policy`: JSX → React.createElement transform (or
+/// Bun.jsx in Bun-compat mode). Scanner-based, pure D logic, no
+/// FFI. Every `@trusted` is one of:
+///   1. `Appender!(char[])` + `cast(string) char[]` for the
+///      output buffer.
+///   2. `std.regex` for JSX-attribute parsing — `@trusted` because
+///      `regex` is currently `@system` in Phobos.
 // Project convention (CLAUDE.md): allocator helpers go via
 // `dun.platform.arena`, not `std.array` directly.
 import dun.platform.arena : Appender;

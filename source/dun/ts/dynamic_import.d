@@ -4,6 +4,11 @@
 /// alone; string/template/comment/regex contexts are skipped.
 module dun.ts.dynamic_import;
 
+
+/// `@trusted policy`: source-rewriter that turns `import(x)` into
+/// `__dunImport__(x)` for JSC/V8 (which don't expose dynamic-import
+/// at the engine level). Pure D scanner; `@trusted` is for the
+/// `cast(string) char[]` on the output buffer.
 import dun.platform.arena : Appender;
 import dun.ts.parser.lexer : skipRegexLit, charAllowsRegex,
     regexAllowingKeywordEndsAt;

@@ -1,5 +1,10 @@
 module dun.loop.agnostic_pending;
 
+
+/// `@trusted policy`: engine-agnostic pending-call queue (used by
+/// HTTP/WS/net to schedule JS callbacks from D worker threads).
+/// Every `@trusted` is `engine.dupValue` / `engine.callFunction` /
+/// `engine.freeValue` — engine-FFI surface.
 import dun.engine.iface : IJSEngine, JSHandle;
 
 private enum MAX_PENDING_ARGS = 4;

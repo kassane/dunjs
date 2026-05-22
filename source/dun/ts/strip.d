@@ -1,5 +1,10 @@
 module dun.ts.strip;
 
+
+/// `@trusted policy`: TypeScript type stripper (scanner-based,
+/// preserves source positions). Pure D; `@trusted` is for the
+/// `cast(string) char[]` on the output buffer. The fuzz harness
+/// `tests/fuzz/fuzz_strip.d` exercises the equal-length invariant.
 import std.base64 : Base64;
 // Lexer primitives we lean on for literal-region skipping. Strip.d is
 // a byte-level scanner; the lexer is the source of truth for "where

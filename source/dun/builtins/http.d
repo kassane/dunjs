@@ -1,5 +1,24 @@
 module dun.builtins.http;
 
+/// `@trusted policy`: this file implements the `http`/`https` server
+/// + client surface. Every `@trusted` is one of:
+///
+///   1. POSIX socket syscall (`socket`, `bind`, `listen`, `accept4`,
+///      `setsockopt`, `getsockname`, `read`, `write`, `close`) —
+///      `@trusted` is required because all of `core.sys.posix.*` is
+///      `@system`. Errors are propagated via JSC exceptions or
+///      promise rejections; never silently swallowed.
+///   2. OpenSSL FFI for HTTPS (TLS_method, SSL_CTX_*, SSL_*) —
+///      same category as `crypto.d`. The SSL_CTX lifecycle is
+///      slot-based via the server pool.
+///   3. `__gshared` server / connection pools (`httpServers`,
+///      `httpConns`, `_writeHeadFlattener`, the cached function
+///      handles `_httpSrvListen`, …). Single-threaded ownership
+///      per the engine's main-thread-only contract.
+///   4. `cast(DunState*) ctx` via `ctxState(ctx)` — every native
+///      callback opens with this; see `runtime/globals.d` for the
+///      centralized helper.
+
 import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
 import dun.runtime.globals : DunState, ctxState;
 import dun.loop.agnostic_pending : pushAgnosticPending;

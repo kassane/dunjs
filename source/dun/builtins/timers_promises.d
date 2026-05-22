@@ -1,5 +1,10 @@
 module dun.builtins.timers_promises;
 
+
+/// `@trusted policy`: `timers/promises` Node module — Promise-returning
+/// variants of setTimeout/setInterval. Every `@trusted` is one of:
+///   1. `cast(DunState*) ctx` via `ctxState(ctx)` in callbacks.
+///   2. Engine method calls (newPromise, callFunction).
 import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
 import dun.runtime.globals : DunState;
 import dun.builtins.helpers : installPureJsModule;

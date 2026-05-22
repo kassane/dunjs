@@ -12,6 +12,12 @@
 /// The v7 extras now ship on JSC too — same surface as QJS / V8.
 module dun.runtime.bun_extras_v7;
 
+
+/// `@trusted policy`: Bun.* v0.7.0 extras (deepMatch,
+/// concatArrayBuffers, randomUUIDv7, nanoseconds, gcAggressionLevel,
+/// shrink, generateHeapSnapshot). Lazy-load via Object.defineProperty
+/// getter. `@trusted` is for the install-time `engine.eval`.
+/// Gated off on JSC — see CHANGELOG #43a/#58d/#59a/#60d.
 import dun.engine.iface : IJSEngine;
 
 void installBunExtrasV7(IJSEngine engine) @trusted

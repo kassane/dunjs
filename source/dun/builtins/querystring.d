@@ -1,5 +1,10 @@
 module dun.builtins.querystring;
 
+
+/// `@trusted policy`: `querystring` Node module — URL-encoded form
+/// parse/format. Pure D logic; `@trusted` for `Appender!(char[])` +
+/// `cast(string)` for the output builders. `cast(DunState*) ctx` in
+/// callbacks.
 import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
 import dun.runtime.globals : DunState;
 import dun.builtins.helpers : installPureJsModule;

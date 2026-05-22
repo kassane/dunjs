@@ -1,5 +1,18 @@
 module dun.builtins.net;
 
+/// `@trusted policy`: this file implements Node's `net` module
+/// (createServer, createConnection, Socket). Every `@trusted` is
+/// one of:
+///
+///   1. POSIX socket syscall (`socket`, `connect`, `bind`, `listen`,
+///      `accept4`, `setsockopt`, `getsockname`, `getpeername`,
+///      `recv`, `send`, `shutdown`, `close`). `@trusted` is required
+///      because `core.sys.posix.sys.socket` is `@system`. Each
+///      call sits behind a `Permission.net` check.
+///   2. `__gshared` socket / connection pools — single-threaded
+///      ownership per the engine's main-thread-only contract.
+///   3. `cast(DunState*) ctx` via `ctxState(ctx)` in callbacks.
+
 import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
 import dun.runtime.globals : DunState, ctxState;
 import dun.loop.agnostic_pending : pushAgnosticPending;

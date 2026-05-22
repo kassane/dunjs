@@ -1,5 +1,11 @@
 module dun.builtins.node_test;
 
+
+/// `@trusted policy`: `node:test` Node module — built-in test runner.
+/// Every `@trusted` is one of:
+///   1. `core.time.MonoTime` for test-duration measurement.
+///   2. `cast(DunState*) ctx` via `ctxState(ctx)` in callbacks.
+///   3. Engine method calls for assertion / hook dispatch.
 import dun.engine.iface : IJSEngine, JSHandle, NativeCallback, mustEval;
 import dun.runtime.globals : DunState;
 

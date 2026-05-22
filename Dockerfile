@@ -86,7 +86,8 @@ RUN case "${TARGETARCH:-amd64}" in \
     && echo "DFLAGS=${DFLAGS}" \
     && dub build -c ${BACKEND} -b release \
     && strip build/dun \
-    && ls -la build/dun
+    && ls -la build/dun \
+    && touch build/icudtl.dat
 
 # CIS 4.8 — strip any SUID/SGID bits the build pulled in.
 RUN find build/dun -perm /6000 -exec chmod a-s {} \; 2>/dev/null || true
@@ -143,9 +144,19 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY --from=build --chown=1001:1001 /src/build/dun /usr/local/bin/dun
 COPY --from=build --chown=1001:1001 /deps/lib/      /usr/local/lib/
 
+# V8 ICU data table — copied next to the binary so V8's
+# `InitializeICUDefaultLocation(argv[0])` finds it without further
+# configuration. The build stage `touch build/icudtl.dat` ensures
+# this COPY also succeeds for QJS/JSC images (the touched file is
+# empty + harmless because those backends don't load ICU).
+# Without this, `docker run dunjs:v8 run any-Intl-script.js` errors
+# with `Internal error. Icu error.` from V8's CheckICUOK.
+COPY --from=build --chown=1001:1001 /src/build/icudtl.dat /usr/local/bin/icudtl.dat
+
 # CIS 4.8 — make sure no SUID/SGID bits slipped through the copy.
 RUN find /usr/local/bin/dun /usr/local/lib -xdev -perm /6000 -exec chmod a-s {} \; 2>/dev/null || true \
     && chmod 0555 /usr/local/bin/dun \
+    && chmod 0444 /usr/local/bin/icudtl.dat \
     && ldconfig
 
 WORKDIR /app

@@ -1,5 +1,24 @@
 module dun.builtins.buffer;
 
+
+/// `@trusted policy`: Node's Buffer implementation backed by
+/// Uint8Array. Every `@trusted` is one of:
+///
+///   1. Engine FFI via `IJSEngine.newBufferWithProto` /
+///      `newUint8ArrayZeroedWithProto` / `getTypedArrayBytes`.
+///      The engine methods carry @trusted at the interface level
+///      (see `iface.d` policy header).
+///   2. `bytes.ptr` raw-pointer access for the SIMD codec calls
+///      (latin1↔UTF-8, hex) and the big-endian read/write helpers
+///      (`bswap16/32/64` casts via `core.bitop`). Length is
+///      asserted before each `.ptr` use.
+///   3. `__gshared` cached prototype (`_bufProto`) + factory
+///      function handles (`_bufFactory`, `_bufFactoryThis`).
+///      Single-threaded init under the engine's main-thread-only
+///      contract.
+///   4. `cast(DunState*) ctx` via `ctxState(ctx)` in callbacks.
+///   5. CTFE hex LUT + SIMD hex encoder — `core.simd` boundary,
+///      covered by `dun.platform.simd` policy.
 import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
 import dun.runtime.globals : DunState, ctxState;
 
@@ -287,6 +306,9 @@ void ensureBufferFnsCached(IJSEngine engine) @trusted
 __gshared JSHandle _bufFactory;
 __gshared JSHandle _bufFactoryThis;
 
+/// `@trusted`: wraps `IJSEngine.newBufferWithProto` (a @trusted-by-contract
+/// engine method; every backend override is @trusted). `data` is a
+/// read-only D slice — engine copies before any GC could move it.
 public JSHandle makeBufferObj(IJSEngine engine, const(ubyte)[] data) @trusted
 {
     ensureBufferFnsCached(engine);
@@ -297,6 +319,8 @@ public JSHandle makeBufferObj(IJSEngine engine, const(ubyte)[] data) @trusted
     return engine.newBufferWithProto(data, _bufProto, false);
 }
 
+/// `@trusted`: same justification as `makeBufferObj` — wraps a @trusted
+/// engine method; no untyped memory access on this side.
 public JSHandle makeBufferObjZeroed(IJSEngine engine, int size) @trusted
 {
     ensureBufferFnsCached(engine);

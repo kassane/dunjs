@@ -1,5 +1,11 @@
 module dun.builtins.assert_;
 
+
+/// `@trusted policy`: Node's `assert` module — `assert`, `deepEqual`,
+/// `throws`, etc. Every `@trusted` is one of:
+///   1. `cast(DunState*) ctx` via `ctxState(ctx)` in callbacks.
+///   2. Engine method calls for value introspection + AssertionError
+///      construction.
 import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
 import dun.runtime.globals : DunState;
 import dun.builtins.helpers : installPureJsModule;

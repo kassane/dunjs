@@ -1,5 +1,16 @@
 module dun.security.cve_db;
 
+
+/// `@trusted policy`: CVE audit (OSV API client + local cache +
+/// semver comparison). Every `@trusted` is one of:
+///
+///   1. `dun.builtins.fetch.doFetch` for OSV API queries.
+///   2. `std.file.{exists, readText, mkdirRecurse, write}` for
+///      the local 24h-TTL cache under `$DUN_HOME/cache/osv/`.
+///   3. `std.json.parseJSON` for the OSV response payload.
+///   4. The semver comparison is pure logic (no FFI), but the
+///      AA (associative array) operations bubble up via Phobos's
+///      `@system` defaults — `@trusted` is the simplest fix.
 enum Severity
 {
     critical,

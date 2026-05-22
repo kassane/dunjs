@@ -1,5 +1,13 @@
 module dun.app;
 
+
+/// `@trusted policy`: CLI entry point (parse args, set up engine,
+/// run script or REPL, dispatch subcommands). Every `@trusted` is
+/// one of:
+///   1. `std.file` / `std.path` / `std.process` Phobos calls.
+///   2. `Permission` registry mutation during arg parsing.
+///   3. `engine.eval` for the eval/run paths.
+///   4. Signal handler installation (`sigaction`).
 // D runtime GC defaults: larger pool reduces collection frequency (~11x fewer GC cycles)
 // Override at runtime via: dun "--DRT-gcopt=minPoolSize:32 profile:1" run script.js
 extern(C) __gshared string[] rt_options = ["gcopt=minPoolSize:16"];

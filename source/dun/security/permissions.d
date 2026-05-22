@@ -1,6 +1,13 @@
 /// Default-deny permission registry, populated from CLI flags.
 module dun.security.permissions;
 
+
+/// `@trusted policy`: permission registry (default-deny model).
+/// Every `@trusted` is one of:
+///   1. `dun.platform.paths.canonicalizePath` for the CVE-2023-32004
+///      / CVE-2024-21896 / CVE-2024-34346 path-traversal gate.
+///   2. `__gshared` permission state (single-threaded mutation
+///      during arg parsing).
 /// Permission categories.
 enum Permission
 {

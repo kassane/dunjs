@@ -20,6 +20,11 @@
 /// functions or shadowing enter the picture).
 module dun.cli.lint;
 
+
+/// `@trusted policy`: lexer-based linter (no-eval, eqeqeq,
+/// no-debugger). Pure D scanner over JS/TS source. `@trusted` is
+/// for `std.file.readText` and the `cast(string) char[]` output
+/// buffer.
 import std.file : exists, isFile, isDir, dirEntries, SpanMode, readText, write;
 import std.path : extension;
 import std.stdio : writeln, writefln;

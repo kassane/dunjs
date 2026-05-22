@@ -3,6 +3,11 @@
 /// See: https://quickjs-ng.github.io/quickjs/developer-guide/intro/
 module dun.engine.quickjs.bindings;
 
+
+/// `@trusted policy`: QuickJS C API bindings (extern(C) function
+/// declarations). All `@trusted` here is on the D-side wrappers
+/// that promote `extern(C)` calls to D's @safe boundary. See
+/// `engine/quickjs/backend.d` policy header for the full FFI rules.
 // --- Opaque handle types ---
 struct JSRuntime;
 struct JSContext;

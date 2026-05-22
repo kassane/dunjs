@@ -1,5 +1,13 @@
 module dun.builtins.v8;
 
+
+/// `@trusted policy`: V8-specific JS API (`v8.getHeapStatistics`,
+/// `v8.serialize`, `v8.deserialize`, etc.). Wraps engine-only V8
+/// methods that aren't on `IJSEngine`. Every `@trusted` is one of:
+///   1. `engine.rawContext()` cast to the V8 context handle, then
+///      bridged through `vendor/v8shim/` (same surface as
+///      `engine/v8/backend.d`).
+///   2. `cast(DunState*) ctx` via `ctxState(ctx)` in callbacks.
 import dun.engine.iface : IJSEngine, JSHandle;
 import dun.runtime.globals : DunState, ctxState;
 

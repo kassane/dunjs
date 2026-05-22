@@ -1,5 +1,18 @@
 module dun.engine.iface;
 
+
+/// `@trusted policy`: this is the engine-agnostic interface
+/// declaration + helpers. Every `@trusted` here is one of:
+///
+///   1. Interface method declarations annotated `@trusted` (the
+///      policy in CLAUDE.md §"Engine Abstraction" — every engine
+///      method touches FFI and is `@trusted` at the contract level,
+///      letting `@safe` callers use them without further escape).
+///   2. `mustEval(engine, src, name, what)` — drops the @mustuse
+///      JSResult while asserting `!isError`. The `@trusted` is for
+///      the unconditional `freeValue(r.value)` even on error,
+///      matching the cross-backend "callFunction returns owned"
+///      contract documented in CLAUDE.md.
 struct JSHandle
 {
     void*[2] opaque;

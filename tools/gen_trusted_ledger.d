@@ -74,6 +74,32 @@ void main(string[] args)
         if (path.extension != ".d") continue;
         auto content = readText(path);
         auto lines = content.splitLines;
+
+        // Pass 1: look for a file-level `@trusted policy:` header.
+        // Convention: place near the top of the file as a /// doc
+        // comment containing `@trusted policy:`. Every @trusted in
+        // the file is covered by this rationale unless a per-line
+        // `///` overrides it.
+        string filePolicy;
+        foreach (j, l; lines)
+        {
+            if (j > 80) break;  // policy must be near the top
+            auto t = l.strip;
+            if (t.startsWith("///") && t.canFind("@trusted policy"))
+            {
+                // Capture the policy line + any continuation /// lines.
+                filePolicy = t;
+                auto k = j + 1;
+                while (k < lines.length)
+                {
+                    auto t2 = lines[k].strip;
+                    if (t2.startsWith("///")) { filePolicy ~= " " ~ t2; k++; }
+                    else break;
+                }
+                break;
+            }
+        }
+
         foreach (i, line; lines)
         {
             if (!matchFirst(line, rx)) continue;
@@ -140,6 +166,10 @@ void main(string[] args)
                 }
                 break;
             }
+            // Fall back to the file-level @trusted policy header if
+            // no per-line `///` rationale was found.
+            if (rationale.length == 0 && filePolicy.length > 0)
+                rationale = "[file policy] " ~ filePolicy;
             s.rationale = rationale;
             s.category = categorize(path, s.declaration, rationale);
             byCategory[s.category] ~= s;

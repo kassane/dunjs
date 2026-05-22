@@ -1,5 +1,18 @@
 module dun.runtime.ffi;
 
+
+/// `@trusted policy`: Bun.dlopen / Bun.FFI surface — load a shared
+/// library and call its C functions from JS. Every `@trusted` is
+/// one of:
+///
+///   1. `dlopen` / `dlsym` / `dlclose` — `core.sys.posix.dlfcn`
+///      is `@system`. Path validated; `Permission.run` gate.
+///   2. `cast(void function(...)) sym` to coerce the dlsym
+///      result into a callable function pointer with the
+///      user-specified signature.
+///   3. libffi (`ffi_prep_cif`, `ffi_call`) for variadic calls
+///      across the FFI boundary. The CIF is built once per
+///      symbol-binding and cached.
 import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
 import dun.runtime.globals : DunState, ctxState;
 import dun.security.permissions : Permission;

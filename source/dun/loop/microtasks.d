@@ -1,5 +1,9 @@
 module dun.loop.microtasks;
 
+
+/// `@trusted policy`: microtask queue drain. Every `@trusted` is
+/// engine method calls (callFunction, freeValue) — engine-FFI
+/// surface; see `engine/iface.d` policy header.
 import dun.engine.iface : IJSEngine, JSHandle;
 
 /// FIFO queue of pinned JS callbacks invoked with `undefined` receiver

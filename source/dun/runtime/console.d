@@ -1,5 +1,12 @@
 module dun.runtime.console;
 
+
+/// `@trusted policy`: `console.*` global. Every `@trusted` is one
+/// of:
+///   1. `std.stdio.writefln`/`writeln` to stdout/stderr.
+///   2. `engine.extractString` for arg formatting.
+///   3. Forward to the DevTools inspector via
+///      `dun.cli.inspector.emitConsoleAPICalled` (Posix only).
 import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
 import dun.runtime.globals : DunState, ctxState;
 

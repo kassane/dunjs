@@ -1,5 +1,11 @@
 module dun.builtins.vm;
 
+
+/// `@trusted policy`: Node's `vm` module (script compilation +
+/// per-context evaluation). Every `@trusted` is one of:
+///   1. `engine.eval` with a context-bound `this` — same surface
+///      as `engine.eval` from anywhere else.
+///   2. `cast(DunState*) ctx` via `ctxState(ctx)` in callbacks.
 import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
 import dun.runtime.globals : DunState;
 import dun.builtins.helpers : installPureJsModule;

@@ -1,5 +1,10 @@
 module dun.builtins.readline;
 
+
+/// `@trusted policy`: `readline` Node module. Every `@trusted` is one
+/// of:
+///   1. POSIX `read(STDIN_FILENO)` + termios for line editing.
+///   2. `cast(DunState*) ctx` via `ctxState(ctx)` in callbacks.
 import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
 import dun.runtime.globals : DunState;
 import dun.builtins.helpers : installPureJsModule;
