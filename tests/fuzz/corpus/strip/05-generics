@@ -1,0 +1,2 @@
+function f<T, U extends keyof T>(x: T, k: U): T[U] { return x[k]; }
+type R<T> = T extends infer U ? U : never;

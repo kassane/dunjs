@@ -13,12 +13,18 @@ version (D_SIMD)
         import ldc.simd : loadUnaligned, storeUnaligned, shufflevector;
         import ldc.intrinsics : llvm_cttz, llvm_prefetch;
 
+        /// `@trusted`: LDC `loadUnaligned` is the documented, alignment-safe
+        /// SIMD load intrinsic. Caller asserts `p` points to ≥ 16 readable
+        /// bytes; aliasing is OK because the result is a value type.
         pragma(inline, true)
         private ubyte16 simdLoad(const(ubyte)* p) pure nothrow @nogc @trusted
         {
             return loadUnaligned!ubyte16(p);
         }
 
+        /// `@trusted`: LDC `storeUnaligned` is the documented, alignment-safe
+        /// SIMD store intrinsic. Caller asserts `p` points to ≥ 16 writable
+        /// bytes.
         pragma(inline, true)
         private void simdStore(ubyte* p, ubyte16 v) pure nothrow @nogc @trusted
         {
@@ -27,12 +33,18 @@ version (D_SIMD)
     }
     else
     {
+        /// `@trusted`: pointer-cast SIMD load fallback. Same alignment +
+        /// length contract as the LDC intrinsic path — caller must ensure
+        /// ≥ 16 readable bytes at `p`. Cast is well-defined: `ubyte16` is
+        /// a layout-compatible POD.
         pragma(inline, true)
         private ubyte16 simdLoad(const(ubyte)* p) pure nothrow @nogc @trusted
         {
             return *cast(const(ubyte16)*) p;
         }
 
+        /// `@trusted`: pointer-cast SIMD store fallback. Same contract as
+        /// the LDC intrinsic path — caller must ensure ≥ 16 writable bytes.
         pragma(inline, true)
         private void simdStore(ubyte* p, ubyte16 v) pure nothrow @nogc @trusted
         {
@@ -40,6 +52,10 @@ version (D_SIMD)
         }
     }
 
+    /// `@trusted`: splat scalar to 16-byte vector via stack-array cast.
+    /// `a` is a local fixed-size array (its address is always valid for
+    /// 16 readable bytes). The cast is `ubyte[16]* → ubyte16*` — same
+    /// layout-compatible POD.
     pragma(inline, true)
     private ubyte16 splat(ubyte val) pure nothrow @nogc @trusted
     {
@@ -47,6 +63,9 @@ version (D_SIMD)
         return *cast(ubyte16*) a.ptr;
     }
 
+    /// `@trusted`: pure ALU on a register. The `cast(ubyte16)` from a
+    /// boolean-mask vector is bit-pattern preserving (all-ones / all-zeros
+    /// per lane). No memory access — no possible UB.
     pragma(inline, true)
     ubyte16 toLower16(ubyte16 v) pure nothrow @nogc @trusted
     {
@@ -54,6 +73,7 @@ version (D_SIMD)
         return v | (mask & splat(0x20));
     }
 
+    /// `@trusted`: pure ALU on a register; same justification as `toLower16`.
     pragma(inline, true)
     ubyte16 toUpper16(ubyte16 v) pure nothrow @nogc @trusted
     {
@@ -61,6 +81,9 @@ version (D_SIMD)
         return v & ~(mask & splat(0x20));
     }
 
+    /// `@trusted`: pure ALU on a register. Each lane of `nibbles` is in
+    /// 0..15 by the caller's contract (it's an extracted nibble), so the
+    /// result is always a valid lowercase hex ASCII character.
     pragma(inline, true)
     ubyte16 nibblesToHex16(ubyte16 nibbles) pure nothrow @nogc @trusted
     {
@@ -70,6 +93,9 @@ version (D_SIMD)
         return nibbles + (digitBase | alphaBase);
     }
 
+    /// `@trusted`: 16-byte SIMD lowercase loop + scalar tail. The SIMD
+    /// stride is bounded by `i + 16 <= buf.length`; the scalar tail handles
+    /// the residue. No out-of-bounds access possible.
     void asciiToLowerBuf(char[] buf) pure nothrow @nogc @trusted
     {
         size_t i = 0;
@@ -83,6 +109,10 @@ version (D_SIMD)
                 buf[i] |= 0x20;
     }
 
+    /// `@trusted`: 16-byte SIMD hex encoder + scalar tail. The SIMD stride
+    /// requires both `src[i .. i+16]` readable AND `dst[i*2 .. i*2+32]`
+    /// writable; the assert at the top establishes `dst.length >= src.length*2`
+    /// and the loop condition `i + 16 <= src.length` then guarantees both.
     void hexEncodeBuf(const(ubyte)[] src, char[] dst) pure nothrow @nogc @trusted
     {
         assert(dst.length >= src.length * 2, "dst too small for hex encoding");
@@ -124,6 +154,12 @@ version (D_SIMD)
         }
     }
 
+    /// `@trusted`: SIMD byte search with `llvm_cttz` for O(1) first-match
+    /// extraction. The SIMD stride is bounded by `i + 16 <= buf.length`;
+    /// the `cast(ubyte[16])` extracts the SIMD lanes by value (no aliasing).
+    /// The `cast(ulong*)` reads on `eqBytes` are well-defined: `eqBytes`
+    /// is a 16-byte stack array, `ulong*` reads 8 bytes each — both halves
+    /// stay in-bounds.
     size_t findByte(const(ubyte)[] buf, ubyte needle) pure nothrow @nogc @trusted
     {
         auto target = splat(needle);
@@ -156,6 +192,9 @@ version (D_SIMD)
         return buf.length;
     }
 
+    /// `@trusted`: LDC `llvm_prefetch` is a CPU hint that never reads or
+    /// writes memory observably — even an invalid pointer just produces a
+    /// no-op prefetch. Safe to call with any pointer.
     void prefetchRead(const(void)* ptr) pure nothrow @nogc @trusted
     {
         version (LDC)
@@ -171,6 +210,10 @@ else
                 c |= 0x20;
     }
 
+    /// `@trusted`: scalar hex encode fallback (no D_SIMD support). The
+    /// dst indexing is bounded by the assert; lut indexing uses nibbles
+    /// (0..15) which are always in range. Could be `@safe` once
+    /// dscanner stops complaining about the multi-statement assert.
     void hexEncodeBuf(const(ubyte)[] src, char[] dst) pure nothrow @nogc @trusted
     {
         assert(dst.length >= src.length * 2);

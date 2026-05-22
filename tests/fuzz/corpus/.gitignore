@@ -1,0 +1,10 @@
+# libFuzzer auto-grows the corpus with sha1-hex-named files when
+# new edges are discovered. Keep the hand-written seed inputs in git
+# but exclude the mutated ones — they're regenerable and bloat the
+# diff.
+#
+# Seed inputs use human-readable names (01-foo, 02-bar, …).
+# Mutated inputs use 40-char hex sha1.
+
+# Match 40-char hex filenames (libFuzzer's mutated artifacts)
+[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]

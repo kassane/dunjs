@@ -1,0 +1,4 @@
+class C<T extends number> {
+  constructor(public x: T, private readonly y: string) {}
+  async m(): Promise<T> { return this.x; }
+}
