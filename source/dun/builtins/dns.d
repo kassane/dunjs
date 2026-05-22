@@ -1,7 +1,7 @@
 module dun.builtins.dns;
 
 import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
-import dun.runtime.globals : DunState;
+import dun.runtime.globals : DunState, ctxState;
 import dun.security.permissions : Permission;
 
 void registerDnsModule(IJSEngine engine) @trusted
@@ -159,8 +159,7 @@ version (Posix)
 
 JSHandle jsLookupSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsLookupSync");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsLookupSync");
     auto engine = state.engine;
     if (args.length < 1) return engine.throwTypeError("lookup requires a hostname argument");
@@ -192,8 +191,7 @@ JSHandle jsLookupSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trust
 
 JSHandle jsLookup(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsLookup");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsLookup");
     auto engine = state.engine;
     if (args.length < 2 || !engine.isFunction(args[1]))
@@ -242,8 +240,7 @@ JSHandle jsLookup(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 
 JSHandle jsResolve4(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsResolve4");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsResolve4");
     auto engine = state.engine;
     if (args.length < 2 || !engine.isFunction(args[1]))
@@ -290,8 +287,7 @@ JSHandle jsResolve4(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 
 JSHandle jsResolve6(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsResolve6");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsResolve6");
     auto engine = state.engine;
     if (args.length < 2 || !engine.isFunction(args[1]))
@@ -338,8 +334,7 @@ JSHandle jsResolve6(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 
 JSHandle jsResolve(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsResolve");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsResolve");
     auto engine = state.engine;
 
@@ -451,8 +446,7 @@ JSHandle jsResolve(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 
 JSHandle jsGetServers(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsGetServers");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsGetServers");
     auto engine = state.engine;
     assert(engine !is null, "Null engine in jsGetServers");

@@ -17,21 +17,18 @@ import dun.engine.iface : IJSEngine;
 void installBunExtrasV7(IJSEngine engine) @trusted
 {
     assert(engine !is null);
-    /* JSC gate (re-confirmed v1.1.21): tried two approaches to remove
-       the gate, both still crash `deno_deploy_compat`:
-       (a) eager install — same as v1.1.5-1.1.20, tips at server 13.
-       (b) lazy-load via Object.defineProperty getter (mirrors v1.1.10
-           diagnostics_channel) — even the ~50-line stub-install
-           source itself tips it. The crash is in JSC's concurrent-GC
-           when `deno_deploy_compat` runs 15 sequential Deno.serve
-           cycles; the extras-install JS bytecode adds heap pressure
-           that combines with the per-request listener-chain leak (as
-           yet unfound) to push past the threshold.
-       The fundamental fix is to find that residual per-request leak
-       on JSC — likely in the response.body streaming reader or the
-       req.on('data'/'end') listener chain. Until then, JSC ships
-       without v7 extras and bun_v7_additions stays gated. See
-       CHANGELOG #43a for the gdb investigation notes. */
+    /* JSC gate (kept as of v1.1.26): v1.1.26 cached
+       `_writeHeadFlattener` and replaced three more per-call
+       `engine.eval("[]")` sites with `engine.newArray()`, plus
+       added an isException fallback in `makeResponse`. The
+       resulting heap-pressure reduction made `deno_deploy_compat`
+       pass standalone ~80% (up from ~40%), but the v7 extras'
+       install-time JS bytecode still tips the 15-server cycle
+       enough to push the JSC sweep flake rate back up. v7
+       extras stay gated on JSC until the residual leak is
+       found — likely in the response.body streaming reader or
+       the req.on('data'/'end') listener chain. See CHANGELOG
+       #43a for the gdb investigation notes. */
     version (EngineJSC) return;
     auto r = engine.eval(extrasSource(), "<bun-extras-v7>");
     if (!r.isError) engine.freeValue(r.value);

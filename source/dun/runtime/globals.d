@@ -13,6 +13,18 @@ struct DunState
     bool verbose;
 }
 
+/// Narrow-scope `@trusted` for the recurring `cast(DunState*) ctx`
+/// pattern at the top of every `NativeCallback` (428 sites as of
+/// 2026-05). Callers can stay `@safe` instead of carrying a
+/// whole-function `@trusted`. Asserts on a null ctx so the trampoline
+/// fails fast at the boundary rather than reading garbage downstream.
+pragma(inline, true)
+DunState* ctxState(void* ctx) @trusted nothrow @nogc
+{
+    assert(ctx !is null, "Null DunState ctx in NativeCallback");
+    return cast(DunState*) ctx;
+}
+
 void installGlobals(IJSEngine engine, DunState* state) @trusted
 {
     assert(engine !is null, "Null engine");
@@ -985,8 +997,7 @@ private string unicodePropPolyfillSource() pure @safe nothrow
 
 private JSHandle jsGlobalGC(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsGlobalGC");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state !is null && state.engine !is null, "Invalid DunState in jsGlobalGC");
     state.engine.collectGarbage();
     return state.engine.newUndefined();

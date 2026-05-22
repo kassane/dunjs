@@ -105,7 +105,7 @@ string tlsLastError() @trusted nothrow
 // ============================================================================
 
 import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
-import dun.runtime.globals : DunState;
+import dun.runtime.globals : DunState, ctxState;
 import dun.loop.agnostic_pending : pushAgnosticPending;
 
 private enum : size_t {
@@ -370,8 +370,7 @@ void freeTlsCallbacks(TlsConnState* conn) nothrow @trusted
 
 JSHandle jsTlsConnect(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsTlsConnect");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsTlsConnect");
     assert(state.engine !is null, "Null engine in jsTlsConnect");
     auto engine = state.engine;
@@ -616,8 +615,7 @@ JSHandle jsTlsConnect(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trust
 
 JSHandle jsTlsWrite(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsTlsWrite");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsTlsWrite");
     auto engine = state.engine;
 
@@ -653,8 +651,7 @@ JSHandle jsTlsWrite(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 
 JSHandle jsTlsEnd(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsTlsEnd");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsTlsEnd");
     auto engine = state.engine;
 
@@ -669,8 +666,7 @@ JSHandle jsTlsEnd(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 
 JSHandle jsTlsDestroy(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsTlsDestroy");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsTlsDestroy");
     auto engine = state.engine;
 
@@ -704,8 +700,7 @@ JSHandle jsTlsDestroy(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trust
 
 JSHandle jsTlsOn(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsTlsOn");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsTlsOn");
     auto engine = state.engine;
 
@@ -737,8 +732,7 @@ JSHandle jsTlsOn(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 
 JSHandle jsTlsGetCiphers(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsTlsGetCiphers");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsTlsGetCiphers");
     auto engine = state.engine;
 

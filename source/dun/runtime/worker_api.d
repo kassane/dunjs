@@ -1,7 +1,8 @@
 module dun.runtime.worker_api;
 
+import dun.declarations : MS_PER_SEC, NS_PER_MS;
 import dun.engine.iface : IJSEngine, JSHandle, mustEval;
-import dun.runtime.globals : DunState;
+import dun.runtime.globals : DunState, ctxState;
 import core.atomic : atomicLoad, atomicStore, atomicFetchAdd, cas, MemoryOrder;
 
 version (linux)
@@ -155,8 +156,7 @@ void installWorkerAPI(IJSEngine engine, DunState* state) @trusted
 
 private JSHandle _workerCtor(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in Worker constructor");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state !is null && state.engine !is null, "Invalid DunState in Worker constructor");
     auto engine = state.engine;
 
@@ -202,8 +202,7 @@ private JSHandle _workerCtor(void* ctx, JSHandle thisVal, scope JSHandle[] args)
 
 private JSHandle _workerPostMessage(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in Worker.postMessage");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state !is null && state.engine !is null, "Invalid DunState in Worker.postMessage");
     auto engine = state.engine;
 
@@ -240,8 +239,7 @@ private JSHandle _workerPostMessage(void* ctx, JSHandle thisVal, scope JSHandle[
 
 private JSHandle _sabCtor(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in SharedArrayBuffer constructor");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state !is null && state.engine !is null, "Invalid DunState in SharedArrayBuffer");
     auto engine = state.engine;
 
@@ -266,8 +264,7 @@ private JSHandle _sabCtor(void* ctx, JSHandle thisVal, scope JSHandle[] args) @t
 
 private JSHandle _int32ArrayCtor(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in Int32Array constructor");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state !is null && state.engine !is null, "Invalid DunState in Int32Array");
     auto engine = state.engine;
 
@@ -357,8 +354,7 @@ private int* _getAtomicPtr(IJSEngine engine, JSHandle ta, int idx) @trusted
 
 private JSHandle _atomicsLoad(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in Atomics.load");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     auto engine = state.engine;
     if (args.length < 2) return engine.newUndefined();
     int idx = engine.extractInt(args[1]);
@@ -369,8 +365,7 @@ private JSHandle _atomicsLoad(void* ctx, JSHandle thisVal, scope JSHandle[] args
 
 private JSHandle _atomicsStore(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in Atomics.store");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     auto engine = state.engine;
     if (args.length < 3) return engine.newUndefined();
     int idx = engine.extractInt(args[1]);
@@ -383,8 +378,7 @@ private JSHandle _atomicsStore(void* ctx, JSHandle thisVal, scope JSHandle[] arg
 
 private JSHandle _atomicsAdd(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in Atomics.add");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     auto engine = state.engine;
     if (args.length < 3) return engine.newUndefined();
     int idx = engine.extractInt(args[1]);
@@ -396,8 +390,7 @@ private JSHandle _atomicsAdd(void* ctx, JSHandle thisVal, scope JSHandle[] args)
 
 private JSHandle _atomicsSub(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in Atomics.sub");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     auto engine = state.engine;
     if (args.length < 3) return engine.newUndefined();
     int idx = engine.extractInt(args[1]);
@@ -409,8 +402,7 @@ private JSHandle _atomicsSub(void* ctx, JSHandle thisVal, scope JSHandle[] args)
 
 private JSHandle _atomicsAnd(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in Atomics.and");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     auto engine = state.engine;
     if (args.length < 3) return engine.newUndefined();
     int idx = engine.extractInt(args[1]);
@@ -426,8 +418,7 @@ private JSHandle _atomicsAnd(void* ctx, JSHandle thisVal, scope JSHandle[] args)
 
 private JSHandle _atomicsOr(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in Atomics.or");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     auto engine = state.engine;
     if (args.length < 3) return engine.newUndefined();
     int idx = engine.extractInt(args[1]);
@@ -443,8 +434,7 @@ private JSHandle _atomicsOr(void* ctx, JSHandle thisVal, scope JSHandle[] args) 
 
 private JSHandle _atomicsXor(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in Atomics.xor");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     auto engine = state.engine;
     if (args.length < 3) return engine.newUndefined();
     int idx = engine.extractInt(args[1]);
@@ -460,8 +450,7 @@ private JSHandle _atomicsXor(void* ctx, JSHandle thisVal, scope JSHandle[] args)
 
 private JSHandle _atomicsExchange(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in Atomics.exchange");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     auto engine = state.engine;
     if (args.length < 3) return engine.newUndefined();
     int idx = engine.extractInt(args[1]);
@@ -477,8 +466,7 @@ private JSHandle _atomicsExchange(void* ctx, JSHandle thisVal, scope JSHandle[] 
 
 private JSHandle _atomicsIsLockFree(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in Atomics.isLockFree");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     auto engine = state.engine;
     if (args.length < 1) return engine.newBool(false);
     int sz = engine.extractInt(args[0]);
@@ -487,8 +475,7 @@ private JSHandle _atomicsIsLockFree(void* ctx, JSHandle thisVal, scope JSHandle[
 
 private JSHandle _atomicsCmpXch(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in Atomics.compareExchange");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     auto engine = state.engine;
     if (args.length < 4) return engine.newUndefined();
     int idx = engine.extractInt(args[1]);
@@ -504,8 +491,7 @@ private JSHandle _atomicsCmpXch(void* ctx, JSHandle thisVal, scope JSHandle[] ar
 
 private JSHandle _atomicsWait(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in Atomics.wait");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     auto engine = state.engine;
 
     import dun.workers.worker : gIsWorkerThread;
@@ -535,8 +521,8 @@ private JSHandle _atomicsWait(void* ctx, JSHandle thisVal, scope JSHandle[] args
         {
             import core.sys.posix.time : timespec;
             timespec ts;
-            ts.tv_sec  = timeoutMs / 1000;
-            ts.tv_nsec = (timeoutMs % 1000) * 1_000_000;
+            ts.tv_sec  = timeoutMs / MS_PER_SEC;
+            ts.tv_nsec = (timeoutMs % MS_PER_SEC) * NS_PER_MS;
             syscall(SYS_futex, ptr, FUTEX_WAIT, expected, &ts, null, 0);
         }
     }
@@ -593,8 +579,7 @@ private JSHandle _atomicsWait(void* ctx, JSHandle thisVal, scope JSHandle[] args
 
 private JSHandle _atomicsNotify(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in Atomics.notify");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     auto engine = state.engine;
     if (args.length < 2) return engine.newUndefined();
     int idx = engine.extractInt(args[1]);
@@ -630,8 +615,7 @@ private JSHandle _atomicsNotify(void* ctx, JSHandle thisVal, scope JSHandle[] ar
 
 private JSHandle _atomicsWaitAsync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in Atomics.waitAsync");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     auto engine = state.engine;
 
     if (args.length < 3)

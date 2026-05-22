@@ -1,7 +1,7 @@
 module dun.builtins.ws;
 
 import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
-import dun.runtime.globals : DunState;
+import dun.runtime.globals : DunState, ctxState;
 import dun.loop.agnostic_pending : pushAgnosticPending;
 import dun.declarations : DEFAULT_LISTEN_BACKLOG;
 
@@ -334,8 +334,7 @@ string computeAcceptKey(string clientKey) @trusted
 
 JSHandle jsWsCreateServer(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsWsCreateServer");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsWsCreateServer");
     auto engine = state.engine;
 
@@ -400,7 +399,7 @@ JSHandle jsWsServerListen(void* ctx, JSHandle thisVal, scope JSHandle[] args) @t
         import core.sys.posix.fcntl : fcntl, F_SETFL, F_GETFL, O_NONBLOCK;
         import core.stdc.string : memset;
 
-        auto state = cast(DunState*) ctx;
+        auto state = ctxState(ctx);
         assert(state !is null, "Null DunState in jsWsServerListen");
         auto engine = state.engine;
 
@@ -487,15 +486,14 @@ JSHandle jsWsServerListen(void* ctx, JSHandle thisVal, scope JSHandle[] args) @t
     }
     else
     {
-        auto state = cast(DunState*) ctx;
+        auto state = ctxState(ctx);
         return state.engine.throwTypeError("WebSocket server not supported on this platform");
     }
 }
 
 JSHandle jsWsServerOn(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsWsServerOn");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsWsServerOn");
     auto engine = state.engine;
     if (args.length < 2) return engine.dupValue(thisVal);
@@ -522,7 +520,7 @@ JSHandle jsWsServerClose(void* ctx, JSHandle thisVal, scope JSHandle[] args) @tr
     version (Posix)
     {
         import core.sys.posix.unistd : close;
-        auto state = cast(DunState*) ctx;
+        auto state = ctxState(ctx);
         assert(state !is null, "Null DunState in jsWsServerClose");
         auto engine = state.engine;
 
@@ -544,7 +542,7 @@ JSHandle jsWsServerClose(void* ctx, JSHandle thisVal, scope JSHandle[] args) @tr
     }
     else
     {
-        auto state = cast(DunState*) ctx;
+        auto state = ctxState(ctx);
         return state.engine.newUndefined();
     }
 }
@@ -562,7 +560,7 @@ JSHandle jsWsConnect(void* ctx, JSHandle thisVal, scope JSHandle[] args) @truste
         import core.stdc.string : memset;
         import core.stdc.errno : errno, EINPROGRESS;
 
-        auto state = cast(DunState*) ctx;
+        auto state = ctxState(ctx);
         assert(state !is null, "Null DunState in jsWsConnect");
         auto engine = state.engine;
 
@@ -645,7 +643,7 @@ JSHandle jsWsConnect(void* ctx, JSHandle thisVal, scope JSHandle[] args) @truste
     }
     else
     {
-        auto state = cast(DunState*) ctx;
+        auto state = ctxState(ctx);
         return state.engine.throwTypeError("WebSocket not supported on this platform");
     }
 }
@@ -668,8 +666,7 @@ JSHandle makeWsClientObj(IJSEngine engine, int cid) @trusted
 
 JSHandle jsWsClientOn(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsWsClientOn");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsWsClientOn");
     auto engine = state.engine;
     if (args.length < 2 || !engine.isFunction(args[1])) return engine.dupValue(thisVal);
@@ -714,7 +711,7 @@ JSHandle jsWsClientSend(void* ctx, JSHandle thisVal, scope JSHandle[] args) @tru
     assert(ctx !is null, "Null ctx in jsWsClientSend");
     version (Posix)
     {
-        auto state = cast(DunState*) ctx;
+        auto state = ctxState(ctx);
         assert(state !is null, "Null DunState in jsWsClientSend");
         auto engine = state.engine;
 
@@ -737,7 +734,7 @@ JSHandle jsWsClientSend(void* ctx, JSHandle thisVal, scope JSHandle[] args) @tru
     }
     else
     {
-        auto state = cast(DunState*) ctx;
+        auto state = ctxState(ctx);
         return state.engine.newUndefined();
     }
 }
@@ -747,7 +744,7 @@ JSHandle jsWsClientClose(void* ctx, JSHandle thisVal, scope JSHandle[] args) @tr
     assert(ctx !is null, "Null ctx in jsWsClientClose");
     version (Posix)
     {
-        auto state = cast(DunState*) ctx;
+        auto state = ctxState(ctx);
         assert(state !is null, "Null DunState in jsWsClientClose");
         auto engine = state.engine;
 
@@ -781,7 +778,7 @@ JSHandle jsWsClientClose(void* ctx, JSHandle thisVal, scope JSHandle[] args) @tr
     }
     else
     {
-        auto state = cast(DunState*) ctx;
+        auto state = ctxState(ctx);
         return state.engine.newUndefined();
     }
 }

@@ -1,7 +1,7 @@
 module dun.builtins.http3;
 
 import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
-import dun.runtime.globals : DunState;
+import dun.runtime.globals : DunState, ctxState;
 import dun.security.permissions : Permission;
 
 /// HTTP/3 constants (RFC 9114)
@@ -226,8 +226,7 @@ ubyte[] encodeH3Settings() pure @safe
 
 JSHandle jsH3CreateServer(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in http3.createServer");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in http3.createServer");
     auto engine = state.engine;
 
@@ -243,8 +242,7 @@ JSHandle jsH3CreateServer(void* ctx, JSHandle thisVal, scope JSHandle[] args) @t
 
 JSHandle jsH3ServerListen(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in http3.server.listen");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state.engine !is null);
     auto engine = state.engine;
 
@@ -332,8 +330,7 @@ JSHandle jsH3ServerListen(void* ctx, JSHandle thisVal, scope JSHandle[] args) @t
 
 JSHandle jsH3ServerClose(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in http3.server.close");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state.engine !is null);
     auto engine = state.engine;
 
@@ -362,16 +359,14 @@ JSHandle jsH3ServerClose(void* ctx, JSHandle thisVal, scope JSHandle[] args) @tr
 
 JSHandle jsH3ServerOn(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in http3.server.on");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state.engine !is null);
     return state.engine.dupValue(thisVal);
 }
 
 JSHandle jsH3Connect(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in http3.connect");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state.engine !is null);
     auto engine = state.engine;
     if (args.length < 1 || !engine.isString(args[0]))
@@ -387,7 +382,7 @@ JSHandle jsH3Connect(void* ctx, JSHandle thisVal, scope JSHandle[] args) @truste
 JSHandle jsH3SessionClose(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null);
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state.engine !is null);
     return state.engine.newUndefined();
 }
@@ -395,7 +390,7 @@ JSHandle jsH3SessionClose(void* ctx, JSHandle thisVal, scope JSHandle[] args) @t
 JSHandle jsH3SessionRequest(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null);
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state.engine !is null);
     auto engine = state.engine;
     auto stream = engine.newObject();
@@ -411,7 +406,7 @@ JSHandle jsH3SessionRequest(void* ctx, JSHandle thisVal, scope JSHandle[] args) 
 JSHandle jsH3StreamWrite(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null);
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state.engine !is null);
     return state.engine.newBool(true);
 }
@@ -419,7 +414,7 @@ JSHandle jsH3StreamWrite(void* ctx, JSHandle thisVal, scope JSHandle[] args) @tr
 JSHandle jsH3StreamEnd(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null);
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state.engine !is null);
     return state.engine.newUndefined();
 }

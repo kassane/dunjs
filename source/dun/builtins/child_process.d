@@ -1,7 +1,7 @@
 module dun.builtins.child_process;
 
 import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
-import dun.runtime.globals : DunState;
+import dun.runtime.globals : DunState, ctxState;
 import dun.security.permissions : Permission;
 // Project convention (CLAUDE.md): allocator helpers go via
 // `dun.platform.arena`, not `std.array` directly.
@@ -185,8 +185,7 @@ string truncateToMaxBuffer(string s, int maxBuffer) @safe pure nothrow
 
 JSHandle jsExecSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsExecSync");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsExecSync");
     auto engine = state.engine;
     assert(engine !is null, "Null engine in jsExecSync");
@@ -257,8 +256,7 @@ JSHandle jsExecSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 
 JSHandle jsSpawnSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsSpawnSync");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsSpawnSync");
     auto engine = state.engine;
     assert(engine !is null, "Null engine in jsSpawnSync");
@@ -368,8 +366,7 @@ JSHandle jsExec(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     import dun.engine.iface : PromiseHandles;
 
-    assert(ctx !is null, "Null ctx in jsExec");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsExec");
     auto engine = state.engine;
     assert(engine !is null, "Null engine in jsExec");
@@ -542,8 +539,7 @@ JSHandle jsSpawn(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     import dun.loop.agnostic_pending : pushAgnosticPending;
 
-    assert(ctx !is null, "Null ctx in jsSpawn");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsSpawn");
     auto engine = state.engine;
     assert(engine !is null, "Null engine in jsSpawn");
@@ -729,8 +725,7 @@ JSHandle jsExecFile(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     import dun.engine.iface : PromiseHandles;
 
-    assert(ctx !is null, "Null ctx in jsExecFile");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsExecFile");
     auto engine = state.engine;
     assert(engine !is null, "Null engine in jsExecFile");
@@ -891,7 +886,7 @@ JSHandle jsExecFile(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 JSHandle jsExecFileSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null);
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state.engine !is null);
     auto engine = state.engine;
 
@@ -938,7 +933,7 @@ JSHandle jsExecFileSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @tru
 JSHandle jsFork(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null);
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state.engine !is null);
     return state.engine.throwTypeError("fork() is not supported; use worker_threads instead");
 }

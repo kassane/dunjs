@@ -25,7 +25,7 @@
 module dun.builtins.yaml;
 
 import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
-import dun.runtime.globals : DunState;
+import dun.runtime.globals : DunState, ctxState;
 import std.array : Appender, appender;
 
 void registerYamlModule(IJSEngine engine) @trusted
@@ -44,8 +44,7 @@ void registerYamlModule(IJSEngine engine) @trusted
 
 private JSHandle jsYamlParse(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsYamlParse");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in jsYamlParse");
     auto engine = state.engine;
 
@@ -67,8 +66,7 @@ private JSHandle jsYamlParse(void* ctx, JSHandle thisVal, scope JSHandle[] args)
 
 private JSHandle jsYamlStringify(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsYamlStringify");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in jsYamlStringify");
     auto engine = state.engine;
 

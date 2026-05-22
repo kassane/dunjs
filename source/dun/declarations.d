@@ -85,3 +85,23 @@ enum int S_IFREG_DEFAULT_FILE   = 0x81A4;       /// S_IFREG | 0o644
 // since 5.4), so picking 1024 leaves room without hitting kernel limit.
 
 enum int DEFAULT_LISTEN_BACKLOG = 1024;
+
+// ─── I/O buffer sizes ───────────────────────────────────────────
+//
+// Shared chunk sizes for socket reads, file reads, readlink probes,
+// and stack-fallback companions. 4 KiB matches the Linux page size
+// and the default L1 cache line group; 8 KiB is the de-facto Node
+// default for `http.IncomingMessage` reads.
+
+enum size_t PAGE_SIZE_BYTES         = 4096;  /// Linux page; default file/readlink chunk
+enum size_t NETWORK_READ_BUF_BYTES  = 8192;  /// Default socket-read buffer (HTTP/TLS)
+enum size_t STACK_BUFFER_BUDGET     = 4096;  /// StackFallback companion budget
+
+// ─── Time unit conversions ──────────────────────────────────────
+//
+// Used by the event-loop timer wheel, `setTimeout`, `fs.utimes`,
+// the iopoller deadline math, and `performance.now`.
+
+enum long MS_PER_SEC = 1_000;
+enum long NS_PER_MS  = 1_000_000;
+enum long NS_PER_SEC = 1_000_000_000;

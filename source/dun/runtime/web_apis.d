@@ -1,7 +1,7 @@
 module dun.runtime.web_apis;
 
 import dun.engine.iface : IJSEngine, JSHandle;
-import dun.runtime.globals : DunState;
+import dun.runtime.globals : DunState, ctxState;
 
 void installWebAPIs(IJSEngine engine) @trusted
 {
@@ -368,8 +368,7 @@ private void bindNativeCryptoOnGlobal(IJSEngine engine) @trusted
 
 private JSHandle jsNativeGetRandomValues(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in getRandomValues");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in getRandomValues");
     auto engine = state.engine;
 

@@ -386,7 +386,7 @@ PackageMeta fetchPackageMeta(string name) @trusted
     return meta;
 }
 
-string resolveVersion(PackageMeta meta, string range) @trusted
+string resolveVersion(PackageMeta meta, string range) @safe
 {
     if (range == "latest" || range.length == 0)
         return meta.latestVersion;
@@ -398,7 +398,7 @@ string resolveVersion(PackageMeta meta, string range) @trusted
         auto j = parseJSON(meta.rawJson);
         if ("versions" in j)
         {
-            auto versions = j["versions"].object;
+            auto versions = (() @trusted => j["versions"].object)();
 
             // Strip leading ^ ~ >= from range for simple matching
             string cleaned = range;
@@ -448,7 +448,7 @@ string resolveVersion(PackageMeta meta, string range) @trusted
     return meta.latestVersion;
 }
 
-string findBestMatch(typeof(null)[string] versions, string baseVer, bool caretMode) @trusted
+string findBestMatch(typeof(null)[string] versions, string baseVer, bool caretMode) @safe
 {
     // Intentionally simplified: for ^ ranges, accept latest
     // Full semver implementation would be more complex
@@ -457,7 +457,7 @@ string findBestMatch(typeof(null)[string] versions, string baseVer, bool caretMo
 
 import std.json : JSONValue;
 
-string findBestMatch(JSONValue[string] versions, string baseVer, bool caretMode) @trusted
+string findBestMatch(JSONValue[string] versions, string baseVer, bool caretMode) @safe
 {
     import std.string : indexOf;
     import std.conv : to;
@@ -500,7 +500,7 @@ string findBestMatch(JSONValue[string] versions, string baseVer, bool caretMode)
     return best;
 }
 
-string getTarballUrl(PackageMeta meta, string version_) @trusted
+string getTarballUrl(PackageMeta meta, string version_) @safe
 {
     try
     {
@@ -579,7 +579,7 @@ private void cleanup(string tmpFile) @trusted nothrow
     try { rmdirRecurse(tmpFile ~ ".d"); } catch (Throwable) {}
 }
 
-string randomHex(size_t len) @trusted
+string randomHex(size_t len) @safe
 {
     import std.random : uniform;
     import std.format : format;

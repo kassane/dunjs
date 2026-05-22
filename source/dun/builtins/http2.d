@@ -1,7 +1,7 @@
 module dun.builtins.http2;
 
 import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
-import dun.runtime.globals : DunState;
+import dun.runtime.globals : DunState, ctxState;
 import dun.loop.agnostic_pending : pushAgnosticPending;
 import dun.platform.arena : Appender;
 import dun.declarations : DEFAULT_LISTEN_BACKLOG;
@@ -1883,7 +1883,7 @@ JSHandle makeHttp2Constants(IJSEngine engine) @trusted
 JSHandle jsHttp2CreateServer(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null);
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     auto engine = state.engine;
 
     JSHandle cb;
@@ -1918,7 +1918,7 @@ JSHandle jsHttp2CreateSecureServer(void* ctx, JSHandle thisVal, scope JSHandle[]
     assert(ctx !is null);
     version (Posix)
     {
-        auto state = cast(DunState*) ctx;
+        auto state = ctxState(ctx);
         auto engine = state.engine;
 
         JSHandle cb;
@@ -2000,7 +2000,7 @@ JSHandle jsHttp2CreateSecureServer(void* ctx, JSHandle thisVal, scope JSHandle[]
     }
     else
     {
-        auto state = cast(DunState*) ctx;
+        auto state = ctxState(ctx);
         return state.engine.throwTypeError("http2: TLS not supported on this platform");
     }
 }
@@ -2089,7 +2089,7 @@ void parseH2Url(string url, out string host, out ushort port, out bool useTls) n
 JSHandle jsHttp2Connect(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null);
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state.engine !is null);
     auto engine = state.engine;
 
@@ -2257,7 +2257,7 @@ JSHandle jsHttp2Connect(void* ctx, JSHandle thisVal, scope JSHandle[] args) @tru
 JSHandle jsH2ClientSessionOn(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null);
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state.engine !is null);
     auto engine = state.engine;
 
@@ -2289,7 +2289,7 @@ JSHandle jsH2ClientSessionOn(void* ctx, JSHandle thisVal, scope JSHandle[] args)
 JSHandle jsH2ClientRequest(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null);
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state.engine !is null);
     auto engine = state.engine;
 
@@ -2383,7 +2383,7 @@ JSHandle jsH2ClientRequest(void* ctx, JSHandle thisVal, scope JSHandle[] args) @
 JSHandle jsH2ClientClose(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null);
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state.engine !is null);
     auto engine = state.engine;
 
@@ -2410,7 +2410,7 @@ JSHandle jsH2ClientClose(void* ctx, JSHandle thisVal, scope JSHandle[] args) @tr
 JSHandle jsH2StreamOn(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null);
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state.engine !is null);
     auto engine = state.engine;
 
@@ -2454,7 +2454,7 @@ JSHandle jsH2StreamOn(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trust
 JSHandle jsH2StreamEnd(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null);
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state.engine !is null);
     auto engine = state.engine;
 
@@ -2488,7 +2488,7 @@ JSHandle jsH2StreamEnd(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trus
 JSHandle jsH2StreamWrite(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null);
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state.engine !is null);
     auto engine = state.engine;
 
@@ -2534,7 +2534,7 @@ JSHandle jsH2ServerListen(void* ctx, JSHandle thisVal, scope JSHandle[] args) @t
         import core.sys.posix.fcntl : fcntl, F_SETFL, F_GETFL, O_NONBLOCK;
         import core.stdc.string : memset;
 
-        auto state = cast(DunState*) ctx;
+        auto state = ctxState(ctx);
         auto engine = state.engine;
 
         auto idProp = engine.getProperty(thisVal, "__h2sid");
@@ -2610,7 +2610,7 @@ JSHandle jsH2ServerListen(void* ctx, JSHandle thisVal, scope JSHandle[] args) @t
     }
     else
     {
-        auto state = cast(DunState*) ctx;
+        auto state = ctxState(ctx);
         return state.engine.throwTypeError("h2 server not supported on this platform");
     }
 }
@@ -2621,7 +2621,7 @@ JSHandle jsH2ServerClose(void* ctx, JSHandle thisVal, scope JSHandle[] args) @tr
     version (Posix)
     {
         import core.sys.posix.unistd : close;
-        auto state = cast(DunState*) ctx;
+        auto state = ctxState(ctx);
         auto engine = state.engine;
 
         auto idProp = engine.getProperty(thisVal, "__h2sid");
@@ -2642,7 +2642,7 @@ JSHandle jsH2ServerClose(void* ctx, JSHandle thisVal, scope JSHandle[] args) @tr
     }
     else
     {
-        auto state = cast(DunState*) ctx;
+        auto state = ctxState(ctx);
         return state.engine.newUndefined();
     }
 }
@@ -2650,7 +2650,7 @@ JSHandle jsH2ServerClose(void* ctx, JSHandle thisVal, scope JSHandle[] args) @tr
 JSHandle jsH2ServerOn(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null);
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     auto engine = state.engine;
     if (args.length < 2) return engine.dupValue(thisVal);
 
@@ -2713,7 +2713,7 @@ int findOrCreateResponseState(uint streamId) nothrow @trusted
 JSHandle jsH2ResWriteHead(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null);
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     auto engine = state.engine;
 
     auto sidProp = engine.getProperty(thisVal, "__h2_stream_id");
@@ -2732,7 +2732,7 @@ JSHandle jsH2ResWriteHead(void* ctx, JSHandle thisVal, scope JSHandle[] args) @t
 JSHandle jsH2ResSetHeader(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null);
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     auto engine = state.engine;
     if (args.length < 2) return engine.newUndefined();
 
@@ -2755,7 +2755,7 @@ JSHandle jsH2ResSetHeader(void* ctx, JSHandle thisVal, scope JSHandle[] args) @t
 JSHandle jsH2ResWrite(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null);
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     auto engine = state.engine;
     if (args.length < 1) return engine.newBool(false);
 
@@ -2787,7 +2787,7 @@ JSHandle jsH2ResWrite(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trust
 JSHandle jsH2ResEnd(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null);
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     auto engine = state.engine;
 
     auto sidProp = engine.getProperty(thisVal, "__h2_stream_id");

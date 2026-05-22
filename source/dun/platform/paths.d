@@ -34,7 +34,14 @@ string dunGlobalRoot() @trusted
 
 /// Canonicalize a file path by resolving symlinks and normalizing.
 /// Returns null on failure.
-string canonicalizePath(string path) @trusted
+///
+/// CVE-class fix gate (CVE-2023-32004 / CVE-2024-21896 — see
+/// SECURITY.md): the result feeds `Permission.check` before any I/O.
+/// Marked `@safe` deliberately — a security-critical primitive must
+/// not need an `@trusted` escape. `absolutePath` + `buildNormalizedPath`
+/// are both `@safe` in Phobos; the audit (2026-05) confirmed no
+/// pointer arithmetic, no cast, no FFI in the body.
+string canonicalizePath(string path) @safe
 {
     import std.path : absolutePath, buildNormalizedPath;
 

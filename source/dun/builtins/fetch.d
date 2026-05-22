@@ -1,7 +1,8 @@
 module dun.builtins.fetch;
 
+import core.attribute : mustuse;
 import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
-import dun.runtime.globals : DunState;
+import dun.runtime.globals : DunState, ctxState;
 import dun.platform.arena : Appender;
 import std.conv : to;
 
@@ -27,8 +28,7 @@ private JSHandle jsFetch(void* ctx, JSHandle thisVal, scope JSHandle[] args) @tr
     import dun.engine.iface : PromiseHandles;
     import dun.loop.async : asyncSubmit;
 
-    assert(ctx !is null, "Null ctx in jsFetch");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in jsFetch");
     auto engine = state.engine;
 
@@ -197,6 +197,11 @@ FetchResult deserializeFetchResult(string s) @safe
     return r;
 }
 
+/// `@mustuse` (DIP 1038): silently dropping a fetch result swallows
+/// the HTTP status + body. Every caller in this codebase consumes
+/// either `status` (for redirect chains) or `body_` (for the JS-side
+/// `Response` wrapper) — none legitimately ignores the whole struct.
+@mustuse
 struct FetchResult
 {
     int status;
@@ -771,6 +776,19 @@ JSHandle makeResponse(IJSEngine engine, FetchResult r) @trusted
     engine.freeValue(urlVal);
     engine.freeValue(headerArr);
 
+    /* JSC concurrent-GC safety net: if the cached builder threw —
+       typically because concurrent GC swept an intermediate (a
+       pair entry, the header array itself) before `callFunction`
+       ran — `resp` is the exception value, not a Response.
+       Returning it through `resolve()` made `r2.text is not a
+       function` surface to the test. Fall back to the plain-object
+       builder, which doesn't allocate transient nested arrays. */
+    if (engine.isException(resp))
+    {
+        engine.freeValue(resp);
+        return makeResponseFallback(engine, r);
+    }
+
     return resp;
 }
 
@@ -793,20 +811,18 @@ JSHandle makeResponseFallback(IJSEngine engine, FetchResult r) @trusted
     return obj;
 }
 
-JSHandle responseText(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
+JSHandle responseText(void* ctx, JSHandle thisVal, scope JSHandle[] args) @safe
 {
-    assert(ctx !is null, "Null ctx in responseText");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in responseText");
     auto engine = state.engine;
     auto body_ = engine.getProperty(thisVal, "__body");
     return body_;
 }
 
-JSHandle responseJson(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
+JSHandle responseJson(void* ctx, JSHandle thisVal, scope JSHandle[] args) @safe
 {
-    assert(ctx !is null, "Null ctx in responseJson");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in responseJson");
     auto engine = state.engine;
     auto body_ = engine.getProperty(thisVal, "__body");

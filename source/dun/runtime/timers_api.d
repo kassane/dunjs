@@ -2,7 +2,7 @@ module dun.runtime.timers_api;
 
 import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
 import dun.loop.timers : TimerID;
-import dun.runtime.globals : DunState;
+import dun.runtime.globals : DunState, ctxState;
 import core.time : dur;
 
 void installTimers(IJSEngine engine) @trusted
@@ -23,11 +23,9 @@ void installTimers(IJSEngine engine) @trusted
 
 private:
 
-JSHandle jsSetTimeout(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
+JSHandle jsSetTimeout(void* ctx, JSHandle thisVal, scope JSHandle[] args) @safe
 {
-    assert(ctx !is null, "Null ctx in setTimeout");
-    auto state = cast(DunState*) ctx;
-    assert(state !is null, "Null DunState in setTimeout");
+    auto state = ctxState(ctx);
     auto engine = state.engine;
     assert(engine !is null, "Null engine in setTimeout");
 
@@ -49,11 +47,9 @@ JSHandle jsSetTimeout(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trust
     return makeTimerObject(engine, cast(int) id);
 }
 
-JSHandle jsSetInterval(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
+JSHandle jsSetInterval(void* ctx, JSHandle thisVal, scope JSHandle[] args) @safe
 {
-    assert(ctx !is null, "Null ctx in setInterval");
-    auto state = cast(DunState*) ctx;
-    assert(state !is null, "Null DunState in setInterval");
+    auto state = ctxState(ctx);
     auto engine = state.engine;
     assert(engine !is null, "Null engine in setInterval");
 
@@ -76,11 +72,9 @@ JSHandle jsSetInterval(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trus
     return makeTimerObject(engine, cast(int) id);
 }
 
-JSHandle jsClearTimer(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
+JSHandle jsClearTimer(void* ctx, JSHandle thisVal, scope JSHandle[] args) @safe
 {
-    assert(ctx !is null, "Null ctx in clearTimer");
-    auto state = cast(DunState*) ctx;
-    assert(state !is null, "Null DunState in clearTimer");
+    auto state = ctxState(ctx);
     auto engine = state.engine;
     assert(engine !is null, "Null engine in clearTimer");
 
@@ -141,21 +135,21 @@ JSHandle makeTimerObject(IJSEngine engine, int id) @trusted
 JSHandle jsTimerRef(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null);
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     return state.engine.dupValue(thisVal);
 }
 
 JSHandle jsTimerUnref(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null);
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     return state.engine.dupValue(thisVal);
 }
 
 JSHandle jsTimerHasRef(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null);
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     return state.engine.newBool(true);
 }
 
@@ -164,7 +158,7 @@ JSHandle jsTimerHasRef(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trus
 JSHandle jsTimerValueOf(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null);
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     auto engine = state.engine;
     auto idProp = engine.getProperty(thisVal, "_id");
     scope(exit) engine.freeValue(idProp);

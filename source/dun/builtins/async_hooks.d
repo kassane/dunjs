@@ -1,7 +1,7 @@
 module dun.builtins.async_hooks;
 
 import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
-import dun.runtime.globals : DunState;
+import dun.runtime.globals : DunState, ctxState;
 
 /// Maximum nesting depth for AsyncLocalStorage.run() calls.
 private enum MAX_ALS_STACK_DEPTH = 256;
@@ -117,8 +117,7 @@ string asyncHooksSource() pure @safe nothrow
 /// als.run(store, callback): push store, call callback, pop store
 JSHandle jsAlsRun(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsAlsRun");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsAlsRun");
     auto engine = state.engine;
     assert(engine !is null, "Null engine in jsAlsRun");
@@ -170,8 +169,7 @@ JSHandle jsAlsRun(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 /// als.getStore(): return top of stack (or undefined if empty)
 JSHandle jsAlsGetStore(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsAlsGetStore");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsAlsGetStore");
     auto engine = state.engine;
     assert(engine !is null, "Null engine in jsAlsGetStore");
@@ -185,8 +183,7 @@ JSHandle jsAlsGetStore(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trus
 /// als.enterWith(store): push store (doesn't auto-pop)
 JSHandle jsAlsEnterWith(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsAlsEnterWith");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsAlsEnterWith");
     auto engine = state.engine;
     assert(engine !is null, "Null engine in jsAlsEnterWith");
@@ -204,8 +201,7 @@ JSHandle jsAlsEnterWith(void* ctx, JSHandle thisVal, scope JSHandle[] args) @tru
 /// als.disable(): clear entire stack
 JSHandle jsAlsDisable(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsAlsDisable");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsAlsDisable");
     auto engine = state.engine;
     assert(engine !is null, "Null engine in jsAlsDisable");

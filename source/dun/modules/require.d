@@ -1,7 +1,7 @@
 module dun.modules.require;
 
 import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
-import dun.runtime.globals : DunState;
+import dun.runtime.globals : DunState, ctxState;
 import dun.security.permissions : Permission;
 // Project convention (CLAUDE.md): allocator helpers go via
 // `dun.platform.arena`, not `std.array` directly.
@@ -37,8 +37,7 @@ JSHandle jsRequireResolve(void* ctx, JSHandle thisVal, scope JSHandle[] args) @t
     import std.path : buildNormalizedPath, isAbsolute, dirName, absolutePath;
     import std.file : exists, isFile, isDir, getcwd;
 
-    assert(ctx !is null, "Null ctx in require.resolve");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     auto engine = state.engine;
 
     if (args.length < 1)
@@ -121,8 +120,7 @@ JSHandle jsRequire(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
     import std.algorithm : startsWith, endsWith;
     import std.path : buildNormalizedPath, isAbsolute, dirName;
 
-    assert(ctx !is null, "Null ctx in jsRequire");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in jsRequire");
     auto engine = state.engine;
 

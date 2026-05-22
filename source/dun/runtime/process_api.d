@@ -1,12 +1,12 @@
 module dun.runtime.process_api;
 
+import dun.declarations : PAGE_SIZE_BYTES;
 import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
-import dun.runtime.globals : DunState;
+import dun.runtime.globals : DunState, ctxState;
 import dun.security.permissions : Permission;
 
 private enum STDIN_READ_BUF_SIZE = 65_536;
 private enum DEFAULT_TERMINAL_COLUMNS = 80;
-private enum LINUX_PAGE_SIZE = 4096;
 
 private __gshared JSHandle gUncaughtHandler;
 private __gshared IJSEngine gUncaughtEngine;
@@ -515,16 +515,14 @@ private:
 
 JSHandle jsNoop(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsNoop");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in jsNoop");
     return state.engine.newUndefined();
 }
 
 JSHandle jsGetWindowSize(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsGetWindowSize");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in jsGetWindowSize");
     auto engine = state.engine;
     auto arr = engine.newArray();
@@ -535,8 +533,7 @@ JSHandle jsGetWindowSize(void* ctx, JSHandle thisVal, scope JSHandle[] args) @tr
 
 JSHandle jsCwd(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsCwd");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in jsCwd");
     auto engine = state.engine;
     try
@@ -549,8 +546,7 @@ JSHandle jsCwd(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 
 JSHandle jsExit(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsExit");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in jsExit");
     auto engine = state.engine;
     int code = 0;
@@ -564,8 +560,7 @@ JSHandle jsExit(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 
 JSHandle jsProcessOn(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in process.on");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     auto engine = state.engine;
     if (args.length < 2 || !engine.isString(args[0]) || !engine.isFunction(args[1]))
         return engine.throwTypeError("process.on requires event name and callback");
@@ -604,8 +599,7 @@ JSHandle jsProcessOn(void* ctx, JSHandle thisVal, scope JSHandle[] args) @truste
 
 JSHandle jsNextTick(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in process.nextTick");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     auto engine = state.engine;
     assert(engine !is null, "Null engine in process.nextTick");
 
@@ -645,8 +639,7 @@ JSHandle jsNextTick(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 
 JSHandle jsStdoutWrite(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in process.stdout.write");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in process.stdout.write");
     auto engine = state.engine;
     if (args.length < 1) return engine.newBool(true);
@@ -681,8 +674,7 @@ JSHandle jsStdoutWrite(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trus
 
 JSHandle jsStderrWrite(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in process.stderr.write");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in process.stderr.write");
     auto engine = state.engine;
     if (args.length < 1) return engine.newBool(true);
@@ -713,8 +705,7 @@ JSHandle jsStderrWrite(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trus
 
 JSHandle jsHrtime(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in process.hrtime");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in process.hrtime");
     auto engine = state.engine;
     try
@@ -747,8 +738,7 @@ JSHandle jsHrtime(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 /// JSC/V8 natives that round to integer ms (kills benchmarks).
 public JSHandle jsPerformanceNow(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in performance.now");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in performance.now");
     auto engine = state.engine;
     try
@@ -764,8 +754,7 @@ public JSHandle jsPerformanceNow(void* ctx, JSHandle thisVal, scope JSHandle[] a
 
 JSHandle jsHrtimeBigint(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in process.hrtime.bigint");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in process.hrtime.bigint");
     auto engine = state.engine;
     try
@@ -784,8 +773,7 @@ JSHandle jsHrtimeBigint(void* ctx, JSHandle thisVal, scope JSHandle[] args) @tru
 
 JSHandle jsUptime(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in process.uptime");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in process.uptime");
     auto engine = state.engine;
     try
@@ -802,8 +790,7 @@ JSHandle jsUptime(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 
 JSHandle jsMemoryUsage(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in process.memoryUsage");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in process.memoryUsage");
     auto engine = state.engine;
     auto obj = engine.newObject();
@@ -818,7 +805,7 @@ JSHandle jsMemoryUsage(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trus
             auto statm = readText("/proc/self/statm");
             auto parts = statm.split(" ");
             if (parts.length >= 2)
-                rss = to!double(parts[1]) * LINUX_PAGE_SIZE;
+                rss = to!double(parts[1]) * PAGE_SIZE_BYTES;
         }
         catch (Exception) {}
     }
@@ -832,8 +819,7 @@ JSHandle jsMemoryUsage(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trus
 
 JSHandle jsAvailableMemory(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in process.availableMemory");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in process.availableMemory");
     auto engine = state.engine;
     double avail = 0;
@@ -866,8 +852,7 @@ JSHandle jsAvailableMemory(void* ctx, JSHandle thisVal, scope JSHandle[] args) @
 
 JSHandle jsCpuUsage(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in process.cpuUsage");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in process.cpuUsage");
     auto engine = state.engine;
     auto obj = engine.newObject();
@@ -890,8 +875,7 @@ JSHandle jsCpuUsage(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 
 JSHandle jsChdir(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in process.chdir");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     auto engine = state.engine;
     if (args.length < 1 || !engine.isString(args[0]))
         return engine.throwTypeError("process.chdir requires a directory path");
@@ -910,8 +894,7 @@ JSHandle jsChdir(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 
 JSHandle jsEmitWarning(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in process.emitWarning");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     auto engine = state.engine;
     if (args.length < 1) return engine.newUndefined();
     try
@@ -940,8 +923,7 @@ JSHandle jsEmitWarning(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trus
 
 JSHandle jsProcessKill(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in process.kill");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     auto engine = state.engine;
     if (args.length < 1 || !engine.isNumber(args[0]))
         return engine.throwTypeError("process.kill requires a pid");
@@ -976,8 +958,7 @@ JSHandle jsProcessAbort(void* ctx, JSHandle thisVal, scope JSHandle[] args) @tru
 
 JSHandle jsProcessUmask(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in process.umask");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     auto engine = state.engine;
     version (Posix)
     {
@@ -998,46 +979,42 @@ JSHandle jsProcessUmask(void* ctx, JSHandle thisVal, scope JSHandle[] args) @tru
 
 version (Posix)
 {
-    JSHandle jsProcessGetuid(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
+    JSHandle jsProcessGetuid(void* ctx, JSHandle thisVal, scope JSHandle[] args) @safe
     {
-        assert(ctx !is null);
-        auto state = cast(DunState*) ctx;
+        auto state = ctxState(ctx);
         assert(state.engine !is null);
         import core.sys.posix.unistd : getuid;
-        return state.engine.newInt(cast(int) getuid());
+        return state.engine.newInt(cast(int) (() @trusted => getuid())());
     }
 
-    JSHandle jsProcessGetgid(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
+    JSHandle jsProcessGetgid(void* ctx, JSHandle thisVal, scope JSHandle[] args) @safe
     {
-        assert(ctx !is null);
-        auto state = cast(DunState*) ctx;
+        auto state = ctxState(ctx);
         assert(state.engine !is null);
         import core.sys.posix.unistd : getgid;
-        return state.engine.newInt(cast(int) getgid());
+        return state.engine.newInt(cast(int) (() @trusted => getgid())());
     }
 
-    JSHandle jsProcessGeteuid(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
+    JSHandle jsProcessGeteuid(void* ctx, JSHandle thisVal, scope JSHandle[] args) @safe
     {
-        assert(ctx !is null);
-        auto state = cast(DunState*) ctx;
+        auto state = ctxState(ctx);
         assert(state.engine !is null);
         import core.sys.posix.unistd : geteuid;
-        return state.engine.newInt(cast(int) geteuid());
+        return state.engine.newInt(cast(int) (() @trusted => geteuid())());
     }
 
-    JSHandle jsProcessGetegid(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
+    JSHandle jsProcessGetegid(void* ctx, JSHandle thisVal, scope JSHandle[] args) @safe
     {
-        assert(ctx !is null);
-        auto state = cast(DunState*) ctx;
+        auto state = ctxState(ctx);
         assert(state.engine !is null);
         import core.sys.posix.unistd : getegid;
-        return state.engine.newInt(cast(int) getegid());
+        return state.engine.newInt(cast(int) (() @trusted => getegid())());
     }
 
     JSHandle jsProcessGetgroups(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
     {
         assert(ctx !is null);
-        auto state = cast(DunState*) ctx;
+        auto state = ctxState(ctx);
         assert(state.engine !is null);
         auto engine = state.engine;
         import core.sys.posix.unistd : getgroups;
@@ -1068,8 +1045,7 @@ private int sigNameToNum(string name) @safe nothrow
 
 JSHandle jsProcessResourceUsage(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in process.resourceUsage");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in process.resourceUsage");
     auto engine = state.engine;
     auto obj = engine.newObject();
@@ -1142,8 +1118,7 @@ JSHandle jsProcessResourceUsage(void* ctx, JSHandle thisVal, scope JSHandle[] ar
 
 JSHandle jsNativeSetEnv(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsNativeSetEnv");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     auto engine = state.engine;
     if (args.length < 2) return engine.newUndefined();
     version (Posix)
@@ -1159,8 +1134,7 @@ JSHandle jsNativeSetEnv(void* ctx, JSHandle thisVal, scope JSHandle[] args) @tru
 
 JSHandle jsNativeUnsetEnv(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsNativeUnsetEnv");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     auto engine = state.engine;
     if (args.length < 1) return engine.newUndefined();
     version (Posix)
@@ -1175,8 +1149,7 @@ JSHandle jsNativeUnsetEnv(void* ctx, JSHandle thisVal, scope JSHandle[] args) @t
 
 JSHandle jsStdinRead(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in process.stdin.read");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     auto engine = state.engine;
     version (Posix)
     {
@@ -1201,8 +1174,7 @@ JSHandle jsStdinRead(void* ctx, JSHandle thisVal, scope JSHandle[] args) @truste
 
 JSHandle jsStdinSetEncoding(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in process.stdin.setEncoding");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     return state.engine.dupValue(thisVal);
 }
 

@@ -1,7 +1,7 @@
 module dun.builtins.os;
 
 import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
-import dun.runtime.globals : DunState;
+import dun.runtime.globals : DunState, ctxState;
 import dun.security.permissions : Permission, checkPerm;
 
 private enum HOSTNAME_BUF_SIZE = 256;
@@ -105,7 +105,7 @@ private:
 IJSEngine getEngine(void* ctx) @trusted
 {
     assert(ctx !is null);
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state.engine !is null);
     return state.engine;
 }
@@ -164,7 +164,7 @@ JSHandle jsOsType(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 JSHandle jsOsHostname(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     auto engine = getEngine(ctx);
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     if (!checkPerm(state, Permission.sys, "hostname"))
         return throwSysPerm(engine, "hostname");
     try
@@ -225,7 +225,7 @@ JSHandle jsOsTmpdir(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 JSHandle jsOsCpus(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     auto engine = getEngine(ctx);
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     if (!checkPerm(state, Permission.sys, "cpus"))
         return throwSysPerm(engine, "cpus");
     auto arr = engine.newArray();
@@ -368,8 +368,7 @@ JSHandle jsOsEndianness(void* ctx, JSHandle thisVal, scope JSHandle[] args) @tru
 
 JSHandle jsOsNetworkInterfaces(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsOsNetworkInterfaces");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in jsOsNetworkInterfaces");
     if (!checkPerm(state, Permission.sys, "networkInterfaces"))
         return throwSysPerm(state.engine, "networkInterfaces");
@@ -380,7 +379,7 @@ JSHandle jsOsNetworkInterfaces(void* ctx, JSHandle thisVal, scope JSHandle[] arg
 JSHandle jsOsUserInfo(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     auto engine = getEngine(ctx);
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     if (!checkPerm(state, Permission.sys, "userInfo"))
         return throwSysPerm(engine, "userInfo");
     auto obj = engine.newObject();
@@ -441,7 +440,7 @@ JSHandle jsOsUserInfo(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trust
 JSHandle jsOsLoadavg(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     auto engine = getEngine(ctx);
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     if (!checkPerm(state, Permission.sys, "loadavg"))
         return throwSysPerm(engine, "loadavg");
     auto arr = engine.newArray();

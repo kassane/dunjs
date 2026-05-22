@@ -1,7 +1,7 @@
 module dun.builtins.fs;
 
 import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
-import dun.runtime.globals : DunState;
+import dun.runtime.globals : DunState, ctxState;
 import dun.security.permissions : Permission;
 
 private enum : size_t {
@@ -728,8 +728,7 @@ public JSHandle createBufferFromBytes(IJSEngine engine, const(ubyte)[] data) @tr
 
 JSHandle jsReadFileSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsReadFileSync");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsReadFileSync");
     auto engine = state.engine;
     if (args.length < 1) return engine.throwTypeError("readFileSync requires a path argument");
@@ -757,8 +756,7 @@ JSHandle jsReadFileSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @tru
 
 JSHandle jsWriteFileSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsWriteFileSync");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsWriteFileSync");
     auto engine = state.engine;
     if (args.length < 2) return engine.throwTypeError("writeFileSync requires path and data");
@@ -792,8 +790,7 @@ JSHandle jsWriteFileSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @tr
 
 JSHandle jsExistsSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsExistsSync");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsExistsSync");
     auto engine = state.engine;
     if (args.length < 1) return engine.throwTypeError("existsSync requires a path argument");
@@ -805,8 +802,7 @@ JSHandle jsExistsSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trust
 
 JSHandle jsReaddirSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsReaddirSync");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsReaddirSync");
     auto engine = state.engine;
     if (args.length < 1) return engine.throwTypeError("readdirSync requires a path argument");
@@ -871,8 +867,7 @@ JSHandle jsReaddirSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trus
 
 JSHandle jsStatSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsStatSync");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsStatSync");
     auto engine = state.engine;
     if (args.length < 1) return engine.throwTypeError("statSync requires a path argument");
@@ -889,8 +884,7 @@ JSHandle jsStatSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 
 JSHandle jsStatIsFile(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsStatIsFile");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsStatIsFile");
     auto engine = state.engine;
     auto typeVal = engine.getProperty(thisVal, "_type");
@@ -900,8 +894,7 @@ JSHandle jsStatIsFile(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trust
 
 JSHandle jsStatIsDirectory(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsStatIsDirectory");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsStatIsDirectory");
     auto engine = state.engine;
     auto typeVal = engine.getProperty(thisVal, "_type");
@@ -911,8 +904,7 @@ JSHandle jsStatIsDirectory(void* ctx, JSHandle thisVal, scope JSHandle[] args) @
 
 JSHandle jsMkdirSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsMkdirSync");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsMkdirSync");
     auto engine = state.engine;
     if (args.length < 1) return engine.throwTypeError("mkdirSync requires a path argument");
@@ -967,8 +959,7 @@ JSHandle jsMkdirSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @truste
 
 JSHandle jsUnlinkSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsUnlinkSync");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsUnlinkSync");
     auto engine = state.engine;
     if (args.length < 1) return engine.throwTypeError("unlinkSync requires a path argument");
@@ -987,8 +978,7 @@ JSHandle jsReadFileAsync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @tr
     import dun.engine.iface : PromiseHandles;
     import dun.loop.async : asyncSubmitSafe, AsyncResult;
 
-    assert(ctx !is null, "Null ctx in jsReadFileAsync");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsReadFileAsync");
     auto engine = state.engine;
     if (args.length < 1) return engine.throwTypeError("readFile requires a path argument");
@@ -1063,8 +1053,7 @@ JSHandle jsWriteFileAsync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @t
     import dun.engine.iface : PromiseHandles;
     import dun.loop.async : asyncSubmitSafe, AsyncResult;
 
-    assert(ctx !is null, "Null ctx in jsWriteFileAsync");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsWriteFileAsync");
     auto engine = state.engine;
     if (args.length < 2) return engine.throwTypeError("writeFile requires path and data");
@@ -1111,8 +1100,7 @@ JSHandle jsWriteFileAsync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @t
 
 JSHandle jsAppendFileSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsAppendFileSync");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsAppendFileSync");
     auto engine = state.engine;
     if (args.length < 2) return engine.throwTypeError("appendFileSync requires path and data");
@@ -1144,8 +1132,7 @@ JSHandle jsAppendFileSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @t
 
 JSHandle jsCopyFileSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsCopyFileSync");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsCopyFileSync");
     auto engine = state.engine;
     if (args.length < 2) return engine.throwTypeError("copyFileSync requires src and dest");
@@ -1166,8 +1153,7 @@ JSHandle jsCopyFileSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @tru
 
 JSHandle jsRenameSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsRenameSync");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsRenameSync");
     auto engine = state.engine;
     if (args.length < 2) return engine.throwTypeError("renameSync requires oldPath and newPath");
@@ -1188,8 +1174,7 @@ JSHandle jsRenameSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trust
 
 JSHandle jsRmdirSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsRmdirSync");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsRmdirSync");
     auto engine = state.engine;
     if (args.length < 1) return engine.throwTypeError("rmdirSync requires a path argument");
@@ -1207,8 +1192,7 @@ JSHandle jsRmdirSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @truste
 
 JSHandle jsRmSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsRmSync");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsRmSync");
     auto engine = state.engine;
     if (args.length < 1) return engine.throwTypeError("rmSync requires a path argument");
@@ -1236,8 +1220,7 @@ JSHandle jsRmSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 
 JSHandle jsAccessSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsAccessSync");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsAccessSync");
     auto engine = state.engine;
     if (args.length < 1) return engine.throwTypeError("accessSync requires a path argument");
@@ -1256,8 +1239,7 @@ JSHandle jsAccessSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trust
 
 JSHandle jsRealpathSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsRealpathSync");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsRealpathSync");
     auto engine = state.engine;
     if (args.length < 1) return engine.throwTypeError("realpathSync requires a path argument");
@@ -1298,8 +1280,7 @@ JSHandle jsRealpathSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @tru
 
 JSHandle jsChmodSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsChmodSync");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsChmodSync");
     auto engine = state.engine;
     if (args.length < 2) return engine.throwTypeError("chmodSync requires path and mode");
@@ -1318,8 +1299,7 @@ JSHandle jsChmodSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @truste
 
 JSHandle jsStatIsSymbolicLink(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsStatIsSymbolicLink");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsStatIsSymbolicLink");
     auto engine = state.engine;
     auto typeVal = engine.getProperty(thisVal, "_type");
@@ -1331,8 +1311,7 @@ JSHandle jsStatIsSymbolicLink(void* ctx, JSHandle thisVal, scope JSHandle[] args
 
 JSHandle jsLstatSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsLstatSync");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsLstatSync");
     auto engine = state.engine;
     if (args.length < 1) return engine.throwTypeError("lstatSync requires a path argument");
@@ -1354,8 +1333,7 @@ JSHandle jsLstatSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @truste
 
 JSHandle jsLinkSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsLinkSync");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsLinkSync");
     auto engine = state.engine;
     if (args.length < 2) return engine.throwTypeError("linkSync requires existingPath and newPath");
@@ -1387,8 +1365,7 @@ JSHandle jsLinkSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 
 JSHandle jsSymlinkSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsSymlinkSync");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsSymlinkSync");
     auto engine = state.engine;
     if (args.length < 2) return engine.throwTypeError("symlinkSync requires target and path");
@@ -1418,8 +1395,7 @@ JSHandle jsSymlinkSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trus
 
 JSHandle jsReadlinkSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsReadlinkSync");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsReadlinkSync");
     auto engine = state.engine;
     if (args.length < 1) return engine.throwTypeError("readlinkSync requires a path argument");
@@ -1450,8 +1426,7 @@ JSHandle jsReadlinkSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @tru
 
 JSHandle jsTruncateSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsTruncateSync");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsTruncateSync");
     auto engine = state.engine;
     if (args.length < 1) return engine.throwTypeError("truncateSync requires a path argument");
@@ -1491,8 +1466,7 @@ JSHandle jsTruncateSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @tru
 
 JSHandle jsFtruncateSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsFtruncateSync");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsFtruncateSync");
     auto engine = state.engine;
     if (args.length < 1) return engine.throwTypeError("ftruncateSync requires a file descriptor");
@@ -1514,8 +1488,7 @@ JSHandle jsFtruncateSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @tr
 
 JSHandle jsFutimesSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsFutimesSync");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsFutimesSync");
     auto engine = state.engine;
     if (args.length < 3)
@@ -1541,8 +1514,7 @@ JSHandle jsFutimesSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trus
 
 JSHandle jsChownSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsChownSync");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsChownSync");
     auto engine = state.engine;
     if (args.length < 3) return engine.throwTypeError("chownSync requires path, uid, gid");
@@ -1594,8 +1566,7 @@ int parseFsFlags(string flags) nothrow @trusted
 
 JSHandle jsOpenSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsOpenSync");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsOpenSync");
     auto engine = state.engine;
     if (args.length < 1) return engine.throwTypeError("openSync requires a path argument");
@@ -1634,8 +1605,7 @@ JSHandle jsOpenSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 
 JSHandle jsCloseSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsCloseSync");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsCloseSync");
     auto engine = state.engine;
     if (args.length < 1) return engine.throwTypeError("closeSync requires a file descriptor");
@@ -1654,8 +1624,7 @@ JSHandle jsCloseSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @truste
 
 JSHandle jsReadSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsReadSync");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsReadSync");
     auto engine = state.engine;
     if (args.length < 2) return engine.throwTypeError("readSync requires fd and length");
@@ -1736,8 +1705,7 @@ JSHandle jsReadSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 
 JSHandle jsWriteSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsWriteSync");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsWriteSync");
     auto engine = state.engine;
     if (args.length < 2) return engine.throwTypeError("writeSync requires fd and data");
@@ -1769,8 +1737,7 @@ JSHandle jsWriteSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @truste
 
 JSHandle jsFstatSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsFstatSync");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsFstatSync");
     auto engine = state.engine;
     if (args.length < 1) return engine.throwTypeError("fstatSync requires a file descriptor");
@@ -1790,8 +1757,7 @@ JSHandle jsFstatSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @truste
 
 JSHandle jsFsyncSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsFsyncSync");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsFsyncSync");
     auto engine = state.engine;
     if (args.length < 1) return engine.throwTypeError("fsyncSync requires a file descriptor");
@@ -1813,8 +1779,7 @@ JSHandle jsFsyncSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @truste
 
 JSHandle jsFdatasyncSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsFdatasyncSync");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsFdatasyncSync");
     auto engine = state.engine;
     if (args.length < 1) return engine.throwTypeError("fdatasyncSync requires a file descriptor");
@@ -1848,8 +1813,7 @@ private __gshared int rsCount = 0;
 
 JSHandle jsCreateReadStream(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsCreateReadStream");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsCreateReadStream");
     auto engine = state.engine;
     if (args.length < 1) return engine.throwTypeError("createReadStream requires a path argument");
@@ -1931,8 +1895,7 @@ JSHandle jsCreateReadStream(void* ctx, JSHandle thisVal, scope JSHandle[] args) 
 
 JSHandle jsCreateWriteStream(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsCreateWriteStream");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsCreateWriteStream");
     auto engine = state.engine;
     if (args.length < 1) return engine.throwTypeError("createWriteStream requires a path argument");
@@ -1962,8 +1925,7 @@ JSHandle jsCreateWriteStream(void* ctx, JSHandle thisVal, scope JSHandle[] args)
 
 JSHandle jsStreamOn(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsStreamOn");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsStreamOn");
     auto engine = state.engine;
     if (args.length < 2) return engine.dupValue(thisVal);
@@ -1976,15 +1938,13 @@ JSHandle jsStreamOn(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 
 JSHandle jsStreamDestroy(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsStreamDestroy");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     return state.engine.newUndefined();
 }
 
 JSHandle jsReadStreamDestroy(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsReadStreamDestroy");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsReadStreamDestroy");
     auto engine = state.engine;
 
@@ -2009,15 +1969,13 @@ JSHandle jsReadStreamDestroy(void* ctx, JSHandle thisVal, scope JSHandle[] args)
 
 JSHandle jsReadStreamResume(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsReadStreamResume");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     return state.engine.dupValue(thisVal);
 }
 
 JSHandle jsReadStreamRead(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsReadStreamRead");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsReadStreamRead");
     auto engine = state.engine;
 
@@ -2080,8 +2038,7 @@ JSHandle jsReadStreamRead(void* ctx, JSHandle thisVal, scope JSHandle[] args) @t
 
 JSHandle jsReadStreamPipe(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsReadStreamPipe");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsReadStreamPipe");
     auto engine = state.engine;
     if (args.length < 1) return engine.throwTypeError("pipe requires a destination");
@@ -2105,8 +2062,7 @@ JSHandle jsReadStreamPipe(void* ctx, JSHandle thisVal, scope JSHandle[] args) @t
 
 JSHandle jsWriteStreamWrite(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsWriteStreamWrite");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsWriteStreamWrite");
     auto engine = state.engine;
     if (args.length < 1) return engine.newBool(false);
@@ -2140,8 +2096,7 @@ JSHandle jsWriteStreamWrite(void* ctx, JSHandle thisVal, scope JSHandle[] args) 
 
 JSHandle jsWriteStreamEnd(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsWriteStreamEnd");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsWriteStreamEnd");
     auto engine = state.engine;
     if (args.length >= 1 && engine.isString(args[0]))
@@ -2208,8 +2163,7 @@ JSHandle jsWriteStreamEnd(void* ctx, JSHandle thisVal, scope JSHandle[] args) @t
 
 JSHandle jsWatch(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsWatch");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsWatch");
     auto engine = state.engine;
     assert(engine !is null, "Null engine in jsWatch");
@@ -2321,8 +2275,7 @@ JSHandle jsWatch(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 
 JSHandle jsWatcherPoll(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsWatcherPoll");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsWatcherPoll");
     auto engine = state.engine;
     assert(engine !is null, "Null engine in jsWatcherPoll");
@@ -2403,8 +2356,7 @@ JSHandle jsWatcherPoll(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trus
 
 JSHandle jsWatcherClose(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsWatcherClose");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsWatcherClose");
     auto engine = state.engine;
     assert(engine !is null, "Null engine in jsWatcherClose");
@@ -2424,8 +2376,7 @@ JSHandle jsWatcherClose(void* ctx, JSHandle thisVal, scope JSHandle[] args) @tru
 
 JSHandle jsWatcherOn(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsWatcherOn");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsWatcherOn");
     auto engine = state.engine;
     assert(engine !is null, "Null engine in jsWatcherOn");
@@ -2439,16 +2390,14 @@ JSHandle jsWatcherOn(void* ctx, JSHandle thisVal, scope JSHandle[] args) @truste
 
 JSHandle jsWatcherRef(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsWatcherRef");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsWatcherRef");
     return state.engine.dupValue(thisVal);
 }
 
 JSHandle jsWatcherUnref(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsWatcherUnref");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsWatcherUnref");
     return state.engine.dupValue(thisVal);
 }
@@ -2457,8 +2406,7 @@ JSHandle jsWatcherUnref(void* ctx, JSHandle thisVal, scope JSHandle[] args) @tru
 
 JSHandle jsMkdtempSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsMkdtempSync");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsMkdtempSync");
     auto engine = state.engine;
     if (args.length < 1)
@@ -2486,8 +2434,7 @@ JSHandle jsMkdtempSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trus
 
 JSHandle jsCpSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsCpSync");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsCpSync");
     auto engine = state.engine;
     if (args.length < 2)
@@ -2542,8 +2489,7 @@ JSHandle jsCpSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 
 JSHandle jsUtimesSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsUtimesSync");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsUtimesSync");
     auto engine = state.engine;
     if (args.length < 3)

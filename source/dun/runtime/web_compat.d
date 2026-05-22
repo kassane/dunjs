@@ -1,7 +1,7 @@
 module dun.runtime.web_compat;
 
 import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
-import dun.runtime.globals : DunState;
+import dun.runtime.globals : DunState, ctxState;
 
 void installWebCompat(IJSEngine engine) @trusted
 {
@@ -206,8 +206,7 @@ enum ubyte[128] B64_DECODE = () {
 
 JSHandle jsNativeBtoa(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in btoa");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in btoa");
     auto engine = state.engine;
 
@@ -264,8 +263,7 @@ JSHandle jsNativeBtoa(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trust
 
 JSHandle jsNativeAtob(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in atob");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in atob");
     auto engine = state.engine;
 
@@ -316,8 +314,7 @@ JSHandle jsNativeAtob(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trust
 
 JSHandle jsNativeTextEncoderEncode(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in TextEncoder.encode");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in TextEncoder.encode");
     auto engine = state.engine;
 
@@ -332,8 +329,7 @@ JSHandle jsNativeTextEncoderEncode(void* ctx, JSHandle thisVal, scope JSHandle[]
 
 JSHandle jsNativeTextEncoderEncodeInto(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in TextEncoder.encodeInto");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in TextEncoder.encodeInto");
     auto engine = state.engine;
 
@@ -390,8 +386,7 @@ private JSHandle _getCachedU8Wrap(IJSEngine engine) @trusted
 
 JSHandle jsNativeTextDecoderDecode(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in TextDecoder.decode");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in TextDecoder.decode");
     auto engine = state.engine;
 

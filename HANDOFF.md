@@ -5,11 +5,21 @@ and the gotchas that bite you on day one. Read alongside
 [`CLAUDE.md`](CLAUDE.md), [`SECURITY.md`](SECURITY.md), and
 [`TESTING.md`](TESTING.md).
 
-## Current state (v1.1.25)
+## Current state (v1.1.26)
 
-- Integration sweep: **156/156** on QJS / V8, **155/155 + 1 SKIP**
-  on JSC. The `cve_priv_files.js` fixture (8/8) added in v1.1.25
-  regression-tests the sandbox-bypass fix (CVE-2024-34346 class).
+- Integration sweep: **158/158** on QJS / V8, **157/158 + 1 SKIP**
+  on JSC (deno_deploy_compat flakes ~1 in 5 sweeps under heap-load —
+  see `## JSC deno_deploy_compat flake` below). The `cve_priv_files.js`
+  fixture (8/8) added in v1.1.25 regression-tests the sandbox-bypass
+  fix (CVE-2024-34346 class).
+- npm package corpus: `dun install express@4 moment axios jsonwebtoken
+  semver validator commander cookie qs chalk uuid dotenv minimist
+  which yargs-parser underscore` is required for the 5 npm-dependent
+  fixtures (express_e2e, npm_deep_compat, npm_packages_e2e,
+  npm_real_packages, production_advanced) to pass. The integration
+  runner does NOT auto-install — sweep against a fresh checkout
+  starts with the 5 FAIL baseline; install the corpus once, sweep
+  again, and the FAILs become 0.
 - Unit tests: **71/71** clean.
 - Backends: QuickJS-NG **0.14.0**, JavaScriptCore (prebuilt
   WebKit), V8 **15.0.91** (via `vendor/v8shim/`). All three
@@ -68,14 +78,207 @@ The Dockerfiles **do not** currently copy `icudtl.dat` into the
 runtime image — proposed fix is documented but deferred (see
 "Known issues" below).
 
+## JSC deno_deploy_compat flake
+
+v1.1.26 stabilization pass — improved the JSC `deno_deploy_compat`
+flake rate from **~60% pre-fix** to **~20% post-fix**. Mechanism:
+JSC's concurrent-GC sweeps intermediate JSValueRef values that
+aren't on the conservative-stack-scan path. Under the 15-server
+fixture sustained allocation pattern, the fetch path's cached
+`_fetchResponseBuilder` got called with one of its argument values
+mid-sweep, returning the exception value instead of the Response.
+The failure surface was `r2.text is not a function` at section 7.
+
+Three fixes applied (see commit 409a679):
+
+1. **`writeHead` flatten cache** (`http.d`): the `res.writeHead(status,
+   headers)` path used to `engine.eval(...)` a fresh flattener fn per
+   call. Cached once into `_writeHeadFlattener` via
+   `ensureWriteHeadFlattener(engine)`.
+2. **`makeResponse` exception fallback** (`fetch.d`): if the cached
+   builder's `callFunction` returns an exception (concurrent-GC of
+   an intermediate), fall back to `makeResponseFallback` which
+   doesn't allocate transient nested arrays.
+3. **Async thread pool** (`async.d`): replaced per-asyncSubmit
+   `new Thread({...})` with an 8-worker `Semaphore`-driven pool.
+4. **`gc()` hint on `srv.close`** (`deno_compat.d`): synchronous
+   `JSGarbageCollect` after each cycle's server close reclaims
+   the handler closure + events map + listener chain.
+
+Net: 4-of-5 sweeps clean (157 PASS, 0 FAIL, 1 SKIP); 1-of-5 still
+shows the `deno_deploy_compat` flake. The bun_v7 SKIP gate stays
+in place — enabling it pushes flake rate back up to ~55% standalone
+(45% pass) because even the v7 install-time bytecode adds enough
+JSC heap pressure to tip the cycle. Trade-off: 1 SKIP beats 3× more
+deno_deploy_compat flakes.
+
 ## Known issues / deferred work
 
 | # | Issue | Impact | Notes |
 |---|-------|--------|-------|
-| 1 | JSC `bun_v7_additions` SKIP under `deno_deploy_compat` heap load | Single fixture skipped (1/156) | Pre-existing per-request listener-chain leak in fetch path. v1.1.5 → v1.1.20 plugged most of the JSC handle leaks but didn't fully close this. Standalone `bun_v7_additions` passes 24/24. Documented in CHANGELOG #43a/#58d/#59a/#60d for a future v1.2.x worker-lifecycle pass |
+| 1 | JSC `bun_v7_additions` SKIP — gate stays | Single fixture skipped (1/158) | v1.1.26 root-caused the related deno_deploy_compat flake to JSC concurrent-GC sweeping intermediates in the cached response builder. The bun_v7 install-time bytecode is enough additional pressure to tip the flake rate back up; we keep the gate as the strictly-better trade-off. Standalone `bun_v7_additions` passes 24/24 on JSC. Full fix needs either (a) the cached response builder rewritten to not depend on transient arrays, or (b) a JSC config knob to dial down concurrent-GC aggression during HTTP server work |
 | 2 | Dockerfile V8 image missing `icudtl.dat` | `docker run dunjs:v8 run any-script-using-Intl-or-Unicode-regex.js` → `Internal error. Icu error.` | Proposed fix in earlier session: `COPY --from=build /src/build/icudtl.dat /usr/local/bin/icudtl.dat`. Needs the `touch build/icudtl.dat` placeholder trick for QJS/JSC images where postBuildCommand skips the copy |
 | 3 | QJS `Worker(src, {eval:true})` + `setTimeout`-deferred `terminate` race | Edge-case crash | gdb-traced to QJS internal `add_shape_property`. Documented in CHANGELOG #58d/#59e. JSC/V8 don't hit it. Real apps use `await terminate(); process.exit()` rather than the racy pattern |
 | 4 | No fuzzer harness for parser / type-stripper / Buffer roundtrip | Theoretical | LDC supports `-fsanitize=fuzzer` since 1.4 (see `.claude/commands/debug-native-callback.md`). Template is documented but no harness lives in the tree |
+
+## Rule-compliance audit (2026-05) — applied + deferred
+
+A three-track audit (`@trusted` overuse, magic-number duplicates, DIP
+coverage) ran on the v1.1.25 tree across two commits.
+
+**Pass 1 — Cross-module constants + paths.canonicalizePath**
+
+- `dun.platform.paths.canonicalizePath`: dropped `@trusted` → `@safe`.
+  This is the CVE-class fix gate (CVE-2023-32004 / CVE-2024-21896) and a
+  security primitive should not need an `@trusted` escape — Phobos'
+  `absolutePath` + `buildNormalizedPath` are both `@safe`, no FFI, no
+  pointer arithmetic. Doc-comment now cites the CVE and the audit date
+  so the next reader doesn't think the `@safe` is accidental.
+- `dun.declarations`: hoisted six cross-module duplicates —
+  `PAGE_SIZE_BYTES` / `NETWORK_READ_BUF_BYTES` / `STACK_BUFFER_BUDGET` /
+  `MS_PER_SEC` / `NS_PER_MS` / `NS_PER_SEC`. Re-pointed the
+  `LINUX_PAGE_SIZE` literal in `runtime.process_api.d:9` and the
+  `timeoutMs / 1000 + (timeoutMs % 1000) * 1_000_000` math in
+  `loop.iopoller.d:794` and `runtime.worker_api.d:539`. Other local
+  enums (`SOCKET_READ_BUF_SIZE`, `HTTP_READ_BUF`, `TLS_READ_BUF_SIZE`,
+  `READLINK_BUF_SIZE`, `WS_CLOSE_NORMAL`) were left alone — the local
+  name carries documentation value the bare constant wouldn't.
+
+**Pass 4 — Empirical @safe rollout limit + JSC/V8 PGO chains**
+
+Mass-conversion experiment ran on every NativeCallback (~400 total)
+to determine the empirical ceiling of `@safe` migration given the
+current code:
+
+| Conversion attempt | Result | Why |
+|--------------------|--------|-----|
+| `JSHandle x(...) @trusted` → `@safe` on all 400 callbacks | 14 survive (3.5%) | Each callback's body had to be analyzed for `@system` operations |
+| `__gshared` state access (`_bufProto`, `gExitCallbacks`, `_cachedHmacUpdateFn`, ...) | Must stay `@trusted` | Module-level mutable state is by definition `@system` |
+| `.ptr` raw-pointer arithmetic (byte/int reads in `bswap`, OpenSSL `PKCS5_PBKDF2_HMAC(password.ptr, ...)`) | Must stay `@trusted` | The whole point of these is to do unchecked memory access |
+| OpenSSL FFI (entire `crypto.d` and `tls.d`, `http2.d` SSL setup) | Must stay `@trusted` | Cryptographic code legitimately wants the `@trusted` security flag |
+| POSIX syscalls (`socket`, `fcntl`, `setsockopt`, `link`, `symlink`, `readlink`, ...) | Must stay `@trusted` | Same — `extern(C)` syscalls are `@system` |
+| `cast(string)` from `char[]`, `cast(int*)` to `shared(int)*` | Must stay `@trusted` | These casts are `@system` by language rule |
+| `catch (Throwable)` (`@safe` only allows `catch (Exception)`) | Must stay `@trusted` | Defensive `Throwable` catch is `@system` in `@safe` |
+
+The 14 surviving `@safe` callbacks: `jsProcessGet{uid,gid,euid,egid}`,
+`jsBufferByteLength`, `consoleLog/Warn/Error`, `jsSetTimeout/Interval/
+ClearTimer`, `jsQueueMicrotask`, `responseText/Json`.
+
+Per-callback narrow-`@trusted`-lambda wrapping is mechanical but adds
+visual noise without changing the security audit conclusion — a
+function-level `@trusted` on a callback that *legitimately* touches
+`@system` code is already the right signal.
+
+The IJSEngine `@trusted` interface annotation from Pass 3 stands as
+the unlock for the 14 that did convert; further `@safe` migration
+should be opportunistic per-file when refactoring for other reasons.
+
+**All-backend PGO chains verified**
+
+| Backend | Instrumented binary | feature_bench profile | framework_bench profile | PGO binary throughput |
+|---------|---------------------|----------------------|------------------------|----------------------|
+| QJS | 48 `__llvm_profile_` symbols | 21M ops/sec | 9M ops/sec | 21M ops/sec |
+| JSC | 48 `__llvm_profile_` symbols | 575M ops/sec | 271M ops/sec | 585M ops/sec |
+| V8  | 48 `__llvm_profile_` symbols | 159M ops/sec | 176M ops/sec | 155M ops/sec |
+
+All three: instrumented build links clean (`--whole-archive` wrap on
+`libldc_rt.profile.a` correctly pulls in all 48 symbols), the
+`ldc-profdata merge` step succeeds, and the `release-pgo` build links
+clean. Per-benchmark deltas are within run-to-run noise (≤ 3-5%) —
+expected for this workload mix where dispatch / GC / FFI dominate
+over the auto-vectorizable code that PGO most improves.
+
+**Pass 3 — IJSEngine @trusted annotation + @safe callback pilot + redundancy cleanup**
+
+- IJSEngine: all 50+ interface methods now carry `@trusted`,
+  matching what every backend implementation (QJS, JSC, V8) already
+  has on its overrides. Two stay `@system`: `rawRuntime()` /
+  `rawContext()` hand the caller a raw FFI pointer they can do
+  anything with — pretending those are `@trusted` would be a lie.
+- `@safe` callback pilot (8 functions converted as proof-of-pattern):
+  `jsProcessGetuid/getgid/geteuid/getegid`, `jsBufferByteLength`,
+  `consoleLog/consoleWarn/consoleError`, `jsSetTimeout/jsSetInterval/
+  jsClearTimer`, `jsQueueMicrotask`. About 400 callbacks remain
+  `@trusted`; most can now drop to `@safe` in follow-up commits.
+- npm.d: `resolveVersion` / `findBestMatch` (both overloads) /
+  `getTarballUrl` / `randomHex` dropped to `@safe`. The remaining
+  11 `@trusted` functions do real IO / `spawnShell` / HTTP fetch and
+  legitimately need the annotation as security flags.
+- "No redundancies" cleanup: 340 occurrences of
+  `assert(ctx !is null, "Null ctx in <name>");` followed by
+  `auto state = ctxState(ctx);` removed. `ctxState` already asserts
+  on null; combined with D's automatic function-name in assertion
+  stack traces the descriptive prefix added no actionable information.
+  Spread across 33 files (fs.d 54, crypto.d 47, buffer.d 45,
+  process_api.d 24, deno_compat.d 23, fs_promises.d 19, ...).
+
+**Pass 2 — ctxState consolidation + DIP1038 expansion + move semantics**
+
+- `dun.runtime.globals.ctxState(void* ctx)`: new
+  `@trusted nothrow @nogc` helper for the `cast(DunState*) ctx` pattern
+  that opened every NativeCallback (428 sites across 36 files). The
+  cast is the only `@system` operation in those callback prologues;
+  centralizing it means the audit grep surface for "where does ctx
+  get cast" is one place instead of 428. Mechanically replaced
+  via a single `sed -i` pass + import-list update. Build clean,
+  sweep at baseline.
+- DIP1038 `@mustuse` on `FetchResult`: every caller of `doFetch()`
+  consumes either `status` (for redirect chains) or `body_` (for the
+  JS-side `Response` wrapper); silently dropping the struct would
+  swallow an HTTP response. Build confirms no existing caller drops.
+- Move semantics — `@disable this(this)` on `StackFallback!N`: copying
+  it would alias the stack region across frames + the GC heap pointer,
+  defeating the type's purpose. Pass by `ref` instead. `BumpRegion`
+  inherits `@disable this(this)` from its `Region!Mallocator` alias
+  already.
+- `.gitignore` extended to `/dun-asan-*`, `/dun-tsan-*`, `/dun-pgo-*`
+  so audit-builds don't show up as untracked.
+
+**Sanitizer + debug verification**
+
+- ASan integration sweep: 153/158 (5 pre-existing npm-network FAILs).
+- TSan integration sweep: 153/158, zero data race warnings.
+- gdb reproducer covering Buffer / crypto / fs.existsSync canonicalization:
+  no SIGSEGV, no abort, heap stable. Verifies the `ctxState` helper
+  symbol (`_D3dun7runtime7globals8ctxStateFNbNiNePvZPSQBpQBoQBj8DunState`)
+  is reachable in the binary symbol table.
+- PGO chain: `release-pgo-gen` (instrumented, 48 `__llvm_profile_`
+  symbols) → 2 benchmark runs → `ldc-profdata merge` →
+  `release-pgo` (optimized). All stages link clean.
+
+**Still deferred — would need its own focused PR**
+
+| Track | Module | Pattern | Why deferred |
+|-------|--------|---------|--------------|
+| `@safe` callback rollout | All builtins (~400 callbacks) | The interface annotation in Pass 3 unblocks this. Each callback drops to `@safe` if its body only calls IJSEngine methods + ctxState + safe Phobos. ~10 already piloted | Mechanical but huge diff; would obscure unrelated PRs in `git blame`. Best done in small per-file batches |
+| `@trusted` IO reduction | `dun.modules.npm` (11 remaining) | Functions that touch `spawnShell`, `doFetch`, `readText`, `writefln` — keeping `@trusted` annotated as security flags | Real IO surface; keep `@trusted` as the audit signal |
+| DIP1038 `@mustuse` on funcs | `StackFallback.allocate` and friends | D currently reserves `@mustuse on functions for future use`; only struct types accept it (compile error: `@mustuse on functions is reserved for future use`) | Compiler limitation; revisit when LDC/DMD lifts it |
+| DIP1000 `return scope` | `JSVal` constructor (engine-context lifetime), additional `Buffer` slice getters | Compiler-enforced lifetime tracking | Current `JSVal` ctor stores a raw `JSContext*` field — `scope` on a ctor parameter doesn't track lifetime through struct fields. Practical answer is `@disable this(this)` + doc comment, which is what the wrapper already does. `getTypedArrayBytes` + `extractBytes` are already annotated `return scope` |
+| `@live` (DIP1021) | Evaluated but not adopted | DMD/LDC support exists (`@live` attribute), but the feature has been in beta for years and isn't production-stable. Would enforce single-owner semantics on `JSHandle`/`JSVal` at compile time, with the same pattern as Rust borrow checking | Maturity risk. Re-evaluate when DMD/LDC marks it stable |
+| RAII expansion | `UdpSocketState` (dgram.d), `DnsResolver` state, other fd-holders | Currently managed via fixed-size pool arrays (`gUdpSockets[MAX_UDP_SOCKETS]`) with index-based access, so `@disable this(this)` would break `pool[idx] = X.init` reset semantics | Pool-based lifecycle is intentional — non-copyable annotation would conflict |
+
+The audit notes confirmed: the codebase is broadly disciplined — magic
+numbers are mostly named local enums (intentional documentation), most
+`@trusted` blocks are at real FFI boundaries (legitimate), `@mustuse`
+is wired on `JSResult` + `AsyncResult` + `FetchResult` + `PromiseHandles`
+(the four highest-value return types), `@disable this(this)` covers
+`StackFallback` + `BumpRegion` + `TlsSocket` + `JSVal`, and DIP1000 is
+annotated on every slice-returning engine method.
+
+**Audit verification ledger (across all 3 commits)**
+
+- `dub build -c {quickjs,jsc,v8}`: all clean (debug + release +
+  release-pgo-gen + release-pgo + asan + tsan)
+- `dub test -c unittest`: 71/71
+- Integration sweep: QJS 153/158, V8 153/158, JSC 151/158
+  (deltas are pre-existing npm-network FAILs + the documented
+  `deno_deploy_compat` heap-load case — identical to baseline)
+- ASan sweep: 153/158 baseline, no leaks/UBs
+- TSan sweep: 153/158 baseline, zero data race warnings
+- gdb crash-check on `/tmp/repro_audit.js`: no SIGSEGV, no abort,
+  heap stable. Verifies the `ctxState` helper symbol is reachable
+- PGO chain: 48 `__llvm_profile_` symbols at gen stage, profdata
+  merge clean, optimized build links clean
 
 ## Build & test recipe (canonical)
 

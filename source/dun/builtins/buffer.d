@@ -1,7 +1,7 @@
 module dun.builtins.buffer;
 
 import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
-import dun.runtime.globals : DunState;
+import dun.runtime.globals : DunState, ctxState;
 
 private enum BUFFER_MAX_SIZE = 1024 * 1024 * 1024;
 
@@ -377,8 +377,7 @@ package ubyte[] extractBytes(IJSEngine engine, return scope JSHandle obj) @trust
 // Buffer.from(input, [encoding])
 JSHandle jsBufferFrom(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsBufferFrom");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in jsBufferFrom");
     auto engine = state.engine;
     if (args.length < 1) return engine.throwTypeError("Buffer.from requires an argument");
@@ -548,8 +547,7 @@ JSHandle jsBufferFrom(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trust
 // Buffer.alloc(size, [fill], [encoding])
 JSHandle jsBufferAlloc(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsBufferAlloc");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in jsBufferAlloc");
     auto engine = state.engine;
     if (args.length < 1 || !engine.isNumber(args[0]))
@@ -616,8 +614,7 @@ JSHandle jsBufferAlloc(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trus
 // Buffer.allocUnsafe(size)
 JSHandle jsBufferAllocUnsafe(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsBufferAllocUnsafe");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in jsBufferAllocUnsafe");
     auto engine = state.engine;
     if (args.length < 1 || !engine.isNumber(args[0]))
@@ -632,8 +629,7 @@ JSHandle jsBufferAllocUnsafe(void* ctx, JSHandle thisVal, scope JSHandle[] args)
 // Buffer.isBuffer(obj)
 JSHandle jsBufferIsBuffer(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsBufferIsBuffer");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in jsBufferIsBuffer");
     auto engine = state.engine;
     if (args.length < 1 || !engine.isObject(args[0]))
@@ -649,8 +645,7 @@ JSHandle jsBufferConcat(void* ctx, JSHandle thisVal, scope JSHandle[] args) @tru
 {
     import core.stdc.string : memcpy;
 
-    assert(ctx !is null, "Null ctx in jsBufferConcat");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in jsBufferConcat");
     auto engine = state.engine;
     if (args.length < 1) return makeBufferObj(engine, cast(ubyte[]) []);
@@ -757,10 +752,9 @@ JSHandle jsBufferConcat(void* ctx, JSHandle thisVal, scope JSHandle[] args) @tru
 }
 
 // Buffer.byteLength(string, [encoding])
-JSHandle jsBufferByteLength(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
+JSHandle jsBufferByteLength(void* ctx, JSHandle thisVal, scope JSHandle[] args) @safe
 {
-    assert(ctx !is null, "Null ctx in jsBufferByteLength");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in jsBufferByteLength");
     auto engine = state.engine;
     if (args.length < 1) return engine.newInt(0);
@@ -781,8 +775,7 @@ JSHandle jsBufferByteLength(void* ctx, JSHandle thisVal, scope JSHandle[] args) 
 // buf.toString([encoding], [start], [end])
 JSHandle jsBufferToString(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsBufferToString");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in jsBufferToString");
     auto engine = state.engine;
     auto bytes = extractBytes(engine, thisVal);
@@ -865,8 +858,7 @@ JSHandle jsBufferToString(void* ctx, JSHandle thisVal, scope JSHandle[] args) @t
 // buf.toJSON()
 JSHandle jsBufferToJSON(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsBufferToJSON");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in jsBufferToJSON");
     auto engine = state.engine;
     auto bytes = extractBytes(engine, thisVal);
@@ -882,8 +874,7 @@ JSHandle jsBufferToJSON(void* ctx, JSHandle thisVal, scope JSHandle[] args) @tru
 // buf.slice([start], [end])
 JSHandle jsBufferSlice(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsBufferSlice");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in jsBufferSlice");
     auto engine = state.engine;
     auto bytes = extractBytes(engine, thisVal);
@@ -906,8 +897,7 @@ JSHandle jsBufferSlice(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trus
 // buf.copy(target[, targetStart[, sourceStart[, sourceEnd]]])
 JSHandle jsBufferCopy(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsBufferCopy");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in jsBufferCopy");
     auto engine = state.engine;
 
@@ -975,8 +965,7 @@ JSHandle jsBufferCopy(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trust
 // buf.equals(other)
 JSHandle jsBufferEquals(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsBufferEquals");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in jsBufferEquals");
     auto engine = state.engine;
     if (args.length < 1 || !engine.isObject(args[0]))
@@ -989,8 +978,7 @@ JSHandle jsBufferEquals(void* ctx, JSHandle thisVal, scope JSHandle[] args) @tru
 // buf.indexOf(value)
 JSHandle jsBufferIndexOf(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsBufferIndexOf");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in jsBufferIndexOf");
     auto engine = state.engine;
     if (args.length < 1) return engine.newInt(-1);
@@ -1019,8 +1007,7 @@ JSHandle jsBufferIndexOf(void* ctx, JSHandle thisVal, scope JSHandle[] args) @tr
 // buf.fill(value)
 JSHandle jsBufferFill(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsBufferFill");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in jsBufferFill");
     auto engine = state.engine;
     if (args.length < 1) return engine.dupValue(thisVal);
@@ -1051,8 +1038,7 @@ JSHandle jsBufferFill(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trust
 // buf.write(string, [offset])
 JSHandle jsBufferWrite(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsBufferWrite");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in jsBufferWrite");
     auto engine = state.engine;
     if (args.length < 1 || !engine.isString(args[0]))
@@ -1134,8 +1120,7 @@ JSHandle jsBufferWrite(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trus
 // buf.readUInt8([offset])
 JSHandle jsBufferReadUInt8(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsBufferReadUInt8");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in jsBufferReadUInt8");
     auto engine = state.engine;
     auto bytes = extractBytes(engine, thisVal);
@@ -1150,8 +1135,7 @@ JSHandle jsBufferReadUInt8(void* ctx, JSHandle thisVal, scope JSHandle[] args) @
 // buf.writeUInt8(value, [offset])
 JSHandle jsBufferWriteUInt8(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsBufferWriteUInt8");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in jsBufferWriteUInt8");
     auto engine = state.engine;
     if (args.length < 1 || !engine.isNumber(args[0]))
@@ -1172,8 +1156,7 @@ JSHandle jsBufferWriteUInt8(void* ctx, JSHandle thisVal, scope JSHandle[] args) 
 // Buffer.isEncoding(encoding)
 JSHandle jsBufferIsEncoding(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsBufferIsEncoding");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in jsBufferIsEncoding");
     auto engine = state.engine;
     if (args.length < 1 || !engine.isString(args[0])) return engine.newBool(false);
@@ -1192,8 +1175,7 @@ JSHandle jsBufferIsEncoding(void* ctx, JSHandle thisVal, scope JSHandle[] args) 
 // Buffer.compare(a, b)
 JSHandle jsBufferStaticCompare(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsBufferStaticCompare");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in jsBufferStaticCompare");
     auto engine = state.engine;
     if (args.length < 2) return engine.throwTypeError("Buffer.compare requires two arguments");
@@ -1213,8 +1195,7 @@ JSHandle jsBufferStaticCompare(void* ctx, JSHandle thisVal, scope JSHandle[] arg
 // buf.readUInt16LE([offset])
 JSHandle jsBufferReadUInt16LE(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsBufferReadUInt16LE");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in jsBufferReadUInt16LE");
     auto engine = state.engine;
     auto bytes = extractBytes(engine, thisVal);
@@ -1228,8 +1209,7 @@ JSHandle jsBufferReadUInt16LE(void* ctx, JSHandle thisVal, scope JSHandle[] args
 JSHandle jsBufferReadUInt16BE(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     import dun.platform.simd : bswap16;
-    assert(ctx !is null, "Null ctx in jsBufferReadUInt16BE");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in jsBufferReadUInt16BE");
     auto engine = state.engine;
     auto bytes = extractBytes(engine, thisVal);
@@ -1242,8 +1222,7 @@ JSHandle jsBufferReadUInt16BE(void* ctx, JSHandle thisVal, scope JSHandle[] args
 
 JSHandle jsBufferReadUInt32LE(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsBufferReadUInt32LE");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in jsBufferReadUInt32LE");
     auto engine = state.engine;
     auto bytes = extractBytes(engine, thisVal);
@@ -1257,8 +1236,7 @@ JSHandle jsBufferReadUInt32LE(void* ctx, JSHandle thisVal, scope JSHandle[] args
 JSHandle jsBufferReadUInt32BE(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     import dun.platform.simd : bswap32;
-    assert(ctx !is null, "Null ctx in jsBufferReadUInt32BE");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in jsBufferReadUInt32BE");
     auto engine = state.engine;
     auto bytes = extractBytes(engine, thisVal);
@@ -1271,8 +1249,7 @@ JSHandle jsBufferReadUInt32BE(void* ctx, JSHandle thisVal, scope JSHandle[] args
 
 JSHandle jsBufferReadInt8(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsBufferReadInt8");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in jsBufferReadInt8");
     auto engine = state.engine;
     auto bytes = extractBytes(engine, thisVal);
@@ -1284,8 +1261,7 @@ JSHandle jsBufferReadInt8(void* ctx, JSHandle thisVal, scope JSHandle[] args) @t
 
 JSHandle jsBufferReadInt16LE(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsBufferReadInt16LE");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in jsBufferReadInt16LE");
     auto engine = state.engine;
     auto bytes = extractBytes(engine, thisVal);
@@ -1299,8 +1275,7 @@ JSHandle jsBufferReadInt16LE(void* ctx, JSHandle thisVal, scope JSHandle[] args)
 JSHandle jsBufferReadInt16BE(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     import dun.platform.simd : bswap16;
-    assert(ctx !is null, "Null ctx in jsBufferReadInt16BE");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in jsBufferReadInt16BE");
     auto engine = state.engine;
     auto bytes = extractBytes(engine, thisVal);
@@ -1313,8 +1288,7 @@ JSHandle jsBufferReadInt16BE(void* ctx, JSHandle thisVal, scope JSHandle[] args)
 
 JSHandle jsBufferReadInt32LE(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsBufferReadInt32LE");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in jsBufferReadInt32LE");
     auto engine = state.engine;
     auto bytes = extractBytes(engine, thisVal);
@@ -1328,8 +1302,7 @@ JSHandle jsBufferReadInt32LE(void* ctx, JSHandle thisVal, scope JSHandle[] args)
 JSHandle jsBufferReadInt32BE(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     import dun.platform.simd : bswap32;
-    assert(ctx !is null, "Null ctx in jsBufferReadInt32BE");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in jsBufferReadInt32BE");
     auto engine = state.engine;
     auto bytes = extractBytes(engine, thisVal);
@@ -1342,8 +1315,7 @@ JSHandle jsBufferReadInt32BE(void* ctx, JSHandle thisVal, scope JSHandle[] args)
 
 JSHandle jsBufferReadFloatLE(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsBufferReadFloatLE");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in jsBufferReadFloatLE");
     auto engine = state.engine;
     auto bytes = extractBytes(engine, thisVal);
@@ -1358,8 +1330,7 @@ JSHandle jsBufferReadFloatLE(void* ctx, JSHandle thisVal, scope JSHandle[] args)
 JSHandle jsBufferReadFloatBE(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     import dun.platform.simd : bswap32;
-    assert(ctx !is null, "Null ctx in jsBufferReadFloatBE");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in jsBufferReadFloatBE");
     auto engine = state.engine;
     auto bytes = extractBytes(engine, thisVal);
@@ -1374,8 +1345,7 @@ JSHandle jsBufferReadFloatBE(void* ctx, JSHandle thisVal, scope JSHandle[] args)
 
 JSHandle jsBufferReadDoubleLE(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsBufferReadDoubleLE");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in jsBufferReadDoubleLE");
     auto engine = state.engine;
     auto bytes = extractBytes(engine, thisVal);
@@ -1391,8 +1361,7 @@ JSHandle jsBufferReadDoubleLE(void* ctx, JSHandle thisVal, scope JSHandle[] args
 JSHandle jsBufferReadDoubleBE(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     import dun.platform.simd : bswap64;
-    assert(ctx !is null, "Null ctx in jsBufferReadDoubleBE");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in jsBufferReadDoubleBE");
     auto engine = state.engine;
     auto bytes = extractBytes(engine, thisVal);
@@ -1407,8 +1376,7 @@ JSHandle jsBufferReadDoubleBE(void* ctx, JSHandle thisVal, scope JSHandle[] args
 
 JSHandle jsBufferWriteUInt16LE(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsBufferWriteUInt16LE");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in jsBufferWriteUInt16LE");
     auto engine = state.engine;
     if (args.length < 1 || !engine.isNumber(args[0])) return engine.throwTypeError("writeUInt16LE requires a value");
@@ -1425,8 +1393,7 @@ JSHandle jsBufferWriteUInt16LE(void* ctx, JSHandle thisVal, scope JSHandle[] arg
 JSHandle jsBufferWriteUInt16BE(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     import dun.platform.simd : bswap16;
-    assert(ctx !is null, "Null ctx in jsBufferWriteUInt16BE");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in jsBufferWriteUInt16BE");
     auto engine = state.engine;
     if (args.length < 1 || !engine.isNumber(args[0])) return engine.throwTypeError("writeUInt16BE requires a value");
@@ -1441,8 +1408,7 @@ JSHandle jsBufferWriteUInt16BE(void* ctx, JSHandle thisVal, scope JSHandle[] arg
 
 JSHandle jsBufferWriteUInt32LE(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsBufferWriteUInt32LE");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in jsBufferWriteUInt32LE");
     auto engine = state.engine;
     if (args.length < 1 || !engine.isNumber(args[0])) return engine.throwTypeError("writeUInt32LE requires a value");
@@ -1461,8 +1427,7 @@ JSHandle jsBufferWriteUInt32LE(void* ctx, JSHandle thisVal, scope JSHandle[] arg
 JSHandle jsBufferWriteUInt32BE(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     import dun.platform.simd : bswap32;
-    assert(ctx !is null, "Null ctx in jsBufferWriteUInt32BE");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in jsBufferWriteUInt32BE");
     auto engine = state.engine;
     if (args.length < 1 || !engine.isNumber(args[0])) return engine.throwTypeError("writeUInt32BE requires a value");
@@ -1477,8 +1442,7 @@ JSHandle jsBufferWriteUInt32BE(void* ctx, JSHandle thisVal, scope JSHandle[] arg
 
 JSHandle jsBufferWriteInt16LE(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsBufferWriteInt16LE");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in jsBufferWriteInt16LE");
     auto engine = state.engine;
     if (args.length < 1 || !engine.isNumber(args[0])) return engine.throwTypeError("writeInt16LE requires a value");
@@ -1495,8 +1459,7 @@ JSHandle jsBufferWriteInt16LE(void* ctx, JSHandle thisVal, scope JSHandle[] args
 JSHandle jsBufferWriteInt16BE(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     import dun.platform.simd : bswap16;
-    assert(ctx !is null, "Null ctx in jsBufferWriteInt16BE");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in jsBufferWriteInt16BE");
     auto engine = state.engine;
     if (args.length < 1 || !engine.isNumber(args[0])) return engine.throwTypeError("writeInt16BE requires a value");
@@ -1511,8 +1474,7 @@ JSHandle jsBufferWriteInt16BE(void* ctx, JSHandle thisVal, scope JSHandle[] args
 
 JSHandle jsBufferWriteInt32LE(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsBufferWriteInt32LE");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in jsBufferWriteInt32LE");
     auto engine = state.engine;
     if (args.length < 1 || !engine.isNumber(args[0])) return engine.throwTypeError("writeInt32LE requires a value");
@@ -1531,8 +1493,7 @@ JSHandle jsBufferWriteInt32LE(void* ctx, JSHandle thisVal, scope JSHandle[] args
 JSHandle jsBufferWriteInt32BE(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     import dun.platform.simd : bswap32;
-    assert(ctx !is null, "Null ctx in jsBufferWriteInt32BE");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in jsBufferWriteInt32BE");
     auto engine = state.engine;
     if (args.length < 1 || !engine.isNumber(args[0])) return engine.throwTypeError("writeInt32BE requires a value");
@@ -1547,8 +1508,7 @@ JSHandle jsBufferWriteInt32BE(void* ctx, JSHandle thisVal, scope JSHandle[] args
 
 JSHandle jsBufferWriteFloatLE(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsBufferWriteFloatLE");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in jsBufferWriteFloatLE");
     auto engine = state.engine;
     if (args.length < 1 || !engine.isNumber(args[0])) return engine.throwTypeError("writeFloatLE requires a value");
@@ -1565,8 +1525,7 @@ JSHandle jsBufferWriteFloatLE(void* ctx, JSHandle thisVal, scope JSHandle[] args
 JSHandle jsBufferWriteFloatBE(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     import dun.platform.simd : bswap32;
-    assert(ctx !is null, "Null ctx in jsBufferWriteFloatBE");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in jsBufferWriteFloatBE");
     auto engine = state.engine;
     if (args.length < 1 || !engine.isNumber(args[0])) return engine.throwTypeError("writeFloatBE requires a value");
@@ -1582,8 +1541,7 @@ JSHandle jsBufferWriteFloatBE(void* ctx, JSHandle thisVal, scope JSHandle[] args
 
 JSHandle jsBufferWriteDoubleLE(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsBufferWriteDoubleLE");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in jsBufferWriteDoubleLE");
     auto engine = state.engine;
     if (args.length < 1 || !engine.isNumber(args[0])) return engine.throwTypeError("writeDoubleLE requires a value");
@@ -1600,8 +1558,7 @@ JSHandle jsBufferWriteDoubleLE(void* ctx, JSHandle thisVal, scope JSHandle[] arg
 JSHandle jsBufferWriteDoubleBE(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     import dun.platform.simd : bswap64;
-    assert(ctx !is null, "Null ctx in jsBufferWriteDoubleBE");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in jsBufferWriteDoubleBE");
     auto engine = state.engine;
     if (args.length < 1 || !engine.isNumber(args[0])) return engine.throwTypeError("writeDoubleBE requires a value");
@@ -1617,8 +1574,7 @@ JSHandle jsBufferWriteDoubleBE(void* ctx, JSHandle thisVal, scope JSHandle[] arg
 
 JSHandle jsBufferCompare(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsBufferCompare");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in jsBufferCompare");
     auto engine = state.engine;
     if (args.length < 1) return engine.throwTypeError("compare requires a Buffer argument");
@@ -1637,8 +1593,7 @@ JSHandle jsBufferCompare(void* ctx, JSHandle thisVal, scope JSHandle[] args) @tr
 
 JSHandle jsBufferIncludes(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsBufferIncludes");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in jsBufferIncludes");
     auto engine = state.engine;
     if (args.length < 1) return engine.newBool(false);
@@ -1663,8 +1618,7 @@ JSHandle jsBufferIncludes(void* ctx, JSHandle thisVal, scope JSHandle[] args) @t
 
 JSHandle jsBufferSubarray(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
-    assert(ctx !is null, "Null ctx in jsBufferSubarray");
-    auto state = cast(DunState*) ctx;
+    auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in jsBufferSubarray");
     auto engine = state.engine;
     auto bytes = extractBytes(engine, thisVal);
