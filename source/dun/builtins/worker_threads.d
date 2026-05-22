@@ -1,10 +1,12 @@
 module dun.builtins.worker_threads;
 
 
-/// `@trusted policy`: Node-compatible `worker_threads` module —
-/// thin shim over `dun.runtime.worker_api` (the Web Worker
-/// implementation). Each callback `cast(DunState*) ctx` and
-/// delegates to the underlying worker API.
+/++
+ + `@trusted policy`: Node-compatible `worker_threads` module —
+ + thin shim over `dun.runtime.worker_api` (the Web Worker
+ + implementation). Each callback `cast(DunState*) ctx` and
+ + delegates to the underlying worker API.
+ +/
 import dun.engine.iface : IJSEngine, JSHandle;
 import dun.runtime.globals : DunState;
 

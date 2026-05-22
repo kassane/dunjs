@@ -1,29 +1,31 @@
 module dun.builtins.fs;
 
-/// `@trusted policy`: this file implements Node's `fs` module
-/// (readFileSync, writeFileSync, mkdir, link, symlink, readlink,
-/// chmod, chown, stat/lstat, rename, unlink, opendir, …). Every
-/// `@trusted` is one of:
-///
-///   1. POSIX file syscall (`open`, `read`, `write`, `close`,
-///      `mkdir`, `link`, `symlink`, `readlink`, `unlink`, `stat`,
-///      `chmod`, `chown`, `futimens`, `ftruncate`) — `@trusted` is
-///      required because `core.sys.posix.*` is `@system`. Each
-///      call sits behind a `Permission.read` / `Permission.write`
-///      check (see `dun.security.permissions`) — the permission
-///      gate is the security boundary, not the syscall itself.
-///   2. `cpath.ptr` raw-pointer access for null-terminated POSIX
-///      paths. The `cpath` is constructed via `toStringz` (always
-///      null-terminated, always owned by D for the call lifetime).
-///   3. `cast(DunState*) ctx` via `ctxState(ctx)` at every native
-///      callback prologue.
-///   4. `cast(string) char[]` / `fromStringz` for syscall error
-///      messages (errno → strerror_r → D string). Buffer length
-///      is asserted before the cast.
-///
-/// CVE-class fixes documented inline with CVE references where
-/// applicable (e.g., the canonical-path check in `permissions.d`
-/// that closes CVE-2023-32004 / CVE-2024-21896 / CVE-2024-34346).
+/++
+ + `@trusted policy`: this file implements Node's `fs` module
+ + (readFileSync, writeFileSync, mkdir, link, symlink, readlink,
+ + chmod, chown, stat/lstat, rename, unlink, opendir, …). Every
+ + `@trusted` is one of:
+ +
+ +   1. POSIX file syscall (`open`, `read`, `write`, `close`,
+ +      `mkdir`, `link`, `symlink`, `readlink`, `unlink`, `stat`,
+ +      `chmod`, `chown`, `futimens`, `ftruncate`) — `@trusted` is
+ +      required because `core.sys.posix.*` is `@system`. Each
+ +      call sits behind a `Permission.read` / `Permission.write`
+ +      check (see `dun.security.permissions`) — the permission
+ +      gate is the security boundary, not the syscall itself.
+ +   2. `cpath.ptr` raw-pointer access for null-terminated POSIX
+ +      paths. The `cpath` is constructed via `toStringz` (always
+ +      null-terminated, always owned by D for the call lifetime).
+ +   3. `cast(DunState*) ctx` via `ctxState(ctx)` at every native
+ +      callback prologue.
+ +   4. `cast(string) char[]` / `fromStringz` for syscall error
+ +      messages (errno → strerror_r → D string). Buffer length
+ +      is asserted before the cast.
+ +
+ + CVE-class fixes documented inline with CVE references where
+ + applicable (e.g., the canonical-path check in `permissions.d`
+ + that closes CVE-2023-32004 / CVE-2024-21896 / CVE-2024-34346).
+ +/
 
 import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
 import dun.runtime.globals : DunState, ctxState;
@@ -171,8 +173,10 @@ private bool safeWriteFile(string path, string data, out string errMsg) @trusted
     return safeWriteFileBytes(path, cast(const(ubyte)[]) data, errMsg);
 }
 
-/// Raw-byte file write. The string `safeWriteFile` delegates here so
-/// binary and text share one open/write/close codepath.
+/++
+ + Raw-byte file write. The string `safeWriteFile` delegates here so
+ + binary and text share one open/write/close codepath.
+ +/
 private bool safeWriteFileBytes(string path, const(ubyte)[] data,
     out string errMsg) @trusted nothrow
 {
@@ -672,8 +676,10 @@ private string escapeJs(string s) @safe pure nothrow
     return r;
 }
 
-/// Zero-alloc-on-stack base-10 int formatter. Used by FS error
-/// messages so we can stay pure/nothrow without dragging in std.conv.
+/++
+ + Zero-alloc-on-stack base-10 int formatter. Used by FS error
+ + messages so we can stay pure/nothrow without dragging in std.conv.
+ +/
 package string intToStr(int n) @trusted pure nothrow
 {
     if (n == 0) return "0";
@@ -692,9 +698,11 @@ package JSHandle throwPermError(IJSEngine engine, string perm, string path = "")
         "Requires --allow-" ~ perm ~ " permission", "", path);
 }
 
-/// Read errno and return the system's localized error message as a
-/// GC-allocated string. Safe to call after any libc call that may
-/// have set errno. Returns "I/O error" on the rare strerror failure.
+/++
+ + Read errno and return the system's localized error message as a
+ + GC-allocated string. Safe to call after any libc call that may
+ + have set errno. Returns "I/O error" on the rare strerror failure.
+ +/
 package string errnoMsg() @trusted nothrow
 {
     import core.stdc.errno : errno;

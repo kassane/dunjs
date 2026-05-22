@@ -1,17 +1,19 @@
 module dun.cli.inspector;
 
 
-/// `@trusted policy`: Chrome DevTools Inspector protocol — WebSocket
-/// server on port 9229 (Node default) that speaks the DevTools
-/// remote-debugging JSON-RPC. Every `@trusted` is one of:
-///
-///   1. POSIX socket + select() for the inspector listener.
-///   2. WebSocket frame encoding/decoding (RFC 6455) — same as
-///      `ws.d`, smaller subset.
-///   3. `__gshared` inspector state (connected clients, breakpoint
-///      table). Single-threaded read/write.
-///   4. JSC-specific `JSContextGroupSetRemoteDebuggingEnabled`
-///      / DevTools agent registration on JSC builds.
+/++
+ + `@trusted policy`: Chrome DevTools Inspector protocol — WebSocket
+ + server on port 9229 (Node default) that speaks the DevTools
+ + remote-debugging JSON-RPC. Every `@trusted` is one of:
+ +
+ +   1. POSIX socket + select() for the inspector listener.
+ +   2. WebSocket frame encoding/decoding (RFC 6455) — same as
+ +      `ws.d`, smaller subset.
+ +   3. `__gshared` inspector state (connected clients, breakpoint
+ +      table). Single-threaded read/write.
+ +   4. JSC-specific `JSContextGroupSetRemoteDebuggingEnabled`
+ +      / DevTools agent registration on JSC builds.
+ +/
 version (Posix):
 
 import dun.engine.iface : IJSEngine;
@@ -443,8 +445,10 @@ void handleCDPMessage(string msg) @trusted
     catch (Throwable) {}
 }
 
-/// Forward a `console.*` call to attached DevTools via
-/// `Runtime.consoleAPICalled`. No-op if no client.
+/++
+ + Forward a `console.*` call to attached DevTools via
+ + `Runtime.consoleAPICalled`. No-op if no client.
+ +/
 public void emitConsoleAPICalled(string level, string text) nothrow @trusted
 {
     if (gClientFd < 0) return;
@@ -465,8 +469,10 @@ public void emitConsoleAPICalled(string level, string text) nothrow @trusted
     catch (Throwable) {}
 }
 
-/// Monotonic milliseconds for CDP event timestamps. nothrow so the
-/// console hooks above stay nothrow.
+/++
+ + Monotonic milliseconds for CDP event timestamps. nothrow so the
+ + console hooks above stay nothrow.
+ +/
 private long gMonotonicMs() nothrow @trusted
 {
     try

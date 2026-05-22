@@ -1,10 +1,12 @@
 module dun.builtins.stream;
 
 
-/// `@trusted policy`: `stream` Node module — Readable/Writable/Duplex/
-/// Transform. Every `@trusted` is one of:
-///   1. `cast(DunState*) ctx` via `ctxState(ctx)` in callbacks.
-///   2. Engine method calls for the EventEmitter-style listener chain.
+/++
+ + `@trusted policy`: `stream` Node module — Readable/Writable/Duplex/
+ + Transform. Every `@trusted` is one of:
+ +   1. `cast(DunState*) ctx` via `ctxState(ctx)` in callbacks.
+ +   2. Engine method calls for the EventEmitter-style listener chain.
+ +/
 import dun.engine.iface : IJSEngine;
 
 void registerStreamModule(IJSEngine engine) @trusted

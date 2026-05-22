@@ -1,18 +1,20 @@
 module dun.loop.async;
 
 
-/// `@trusted policy`: async work pool (CPU-bound work runs on a
-/// worker thread, result resolves the promise on the main thread).
-/// Every `@trusted` is one of:
-///
-///   1. `new Thread` + `Semaphore` + `Mutex` for the worker pool
-///      (lazy-initialized on first `asyncSubmit`). 8 workers.
-///   2. `atomicLoad` / `atomicStore` on `task.completed` for
-///      cross-thread signalling.
-///   3. `cast(JSHandle)` of resolve/reject handles passed across
-///      to the worker thread (the worker doesn't touch JSC; only
-///      stores `task.result` / `task.error`; main thread calls
-///      `callFunction` to resolve).
+/++
+ + `@trusted policy`: async work pool (CPU-bound work runs on a
+ + worker thread, result resolves the promise on the main thread).
+ + Every `@trusted` is one of:
+ +
+ +   1. `new Thread` + `Semaphore` + `Mutex` for the worker pool
+ +      (lazy-initialized on first `asyncSubmit`). 8 workers.
+ +   2. `atomicLoad` / `atomicStore` on `task.completed` for
+ +      cross-thread signalling.
+ +   3. `cast(JSHandle)` of resolve/reject handles passed across
+ +      to the worker thread (the worker doesn't touch JSC; only
+ +      stores `task.result` / `task.error`; main thread calls
+ +      `callFunction` to resolve).
+ +/
 import dun.engine.iface : IJSEngine, JSHandle;
 import core.atomic : atomicStore, atomicLoad, MemoryOrder;
 import core.sync.mutex : Mutex;
@@ -21,8 +23,10 @@ import core.thread : Thread;
 
 alias ResultTransform = JSHandle delegate(IJSEngine engine, string result) @trusted;
 
-/// `@mustuse` (DIP 1038) catches the silent-drop bug where the
-/// async result is built but never delivered to its promise.
+/++
+ + `@mustuse` (DIP 1038) catches the silent-drop bug where the
+ + async result is built but never delivered to its promise.
+ +/
 import core.attribute : mustuse;
 @mustuse
 struct AsyncResult
@@ -58,16 +62,18 @@ private __gshared Semaphore queueSem;
 private __gshared Thread[] poolThreads;
 private __gshared bool poolInitialized;
 
-/// Thread pool size. Most fetches are I/O-bound (TCP connect +
-/// HTTP roundtrip + TLS handshake). 8 workers handles sustained
-/// concurrent load while keeping the resident memory + GC pressure
-/// from per-thread Thread objects low.
-///
-/// v1.1.26 (this commit): per-fetch `new Thread()` accumulation
-/// was the JSC `deno_deploy_compat` flake root cause. After ~20-30
-/// fetches, the cumulative D GC + JSC concurrent-GC pressure tipped
-/// fetch into 5s+ stalls. Pooling eliminates the Thread allocation
-/// path; the workers sleep on the semaphore between jobs.
+/++
+ + Thread pool size. Most fetches are I/O-bound (TCP connect +
+ + HTTP roundtrip + TLS handshake). 8 workers handles sustained
+ + concurrent load while keeping the resident memory + GC pressure
+ + from per-thread Thread objects low.
+ +
+ + v1.1.26 (this commit): per-fetch `new Thread()` accumulation
+ + was the JSC `deno_deploy_compat` flake root cause. After ~20-30
+ + fetches, the cumulative D GC + JSC concurrent-GC pressure tipped
+ + fetch into 5s+ stalls. Pooling eliminates the Thread allocation
+ + path; the workers sleep on the semaphore between jobs.
+ +/
 private enum POOL_SIZE = 8;
 
 private void initPool() @trusted nothrow

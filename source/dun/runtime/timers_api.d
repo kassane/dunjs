@@ -1,14 +1,16 @@
 module dun.runtime.timers_api;
 
 
-/// `@trusted policy`: `setTimeout` / `setInterval` /
-/// `clearTimeout` JS surface. Wraps `dun.loop.timers.TimerWheel`.
-/// Every `@trusted` is one of:
-///   1. `cast(DunState*) ctx` via `ctxState(ctx)` — most callbacks
-///      use this and are also `@safe` (see callbacks at line
-///      26/50/75).
-///   2. `state.eventLoop.timers.addTimer/cancelTimer` — these
-///      mutate `__gshared` timer state.
+/++
+ + `@trusted policy`: `setTimeout` / `setInterval` /
+ + `clearTimeout` JS surface. Wraps `dun.loop.timers.TimerWheel`.
+ + Every `@trusted` is one of:
+ +   1. `cast(DunState*) ctx` via `ctxState(ctx)` — most callbacks
+ +      use this and are also `@safe` (see callbacks at line
+ +      26/50/75).
+ +   2. `state.eventLoop.timers.addTimer/cancelTimer` — these
+ +      mutate `__gshared` timer state.
+ +/
 import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
 import dun.loop.timers : TimerID;
 import dun.runtime.globals : DunState, ctxState;
@@ -162,8 +164,10 @@ JSHandle jsTimerHasRef(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trus
     return state.engine.newBool(true);
 }
 
-/// `+timer` → reads `this._id` via a native fast path. Replaces the
-/// crash-prone cached JS setup-fn (see comment at makeTimerObject).
+/++
+ + `+timer` → reads `this._id` via a native fast path. Replaces the
+ + crash-prone cached JS setup-fn (see comment at makeTimerObject).
+ +/
 JSHandle jsTimerValueOf(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null);

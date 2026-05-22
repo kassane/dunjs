@@ -1,12 +1,14 @@
 module dun.builtins.tty;
 
 
-/// `@trusted policy`: Node's `tty` module — `isatty`, getWindowSize,
-/// ReadStream / WriteStream wrappers around stdin/stdout/stderr.
-/// Every `@trusted` is one of:
-///   1. POSIX `isatty`, `ioctl(TIOCGWINSZ)` — `core.sys.posix.*`
-///      is `@system`.
-///   2. `cast(DunState*) ctx` via `ctxState(ctx)` in callbacks.
+/++
+ + `@trusted policy`: Node's `tty` module — `isatty`, getWindowSize,
+ + ReadStream / WriteStream wrappers around stdin/stdout/stderr.
+ + Every `@trusted` is one of:
+ +   1. POSIX `isatty`, `ioctl(TIOCGWINSZ)` — `core.sys.posix.*`
+ +      is `@system`.
+ +   2. `cast(DunState*) ctx` via `ctxState(ctx)` in callbacks.
+ +/
 import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
 import dun.runtime.globals : DunState;
 

@@ -1,25 +1,29 @@
 module dun.loop.iopoller;
 
 
-/// `@trusted policy`: cross-platform I/O event poller (epoll on
-/// Linux, kqueue on macOS/BSD, poll() fallback). Every `@trusted`
-/// is one of:
-///
-///   1. epoll syscalls (`epoll_create1`, `epoll_ctl`, `epoll_wait`)
-///      — `core.sys.linux.epoll` is `@system`.
-///   2. kqueue syscalls (`kqueue`, `kevent`) — `core.sys.posix.sys.*`
-///      is `@system`.
-///   3. io_uring syscalls (`io_uring_setup`, `io_uring_enter`,
-///      `io_uring_register`) on supported kernels — same justification.
-///   4. `timespec` + `time_t` math for timeout deadline conversion
-///      (uses `MS_PER_SEC` / `NS_PER_MS` from `declarations.d`).
+/++
+ + `@trusted policy`: cross-platform I/O event poller (epoll on
+ + Linux, kqueue on macOS/BSD, poll() fallback). Every `@trusted`
+ + is one of:
+ +
+ +   1. epoll syscalls (`epoll_create1`, `epoll_ctl`, `epoll_wait`)
+ +      — `core.sys.linux.epoll` is `@system`.
+ +   2. kqueue syscalls (`kqueue`, `kevent`) — `core.sys.posix.sys.*`
+ +      is `@system`.
+ +   3. io_uring syscalls (`io_uring_setup`, `io_uring_enter`,
+ +      `io_uring_register`) on supported kernels — same justification.
+ +   4. `timespec` + `time_t` math for timeout deadline conversion
+ +      (uses `MS_PER_SEC` / `NS_PER_MS` from `declarations.d`).
+ +/
 import dun.declarations : MS_PER_SEC, NS_PER_MS;
 
 private enum MAX_FD_WATCHES = 64;
 
-/// IORING_OP_POLL_REMOVE ignores the SQE.fd field — the kernel
-/// matches the request to cancel by SQE.addr (the original ADD's
-/// user_data). We pass `-1` to make the "no fd" intent explicit.
+/++
+ + IORING_OP_POLL_REMOVE ignores the SQE.fd field — the kernel
+ + matches the request to cancel by SQE.addr (the original ADD's
+ + user_data). We pass `-1` to make the "no fd" intent explicit.
+ +/
 private enum int POLL_REMOVE_FD = -1;
 
 struct IOEvent
@@ -561,8 +565,10 @@ version (linux)
                 cast(long) IORING_ENTER_GETEVENTS, null, 0L);
     }
 
-    /// Reconstruct the events bitmask we passed to the original
-    /// POLL_ADD so its user_data can be computed for POLL_REMOVE.
+    /++
+     + Reconstruct the events bitmask we passed to the original
+     + POLL_ADD so its user_data can be computed for POLL_REMOVE.
+     +/
     private uint fdWatchEvents(const ref FdWatch w) @safe pure nothrow @nogc
     {
         uint ev = 0;

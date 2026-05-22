@@ -1,23 +1,25 @@
 module dun.engine.v8.backend;
 
-/// `@trusted policy`: this file is the V8 binding layer. Every method
-/// wraps an `extern(C)` call into the V8 C shim (`vendor/v8shim/`)
-/// declared in `dun.engine.v8.bindings`; the `@trusted` is the FFI
-/// escape required to call them from D's `@safe` boundary.
-///
-/// The shim translates the D-side `DunV8*` opaque handles into V8's
-/// `Isolate / HandleScope / Context::Scope` setup (see
-/// `vendor/v8shim/v8shim_tmpl.hpp::withContext`). The invariants the
-/// wrappers rely on:
-///
-///   - `isolate` is non-null after `initialize()` and stays valid
-///     until `shutdown()`;
-///   - `DunV8Value*` handles are ref-counted via
-///     `dun_v8_value_ref` / `dun_v8_value_unref`; `dupValue` =
-///     `dun_v8_value_ref`, `freeValue` = `dun_v8_value_unref`;
-///   - the shim asserts the `withContext` invariants on the C++
-///     side, so handle-table corruption surfaces as a CHECK abort
-///     rather than UB.
+/++
+ + `@trusted policy`: this file is the V8 binding layer. Every method
+ + wraps an `extern(C)` call into the V8 C shim (`vendor/v8shim/`)
+ + declared in `dun.engine.v8.bindings`; the `@trusted` is the FFI
+ + escape required to call them from D's `@safe` boundary.
+ +
+ + The shim translates the D-side `DunV8*` opaque handles into V8's
+ + `Isolate / HandleScope / Context::Scope` setup (see
+ + `vendor/v8shim/v8shim_tmpl.hpp::withContext`). The invariants the
+ + wrappers rely on:
+ +
+ +   - `isolate` is non-null after `initialize()` and stays valid
+ +     until `shutdown()`;
+ +   - `DunV8Value*` handles are ref-counted via
+ +     `dun_v8_value_ref` / `dun_v8_value_unref`; `dupValue` =
+ +     `dun_v8_value_ref`, `freeValue` = `dun_v8_value_unref`;
+ +   - the shim asserts the `withContext` invariants on the C++
+ +     side, so handle-table corruption surfaces as a CHECK abort
+ +     rather than UB.
+ +/
 
 import dun.engine.iface;
 import dun.engine.v8.bindings;

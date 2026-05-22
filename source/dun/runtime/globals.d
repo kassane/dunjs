@@ -1,13 +1,15 @@
 module dun.runtime.globals;
 
 
-/// `@trusted policy`: global installer + DunState. Every
-/// `@trusted` is one of:
-///   1. `engine.setContextOpaque(cast(void*) state)` — handing the
-///      typed DunState* across the engine FFI as an opaque void*.
-///      Read-back is via `ctxState(ctx)` which casts it back.
-///   2. `engine.eval` of large install-time JS sources (cached).
-///   3. `cast(DunState*) ctx` for the centralized `ctxState` helper.
+/++
+ + `@trusted policy`: global installer + DunState. Every
+ + `@trusted` is one of:
+ +   1. `engine.setContextOpaque(cast(void*) state)` — handing the
+ +      typed DunState* across the engine FFI as an opaque void*.
+ +      Read-back is via `ctxState(ctx)` which casts it back.
+ +   2. `engine.eval` of large install-time JS sources (cached).
+ +   3. `cast(DunState*) ctx` for the centralized `ctxState` helper.
+ +/
 import dun.engine.iface : IJSEngine, JSHandle;
 import dun.loop.eventloop : EventLoop;
 import dun.security.permissions : PermissionRegistry;
@@ -21,11 +23,13 @@ struct DunState
     bool verbose;
 }
 
-/// Narrow-scope `@trusted` for the recurring `cast(DunState*) ctx`
-/// pattern at the top of every `NativeCallback` (428 sites as of
-/// 2026-05). Callers can stay `@safe` instead of carrying a
-/// whole-function `@trusted`. Asserts on a null ctx so the trampoline
-/// fails fast at the boundary rather than reading garbage downstream.
+/++
+ + Narrow-scope `@trusted` for the recurring `cast(DunState*) ctx`
+ + pattern at the top of every `NativeCallback` (428 sites as of
+ + 2026-05). Callers can stay `@safe` instead of carrying a
+ + whole-function `@trusted`. Asserts on a null ctx so the trampoline
+ + fails fast at the boundary rather than reading garbage downstream.
+ +/
 pragma(inline, true)
 DunState* ctxState(void* ctx) @trusted nothrow @nogc
 {

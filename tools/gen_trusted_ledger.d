@@ -1,16 +1,18 @@
-/// Generates `docs/research/trusted-ledger.md` — the public audit
-/// ledger of every `@trusted` block in the DunJS source tree.
-///
-/// Mirrors the role of Bun's https://bun.com/bun-unsafe-audit page:
-/// every unsafe escape has a row with the file:line, the surrounding
-/// declaration, the inline rationale (if any), and a category bucket.
-///
-/// Build + run:
-///   ldc2 -run tools/gen_trusted_ledger.d
-///   git diff docs/research/trusted-ledger.md   # see updated rows
-///
-/// The script is idempotent — running it after a refactor regenerates
-/// the ledger to match the current tree.
+/++
+ + Generates `docs/research/trusted-ledger.md` — the public audit
+ + ledger of every `@trusted` block in the DunJS source tree.
+ +
+ + Mirrors the role of Bun's https://bun.com/bun-unsafe-audit page:
+ + every unsafe escape has a row with the file:line, the surrounding
+ + declaration, the inline rationale (if any), and a category bucket.
+ +
+ + Build + run:
+ +   ldc2 -run tools/gen_trusted_ledger.d
+ +   git diff docs/research/trusted-ledger.md   # see updated rows
+ +
+ + The script is idempotent — running it after a refactor regenerates
+ + the ledger to match the current tree.
+ +/
 
 module gen_trusted_ledger;
 

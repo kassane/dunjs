@@ -1,23 +1,25 @@
-/// Fuzz harness for `dun.platform.simd` — Buffer codec routines.
-/// Targets the latin1 ↔ UTF-8 round-trip + the hex encoder. These
-/// are `@trusted` SIMD primitives that take raw byte slices and
-/// emit raw byte slices; the audit (v1.1.4 `audit_simd` / v1.1.4
-/// `audit_roundtrip`) caught real bugs in the high-byte preservation
-/// path that escaped scalar review. Fuzzing complements those
-/// hand-written fixtures by exploring odd boundary lengths +
-/// arbitrary byte patterns.
-///
-/// Build:
-///   ldc2 -fsanitize=fuzzer -fsanitize=address -O1 -g \
-///        -I=source -Jsource \
-///        -of=build/fuzz_simd \
-///        tests/fuzz/fuzz_simd.d \
-///        source/dun/platform/simd.d \
-///        source/dun/declarations.d
-///
-/// Run:
-///   build/fuzz_simd tests/fuzz/corpus/simd \
-///       -max_len=8192 -timeout=5
+/++
+ + Fuzz harness for `dun.platform.simd` — Buffer codec routines.
+ + Targets the latin1 ↔ UTF-8 round-trip + the hex encoder. These
+ + are `@trusted` SIMD primitives that take raw byte slices and
+ + emit raw byte slices; the audit (v1.1.4 `audit_simd` / v1.1.4
+ + `audit_roundtrip`) caught real bugs in the high-byte preservation
+ + path that escaped scalar review. Fuzzing complements those
+ + hand-written fixtures by exploring odd boundary lengths +
+ + arbitrary byte patterns.
+ +
+ + Build:
+ +   ldc2 -fsanitize=fuzzer -fsanitize=address -O1 -g \
+ +        -I=source -Jsource \
+ +        -of=build/fuzz_simd \
+ +        tests/fuzz/fuzz_simd.d \
+ +        source/dun/platform/simd.d \
+ +        source/dun/declarations.d
+ +
+ + Run:
+ +   build/fuzz_simd tests/fuzz/corpus/simd \
+ +       -max_len=8192 -timeout=5
+ +/
 
 import dun.platform.simd : latin1ToUtf8Buf, latin1ToUtf8MaxLen,
                           utf8ToLatin1Buf, hexEncodeBuf;

@@ -1,11 +1,13 @@
 module dun.runtime.worker_self;
 
 
-/// `@trusted policy`: worker-side `self` object (`self.postMessage`,
-/// `self.onmessage`, `self.close`). Every `@trusted` is one of:
-///   1. `cast(DunState*) ctx` via `ctxState(ctx)` in callbacks.
-///   2. `wst.fromWorker.send(msg)` to enqueue the postMessage —
-///      thread-safe via the MessageChannel's mutex.
+/++
+ + `@trusted policy`: worker-side `self` object (`self.postMessage`,
+ + `self.onmessage`, `self.close`). Every `@trusted` is one of:
+ +   1. `cast(DunState*) ctx` via `ctxState(ctx)` in callbacks.
+ +   2. `wst.fromWorker.send(msg)` to enqueue the postMessage —
+ +      thread-safe via the MessageChannel's mutex.
+ +/
 import dun.engine.iface : IJSEngine, JSHandle;
 import dun.runtime.globals : DunState, ctxState;
 import dun.workers.worker : WorkerState, jsonStringify;

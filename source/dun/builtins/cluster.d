@@ -1,15 +1,17 @@
 module dun.builtins.cluster;
 
 
-/// `@trusted policy`: Node's `cluster` module (master/worker fork
-/// model). Every `@trusted` is one of:
-///
-///   1. POSIX `fork` + `waitpid` + `setenv` for spawning worker
-///      processes (master sets NODE_UNIQUE_ID, workers inherit it).
-///   2. UNIX domain socket pair for IPC (master ↔ worker).
-///   3. `__gshared` worker registry (PID → worker state) on master.
-///   4. `Permission.run` gate before fork.
-///   5. `cast(DunState*) ctx` via `ctxState(ctx)` in callbacks.
+/++
+ + `@trusted policy`: Node's `cluster` module (master/worker fork
+ + model). Every `@trusted` is one of:
+ +
+ +   1. POSIX `fork` + `waitpid` + `setenv` for spawning worker
+ +      processes (master sets NODE_UNIQUE_ID, workers inherit it).
+ +   2. UNIX domain socket pair for IPC (master ↔ worker).
+ +   3. `__gshared` worker registry (PID → worker state) on master.
+ +   4. `Permission.run` gate before fork.
+ +   5. `cast(DunState*) ctx` via `ctxState(ctx)` in callbacks.
+ +/
 import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
 import dun.runtime.globals : DunState, ctxState;
 import dun.security.permissions : Permission;
@@ -97,8 +99,10 @@ public bool hasActiveClusterWorkers() nothrow @trusted
     return gWorkerCount > 0;
 }
 
-/// Poll for exited worker processes (called from event loop tick).
-/// Uses waitpid(WNOHANG) to reap children without blocking.
+/++
+ + Poll for exited worker processes (called from event loop tick).
+ + Uses waitpid(WNOHANG) to reap children without blocking.
+ +/
 public void pollClusterWorkers() nothrow @trusted
 {
     if (gWorkerCount == 0 || gClusterEngine is null) return;

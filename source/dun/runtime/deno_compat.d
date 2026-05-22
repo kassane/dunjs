@@ -1,18 +1,20 @@
 module dun.runtime.deno_compat;
 
 
-/// `@trusted policy`: Deno compatibility shim (30+ Deno.* APIs).
-/// Every `@trusted` is one of:
-///
-///   1. POSIX syscalls for `Deno.makeTempDir`, `Deno.chmod`,
-///      `Deno.symlink`, etc. — same justification as `fs.d`.
-///   2. `cast(DunState*) ctx` via `ctxState(ctx)` in callbacks.
-///   3. Async work submission for `Deno.readTextFile` /
-///      `Deno.writeTextFile` via `asyncSubmit`.
-///   4. JS-side shim install (`Deno.serve`, `Deno.openKv`,
-///      `Deno.test`, …) via `engine.eval` of cached source —
-///      install-time only, the cached eval result is the
-///      permanent function handle.
+/++
+ + `@trusted policy`: Deno compatibility shim (30+ Deno.* APIs).
+ + Every `@trusted` is one of:
+ +
+ +   1. POSIX syscalls for `Deno.makeTempDir`, `Deno.chmod`,
+ +      `Deno.symlink`, etc. — same justification as `fs.d`.
+ +   2. `cast(DunState*) ctx` via `ctxState(ctx)` in callbacks.
+ +   3. Async work submission for `Deno.readTextFile` /
+ +      `Deno.writeTextFile` via `asyncSubmit`.
+ +   4. JS-side shim install (`Deno.serve`, `Deno.openKv`,
+ +      `Deno.test`, …) via `engine.eval` of cached source —
+ +      install-time only, the cached eval result is the
+ +      permanent function handle.
+ +/
 import dun.engine.iface : IJSEngine, JSHandle, NativeCallback, PromiseHandles;
 import dun.runtime.globals : DunState, ctxState;
 import dun.security.permissions : Permission, PermissionState;

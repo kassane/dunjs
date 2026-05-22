@@ -1,6 +1,8 @@
-/// Layer 4 built-ins. Engine-agnostic implementations of the `dun:*`
-/// modules (fs, path, net, http, crypto, etc.), all registered through
-/// the IJSEngine interface.
+/++
+ + Layer 4 built-ins. Engine-agnostic implementations of the `dun:*`
+ + modules (fs, path, net, http, crypto, etc.), all registered through
+ + the IJSEngine interface.
+ +/
 module dun.builtins;
 
 public import dun.builtins.fs;

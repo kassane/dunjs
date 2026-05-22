@@ -25,8 +25,10 @@ enum Command
 static assert(__traits(allMembers, Command).length == 14,
     "Command enum member count changed -- update parseArgs and main dispatch");
 
-/// Default `--max-concurrency` cap for `dun test --concurrent`.
-/// Matches Bun's documented default (`bun test --max-concurrency 20`).
+/++
+ + Default `--max-concurrency` cap for `dun test --concurrent`.
+ + Matches Bun's documented default (`bun test --max-concurrency 20`).
+ +/
 enum DEFAULT_TEST_MAX_CONCURRENCY = 20;
 
 /// Parsed CLI configuration.
@@ -699,9 +701,11 @@ private bool looksLikeFile(string arg) @safe pure nothrow @nogc
     return false;
 }
 
-/// Parse a memory-size argument with optional B/KB/MB/GB suffix.
-/// Bare numbers are MiB (so `--max-memory=64` means 64 MiB), matching
-/// the convention used by --max-old-space-size / -Xmx.
+/++
+ + Parse a memory-size argument with optional B/KB/MB/GB suffix.
+ + Bare numbers are MiB (so `--max-memory=64` means 64 MiB), matching
+ + the convention used by --max-old-space-size / -Xmx.
+ +/
 private size_t parseMemorySize(string s) @safe pure
 {
     import std.uni : toLower;

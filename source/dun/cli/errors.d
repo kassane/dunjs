@@ -1,8 +1,10 @@
 module dun.cli.errors;
 
 
-/// `@trusted policy`: terminal color detection (`isatty(STDERR)` +
-/// `NO_COLOR` env check). `@trusted` for the POSIX isatty call.
+/++
+ + `@trusted policy`: terminal color detection (`isatty(STDERR)` +
+ + `NO_COLOR` env check). `@trusted` for the POSIX isatty call.
+ +/
 // Detect whether ANSI colors should be enabled on stderr.
 // Respects https://no-color.org and the TERM=dumb convention.
 bool isColorEnabled() @trusted nothrow

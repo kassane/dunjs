@@ -2,9 +2,11 @@
 module dun.engine.quickjs.context;
 
 
-/// `@trusted policy`: RAII wrapper for JSContext*. Constructor calls
-/// `JS_NewContext`; destructor calls `JS_FreeContext`. `@trusted` is
-/// the engine FFI escape — same surface as `engine/quickjs/backend.d`.
+/++
+ + `@trusted policy`: RAII wrapper for JSContext*. Constructor calls
+ + `JS_NewContext`; destructor calls `JS_FreeContext`. `@trusted` is
+ + the engine FFI escape — same surface as `engine/quickjs/backend.d`.
+ +/
 import dun.engine.quickjs.bindings;
 import dun.engine.quickjs.value;
 import dun.engine.quickjs.runtime;

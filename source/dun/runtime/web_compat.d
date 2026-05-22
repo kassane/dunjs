@@ -1,13 +1,15 @@
 module dun.runtime.web_compat;
 
 
-/// `@trusted policy`: web-platform globals (`atob`, `btoa`,
-/// `TextEncoder`, `TextDecoder`, `structuredClone`, `crypto.subtle`
-/// install). Every `@trusted` is one of:
-///   1. SIMD codec calls via `dun.platform.simd` — covered by that
-///      file's `@trusted policy` header.
-///   2. `engine.eval` of the polyfill source (cached at install).
-///   3. `cast(DunState*) ctx` via `ctxState(ctx)` in callbacks.
+/++
+ + `@trusted policy`: web-platform globals (`atob`, `btoa`,
+ + `TextEncoder`, `TextDecoder`, `structuredClone`, `crypto.subtle`
+ + install). Every `@trusted` is one of:
+ +   1. SIMD codec calls via `dun.platform.simd` — covered by that
+ +      file's `@trusted policy` header.
+ +   2. `engine.eval` of the polyfill source (cached at install).
+ +   3. `cast(DunState*) ctx` via `ctxState(ctx)` in callbacks.
+ +/
 import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
 import dun.runtime.globals : DunState, ctxState;
 

@@ -1,15 +1,17 @@
 module dun.builtins.zlib;
 
 
-/// `@trusted policy`: zlib (DEFLATE / GZIP) + brotli compression.
-/// Every `@trusted` is one of:
-///
-///   1. ImportC bindings to libz (`deflateInit2`, `inflateInit2`,
-///      `deflate`, `inflate`, `deflateEnd`, `inflateEnd`).
-///   2. Brotli FFI via `vendor/brotli/brotli_api.c` (read from
-///      the extracted upstream headers).
-///   3. `cast(z_stream*) &state` for the streaming-codec state
-///      struct — slot-based pool, single-threaded access.
+/++
+ + `@trusted policy`: zlib (DEFLATE / GZIP) + brotli compression.
+ + Every `@trusted` is one of:
+ +
+ +   1. ImportC bindings to libz (`deflateInit2`, `inflateInit2`,
+ +      `deflate`, `inflate`, `deflateEnd`, `inflateEnd`).
+ +   2. Brotli FFI via `vendor/brotli/brotli_api.c` (read from
+ +      the extracted upstream headers).
+ +   3. `cast(z_stream*) &state` for the streaming-codec state
+ +      struct — slot-based pool, single-threaded access.
+ +/
 import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
 import dun.runtime.globals : DunState, ctxState;
 

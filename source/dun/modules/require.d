@@ -1,18 +1,20 @@
 module dun.modules.require;
 
 
-/// `@trusted policy`: CommonJS require() resolver + module loader.
-/// Every `@trusted` is one of:
-///
-///   1. `std.file.readText` + `std.path.absolutePath` —
-///      `@trusted`-by-impl in Phobos because both contain
-///      OS syscalls internally.
-///   2. `engine.eval` of the wrapped module source — install
-///      time per require()'d module.
-///   3. `__gshared` module cache (path → JSHandle of exports).
-///      Single-threaded under the engine's main-thread-only
-///      contract.
-///   4. `Permission.read` gate before `readText`.
+/++
+ + `@trusted policy`: CommonJS require() resolver + module loader.
+ + Every `@trusted` is one of:
+ +
+ +   1. `std.file.readText` + `std.path.absolutePath` —
+ +      `@trusted`-by-impl in Phobos because both contain
+ +      OS syscalls internally.
+ +   2. `engine.eval` of the wrapped module source — install
+ +      time per require()'d module.
+ +   3. `__gshared` module cache (path → JSHandle of exports).
+ +      Single-threaded under the engine's main-thread-only
+ +      contract.
+ +   4. `Permission.read` gate before `readText`.
+ +/
 import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
 import dun.runtime.globals : DunState, ctxState;
 import dun.security.permissions : Permission;

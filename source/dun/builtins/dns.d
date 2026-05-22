@@ -1,15 +1,17 @@
 module dun.builtins.dns;
 
 
-/// `@trusted policy`: Node's `dns` module (lookup, lookupService,
-/// resolve, resolve4/6, resolveMx, …). Every `@trusted` is one
-/// of:
-///
-///   1. POSIX `getaddrinfo` / `getnameinfo` / `freeaddrinfo` for
-///      synchronous lookups.
-///   2. `Permission.net` gate (the hostname is checked against
-///      the net allowlist before lookup).
-///   3. `cast(DunState*) ctx` via `ctxState(ctx)` in callbacks.
+/++
+ + `@trusted policy`: Node's `dns` module (lookup, lookupService,
+ + resolve, resolve4/6, resolveMx, …). Every `@trusted` is one
+ + of:
+ +
+ +   1. POSIX `getaddrinfo` / `getnameinfo` / `freeaddrinfo` for
+ +      synchronous lookups.
+ +   2. `Permission.net` gate (the hostname is checked against
+ +      the net allowlist before lookup).
+ +   3. `cast(DunState*) ctx` via `ctxState(ctx)` in callbacks.
+ +/
 import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
 import dun.runtime.globals : DunState, ctxState;
 import dun.security.permissions : Permission;

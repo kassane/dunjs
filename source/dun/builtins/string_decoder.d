@@ -1,10 +1,12 @@
 module dun.builtins.string_decoder;
 
 
-/// `@trusted policy`: `string_decoder` Node module — multi-byte-safe
-/// streaming UTF-8 decoder. Every `@trusted` is one of:
-///   1. `cast(DunState*) ctx` via `ctxState(ctx)` in callbacks.
-///   2. SIMD UTF-8 validation via `dun.platform.simd` (covered there).
+/++
+ + `@trusted policy`: `string_decoder` Node module — multi-byte-safe
+ + streaming UTF-8 decoder. Every `@trusted` is one of:
+ +   1. `cast(DunState*) ctx` via `ctxState(ctx)` in callbacks.
+ +   2. SIMD UTF-8 validation via `dun.platform.simd` (covered there).
+ +/
 import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
 import dun.runtime.globals : DunState;
 import dun.builtins.helpers : installPureJsModule;

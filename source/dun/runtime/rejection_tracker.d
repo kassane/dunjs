@@ -1,11 +1,13 @@
 module dun.runtime.rejection_tracker;
 
 
-/// `@trusted policy`: unhandled-promise-rejection tracker. Every
-/// `@trusted` is one of:
-///   1. Engine method calls (`callFunction`, `freeValue`).
-///   2. `__gshared` tracker state (pending rejections list).
-///   3. `cast(DunState*) ctx` via `ctxState(ctx)` in callbacks.
+/++
+ + `@trusted policy`: unhandled-promise-rejection tracker. Every
+ + `@trusted` is one of:
+ +   1. Engine method calls (`callFunction`, `freeValue`).
+ +   2. `__gshared` tracker state (pending rejections list).
+ +   3. `cast(DunState*) ctx` via `ctxState(ctx)` in callbacks.
+ +/
 import dun.engine.iface : IJSEngine, JSHandle;
 import dun.loop.eventloop : RejectedPromise;
 import dun.runtime.globals : DunState, ctxState;

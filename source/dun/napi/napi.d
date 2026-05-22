@@ -1,24 +1,26 @@
 module dun.napi.napi;
 
-/// `@trusted policy`: this file is the N-API surface (~91 functions
-/// per CLAUDE.md) that Node-API addons compile against. Every
-/// `@trusted` is one of:
-///
-///   1. `extern(C)` N-API function with the documented Node-API
-///      contract — `@trusted` is required because the entire N-API
-///      surface is `extern(C) @system`. Addons rely on the contract
-///      (handle lifetime, finalizer semantics, scope rules) being
-///      honored by both sides.
-///   2. `__gshared` value/scope/buffer pools (`gValuePool`,
-///      `gScopePool`, `gExternalSide`). Single-threaded per the
-///      engine's main-thread-only contract.
-///   3. `cast(napi_value)` reinterprets slot indices as opaque
-///      pointer-sized handles. The handle is opaque to the caller
-///      (Node-API spec); decoding is internal to this file.
-///   4. `napi_wrap` / `napi_create_external` finalizer thunks —
-///      the side-table indirection (the `(data, hint, finalize_cb)`
-///      triple stored in `gExternalSide`) keeps the finalize callback
-///      alive past the GC sweep that triggers it.
+/++
+ + `@trusted policy`: this file is the N-API surface (~91 functions
+ + per CLAUDE.md) that Node-API addons compile against. Every
+ + `@trusted` is one of:
+ +
+ +   1. `extern(C)` N-API function with the documented Node-API
+ +      contract — `@trusted` is required because the entire N-API
+ +      surface is `extern(C) @system`. Addons rely on the contract
+ +      (handle lifetime, finalizer semantics, scope rules) being
+ +      honored by both sides.
+ +   2. `__gshared` value/scope/buffer pools (`gValuePool`,
+ +      `gScopePool`, `gExternalSide`). Single-threaded per the
+ +      engine's main-thread-only contract.
+ +   3. `cast(napi_value)` reinterprets slot indices as opaque
+ +      pointer-sized handles. The handle is opaque to the caller
+ +      (Node-API spec); decoding is internal to this file.
+ +   4. `napi_wrap` / `napi_create_external` finalizer thunks —
+ +      the side-table indirection (the `(data, hint, finalize_cb)`
+ +      triple stored in `gExternalSide`) keeps the finalize callback
+ +      alive past the GC sweep that triggers it.
+ +/
 
 import dun.napi.types;
 import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
@@ -1477,8 +1479,10 @@ private void ensureNapiMutexes() nothrow @trusted
     catch (Exception) {}
 }
 
-/// Called by the event loop on each tick to flush any completed async
-/// work back into JS via the registered complete callback.
+/++
+ + Called by the event loop on each tick to flush any completed async
+ + work back into JS via the registered complete callback.
+ +/
 extern(D) int napiDrainAsyncWork() nothrow @trusted
 {
     int drained = 0;
@@ -1515,9 +1519,11 @@ extern(D) int napiDrainAsyncWork() nothrow @trusted
     return drained;
 }
 
-/// True when there is at least one async work entry still pending —
-/// either running on a thread or queued for completion. The event loop
-/// uses this to keep itself awake.
+/++
+ + True when there is at least one async work entry still pending —
+ + either running on a thread or queued for completion. The event loop
+ + uses this to keep itself awake.
+ +/
 extern(D) bool napiHasAsyncWork() nothrow @trusted
 {
     ensureNapiMutexes();
@@ -1622,8 +1628,10 @@ napi_status napi_unref_threadsafe_function(napi_env env, napi_threadsafe_functio
 private struct TsfnCall { napi_threadsafe_function func; void* data; }
 private __gshared TsfnCall[] g_napiTsfnQueue;
 
-/// Called by the event loop on each tick to dispatch pending threadsafe
-/// function calls back to JS on the main thread.
+/++
+ + Called by the event loop on each tick to dispatch pending threadsafe
+ + function calls back to JS on the main thread.
+ +/
 extern(D) int napiDrainThreadsafeCalls() nothrow @trusted
 {
     int drained = 0;
@@ -2163,8 +2171,10 @@ napi_status napi_remove_env_cleanup_hook(napi_env env, void* fun, void* arg)
     return napi_ok;
 }
 
-/// Fire all registered cleanup hooks. Called from `napiFireFinalizers`
-/// at engine shutdown — LIFO order per N-API spec.
+/++
+ + Fire all registered cleanup hooks. Called from `napiFireFinalizers`
+ + at engine shutdown — LIFO order per N-API spec.
+ +/
 public extern(D) void napiFireCleanupHooks() nothrow @trusted
 {
     _ensureCleanupMu();
@@ -2454,8 +2464,10 @@ napi_status napi_remove_async_cleanup_hook(void* handle)
     return napi_ok;
 }
 
-/// Fire all pending finalizers. Called at runtime shutdown. Each finalizer
-/// runs at most once even if called twice.
+/++
+ + Fire all pending finalizers. Called at runtime shutdown. Each finalizer
+ + runs at most once even if called twice.
+ +/
 public extern(D) void napiFireFinalizers() nothrow @trusted
 {
     ensureWrapMutex();

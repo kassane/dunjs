@@ -1,13 +1,17 @@
-/// Source-level rewriter for `\p{…}` / `\P{…}` regex escapes — V8's
-/// prebuilt has no ICU, so substitute pre-baked char classes at load.
-/// JSC/QuickJS handle natively.
+/++
+ + Source-level rewriter for `\p{…}` / `\P{…}` regex escapes — V8's
+ + prebuilt has no ICU, so substitute pre-baked char classes at load.
+ + JSC/QuickJS handle natively.
+ +/
 module dun.runtime.unicode_props;
 
 import std.algorithm : canFind;
 
-/// Replace `\p{Name}` / `\P{Name}` text with pre-baked character
-/// classes. Tracks string / template / comment context so escapes
-/// inside non-regex source aren't mis-rewritten.
+/++
+ + Replace `\p{Name}` / `\P{Name}` text with pre-baked character
+ + classes. Tracks string / template / comment context so escapes
+ + inside non-regex source aren't mis-rewritten.
+ +/
 string expandUnicodePropertyEscapes(string source) @safe pure
 {
     if (source.length < 4) return source;
@@ -122,10 +126,12 @@ string expandUnicodePropertyEscapes(string source) @safe pure
     return cast(string) result[0 .. outLen].idup;
 }
 
-/// Pre-baked character class data for the most common Unicode property
-/// escapes. Mirrors the JS-side polyfill in `globals.d`. Coverage is
-/// the General_Category top-level groups plus the identifier props and
-/// a few common subcategories.
+/++
+ + Pre-baked character class data for the most common Unicode property
+ + escapes. Mirrors the JS-side polyfill in `globals.d`. Coverage is
+ + the General_Category top-level groups plus the identifier props and
+ + a few common subcategories.
+ +/
 private string unicodeRangeFor(string key) @safe pure nothrow
 {
     switch (key)
@@ -353,9 +359,11 @@ unittest
 // Both rewrites are conservative: any parse failure leaves the original
 // source untouched so the engine produces its native error.
 
-/// Rewrite /v regex literals containing set operations. Idempotent;
-/// safe to apply on engines that natively support /v (no rewrite
-/// happens unless `--` / `&&` is actually present inside a `[]`).
+/++
+ + Rewrite /v regex literals containing set operations. Idempotent;
+ + safe to apply on engines that natively support /v (no rewrite
+ + happens unless `--` / `&&` is actually present inside a `[]`).
+ +/
 string expandVSetOps(string source) @safe pure
 {
     import std.algorithm : canFind;

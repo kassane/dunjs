@@ -1,30 +1,34 @@
-/// `dun lint` — minimal lexer-based JS/TS linter. Inspired by oxlint /
-/// deno_lint, scoped to rules tractable without a full AST: pattern
-/// matches over the token stream from `dun.ts.parser.lexer`.
-///
-/// Bun's flagship oxlint ships 200+ rules backed by a real parser. This
-/// is the dev-experience floor: catch `debugger` left in, `==` instead
-/// of `===`, `eval(...)`, `new Function()`. Each rule is a single
-/// pass over the token stream — no scope analysis, no dead-code
-/// elimination. Output mirrors ESLint: `file:line:col level message
-/// rule-name`. Exit code 1 on any error-level diagnostic.
-///
-/// `--fix` auto-applies safe rewrites in-place. `eqeqeq` becomes
-/// `===`/`!==`; `no-debugger` removes the `debugger;` statement.
-/// Rules that can't be safely auto-fixed (`no-eval` — removing the
-/// call could change semantics) report as `[fixable: false]`.
-///
-/// `prefer-const` is deferred to a follow-up PR — it needs a tiny
-/// scope tracker (the bare `let x = 1; ... x = 2` heuristic over a flat
-/// token stream produces too many false positives once nested
-/// functions or shadowing enter the picture).
+/++
+ + `dun lint` — minimal lexer-based JS/TS linter. Inspired by oxlint /
+ + deno_lint, scoped to rules tractable without a full AST: pattern
+ + matches over the token stream from `dun.ts.parser.lexer`.
+ +
+ + Bun's flagship oxlint ships 200+ rules backed by a real parser. This
+ + is the dev-experience floor: catch `debugger` left in, `==` instead
+ + of `===`, `eval(...)`, `new Function()`. Each rule is a single
+ + pass over the token stream — no scope analysis, no dead-code
+ + elimination. Output mirrors ESLint: `file:line:col level message
+ + rule-name`. Exit code 1 on any error-level diagnostic.
+ +
+ + `--fix` auto-applies safe rewrites in-place. `eqeqeq` becomes
+ + `===`/`!==`; `no-debugger` removes the `debugger;` statement.
+ + Rules that can't be safely auto-fixed (`no-eval` — removing the
+ + call could change semantics) report as `[fixable: false]`.
+ +
+ + `prefer-const` is deferred to a follow-up PR — it needs a tiny
+ + scope tracker (the bare `let x = 1; ... x = 2` heuristic over a flat
+ + token stream produces too many false positives once nested
+ + functions or shadowing enter the picture).
+ +/
 module dun.cli.lint;
 
 
-/// `@trusted policy`: lexer-based linter (no-eval, eqeqeq,
-/// no-debugger). Pure D scanner over JS/TS source. `@trusted` is
-/// for `std.file.readText` and the `cast(string) char[]` output
-/// buffer.
+/++
+ + `@trusted policy`: lexer-based linter (no-eval, eqeqeq,
+ + no-debugger). Pure D scanner over JS/TS source. `@trusted` is
+ + for `std.file.readText` and the `cast(string) char[]` output
+ + buffer.
+ +/
 import std.file : exists, isFile, isDir, dirEntries, SpanMode, readText, write;
 import std.path : extension;
 import std.stdio : writeln, writefln;
@@ -36,8 +40,10 @@ private immutable string[] kIgnoredDirComponents = [
     "/node_modules/", "/.dun/", "/dist/", "/build/"
 ];
 
-/// Extensions that `dun lint` will tokenize. Everything else in a
-/// directory walk is skipped silently.
+/++
+ + Extensions that `dun lint` will tokenize. Everything else in a
+ + directory walk is skipped silently.
+ +/
 private immutable string[] kLintableExtensions = [
     ".js", ".ts", ".mjs", ".cjs", ".jsx", ".tsx", ".mts", ".cts"
 ];
@@ -59,10 +65,12 @@ private struct Diagnostic
     string severity;  // "error" / "warn"
     string rule;
     string message;
-    /// Auto-fix metadata. `fixable == true` means `--fix` can
-    /// rewrite this diagnostic. `fixStart` / `fixLen` describe the
-    /// byte range in the source to replace; `fixReplacement` is the
-    /// new text.
+    /++
+     + Auto-fix metadata. `fixable == true` means `--fix` can
+     + rewrite this diagnostic. `fixStart` / `fixLen` describe the
+     + byte range in the source to replace; `fixReplacement` is the
+     + new text.
+     +/
     bool   fixable;
     uint   fixStart;
     uint   fixLen;
@@ -77,12 +85,14 @@ private bool isLintable(string path) @safe
     return false;
 }
 
-/// Walk `paths` (file or directory) and run all rules. Returns exit
-/// code (0 = clean, 1 = errors found OR `--max-warnings=N` cap
-/// exceeded). When `applyFix == true`, safe diagnostics get auto-
-/// rewritten in place; the file is re-tokenized and re-reported
-/// after the rewrite. `quiet=true` suppresses warning output (only
-/// errors print); `maxWarnings=-1` disables the warning cap.
+/++
+ + Walk `paths` (file or directory) and run all rules. Returns exit
+ + code (0 = clean, 1 = errors found OR `--max-warnings=N` cap
+ + exceeded). When `applyFix == true`, safe diagnostics get auto-
+ + rewritten in place; the file is re-tokenized and re-reported
+ + after the rewrite. `quiet=true` suppresses warning output (only
+ + errors print); `maxWarnings=-1` disables the warning cap.
+ +/
 int runLint(string[] paths, bool applyFix = false,
             bool quiet = false, int maxWarnings = -1) @safe
 {
@@ -176,9 +186,11 @@ int runLint(string[] paths, bool applyFix = false,
     return 0;
 }
 
-/// Re-tokenize `path`, collect all fixable diagnostics, apply them
-/// from the end of the file backwards so byte offsets stay valid,
-/// and rewrite the file. Returns true if any fix was applied.
+/++
+ + Re-tokenize `path`, collect all fixable diagnostics, apply them
+ + from the end of the file backwards so byte offsets stay valid,
+ + and rewrite the file. Returns true if any fix was applied.
+ +/
 private bool tryApplyFixes(string path) @safe
 {
     string source;
@@ -225,9 +237,11 @@ private void lintFile(string path, ref Diagnostic[] diags) @safe
     collectDiagnostics(path, source, diags);
 }
 
-/// Single-pass token-stream scan. Each rule appends to `diags`.
-/// `--fix` reads the `fixStart` / `fixLen` / `fixReplacement` fields
-/// to apply autofixes; the diagnostic message is unchanged.
+/++
+ + Single-pass token-stream scan. Each rule appends to `diags`.
+ + `--fix` reads the `fixStart` / `fixLen` / `fixReplacement` fields
+ + to apply autofixes; the diagnostic message is unchanged.
+ +/
 private void collectDiagnostics(string path, string source, ref Diagnostic[] diags) @safe
 {
     auto lex = Lexer(source);

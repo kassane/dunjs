@@ -12,8 +12,10 @@ JSValue toJSValue(JSContext* ctx, string s) @trusted nothrow
     return JS_NewStringLen(ctx, s.ptr, s.length);
 }
 
-/// Convert a JS value argument to a D string.
-/// Returns empty string on failure.
+/++
+ + Convert a JS value argument to a D string.
+ + Returns empty string on failure.
+ +/
 string jsArgToString(JSContext* ctx, JSValueConst val) nothrow @trusted
 {
     assert(ctx !is null, "Null ctx in jsArgToString");

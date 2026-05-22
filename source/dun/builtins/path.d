@@ -1,14 +1,16 @@
 module dun.builtins.path;
 
 
-/// `@trusted policy`: Node's `path` module (join, resolve, dirname,
-/// basename, extname, normalize, isAbsolute, …). Every `@trusted`
-/// is one of:
-///
-///   1. `cast(string) char[]` / `cast(char[]) string` for working
-///      with `std.path` Phobos primitives that return mutable
-///      buffers. Length-bounded; no aliasing escape.
-///   2. `cast(DunState*) ctx` via `ctxState(ctx)` in callbacks.
+/++
+ + `@trusted policy`: Node's `path` module (join, resolve, dirname,
+ + basename, extname, normalize, isAbsolute, …). Every `@trusted`
+ + is one of:
+ +
+ +   1. `cast(string) char[]` / `cast(char[]) string` for working
+ +      with `std.path` Phobos primitives that return mutable
+ +      buffers. Length-bounded; no aliasing escape.
+ +   2. `cast(DunState*) ctx` via `ctxState(ctx)` in callbacks.
+ +/
 import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
 import dun.runtime.globals : DunState, ctxState;
 

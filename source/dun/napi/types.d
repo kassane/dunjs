@@ -96,9 +96,11 @@ enum : napi_property_attributes
     napi_default_jsproperty = napi_writable | napi_enumerable | napi_configurable,
 }
 
-/// Node version triple returned by `napi_get_node_version`. The
-/// release name is a static C string so addons can read it without
-/// the host owning the allocation.
+/++
+ + Node version triple returned by `napi_get_node_version`. The
+ + release name is a static C string so addons can read it without
+ + the host owning the allocation.
+ +/
 struct NapiNodeVersion
 {
     uint major;

@@ -43,8 +43,10 @@ module dun.ts.parser.lexer;
 
 @safe pure nothrow @nogc:
 
-/// One-byte tag matching Bun's `pub const T = enum(u8)`.
-/// Order is significant -- `isCloseBraceOrEOF` etc. compare numerically.
+/++
+ + One-byte tag matching Bun's `pub const T = enum(u8)`.
+ + Order is significant -- `isCloseBraceOrEOF` etc. compare numerically.
+ +/
 enum T : ubyte
 {
     eof,
@@ -169,8 +171,10 @@ enum T : ubyte
     t_with,
 }
 
-/// One token's location + payload. Strings / numbers live in slices of
-/// the source buffer or in `text`, so the token itself stays POD.
+/++
+ + One token's location + payload. Strings / numbers live in slices of
+ + the source buffer or in `text`, so the token itself stays POD.
+ +/
 struct Token
 {
     T kind;
@@ -178,28 +182,36 @@ struct Token
     uint length;
     uint line;      // 1-based for human reporting
     uint col;       // 1-based
-    /// For `string_literal` / `template_*` / `identifier` /
-    /// `numeric_literal`: the raw slice from the source (no decoding
-    /// of escapes -- the parser handles JSON-like decode for the few
-    /// cases it needs the cooked value).
+    /++
+     + For `string_literal` / `template_*` / `identifier` /
+     + `numeric_literal`: the raw slice from the source (no decoding
+     + of escapes -- the parser handles JSON-like decode for the few
+     + cases it needs the cooked value).
+     +/
     const(char)[] text;
 }
 
-/// Scanner over a string. Position-only -- `next()` produces the next
-/// token from the current position.
+/++
+ + Scanner over a string. Position-only -- `next()` produces the next
+ + token from the current position.
+ +/
 struct Lexer
 {
     const(char)[] source;
     uint pos;
     uint line = 1;
     uint col = 1;
-    /// Track the kind of the previously emitted token so we can decide
-    /// whether `/` is a regex-literal start or a divide operator.
-    /// Initialised to a non-expression so a leading `/` parses as regex.
+    /++
+     + Track the kind of the previously emitted token so we can decide
+     + whether `/` is a regex-literal start or a divide operator.
+     + Initialised to a non-expression so a leading `/` parses as regex.
+     +/
     private T lastKind = T.eof;
-    /// Stack of template-literal contexts. When non-empty, `}` after a
-    /// `${...}` interpolation re-enters template scanning instead of
-    /// emitting a close-brace token.
+    /++
+     + Stack of template-literal contexts. When non-empty, `}` after a
+     + `${...}` interpolation re-enters template scanning instead of
+     + emitting a close-brace token.
+     +/
     private int templateDepth = 0;
 
     // Brace balance per active template substitution. Without this,
@@ -456,12 +468,14 @@ private:
             startLine, startCol);
     }
 
-    /// Template literal scanner. Two entry modes:
-    ///   atBacktick=true  -- `pos` points at the opening backtick.
-    ///   atBacktick=false -- `pos` points at the `}` closing a
-    ///                       `${expr}` interpolation; we resume the
-    ///                       enclosing template literal.
-    /// Returns one of the template_* tokens. Updates `templateDepth`.
+    /++
+     + Template literal scanner. Two entry modes:
+     +   atBacktick=true  -- `pos` points at the opening backtick.
+     +   atBacktick=false -- `pos` points at the `}` closing a
+     +                       `${expr}` interpolation; we resume the
+     +                       enclosing template literal.
+     + Returns one of the template_* tokens. Updates `templateDepth`.
+     +/
     Token scanTemplate(uint startPos, uint startLine, uint startCol, bool atBacktick)
         @safe pure nothrow @nogc
     {
@@ -522,10 +536,12 @@ private:
             startPos, cast(uint)(pos - startPos), startLine, startCol);
     }
 
-    /// Regex literal scanner. Caller has already determined the `/`
-    /// at `pos` starts a regex (via `allowsRegex(lastKind)`). Walks
-    /// the body (with `\` escapes + character classes `[...]` where
-    /// `/` is literal) plus any trailing flag chars.
+    /++
+     + Regex literal scanner. Caller has already determined the `/`
+     + at `pos` starts a regex (via `allowsRegex(lastKind)`). Walks
+     + the body (with `\` escapes + character classes `[...]` where
+     + `/` is literal) plus any trailing flag chars.
+     +/
     Token scanRegex(uint startPos, uint startLine, uint startCol)
         @safe pure nothrow @nogc
     {
@@ -551,10 +567,12 @@ private:
             startLine, startCol);
     }
 
-    /// Whether the previous token's kind allows a regex literal here.
-    /// A regex starts after operators / keywords that introduce a new
-    /// expression; a divide is only legal after a value-producing
-    /// token (literal, identifier, `)`, `]`, `++`, `--`).
+    /++
+     + Whether the previous token's kind allows a regex literal here.
+     + A regex starts after operators / keywords that introduce a new
+     + expression; a divide is only legal after a value-producing
+     + token (literal, identifier, `)`, `]`, `++`, `--`).
+     +/
     static bool allowsRegex(T prev) @safe pure nothrow @nogc
     {
         switch (prev)
@@ -719,10 +737,12 @@ private:
 // in a nested function that escapes the module-level `@nogc` colon.
 // ---------------------------------------------------------------------------
 
-/// Whether the source contains any `syntax_error` tokens. Useful for
-/// corpus-validation tests: a clean file should never hit one. The
-/// lexer treats unknown punctuation as `T.syntax_error` (single byte
-/// width) so an offending position can be located by walking the stream.
+/++
+ + Whether the source contains any `syntax_error` tokens. Useful for
+ + corpus-validation tests: a clean file should never hit one. The
+ + lexer treats unknown punctuation as `T.syntax_error` (single byte
+ + width) so an offending position can be located by walking the stream.
+ +/
 // `src` isn't `scope` because the inner `Lexer` stores the slice in a
 // non-scope member (see `Lexer.this`). DIP1000 propagation would
 // require the whole Lexer to be `scope`, which complicates the API
@@ -738,16 +758,18 @@ bool hasSyntaxError(const(char)[] src) @safe pure nothrow @nogc
     }
 }
 
-/// Skip past a regex literal starting at `buf[pos]` (which the caller
-/// has already determined to be `/` in a regex-allowed position).
-/// Returns the byte index just past the closing `/` and flag chars.
-/// Lifts the same body+class+flag logic the lexer's `scanRegex` uses,
-/// so callers don't have to spin up a full `Lexer` for one-off skips
-/// (e.g. `strip.d` walking past a regex on its main scan).
-///
-/// Same flag set as ECMA-262 + V8: `g i m s u v y d`. Any
-/// `isIdentCont` byte at the tail is consumed -- the caller is
-/// presumed to have validated the slash already.
+/++
+ + Skip past a regex literal starting at `buf[pos]` (which the caller
+ + has already determined to be `/` in a regex-allowed position).
+ + Returns the byte index just past the closing `/` and flag chars.
+ + Lifts the same body+class+flag logic the lexer's `scanRegex` uses,
+ + so callers don't have to spin up a full `Lexer` for one-off skips
+ + (e.g. `strip.d` walking past a regex on its main scan).
+ +
+ + Same flag set as ECMA-262 + V8: `g i m s u v y d`. Any
+ + `isIdentCont` byte at the tail is consumed -- the caller is
+ + presumed to have validated the slash already.
+ +/
 size_t skipRegexLit(const(char)[] buf, size_t pos) @safe pure nothrow @nogc
 {
     assert(pos < buf.length && buf[pos] == '/',
@@ -774,14 +796,16 @@ size_t skipRegexLit(const(char)[] buf, size_t pos) @safe pure nothrow @nogc
     return pos;
 }
 
-/// Skip past a `"..."` or `'...'` string literal starting at the quote
-/// at `buf[i]`. Returns the byte index just past the closing quote.
-/// Handles `\` escapes generically (`\n`, `\t`, `\"`, `\\`, etc. -- we
-/// don't decode, just skip the escape pair).
-///
-/// Shared by `dun.ts.strip` and `dun.ts.jsx`: both had their own copy
-/// before this; the lexer is the natural home now that it owns the
-/// rest of the tokenization helpers.
+/++
+ + Skip past a `"..."` or `'...'` string literal starting at the quote
+ + at `buf[i]`. Returns the byte index just past the closing quote.
+ + Handles `\` escapes generically (`\n`, `\t`, `\"`, `\\`, etc. -- we
+ + don't decode, just skip the escape pair).
+ +
+ + Shared by `dun.ts.strip` and `dun.ts.jsx`: both had their own copy
+ + before this; the lexer is the natural home now that it owns the
+ + rest of the tokenization helpers.
+ +/
 size_t skipStringLit(const(char)[] buf, size_t i) @safe pure nothrow @nogc
 {
     if (i >= buf.length) return i;
@@ -796,10 +820,12 @@ size_t skipStringLit(const(char)[] buf, size_t i) @safe pure nothrow @nogc
     return i;
 }
 
-/// Skip past a `` `...` `` template literal starting at the backtick
-/// at `buf[i]`. Tracks `${...}` interpolation brace depth and recurses
-/// into nested templates / strings so the returned index points just
-/// past the matching outer backtick.
+/++
+ + Skip past a `` `...` `` template literal starting at the backtick
+ + at `buf[i]`. Tracks `${...}` interpolation brace depth and recurses
+ + into nested templates / strings so the returned index points just
+ + past the matching outer backtick.
+ +/
 size_t skipTemplateLit(const(char)[] buf, size_t i) @safe pure nothrow @nogc
 {
     if (i >= buf.length) return i;
@@ -838,22 +864,24 @@ unittest
     assert(skipTemplateLit("`a${`x`}b`y", 0) == 10);
 }
 
-/// Whether a `/` at `prevChar`'s following position starts a regex
-/// literal or a divide. The caller passes the previous non-whitespace
-/// byte. Mirrors `Lexer.allowsRegex` but operates on raw chars so
-/// strip-mode callers don't need a token stream.
-///
-/// Returns true (regex) when prev is one of:
-///   - structural / operator: `(` `,` `;` `[` `{` `}` `:` `?` `=`
-///     `+` `-` `*` `/` `%` `&` `|` `^` `~` `!` `<` `>`
-///   - end-of-line (newline) or buffer start
-/// Returns false (divide) when prev is identifier-continuing,
-/// `)`, `]`, or backtick (template_tail-equivalent).
-///
-/// Caller should special-case identifier-keyword-then-slash (e.g.
-/// `return /x/`) via `regexAllowingKeywordEndsAt` before calling this:
-/// after `return` the previous byte is `n`, an ident-cont, which
-/// would otherwise say divide. See the strip.d main-loop wiring.
+/++
+ + Whether a `/` at `prevChar`'s following position starts a regex
+ + literal or a divide. The caller passes the previous non-whitespace
+ + byte. Mirrors `Lexer.allowsRegex` but operates on raw chars so
+ + strip-mode callers don't need a token stream.
+ +
+ + Returns true (regex) when prev is one of:
+ +   - structural / operator: `(` `,` `;` `[` `{` `}` `:` `?` `=`
+ +     `+` `-` `*` `/` `%` `&` `|` `^` `~` `!` `<` `>`
+ +   - end-of-line (newline) or buffer start
+ + Returns false (divide) when prev is identifier-continuing,
+ + `)`, `]`, or backtick (template_tail-equivalent).
+ +
+ + Caller should special-case identifier-keyword-then-slash (e.g.
+ + `return /x/`) via `regexAllowingKeywordEndsAt` before calling this:
+ + after `return` the previous byte is `n`, an ident-cont, which
+ + would otherwise say divide. See the strip.d main-loop wiring.
+ +/
 bool charAllowsRegex(char prev) @safe pure nothrow @nogc
 {
     if (Lexer.isIdentCont(prev)) return false;  // ident / digit / `_`
@@ -868,13 +896,15 @@ bool charAllowsRegex(char prev) @safe pure nothrow @nogc
     }
 }
 
-/// If `buf[..endExclusive]` ends in a regex-allowing keyword (`return`,
-/// `typeof`, `void`, `delete`, `throw`, `in`, `instanceof`, `new`,
-/// `yield`, `await`, `do`, `else`), returns the byte offset where that
-/// keyword starts; otherwise returns `endExclusive` (caller should
-/// fall through to `charAllowsRegex`). The check requires the byte
-/// just before the keyword to be a non-ident byte (or buffer start) so
-/// `myreturn` doesn't match `return`.
+/++
+ + If `buf[..endExclusive]` ends in a regex-allowing keyword (`return`,
+ + `typeof`, `void`, `delete`, `throw`, `in`, `instanceof`, `new`,
+ + `yield`, `await`, `do`, `else`), returns the byte offset where that
+ + keyword starts; otherwise returns `endExclusive` (caller should
+ + fall through to `charAllowsRegex`). The check requires the byte
+ + just before the keyword to be a non-ident byte (or buffer start) so
+ + `myreturn` doesn't match `return`.
+ +/
 size_t regexAllowingKeywordEndsAt(const(char)[] buf, size_t endExclusive)
     @safe pure nothrow @nogc
 {
@@ -907,10 +937,12 @@ size_t regexAllowingKeywordEndsAt(const(char)[] buf, size_t endExclusive)
     }
 }
 
-/// Map an identifier slice to its keyword token if it's a reserved
-/// word, else `T.identifier`. Mirrors Bun's Keywords table (only the
-/// ES-spec reserved words; TS-only keywords like `type` / `interface`
-/// are treated as identifiers and disambiguated by the parser).
+/++
+ + Map an identifier slice to its keyword token if it's a reserved
+ + word, else `T.identifier`. Mirrors Bun's Keywords table (only the
+ + ES-spec reserved words; TS-only keywords like `type` / `interface`
+ + are treated as identifiers and disambiguated by the parser).
+ +/
 T keywordKind(const(char)[] s) @safe pure nothrow @nogc
 {
     switch (s)

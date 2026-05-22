@@ -1,29 +1,31 @@
 module dun.builtins.crypto;
 
-/// `@trusted policy`: this file implements Node's `crypto` module
-/// surface (createHash, createHmac, randomBytes, createCipheriv,
-/// pbkdf2Sync, scryptSync, createSign / createVerify, DH, subtle).
-///
-/// Every `@trusted` block in this file falls into one of three
-/// categories:
-///
-///   1. OpenSSL FFI call (EVP_*, HMAC_*, PKCS5_PBKDF2_HMAC, etc.).
-///      `@trusted` IS the security signal — these are the audited
-///      entry points to libcrypto/libssl. Annotated `@system` C
-///      bindings live in `dun.platform.openssl`. Each call sits
-///      inside a slot-based RAII pool (`_hashBuffers`, `_hmacBuffers`,
-///      `_cipherCtxs`, …) with free-list recycling.
-///   2. `cast(JSValueRef)` / `.ptr` slice access. The `.ptr` calls
-///      pass byte buffers to OpenSSL's `unsigned char*` parameters;
-///      length is asserted and bounded before each call.
-///   3. `__gshared` cipher / hash slot tables (`_hashFnsCached`,
-///      `_freeHashIds`, …). The append-only / slot-recycle pattern
-///      is single-threaded (matches the engine's main-thread-only
-///      contract).
-///
-/// Per-function `///` overrides this baseline when a method has
-/// additional invariants (e.g., HMAC key length, scrypt parameter
-/// bounds) that aren't captured by the policy above.
+/++
+ + `@trusted policy`: this file implements Node's `crypto` module
+ + surface (createHash, createHmac, randomBytes, createCipheriv,
+ + pbkdf2Sync, scryptSync, createSign / createVerify, DH, subtle).
+ +
+ + Every `@trusted` block in this file falls into one of three
+ + categories:
+ +
+ +   1. OpenSSL FFI call (EVP_*, HMAC_*, PKCS5_PBKDF2_HMAC, etc.).
+ +      `@trusted` IS the security signal — these are the audited
+ +      entry points to libcrypto/libssl. Annotated `@system` C
+ +      bindings live in `dun.platform.openssl`. Each call sits
+ +      inside a slot-based RAII pool (`_hashBuffers`, `_hmacBuffers`,
+ +      `_cipherCtxs`, …) with free-list recycling.
+ +   2. `cast(JSValueRef)` / `.ptr` slice access. The `.ptr` calls
+ +      pass byte buffers to OpenSSL's `unsigned char*` parameters;
+ +      length is asserted and bounded before each call.
+ +   3. `__gshared` cipher / hash slot tables (`_hashFnsCached`,
+ +      `_freeHashIds`, …). The append-only / slot-recycle pattern
+ +      is single-threaded (matches the engine's main-thread-only
+ +      contract).
+ +
+ + Per-function `///` overrides this baseline when a method has
+ + additional invariants (e.g., HMAC key length, scrypt parameter
+ + bounds) that aren't captured by the policy above.
+ +/
 
 import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
 import dun.runtime.globals : DunState, ctxState;
@@ -1880,10 +1882,12 @@ private string bytesToHexStr(const(ubyte)[] data) @safe pure
     return (() @trusted => cast(string) buf[])();
 }
 
-/// Encode raw bytes as base64url (RFC 7515 §2: `-`/`_` alphabet, no
-/// padding). Used by digest / HMAC / cipher output paths when the
-/// caller asks for `"base64url"`. Without this, the fallback path
-/// returns hex, which silently corrupts JWT / WebPush / similar flows.
+/++
+ + Encode raw bytes as base64url (RFC 7515 §2: `-`/`_` alphabet, no
+ + padding). Used by digest / HMAC / cipher output paths when the
+ + caller asks for `"base64url"`. Without this, the fallback path
+ + returns hex, which silently corrupts JWT / WebPush / similar flows.
+ +/
 private string bytesToBase64Url(const(ubyte)[] data) @safe pure
 {
     if (data.length == 0) return "";
@@ -2321,8 +2325,10 @@ public void installSubtleOnGlobalCrypto(IJSEngine engine) @trusted
     engine.freeValue(global);
 }
 
-/// Normalize WebCrypto algorithm name to OpenSSL-compatible name
-/// Accepts: "SHA-256", "SHA-384", "SHA-512", "SHA-1", or {name: "SHA-256"}
+/++
+ + Normalize WebCrypto algorithm name to OpenSSL-compatible name
+ + Accepts: "SHA-256", "SHA-384", "SHA-512", "SHA-1", or {name: "SHA-256"}
+ +/
 private string normalizeSubtleAlgo(IJSEngine engine, JSHandle algoArg) @trusted
 {
     assert(engine !is null, "Null engine in normalizeSubtleAlgo");
@@ -2359,8 +2365,10 @@ private string normalizeSubtleAlgo(IJSEngine engine, JSHandle algoArg) @trusted
     return null;
 }
 
-/// Extract the HMAC hash algorithm from a WebCrypto algorithm descriptor
-/// Accepts: {name: "HMAC", hash: "SHA-256"} or {name: "HMAC", hash: {name: "SHA-256"}}
+/++
+ + Extract the HMAC hash algorithm from a WebCrypto algorithm descriptor
+ + Accepts: {name: "HMAC", hash: "SHA-256"} or {name: "HMAC", hash: {name: "SHA-256"}}
+ +/
 private string extractHmacHash(IJSEngine engine, JSHandle algoArg) @trusted
 {
     assert(engine !is null, "Null engine in extractHmacHash");
@@ -2392,8 +2400,10 @@ private string extractAlgoName(IJSEngine engine, JSHandle algoArg) @trusted
     return null;
 }
 
-/// Extract data from a JS argument: TypedArray, ArrayBuffer, or string
-/// Returns empty slice (not null) for empty typed arrays on JSC/V8
+/++
+ + Extract data from a JS argument: TypedArray, ArrayBuffer, or string
+ + Returns empty slice (not null) for empty typed arrays on JSC/V8
+ +/
 private ubyte[] extractDataArg(IJSEngine engine, JSHandle arg) @trusted
 {
     assert(engine !is null, "Null engine in extractDataArg");

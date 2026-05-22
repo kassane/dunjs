@@ -1,11 +1,13 @@
 module dun.builtins.url;
 
 
-/// `@trusted policy`: Node's `url` module + WHATWG URL standard.
-/// Every `@trusted` is one of:
-///   1. `Appender!(char[])` + `cast(string)` for the URL string
-///      builders. Pure D parser.
-///   2. `cast(DunState*) ctx` via `ctxState(ctx)` in callbacks.
+/++
+ + `@trusted policy`: Node's `url` module + WHATWG URL standard.
+ + Every `@trusted` is one of:
+ +   1. `Appender!(char[])` + `cast(string)` for the URL string
+ +      builders. Pure D parser.
+ +   2. `cast(DunState*) ctx` via `ctxState(ctx)` in callbacks.
+ +/
 import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
 import dun.runtime.globals : DunState;
 import dun.builtins.helpers : installPureJsModule;

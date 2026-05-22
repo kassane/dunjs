@@ -1,0 +1,6 @@
+a: prefix:{"type":"x","value":1}:suffix
+b: b=[object Object]
+c: sum=12
+d: outer-inner-42-end-tail
+e: [1][x][true]
+f: id=99

@@ -1,12 +1,14 @@
 module dun.platform.url_parser;
 
-/// `@trusted policy`: pure URL-string parser. `@safe` throughout —
-/// no FFI, no `@trusted`. Lives in `platform/` so fuzz harnesses
-/// + tools can depend on it without pulling the entire `fetch.d`
-/// transitive surface (TLS, async work pool, permissions, ...).
-///
-/// Mirrors the original `dun.builtins.fetch.parseUrl` signature
-/// and behaviour; `fetch.d` now re-exports from here.
+/++
+ + `@trusted policy`: pure URL-string parser. `@safe` throughout —
+ + no FFI, no `@trusted`. Lives in `platform/` so fuzz harnesses
+ + + tools can depend on it without pulling the entire `fetch.d`
+ + transitive surface (TLS, async work pool, permissions, ...).
+ +
+ + Mirrors the original `dun.builtins.fetch.parseUrl` signature
+ + and behaviour; `fetch.d` now re-exports from here.
+ +/
 
 import std.conv : to;
 
@@ -18,10 +20,12 @@ struct ParsedUrl
     string path;
 }
 
-/// Parse `scheme://host[:port][/path]` into a `ParsedUrl`. Throws
-/// `Exception("invalid URL: ...")` if the input has no `"://"`.
-/// `port == 0` means "no explicit port" (caller picks the
-/// scheme-default).
+/++
+ + Parse `scheme://host[:port][/path]` into a `ParsedUrl`. Throws
+ + `Exception("invalid URL: ...")` if the input has no `"://"`.
+ + `port == 0` means "no explicit port" (caller picks the
+ + scheme-default).
+ +/
 ParsedUrl parseUrl(string url) @safe
 {
     import std.string : indexOf;

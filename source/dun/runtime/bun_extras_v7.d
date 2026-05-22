@@ -1,23 +1,27 @@
-/// v0.7.0 Bun.* extras (deepMatch, concatArrayBuffers,
-/// arrayBufferToString, randomUUIDv7, nanoseconds, gcAggressionLevel,
-/// shrink, generateHeapSnapshot). Installed on all 3 backends.
-///
-/// JSC history note: the v0.7.0 commit `JSC handle-leak audit:
-/// http.d setProperty+dupValue → bindMethod` (d995bef) fixed 18
-/// per-request/response/server `dupValue + setProperty` leaks
-/// (JSC's setProperty doesn't consume `val`). With those orphaned
-/// `JSValueProtect`s plugged, the multi-server stress threshold
-/// moved from 9 to 13+ sequential `Deno.serve+fetch+shutdown`
-/// cycles, well clear of the 7-server `deno_deploy_compat` fixture.
-/// The v7 extras now ship on JSC too — same surface as QJS / V8.
+/++
+ + v0.7.0 Bun.* extras (deepMatch, concatArrayBuffers,
+ + arrayBufferToString, randomUUIDv7, nanoseconds, gcAggressionLevel,
+ + shrink, generateHeapSnapshot). Installed on all 3 backends.
+ +
+ + JSC history note: the v0.7.0 commit `JSC handle-leak audit:
+ + http.d setProperty+dupValue → bindMethod` (d995bef) fixed 18
+ + per-request/response/server `dupValue + setProperty` leaks
+ + (JSC's setProperty doesn't consume `val`). With those orphaned
+ + `JSValueProtect`s plugged, the multi-server stress threshold
+ + moved from 9 to 13+ sequential `Deno.serve+fetch+shutdown`
+ + cycles, well clear of the 7-server `deno_deploy_compat` fixture.
+ + The v7 extras now ship on JSC too — same surface as QJS / V8.
+ +/
 module dun.runtime.bun_extras_v7;
 
 
-/// `@trusted policy`: Bun.* v0.7.0 extras (deepMatch,
-/// concatArrayBuffers, randomUUIDv7, nanoseconds, gcAggressionLevel,
-/// shrink, generateHeapSnapshot). Lazy-load via Object.defineProperty
-/// getter. `@trusted` is for the install-time `engine.eval`.
-/// Gated off on JSC — see CHANGELOG #43a/#58d/#59a/#60d.
+/++
+ + `@trusted policy`: Bun.* v0.7.0 extras (deepMatch,
+ + concatArrayBuffers, randomUUIDv7, nanoseconds, gcAggressionLevel,
+ + shrink, generateHeapSnapshot). Lazy-load via Object.defineProperty
+ + getter. `@trusted` is for the install-time `engine.eval`.
+ + Gated off on JSC — see CHANGELOG #43a/#58d/#59a/#60d.
+ +/
 import dun.engine.iface : IJSEngine;
 
 void installBunExtrasV7(IJSEngine engine) @trusted

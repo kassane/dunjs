@@ -1,21 +1,23 @@
 module dun.engine.jsc.backend;
 
-/// `@trusted policy`: this file is the JavaScriptCore C API binding
-/// layer. Every method wraps an `extern(C)` call into the JSC headers
-/// (declared in `dun.engine.jsc.bindings`); the `@trusted` is the FFI
-/// escape required to call them from D's `@safe` boundary. The
-/// invariants the wrappers rely on:
-///
-///   - `ctx` (a `JSGlobalContextRef`) is non-null after `initialize()`
-///     and stays valid until `shutdown()`;
-///   - JSC's GC uses conservative stack scanning + `JSValueProtect`
-///     refcounts. Every value that needs to survive a GC point is
-///     either rooted via `dupValue` (calls `JSValueProtect`) or kept
-///     on the D stack across the GC point;
-///   - JSC's concurrent-GC can sweep intermediate `JSValueRef`s on a
-///     background thread — see CLAUDE.md §"JSC concurrent-GC" + the
-///     v1.1.26 `_fetchResponseBuilder` isException fallback for the
-///     concrete mitigation.
+/++
+ + `@trusted policy`: this file is the JavaScriptCore C API binding
+ + layer. Every method wraps an `extern(C)` call into the JSC headers
+ + (declared in `dun.engine.jsc.bindings`); the `@trusted` is the FFI
+ + escape required to call them from D's `@safe` boundary. The
+ + invariants the wrappers rely on:
+ +
+ +   - `ctx` (a `JSGlobalContextRef`) is non-null after `initialize()`
+ +     and stays valid until `shutdown()`;
+ +   - JSC's GC uses conservative stack scanning + `JSValueProtect`
+ +     refcounts. Every value that needs to survive a GC point is
+ +     either rooted via `dupValue` (calls `JSValueProtect`) or kept
+ +     on the D stack across the GC point;
+ +   - JSC's concurrent-GC can sweep intermediate `JSValueRef`s on a
+ +     background thread — see CLAUDE.md §"JSC concurrent-GC" + the
+ +     v1.1.26 `_fetchResponseBuilder` isException fallback for the
+ +     concrete mitigation.
+ +/
 
 import dun.engine.iface;
 import dun.engine.jsc.bindings;

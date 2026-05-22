@@ -1,9 +1,11 @@
 module dun.modules.loader;
 
 
-/// `@trusted policy`: ES module loader — module specifier resolution
-/// + script source fetching + import map evaluation. Every `@trusted`
-/// is `std.file.readText` / `engine.evalModule` (engine-FFI surface).
+/++
+ + `@trusted policy`: ES module loader — module specifier resolution
+ + + script source fetching + import map evaluation. Every `@trusted`
+ + is `std.file.readText` / `engine.evalModule` (engine-FFI surface).
+ +/
 // Project convention (CLAUDE.md): allocator helpers go via
 // `dun.platform.arena`, not `std.array` directly.
 import dun.platform.arena : Appender;
@@ -114,13 +116,23 @@ version (EngineQuickJS)
         if (auto cached = specifier in loader.cache)
             return *cached;
 
-        // CJS cross-format guard: .cjs/.cts files cannot be ESM-imported
-        if (specifier.endsWith(".cjs") || specifier.endsWith(".cts"))
-        {
-            JS_ThrowTypeError(ctx,
-                "Cannot import a CommonJS module from ESM. Use require() instead.");
-            return null;
-        }
+        // CJS-from-ESM bridge: `.cjs` and `.cts` files are explicitly
+        // CommonJS, but we can still expose them to ESM importers by
+        // routing through `require()` + re-exporting `module.exports`
+        // as the default export. The bridge that follows
+        // (`looksLikeCommonJS` branch below) handles unmarked `.js`
+        // CJS files the same way; here we just skip the format probe
+        // since the `.cjs` / `.cts` extension is the contract.
+        //
+        // Surfaced by yt-dlp/ejs (`run.ts` imports meriyah which is
+        // a `.cjs` package) and the canonical
+        // `import cjs from "./mod.cjs"` pattern that real-world
+        // Node 20+ ESM projects use to bridge legacy deps. V8 + JSC
+        // already handle this via `dun.modules.esm_shim.transpileESM`
+        // (which rewrites top-level `import` to `require`); QJS uses
+        // its native ESM loader and needs this synthetic shim.
+        immutable bool isCjsExt = specifier.endsWith(".cjs")
+                               || specifier.endsWith(".cts");
 
         // Read source file
         string source;
@@ -161,8 +173,10 @@ version (EngineQuickJS)
         // or `exports.xyz =` and is not an ESM module file (.mjs / has top-level
         // `export`/`import`), wrap it with a tiny ESM shim that goes through
         // require() and re-exports the resulting object as default + named.
-        else if ((specifier.endsWith(".js") || specifier.endsWith(".cjs"))
-              && looksLikeCommonJS(source))
+        // `.cjs` and `.cts` extensions imply CommonJS so they're shimmed
+        // unconditionally (the format-probe runs only on `.js`).
+        else if (isCjsExt
+              || (specifier.endsWith(".js") && looksLikeCommonJS(source)))
         {
             try
             {
@@ -297,9 +311,11 @@ version (EngineQuickJS)
     }
 }
 
-/// Scrape named CJS exports (`module.exports.X = …`, `exports.X = …`,
-/// `module.exports = { X: … }`, `Object.defineProperty(exports, "X", …)`).
-/// Regex-style heuristic — misses computed-name / dynamic exports.
+/++
+ + Scrape named CJS exports (`module.exports.X = …`, `exports.X = …`,
+ + `module.exports = { X: … }`, `Object.defineProperty(exports, "X", …)`).
+ + Regex-style heuristic — misses computed-name / dynamic exports.
+ +/
 private string[] extractCjsExports(string source) @safe pure
 {
     import std.algorithm : canFind;

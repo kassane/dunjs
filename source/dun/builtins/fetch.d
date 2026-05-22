@@ -1,20 +1,22 @@
 module dun.builtins.fetch;
 
 
-/// `@trusted policy`: `fetch()` global + Response/Request builders.
-/// Every `@trusted` is one of:
-///
-///   1. POSIX socket syscalls + OpenSSL TLS (for https URLs) —
-///      same surface as `net.d`/`tls.d`.
-///   2. Async work submission via `asyncSubmit` — `doFetch` runs
-///      on a pool worker thread; main thread builds the Response
-///      via `makeResponse` after async completion.
-///   3. `__gshared` cached function handles (`_fetchResponseBuilder`,
-///      `_fetchHeadersFlattener`) — install once, called by every
-///      fetch. v1.1.7/v1.1.26 caching fix; without it, JSC compiles
-///      per-call bytecode and accumulates handle pressure.
-///   4. `Permission.net` gate before connect.
-///   5. `cast(DunState*) ctx` via `ctxState(ctx)` in callbacks.
+/++
+ + `@trusted policy`: `fetch()` global + Response/Request builders.
+ + Every `@trusted` is one of:
+ +
+ +   1. POSIX socket syscalls + OpenSSL TLS (for https URLs) —
+ +      same surface as `net.d`/`tls.d`.
+ +   2. Async work submission via `asyncSubmit` — `doFetch` runs
+ +      on a pool worker thread; main thread builds the Response
+ +      via `makeResponse` after async completion.
+ +   3. `__gshared` cached function handles (`_fetchResponseBuilder`,
+ +      `_fetchHeadersFlattener`) — install once, called by every
+ +      fetch. v1.1.7/v1.1.26 caching fix; without it, JSC compiles
+ +      per-call bytecode and accumulates handle pressure.
+ +   4. `Permission.net` gate before connect.
+ +   5. `cast(DunState*) ctx` via `ctxState(ctx)` in callbacks.
+ +/
 import core.attribute : mustuse;
 import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
 import dun.runtime.globals : DunState, ctxState;
@@ -212,10 +214,12 @@ FetchResult deserializeFetchResult(string s) @safe
     return r;
 }
 
-/// `@mustuse` (DIP 1038): silently dropping a fetch result swallows
-/// the HTTP status + body. Every caller in this codebase consumes
-/// either `status` (for redirect chains) or `body_` (for the JS-side
-/// `Response` wrapper) — none legitimately ignores the whole struct.
+/++
+ + `@mustuse` (DIP 1038): silently dropping a fetch result swallows
+ + the HTTP status + body. Every caller in this codebase consumes
+ + either `status` (for redirect chains) or `body_` (for the JS-side
+ + `Response` wrapper) — none legitimately ignores the whole struct.
+ +/
 @mustuse
 struct FetchResult
 {

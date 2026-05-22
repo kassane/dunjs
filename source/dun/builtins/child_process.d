@@ -1,18 +1,20 @@
 module dun.builtins.child_process;
 
 
-/// `@trusted policy`: Node's `child_process` module (spawn, exec,
-/// spawnSync, execSync, fork). Every `@trusted` is one of:
-///
-///   1. POSIX `fork` + `execve` + `pipe2` + `waitpid` for the
-///      spawn primitive. Shell-metachar filtering before any
-///      `execve` to close shell-injection (CVE-2026-32260 class,
-///      see HANDOFF.md "Recent security work").
-///   2. `cast(char**) argv.ptr` to build the execve argument
-///      vector. Each argv entry is a D string converted via
-///      `toStringz` (always null-terminated, lifetime-bounded).
-///   3. `Permission.run` gate before execve.
-///   4. `cast(DunState*) ctx` via `ctxState(ctx)` in callbacks.
+/++
+ + `@trusted policy`: Node's `child_process` module (spawn, exec,
+ + spawnSync, execSync, fork). Every `@trusted` is one of:
+ +
+ +   1. POSIX `fork` + `execve` + `pipe2` + `waitpid` for the
+ +      spawn primitive. Shell-metachar filtering before any
+ +      `execve` to close shell-injection (CVE-2026-32260 class,
+ +      see HANDOFF.md "Recent security work").
+ +   2. `cast(char**) argv.ptr` to build the execve argument
+ +      vector. Each argv entry is a D string converted via
+ +      `toStringz` (always null-terminated, lifetime-bounded).
+ +   3. `Permission.run` gate before execve.
+ +   4. `cast(DunState*) ctx` via `ctxState(ctx)` in callbacks.
+ +/
 import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
 import dun.runtime.globals : DunState, ctxState;
 import dun.security.permissions : Permission;
@@ -471,8 +473,10 @@ JSHandle jsExec(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
     }
 }
 
-/// JS helper source for creating ChildProcess objects with EventEmitter-like behavior.
-/// Evaluated once per engine context, returns the ChildProcess constructor.
+/++
+ + JS helper source for creating ChildProcess objects with EventEmitter-like behavior.
+ + Evaluated once per engine context, returns the ChildProcess constructor.
+ +/
 private immutable string childProcessHelperSource = `(function() {
   function mkEmitter() {
     /* Closure-captured events; emit/on don't rely on this so the

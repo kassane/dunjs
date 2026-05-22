@@ -1,23 +1,25 @@
-/// Fuzz harness for `dun.ts.strip.stripTypes` — the TypeScript type
-/// eraser. Runs untrusted source through the scanner-based stripper
-/// and asserts the @safe contract holds (no crashes, no UB, output
-/// is well-formed UTF-8).
-///
-/// Build:
-///   ldc2 -fsanitize=fuzzer -fsanitize=address -O1 -g \
-///        -I=source -Jsource \
-///        -of=build/fuzz_strip \
-///        tests/fuzz/fuzz_strip.d \
-///        source/dun/ts/strip.d \
-///        source/dun/ts/parser/lexer.d
-///
-/// Run (with seed corpus + crash-saving):
-///   mkdir -p tests/fuzz/corpus/strip
-///   build/fuzz_strip tests/fuzz/corpus/strip \
-///       -max_len=4096 -timeout=10 \
-///       -artifact_prefix=tests/fuzz/crashes/strip-
-///
-/// Reference: https://johanengelen.github.io/posts/2018-01-14-fuzzing-with-ldc/
+/++
+ + Fuzz harness for `dun.ts.strip.stripTypes` — the TypeScript type
+ + eraser. Runs untrusted source through the scanner-based stripper
+ + and asserts the @safe contract holds (no crashes, no UB, output
+ + is well-formed UTF-8).
+ +
+ + Build:
+ +   ldc2 -fsanitize=fuzzer -fsanitize=address -O1 -g \
+ +        -I=source -Jsource \
+ +        -of=build/fuzz_strip \
+ +        tests/fuzz/fuzz_strip.d \
+ +        source/dun/ts/strip.d \
+ +        source/dun/ts/parser/lexer.d
+ +
+ + Run (with seed corpus + crash-saving):
+ +   mkdir -p tests/fuzz/corpus/strip
+ +   build/fuzz_strip tests/fuzz/corpus/strip \
+ +       -max_len=4096 -timeout=10 \
+ +       -artifact_prefix=tests/fuzz/crashes/strip-
+ +
+ + Reference: https://johanengelen.github.io/posts/2018-01-14-fuzzing-with-ldc/
+ +/
 
 import dun.ts.strip : stripTypes;
 

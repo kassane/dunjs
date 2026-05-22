@@ -1,14 +1,16 @@
 module dun.builtins.async_hooks;
 
 
-/// `@trusted policy`: Node's `async_hooks` module + AsyncLocalStorage.
-/// Every `@trusted` is one of:
-///   1. `__gshared alsStoreStack` for the AsyncLocalStorage stack
-///      (single-threaded under the engine's main-thread-only contract).
-///   2. `cast(DunState*) ctx` via `ctxState(ctx)` in callbacks.
-///   3. `catch (Throwable)` for the recovery path — required because
-///      ALS unwinds across user-supplied callbacks that may throw
-///      Errors (not just Exceptions).
+/++
+ + `@trusted policy`: Node's `async_hooks` module + AsyncLocalStorage.
+ + Every `@trusted` is one of:
+ +   1. `__gshared alsStoreStack` for the AsyncLocalStorage stack
+ +      (single-threaded under the engine's main-thread-only contract).
+ +   2. `cast(DunState*) ctx` via `ctxState(ctx)` in callbacks.
+ +   3. `catch (Throwable)` for the recovery path — required because
+ +      ALS unwinds across user-supplied callbacks that may throw
+ +      Errors (not just Exceptions).
+ +/
 import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
 import dun.runtime.globals : DunState, ctxState;
 

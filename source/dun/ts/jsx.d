@@ -1,17 +1,21 @@
-/// JSX → React.createElement transformer for .jsx / .tsx files.
-/// Classic mode emit only (no jsx-runtime / custom pragma). Skips
-/// string / template / comment / regex contexts so `<` in non-JSX
-/// positions (e.g. `a < b`, `a / b`) parses unchanged.
+/++
+ + JSX → React.createElement transformer for .jsx / .tsx files.
+ + Classic mode emit only (no jsx-runtime / custom pragma). Skips
+ + string / template / comment / regex contexts so `<` in non-JSX
+ + positions (e.g. `a < b`, `a / b`) parses unchanged.
+ +/
 module dun.ts.jsx;
 
 
-/// `@trusted policy`: JSX → React.createElement transform (or
-/// Bun.jsx in Bun-compat mode). Scanner-based, pure D logic, no
-/// FFI. Every `@trusted` is one of:
-///   1. `Appender!(char[])` + `cast(string) char[]` for the
-///      output buffer.
-///   2. `std.regex` for JSX-attribute parsing — `@trusted` because
-///      `regex` is currently `@system` in Phobos.
+/++
+ + `@trusted policy`: JSX → React.createElement transform (or
+ + Bun.jsx in Bun-compat mode). Scanner-based, pure D logic, no
+ + FFI. Every `@trusted` is one of:
+ +   1. `Appender!(char[])` + `cast(string) char[]` for the
+ +      output buffer.
+ +   2. `std.regex` for JSX-attribute parsing — `@trusted` because
+ +      `regex` is currently `@system` in Phobos.
+ +/
 // Project convention (CLAUDE.md): allocator helpers go via
 // `dun.platform.arena`, not `std.array` directly.
 import dun.platform.arena : Appender;
@@ -20,9 +24,11 @@ import std.algorithm : canFind;
 // and strip.d use a single implementation (no redundancy).
 import dun.ts.parser.lexer : skipStringLit, skipTemplateLit;
 
-/// Transform JSX expressions in `source` to React.createElement calls.
-/// `source` is the file content; the function is a no-op for files
-/// that don't contain JSX (cheap heuristic check up front).
+/++
+ + Transform JSX expressions in `source` to React.createElement calls.
+ + `source` is the file content; the function is a no-op for files
+ + that don't contain JSX (cheap heuristic check up front).
+ +/
 string transformJsx(string source) @safe
 {
     if (source.length < 2) return source;
@@ -152,8 +158,10 @@ private bool isFlagChar(char c) @safe pure nothrow @nogc
         || c == 'v' || c == 'y' || c == 'd';
 }
 
-/// Walk backward from `start` to find the prev significant char and
-/// decide whether `/` here starts a regex (vs. a divide operator).
+/++
+ + Walk backward from `start` to find the prev significant char and
+ + decide whether `/` here starts a regex (vs. a divide operator).
+ +/
 private bool isRegexContext(string s, size_t start) @safe pure nothrow @nogc
 {
     if (start == 0) return true;
@@ -173,9 +181,11 @@ private bool isRegexContext(string s, size_t start) @safe pure nothrow @nogc
     return true;
 }
 
-/// JSX is allowed where an expression is allowed: after `(`, `,`, `=`,
-/// `?`, `:`, `return`, `=>`, `&&`, `||`, `??`, `;`, `{`, `}` (closing
-/// of an attr `{expr}` block).
+/++
+ + JSX is allowed where an expression is allowed: after `(`, `,`, `=`,
+ + `?`, `:`, `return`, `=>`, `&&`, `||`, `??`, `;`, `{`, `}` (closing
+ + of an attr `{expr}` block).
+ +/
 private bool isJsxContext(string s, size_t pos) @safe pure nothrow @nogc
 {
     if (pos + 1 >= s.length) return false;
@@ -225,9 +235,11 @@ private bool isJsxContext(string s, size_t pos) @safe pure nothrow @nogc
     return true;
 }
 
-/// Parse one JSX element starting at `s[start]` (where `s[start] == '<'`).
-/// On success, returns the emitted JS source and sets `end` to one past
-/// the consumed input. On failure, returns "" (caller falls through).
+/++
+ + Parse one JSX element starting at `s[start]` (where `s[start] == '<'`).
+ + On success, returns the emitted JS source and sets `end` to one past
+ + the consumed input. On failure, returns "" (caller falls through).
+ +/
 private string parseJsxElement(string s, size_t start, out size_t end) @safe
 {
     size_t p = start + 1;
@@ -416,9 +428,11 @@ private string parseJsxElement(string s, size_t start, out size_t end) @safe
     return (() @trusted => cast(string) el.data)();
 }
 
-/// Parse JSX children (text, `{expr}`, nested elements) until the next
-/// `</`. Appends each child as a trailing argument to `out_`. `p` is
-/// updated to point at the `<` of the closing tag.
+/++
+ + Parse JSX children (text, `{expr}`, nested elements) until the next
+ + `</`. Appends each child as a trailing argument to `out_`. `p` is
+ + updated to point at the `<` of the closing tag.
+ +/
 private void parseChildren(string s, ref size_t p, ref Appender!(char[]) out_) @safe
 {
     while (p < s.length)
@@ -492,8 +506,10 @@ private void parseChildren(string s, ref size_t p, ref Appender!(char[]) out_) @
     }
 }
 
-/// JSX whitespace: lines that are all whitespace are dropped; leading
-/// and trailing whitespace on the boundary are collapsed.
+/++
+ + JSX whitespace: lines that are all whitespace are dropped; leading
+ + and trailing whitespace on the boundary are collapsed.
+ +/
 private string trimJsxText(string t) @safe pure nothrow
 {
     // Strip if entire string is whitespace.

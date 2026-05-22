@@ -1,14 +1,16 @@
 module dun.loop.eventloop;
 
 
-/// `@trusted policy`: main event loop tick (microtasks → timers →
-/// I/O poll → async drain → microtasks). Every `@trusted` is one
-/// of:
-///   1. `core.thread.Thread.sleep` for the idle wait when there's
-///      pending work but no expired timer.
-///   2. Engine method calls (`drainJobs`, `executePendingJob`) —
-///      `@trusted`-by-interface (see engine/iface.d policy).
-///   3. `cast(void*) state` for handing the DunState to engine ctx.
+/++
+ + `@trusted policy`: main event loop tick (microtasks → timers →
+ + I/O poll → async drain → microtasks). Every `@trusted` is one
+ + of:
+ +   1. `core.thread.Thread.sleep` for the idle wait when there's
+ +      pending work but no expired timer.
+ +   2. Engine method calls (`drainJobs`, `executePendingJob`) —
+ +      `@trusted`-by-interface (see engine/iface.d policy).
+ +   3. `cast(void*) state` for handing the DunState to engine ctx.
+ +/
 import core.time : Duration, dur;
 import dun.engine.iface : IJSEngine, JSHandle;
 import dun.loop.timers : TimerWheel;

@@ -2,20 +2,22 @@
 module dun.engine.quickjs.value;
 
 
-/// `@trusted policy`: RAII wrapper around QuickJS `JSValue`
-/// (ref-counted). Every `@trusted` is one of:
-///
-///   1. `JS_DupValue` / `JS_FreeValue` calls in the copy
-///      constructor / destructor. Maintains the refcount
-///      invariant: every owning JSVal increments at copy,
-///      decrements at destroy.
-///   2. `JS_GetPropertyStr` / `JS_SetPropertyStr` /
-///      `JS_ToCStringLen2` — the QuickJS C API surface for
-///      value introspection.
-///   3. The struct is `@disable this(this)` for new
-///      ownership and uses `this(ref return scope JSVal)` for
-///      explicit dup. The DIP1000 `return scope` annotation
-///      lets the compiler track the JSContext lifetime.
+/++
+ + `@trusted policy`: RAII wrapper around QuickJS `JSValue`
+ + (ref-counted). Every `@trusted` is one of:
+ +
+ +   1. `JS_DupValue` / `JS_FreeValue` calls in the copy
+ +      constructor / destructor. Maintains the refcount
+ +      invariant: every owning JSVal increments at copy,
+ +      decrements at destroy.
+ +   2. `JS_GetPropertyStr` / `JS_SetPropertyStr` /
+ +      `JS_ToCStringLen2` — the QuickJS C API surface for
+ +      value introspection.
+ +   3. The struct is `@disable this(this)` for new
+ +      ownership and uses `this(ref return scope JSVal)` for
+ +      explicit dup. The DIP1000 `return scope` annotation
+ +      lets the compiler track the JSContext lifetime.
+ +/
 import dun.engine.quickjs.bindings;
 
 /// Ref-counted RAII wrapper for JSValue.

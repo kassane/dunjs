@@ -1,0 +1,4 @@
+cond: str other
+deep: {"a":1}
+long: 1
+union: a 42

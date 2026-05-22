@@ -1,12 +1,16 @@
-/// Ambient `.d.ts` injected by --typecheck so tsc accepts our
-/// runtime globals (Deno.*, Bun.*, require, process, Buffer, web
-/// APIs). Loose-typed on purpose — we're catching user errors,
-/// not validating the host surface.
+/++
+ + Ambient `.d.ts` injected by --typecheck so tsc accepts our
+ + runtime globals (Deno.*, Bun.*, require, process, Buffer, web
+ + APIs). Loose-typed on purpose — we're catching user errors,
+ + not validating the host surface.
+ +/
 module dun.ts.globals_dts;
 
-/// Returns the synthetic .d.ts contents. Stored as a string so the
-/// typecheck driver can inject it through the in-memory CompilerHost
-/// without touching the filesystem.
+/++
+ + Returns the synthetic .d.ts contents. Stored as a string so the
+ + typecheck driver can inject it through the in-memory CompilerHost
+ + without touching the filesystem.
+ +/
 string dunGlobalsDts() pure nothrow @safe
 {
     return q"DTS

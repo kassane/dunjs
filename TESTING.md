@@ -23,7 +23,7 @@ dub test -c unittest    # All unit tests
 | V8 TMP bridge | `source/dun/engine/v8/cppbindings.d` | compile-time | V8TypeName coverage, tag->name mapping |
 | JSC TMP bridge | `source/dun/engine/jsc/cppbindings.d` | compile-time | JSCTypeName coverage, kJSType* alignment |
 
-### Integration Tests (158 tests on QJS/V8; 157/158 + 1 SKIP on JSC; 145 npm-compat checks)
+### Integration Tests (162 tests on QJS/V8; 161/162 + 1 SKIP on JSC; 145 npm-compat checks)
 
 ```sh
 # Run against a specific backend
@@ -87,7 +87,7 @@ dub build -c v8  && BACKEND=v8  ./tests/integration/run.sh
 | **SIMD encoder audit (v1.1.3)** | `audit_simd` | 25 checks: hex boundary at 15/16/17 bytes (SIMD 16-byte cycle), 1MB hex content, GCM 16-byte tag, randomUUID format, HMAC hex, Buffer hex round-trip, latin1 high bytes 0x80-0xFF preserved |
 | **Round-trip correctness (v1.1.4)** | `audit_roundtrip` | 16 checks: extractString NUL handling, Buffer.from / Buffer.write / Buffer.toString round-trips for utf8 / latin1 / binary across all 256 byte values, JSON NUL round-trip, JSC source NUL handling |
 
-Backend test scores: **QuickJS 158/158**, **V8 158/158**, **JSC 157/158 + 1 SKIP** (`bun_v7_additions` — pre-existing JSC handle-pressure conflict with `deno_deploy_compat`; cumulative v1.1.5 → v1.1.20 handle-leak fix campaign reduced the per-request listener-chain leak but didn't fully eliminate it. Standalone `bun_v7_additions` passes 24/24 on JSC with the gate removed, but `deno_deploy_compat`'s 15 sequential `Deno.serve` cycles still tip the JSC concurrent-GC threshold. Documented in CHANGELOG #43a/#58d/#59a/#60d for a future v1.2.x worker-lifecycle pass).
+Backend test scores: **QuickJS 162/162**, **V8 162/162**, **JSC 161/162 + 1 SKIP** (`bun_v7_additions` — pre-existing JSC handle-pressure conflict with `deno_deploy_compat`; cumulative v1.1.5 → v1.1.20 handle-leak fix campaign reduced the per-request listener-chain leak but didn't fully eliminate it. Standalone `bun_v7_additions` passes 24/24 on JSC with the gate removed, but `deno_deploy_compat`'s 15 sequential `Deno.serve` cycles still tip the JSC concurrent-GC threshold. Documented in CHANGELOG #43a/#58d/#59a/#60d for a future v1.2.x worker-lifecycle pass).
 
 Test pattern: fixtures in `tests/integration/fixtures/*.{js,mjs,ts}`, expected stdout in `tests/integration/expected/*.txt`.
 
@@ -101,8 +101,8 @@ dub build -c quickjs -b tsan                          # ThreadSanitizer build
 bash tests/integration/run.sh                          # zero data race warnings
 ```
 
-All 158 integration tests pass under AddressSanitizer with zero memory errors (QJS).
-TSan sweep also clean: 158/158 with zero data race warnings.
+All 162 integration tests pass under AddressSanitizer with zero memory errors (QJS).
+TSan sweep also clean: 162/162 with zero data race warnings.
 
 ### Fuzz Testing
 

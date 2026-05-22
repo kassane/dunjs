@@ -1,10 +1,12 @@
 module dun.runtime.intl;
 
 
-/// `@trusted policy`: ECMA-402 (Intl) installer. `@trusted` is for
-/// the install-time `engine.eval` of the Intl polyfill source.
-/// On V8 the polyfill is a no-op (V8 ships Intl natively); on QJS /
-/// JSC the polyfill provides a basic subset.
+/++
+ + `@trusted policy`: ECMA-402 (Intl) installer. `@trusted` is for
+ + the install-time `engine.eval` of the Intl polyfill source.
+ + On V8 the polyfill is a no-op (V8 ships Intl natively); on QJS /
+ + JSC the polyfill provides a basic subset.
+ +/
 import dun.engine.iface : IJSEngine;
 
 void installIntl(IJSEngine engine) @trusted

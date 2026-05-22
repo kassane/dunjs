@@ -2,9 +2,11 @@
 module dun.engine.quickjs.runtime;
 
 
-/// `@trusted policy`: RAII wrapper for JSRuntime*. Constructor calls
-/// `JS_NewRuntime2`; destructor calls `JS_FreeRuntime`. `@trusted` is
-/// the engine FFI escape — same surface as `engine/quickjs/backend.d`.
+/++
+ + `@trusted policy`: RAII wrapper for JSRuntime*. Constructor calls
+ + `JS_NewRuntime2`; destructor calls `JS_FreeRuntime`. `@trusted` is
+ + the engine FFI escape — same surface as `engine/quickjs/backend.d`.
+ +/
 import dun.engine.quickjs.bindings;
 
 /// RAII wrapper for JSRuntime*. Non-copyable.

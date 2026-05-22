@@ -7,11 +7,13 @@ module dun.ts.parser;
 // design constraints`.
 public import dun.ts.parser.lexer;
 
-/// Tokenize the entire source into a GC-allocated array. Random-access
-/// convenience for callers that want to look at the token stream as a
-/// whole. Hot paths in the runtime should stream via `Lexer.next()` so
-/// they stay `@nogc`. Lives here (not lexer.d) so it escapes the
-/// module-level `@nogc` colon on the lexer.
+/++
+ + Tokenize the entire source into a GC-allocated array. Random-access
+ + convenience for callers that want to look at the token stream as a
+ + whole. Hot paths in the runtime should stream via `Lexer.next()` so
+ + they stay `@nogc`. Lives here (not lexer.d) so it escapes the
+ + module-level `@nogc` colon on the lexer.
+ +/
 Token[] tokenize(const(char)[] src) @safe pure nothrow
 {
     Token[] o;
