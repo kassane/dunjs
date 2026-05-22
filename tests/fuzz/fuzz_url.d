@@ -1,26 +1,28 @@
-/// Fuzz harness for `dun.platform.url_parser.parseUrl` — the URL
-/// parser used by `fetch()` and the http server scheme dispatch.
-/// Takes arbitrary user-supplied URL strings (`fetch(userInput)`)
-/// so it's a real attack surface.
-///
-/// Build:
-///   ldc2 -fsanitize=fuzzer -fsanitize=address -O1 -g \
-///        -I=source -Jsource \
-///        -of=build/fuzz_url \
-///        tests/fuzz/fuzz_url.d \
-///        source/dun/platform/url_parser.d
-///
-/// Run:
-///   build/fuzz_url tests/fuzz/corpus/url \
-///       -max_len=2048 -timeout=5
-///
-/// The invariants the fuzz target enforces:
-///   1. `parseUrl(s)` either throws (caught here) or returns a
-///      well-formed `ParsedUrl`. No segfault, no UB.
-///   2. If parse succeeds, `p.scheme.length > 0` and `p.path.length >= 1`
-///      (the constructor sets `p.path = "/"` as the floor).
-///   3. `p.port` is bounded to `ushort` range (a parse-time
-///      `to!ushort` throws on overflow, caught by the @safe wrapper).
+/++
+ + Fuzz harness for `dun.platform.url_parser.parseUrl` — the URL
+ + parser used by `fetch()` and the http server scheme dispatch.
+ + Takes arbitrary user-supplied URL strings (`fetch(userInput)`)
+ + so it's a real attack surface.
+ +
+ + Build:
+ +   ldc2 -fsanitize=fuzzer -fsanitize=address -O1 -g \
+ +        -I=source -Jsource \
+ +        -of=build/fuzz_url \
+ +        tests/fuzz/fuzz_url.d \
+ +        source/dun/platform/url_parser.d
+ +
+ + Run:
+ +   build/fuzz_url tests/fuzz/corpus/url \
+ +       -max_len=2048 -timeout=5
+ +
+ + The invariants the fuzz target enforces:
+ +   1. `parseUrl(s)` either throws (caught here) or returns a
+ +      well-formed `ParsedUrl`. No segfault, no UB.
+ +   2. If parse succeeds, `p.scheme.length > 0` and `p.path.length >= 1`
+ +      (the constructor sets `p.path = "/"` as the floor).
+ +   3. `p.port` is bounded to `ushort` range (a parse-time
+ +      `to!ushort` throws on overflow, caught by the @safe wrapper).
+ +/
 
 import dun.platform.url_parser : parseUrl, ParsedUrl;
 

@@ -305,9 +305,9 @@ done
 
 # Integration sweep
 dub test -c unittest                                # 71/71
-bash tests/integration/run.sh                      # QJS  158/158
-BACKEND=jsc DUN=./dun-rel-jsc bash tests/integration/run.sh   # JSC  157/158 + 1 SKIP
-BACKEND=v8  DUN=./dun-rel-v8  bash tests/integration/run.sh   # V8   158/158
+bash tests/integration/run.sh                      # QJS  162/162
+BACKEND=jsc DUN=./dun-rel-jsc bash tests/integration/run.sh   # JSC  161/162 + 1 SKIP
+BACKEND=v8  DUN=./dun-rel-v8  bash tests/integration/run.sh   # V8   162/162
 ```
 
 The slash-command equivalents are documented in

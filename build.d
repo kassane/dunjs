@@ -150,8 +150,10 @@ string v8PrebuiltExt()
     else              return ".tar.xz";
 }
 
-/// Return the kassane/libv8 archive URL for the current platform + arch.
-/// Profile is "default" (no pointer compression) or "pointer-compression".
+/++
+ + Return the kassane/libv8 archive URL for the current platform + arch.
+ + Profile is "default" (no pointer compression) or "pointer-compression".
+ +/
 string v8PrebuiltUrl()
 {
     import std.process : environment;
@@ -194,16 +196,20 @@ string v8PrebuiltUrl()
     }
 }
 
-/// Build the download URL for Node.js headers tarball.
-/// Node.js headers contain V8's public API headers (v8.h, libplatform/, cppgc/).
+/++
+ + Build the download URL for Node.js headers tarball.
+ + Node.js headers contain V8's public API headers (v8.h, libplatform/, cppgc/).
+ +/
 string nodeHeadersUrl()
 {
     return "https://nodejs.org/dist/" ~ V8_NODE_VERSION
          ~ "/node-" ~ V8_NODE_VERSION ~ "-headers.tar.gz";
 }
 
-/// Detect whether the vendored V8 was built with pointer compression.
-/// Checks: V8_COMPRESS_POINTERS env var, then gn-args text files.
+/++
+ + Detect whether the vendored V8 was built with pointer compression.
+ + Checks: V8_COMPRESS_POINTERS env var, then gn-args text files.
+ +/
 bool detectV8PointerCompression()
 {
     import std.process : environment;
@@ -248,8 +254,10 @@ bool detectV8PointerCompression()
     return false;
 }
 
-/// Write build/v8-crt.rsp with platform-detected CRT object paths and linker flags.
-/// Called after V8 build succeeds on Linux so lld (--link-internally) can find CRT.
+/++
+ + Write build/v8-crt.rsp with platform-detected CRT object paths and linker flags.
+ + Called after V8 build succeeds on Linux so lld (--link-internally) can find CRT.
+ +/
 void writeV8CrtResponseFile()
 {
     version (linux)
@@ -304,8 +312,10 @@ void writeV8CrtResponseFile()
     }
 }
 
-/// Extract a custom V8 zip archive (from V8_CUSTOM_LIB env) into vendor/v8/.
-/// Returns true if extraction succeeded and include/lib dirs are populated.
+/++
+ + Extract a custom V8 zip archive (from V8_CUSTOM_LIB env) into vendor/v8/.
+ + Returns true if extraction succeeded and include/lib dirs are populated.
+ +/
 bool extractCustomV8Lib()
 {
     import std.process : environment, executeShell;
@@ -794,8 +804,10 @@ void logStep(string tag, int step, int total, lazy string msg)
 // Process Execution
 // ════════════════════════════════════════════════════════════════════
 
-/// Run a command in a given working directory.
-/// Returns exit code. Prints output on failure (or always in verbose mode).
+/++
+ + Run a command in a given working directory.
+ + Returns exit code. Prints output on failure (or always in verbose mode).
+ +/
 int runCmd(string[] cmd, string workDir, string tag = "build")
 {
     logVerbose(tag, "exec: " ~ cmd.join(" "));
@@ -848,8 +860,10 @@ int runShell(string cmd, string tag = "build")
 // Download with Retry Logic
 // ════════════════════════════════════════════════════════════════════
 
-/// Download a URL to a local file, with retry logic.
-/// Tries curl first, falls back to wget.
+/++
+ + Download a URL to a local file, with retry logic.
+ + Tries curl first, falls back to wget.
+ +/
 bool downloadFile(ref const Toolchain tc, string url, string dest, string tag = "download")
 {
     logInfo(tag, "Downloading: " ~ url);

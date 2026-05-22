@@ -1,10 +1,12 @@
 module dun.napi.loader;
 
 
-/// `@trusted policy`: N-API native addon loader — `dlopen` the .node
-/// file, find the `napi_register_module_v1` export, invoke it with
-/// the env/exports. Permission: `Permission.run`. Same surface as
-/// `dun.runtime.ffi` for the dlopen call.
+/++
+ + `@trusted policy`: N-API native addon loader — `dlopen` the .node
+ + file, find the `napi_register_module_v1` export, invoke it with
+ + the env/exports. Permission: `Permission.run`. Same surface as
+ + `dun.runtime.ffi` for the dlopen call.
+ +/
 version (Posix):
 
 import dun.engine.iface : IJSEngine, JSHandle;

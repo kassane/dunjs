@@ -2,10 +2,12 @@
 module dun.modules.resolver;
 
 
-/// `@trusted policy`: module resolution (Node algorithm + package.json
-/// exports/imports field + file/directory walk). Pure D; `@trusted`
-/// is for `std.file` and `std.json` operations.
-/// Resolves import specifiers to absolute paths or built-in names.
+/++
+ + `@trusted policy`: module resolution (Node algorithm + package.json
+ + exports/imports field + file/directory walk). Pure D; `@trusted`
+ + is for `std.file` and `std.json` operations.
+ + Resolves import specifiers to absolute paths or built-in names.
+ +/
 struct ModuleResolver
 {
     private string[string] builtinMap;
@@ -16,8 +18,10 @@ struct ModuleResolver
         builtinMap[name] = name;
     }
 
-    /// Resolve an import specifier relative to the importer's path.
-    /// Returns the resolved path, or null if unresolved.
+    /++
+     + Resolve an import specifier relative to the importer's path.
+     + Returns the resolved path, or null if unresolved.
+     +/
     string resolve(string specifier, string importerPath) @safe
     {
         import std.path : isAbsolute, buildNormalizedPath, dirName;

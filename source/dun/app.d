@@ -1,13 +1,15 @@
 module dun.app;
 
 
-/// `@trusted policy`: CLI entry point (parse args, set up engine,
-/// run script or REPL, dispatch subcommands). Every `@trusted` is
-/// one of:
-///   1. `std.file` / `std.path` / `std.process` Phobos calls.
-///   2. `Permission` registry mutation during arg parsing.
-///   3. `engine.eval` for the eval/run paths.
-///   4. Signal handler installation (`sigaction`).
+/++
+ + `@trusted policy`: CLI entry point (parse args, set up engine,
+ + run script or REPL, dispatch subcommands). Every `@trusted` is
+ + one of:
+ +   1. `std.file` / `std.path` / `std.process` Phobos calls.
+ +   2. `Permission` registry mutation during arg parsing.
+ +   3. `engine.eval` for the eval/run paths.
+ +   4. Signal handler installation (`sigaction`).
+ +/
 // D runtime GC defaults: larger pool reduces collection frequency (~11x fewer GC cycles)
 // Override at runtime via: dun "--DRT-gcopt=minPoolSize:32 profile:1" run script.js
 extern(C) __gshared string[] rt_options = ["gcopt=minPoolSize:16"];
@@ -110,13 +112,15 @@ int main(string[] args)
 
 private:
 
-public enum VERSION = "1.1.25";
+public enum VERSION = "1.1.27";
 
-/// Entry point when the running executable was produced by
-/// `dun bundle --compile=PATH`. Sets up a runtime with --allow-all,
-/// passes `args[1..$]` to the script, and evals the embedded bundle.
-/// The bundle ships its own permission decisions (it was built by
-/// the developer who chose to compile it).
+/++
+ + Entry point when the running executable was produced by
+ + `dun bundle --compile=PATH`. Sets up a runtime with --allow-all,
+ + passes `args[1..$]` to the script, and evals the embedded bundle.
+ + The bundle ships its own permission decisions (it was built by
+ + the developer who chose to compile it).
+ +/
 int runEmbeddedBundle(string[] args, string bundle) @trusted
 {
     import dun.cli.args : CliConfig;
@@ -1135,8 +1139,10 @@ int runFmt(T)(T config)
     return 0;
 }
 
-/// Bundle one or more entry files via Bun.build. Output written to
-/// --outdir (defaults to ./dist).
+/++
+ + Bundle one or more entry files via Bun.build. Output written to
+ + --outdir (defaults to ./dist).
+ +/
 int runBundle(T)(T config)
 {
     import dun.engine.iface : createEngine, EngineConfig;
@@ -1346,9 +1352,11 @@ bool matchGlob(string name, string pattern) @safe pure nothrow
     return name == pattern;
 }
 
-/// Rewrite string literals to the requested quote style without
-/// touching strings that contain the target quote char (would need
-/// escape-aware rewriting that's beyond the token-level formatter).
+/++
+ + Rewrite string literals to the requested quote style without
+ + touching strings that contain the target quote char (would need
+ + escape-aware rewriting that's beyond the token-level formatter).
+ +/
 private string normalizeQuotes(string source, string style) @safe pure
 {
     if (style != "single" && style != "double") return source;
@@ -1754,8 +1762,10 @@ bool isWasmFile(string path) @safe pure nothrow @nogc
     return path.length >= 5 && path[$ - 5 .. $] == ".wasm";
 }
 
-/// Walk ancestors of `scriptPath` for `node_modules/typescript`,
-/// then fall back to `$DUN_HOME/node_modules`.
+/++
+ + Walk ancestors of `scriptPath` for `node_modules/typescript`,
+ + then fall back to `$DUN_HOME/node_modules`.
+ +/
 bool findTypescriptInstall(string scriptPath) @trusted
 {
     import std.file : exists;
@@ -1779,10 +1789,12 @@ bool findTypescriptInstall(string scriptPath) @trusted
 // dun.app. Re-exported here for ergonomics inside this module.
 public import dun.platform.paths : dunGlobalRoot;
 
-/// Transpile via `ts.transpileModule()` — full TS-spec correctness
-/// (decorators, enums, namespaces) at ~50 ms cold-start cost.
-/// Returns `""` to fall back to the scanner stripper. Use
-/// `--typecheck` for type errors; this path emits JS regardless.
+/++
+ + Transpile via `ts.transpileModule()` — full TS-spec correctness
+ + (decorators, enums, namespaces) at ~50 ms cold-start cost.
+ + Returns `""` to fall back to the scanner stripper. Use
+ + `--typecheck` for type errors; this path emits JS regardless.
+ +/
 string runTranspile(string source, string filename) @trusted
 {
     import dun.engine.iface : createEngine, EngineConfig,
@@ -1938,8 +1950,10 @@ string runTranspile(string source, string filename) @trusted
     return output;
 }
 
-/// First line of a multi-line error message (truncated to 200 chars).
-/// Lets us surface a one-line diagnostic without flooding stderr.
+/++
+ + First line of a multi-line error message (truncated to 200 chars).
+ + Lets us surface a one-line diagnostic without flooding stderr.
+ +/
 private string firstLine(string s) @safe pure nothrow
 {
     enum size_t MAX_LEN = 200;
@@ -1951,10 +1965,12 @@ private string firstLine(string s) @safe pure nothrow
     return s.length > MAX_LEN ? s[0 .. MAX_LEN] : s;
 }
 
-/// Read the installed typescript package version. Used as a cache-key
-/// component so upgrading typescript invalidates the cache. Returns
-/// "?" if package.json can't be read -- the cache still works, just
-/// without version isolation across upgrades.
+/++
+ + Read the installed typescript package version. Used as a cache-key
+ + component so upgrading typescript invalidates the cache. Returns
+ + "?" if package.json can't be read -- the cache still works, just
+ + without version isolation across upgrades.
+ +/
 private string readTscVersion(string scriptPath) @trusted
 {
     import std.file : exists, readText;
@@ -1988,9 +2004,11 @@ private string readTscVersion(string scriptPath) @trusted
     return "?";
 }
 
-/// Run user's installed `typescript` with diagnostics and emit JS.
-/// `rc != 0` on type errors. Returns `""` + `rc = 0` when tsc is
-/// missing so the caller can fall back to the scanner strip.
+/++
+ + Run user's installed `typescript` with diagnostics and emit JS.
+ + `rc != 0` on type errors. Returns `""` + `rc = 0` when tsc is
+ + missing so the caller can fall back to the scanner strip.
+ +/
 string runTypecheck(string source, string filename, out int rc) @trusted
 {
     import dun.engine.iface : createEngine, EngineConfig,

@@ -1,14 +1,18 @@
-/// `Bun.*` namespace shim — maps Bun-specific APIs onto our Node-style
-/// implementations so apps written for Bun run unchanged.
+/++
+ + `Bun.*` namespace shim — maps Bun-specific APIs onto our Node-style
+ + implementations so apps written for Bun run unchanged.
+ +/
 module dun.runtime.bun_compat;
 
 
-/// `@trusted policy`: Bun.* compatibility shim (Bun.serve, Bun.file,
-/// Bun.hash, Bun.spawn, Bun.gc, …). Mostly install-time
-/// `engine.eval` of cached source. Per-call `@trusted` is one of:
-///   1. `cast(DunState*) ctx` via `ctxState(ctx)` in callbacks.
-///   2. Engine method calls (engine-FFI policy).
-///   3. Permission gates (Permission.run, Permission.read, …).
+/++
+ + `@trusted policy`: Bun.* compatibility shim (Bun.serve, Bun.file,
+ + Bun.hash, Bun.spawn, Bun.gc, …). Mostly install-time
+ + `engine.eval` of cached source. Per-call `@trusted` is one of:
+ +   1. `cast(DunState*) ctx` via `ctxState(ctx)` in callbacks.
+ +   2. Engine method calls (engine-FFI policy).
+ +   3. Permission gates (Permission.run, Permission.read, …).
+ +/
 import dun.engine.iface : IJSEngine;
 
 void installBunCompat(IJSEngine engine) @trusted

@@ -1,13 +1,15 @@
 module dun.builtins.v8;
 
 
-/// `@trusted policy`: V8-specific JS API (`v8.getHeapStatistics`,
-/// `v8.serialize`, `v8.deserialize`, etc.). Wraps engine-only V8
-/// methods that aren't on `IJSEngine`. Every `@trusted` is one of:
-///   1. `engine.rawContext()` cast to the V8 context handle, then
-///      bridged through `vendor/v8shim/` (same surface as
-///      `engine/v8/backend.d`).
-///   2. `cast(DunState*) ctx` via `ctxState(ctx)` in callbacks.
+/++
+ + `@trusted policy`: V8-specific JS API (`v8.getHeapStatistics`,
+ + `v8.serialize`, `v8.deserialize`, etc.). Wraps engine-only V8
+ + methods that aren't on `IJSEngine`. Every `@trusted` is one of:
+ +   1. `engine.rawContext()` cast to the V8 context handle, then
+ +      bridged through `vendor/v8shim/` (same surface as
+ +      `engine/v8/backend.d`).
+ +   2. `cast(DunState*) ctx` via `ctxState(ctx)` in callbacks.
+ +/
 import dun.engine.iface : IJSEngine, JSHandle;
 import dun.runtime.globals : DunState, ctxState;
 
@@ -16,8 +18,10 @@ import dun.runtime.globals : DunState, ctxState;
 // expected by `v8.getHeapStatistics().heap_size_limit`.
 private enum DEFAULT_HEAP_LIMIT_BYTES = 2L * 1024 * 1024 * 1024;  // 2 GiB
 
-/// `node:v8` compat — `writeHeapSnapshot` + `getHeapStatistics` +
-/// serializer constants. Snapshot is a minimal-but-valid v8 JSON.
+/++
+ + `node:v8` compat — `writeHeapSnapshot` + `getHeapStatistics` +
+ + serializer constants. Snapshot is a minimal-but-valid v8 JSON.
+ +/
 void registerV8Module(IJSEngine engine) @trusted
 {
     assert(engine !is null, "Null engine in registerV8Module");
@@ -111,8 +115,10 @@ version (EngineQuickJS)
     }
 }
 
-/// Synthetic v8 heap-snapshot — engine name + `core.memory.GC` stats
-/// + one root node. Doesn't walk the JS heap.
+/++
+ + Synthetic v8 heap-snapshot — engine name + `core.memory.GC` stats
+ + + one root node. Doesn't walk the JS heap.
+ +/
 private JSHandle jsWriteHeapSnapshot(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     auto state = ctxState(ctx);

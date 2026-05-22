@@ -1,15 +1,17 @@
 module dun.modules.npm;
 
 
-/// `@trusted policy`: dependency installer (HTTP fetch + tar extract +
-/// package-lock writer). Every `@trusted` is one of:
-///   1. `std.file.{readText, exists, write, mkdirRecurse}` for
-///      package.json/node_modules manipulation — these are
-///      `@trusted` by Phobos because of their syscalls.
-///   2. `std.process.execute` to invoke `tar` for tarball extraction.
-///      Shell-escape: never; tar is invoked via argv (no shell).
-///   3. `dun.builtins.fetch.doFetch` for the npm registry HTTP call.
-///   4. `std.json` parsing of the registry response + package.json.
+/++
+ + `@trusted policy`: dependency installer (HTTP fetch + tar extract +
+ + package-lock writer). Every `@trusted` is one of:
+ +   1. `std.file.{readText, exists, write, mkdirRecurse}` for
+ +      package.json/node_modules manipulation — these are
+ +      `@trusted` by Phobos because of their syscalls.
+ +   2. `std.process.execute` to invoke `tar` for tarball extraction.
+ +      Shell-escape: never; tar is invoked via argv (no shell).
+ +   3. `dun.builtins.fetch.doFetch` for the npm registry HTTP call.
+ +   4. `std.json` parsing of the registry response + package.json.
+ +/
 enum AuditMode
 {
     warn,
@@ -24,9 +26,11 @@ version (Posix):
 
 import std.stdio : writeln, writefln;
 
-/// Install a package into `installRoot/node_modules/<name>`. The default
-/// `"."` mirrors npm's behaviour (cwd-relative). Pass an absolute path
-/// like `~/.dun` (expanded) to install into the user-global DunJS store.
+/++
+ + Install a package into `installRoot/node_modules/<name>`. The default
+ + `"."` mirrors npm's behaviour (cwd-relative). Pass an absolute path
+ + like `~/.dun` (expanded) to install into the user-global DunJS store.
+ +/
 bool installPackage(string spec, AuditMode auditMode = AuditMode.warn,
     string installRoot = ".") @trusted
 {
@@ -172,9 +176,11 @@ bool installPackage(string spec, AuditMode auditMode = AuditMode.warn,
     return true;
 }
 
-/// Append `{ name, version, resolved }` to dun.lock + package-lock.json.
-/// Both files are written in node-compatible npm-style format so other
-/// tools can consume them.
+/++
+ + Append `{ name, version, resolved }` to dun.lock + package-lock.json.
+ + Both files are written in node-compatible npm-style format so other
+ + tools can consume them.
+ +/
 private void recordLockEntry(string name, string version_, string resolved) @trusted
 {
     import std.file : exists, readText, write;
@@ -224,8 +230,10 @@ private void recordLockEntry(string name, string version_, string resolved) @tru
     try { write(npmLockPath, npmLock.toPrettyString); } catch (Exception) {}
 }
 
-/// Run a named script from the project's package.json.
-/// Returns true if the script was found and executed, false if not found.
+/++
+ + Run a named script from the project's package.json.
+ + Returns true if the script was found and executed, false if not found.
+ +/
 bool runPackageScript(string scriptName) @trusted
 {
     import std.file : exists, readText;

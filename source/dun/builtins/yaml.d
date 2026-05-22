@@ -1,35 +1,39 @@
-/// YAML parser + emitter (subset: block + flow style, no anchors/tags/
-/// directives, no `node:yaml`-style document streams). Targets the
-/// ~80% of YAML used in config files (CI manifests, k8s, package.yaml,
-/// docker-compose). Mirrors Bun's `Bun.YAML.parse` / `.stringify` API
-/// shape; export the same shape as `dun:yaml` so scripts can do
-/// `import { parse, stringify } from "dun:yaml"`.
-///
-/// Scope (what's IN):
-///   - Block mappings (`key: value` with indentation)
-///   - Block sequences (`- item` with indentation)
-///   - Flow mappings (`{a: 1, b: 2}`) and flow sequences (`[1, 2]`)
-///   - Scalars: int, float, bool (true/false/yes/no), null (~ or null), string
-///   - String quoting: bare, single-quoted, double-quoted (with escapes)
-///   - Comments (`#` to end-of-line)
-///   - Multi-line strings: `|` (literal) and `>` (folded), with
-///     chomping indicators (`-` / `+`)
-///   - Empty lines + document separator (`---`)
-///
-/// Scope (what's OUT — throws or treated as plain string):
-///   - Anchors / aliases / tags (`&`, `*`, `!`)
-///   - YAML directives (`%YAML`, `%TAG`)
-///   - Multiple documents in one stream (only the first parses)
-///   - Complex keys (only scalar keys supported)
-///   - Binary base64 blocks
+/++
+ + YAML parser + emitter (subset: block + flow style, no anchors/tags/
+ + directives, no `node:yaml`-style document streams). Targets the
+ + ~80% of YAML used in config files (CI manifests, k8s, package.yaml,
+ + docker-compose). Mirrors Bun's `Bun.YAML.parse` / `.stringify` API
+ + shape; export the same shape as `dun:yaml` so scripts can do
+ + `import { parse, stringify } from "dun:yaml"`.
+ +
+ + Scope (what's IN):
+ +   - Block mappings (`key: value` with indentation)
+ +   - Block sequences (`- item` with indentation)
+ +   - Flow mappings (`{a: 1, b: 2}`) and flow sequences (`[1, 2]`)
+ +   - Scalars: int, float, bool (true/false/yes/no), null (~ or null), string
+ +   - String quoting: bare, single-quoted, double-quoted (with escapes)
+ +   - Comments (`#` to end-of-line)
+ +   - Multi-line strings: `|` (literal) and `>` (folded), with
+ +     chomping indicators (`-` / `+`)
+ +   - Empty lines + document separator (`---`)
+ +
+ + Scope (what's OUT — throws or treated as plain string):
+ +   - Anchors / aliases / tags (`&`, `*`, `!`)
+ +   - YAML directives (`%YAML`, `%TAG`)
+ +   - Multiple documents in one stream (only the first parses)
+ +   - Complex keys (only scalar keys supported)
+ +   - Binary base64 blocks
+ +/
 module dun.builtins.yaml;
 
 
-/// `@trusted policy`: YAML parser (subset compatible with
-/// js-yaml). Every `@trusted` is one of:
-///   1. `Appender!(char[])` + `cast(string)` for building output —
-///      pure D parser, no FFI.
-///   2. `cast(DunState*) ctx` via `ctxState(ctx)` in callbacks.
+/++
+ + `@trusted policy`: YAML parser (subset compatible with
+ + js-yaml). Every `@trusted` is one of:
+ +   1. `Appender!(char[])` + `cast(string)` for building output —
+ +      pure D parser, no FFI.
+ +   2. `cast(DunState*) ctx` via `ctxState(ctx)` in callbacks.
+ +/
 import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
 import dun.runtime.globals : DunState, ctxState;
 import std.array : Appender, appender;

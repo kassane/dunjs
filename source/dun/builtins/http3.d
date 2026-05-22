@@ -1,15 +1,17 @@
 module dun.builtins.http3;
 
-/// `@trusted policy`: HTTP/3 server + client over QUIC via lsquic
-/// (litespeedtech/lsquic). Every `@trusted` is one of:
-///
-///   1. lsquic FFI (`lsquic_engine_*`, `lsquic_stream_*`,
-///      `lsquic_conn_*`) — bindings in `dun.platform.lsquic`.
-///   2. UDP socket syscalls (`socket`, `bind`, `sendmsg`, `recvmsg`)
-///      — same justification as `net.d`.
-///   3. OpenSSL FFI for the QUIC handshake (lsquic plumbs into
-///      OpenSSL's QUIC API directly).
-///   4. `Permission.net` gate before any UDP send/recv.
+/++
+ + `@trusted policy`: HTTP/3 server + client over QUIC via lsquic
+ + (litespeedtech/lsquic). Every `@trusted` is one of:
+ +
+ +   1. lsquic FFI (`lsquic_engine_*`, `lsquic_stream_*`,
+ +      `lsquic_conn_*`) — bindings in `dun.platform.lsquic`.
+ +   2. UDP socket syscalls (`socket`, `bind`, `sendmsg`, `recvmsg`)
+ +      — same justification as `net.d`.
+ +   3. OpenSSL FFI for the QUIC handshake (lsquic plumbs into
+ +      OpenSSL's QUIC API directly).
+ +   4. `Permission.net` gate before any UDP send/recv.
+ +/
 
 import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
 import dun.runtime.globals : DunState, ctxState;

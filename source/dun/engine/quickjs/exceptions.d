@@ -3,8 +3,10 @@ module dun.engine.quickjs.exceptions;
 
 import dun.engine.quickjs.bindings;
 
-/// Extract the current exception from a context as a D string.
-/// Clears the exception state.
+/++
+ + Extract the current exception from a context as a D string.
+ + Clears the exception state.
+ +/
 string extractException(JSContext* ctx) @trusted
 {
     assert(ctx !is null, "Null ctx in extractException");

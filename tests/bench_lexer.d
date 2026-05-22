@@ -1,10 +1,12 @@
-/// Throughput micro-bench for the TS lexer: tokens per second vs the
-/// raw byte-scanner that strip.d used before the lexer wiring. The
-/// TS-PARSER-PORT.md validation criterion is "stays within 2x of the
-/// byte-scanner" — measure it.
-///
-/// Build:  ldc2 -O3 -release -of=bench_lexer tests/bench_lexer.d source/dun/ts/parser/{lexer,package}.d
-/// Run:    ./bench_lexer [path/to/corpus.ts]   (defaults to a synthetic corpus)
+/++
+ + Throughput micro-bench for the TS lexer: tokens per second vs the
+ + raw byte-scanner that strip.d used before the lexer wiring. The
+ + TS-PARSER-PORT.md validation criterion is "stays within 2x of the
+ + byte-scanner" — measure it.
+ +
+ + Build:  ldc2 -O3 -release -of=bench_lexer tests/bench_lexer.d source/dun/ts/parser/{lexer,package}.d
+ + Run:    ./bench_lexer [path/to/corpus.ts]   (defaults to a synthetic corpus)
+ +/
 module bench_lexer;
 
 import std.datetime.stopwatch : StopWatch, AutoStart;

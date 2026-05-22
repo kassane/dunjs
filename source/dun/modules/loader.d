@@ -1,9 +1,11 @@
 module dun.modules.loader;
 
 
-/// `@trusted policy`: ES module loader — module specifier resolution
-/// + script source fetching + import map evaluation. Every `@trusted`
-/// is `std.file.readText` / `engine.evalModule` (engine-FFI surface).
+/++
+ + `@trusted policy`: ES module loader — module specifier resolution
+ + + script source fetching + import map evaluation. Every `@trusted`
+ + is `std.file.readText` / `engine.evalModule` (engine-FFI surface).
+ +/
 // Project convention (CLAUDE.md): allocator helpers go via
 // `dun.platform.arena`, not `std.array` directly.
 import dun.platform.arena : Appender;
@@ -309,9 +311,11 @@ version (EngineQuickJS)
     }
 }
 
-/// Scrape named CJS exports (`module.exports.X = …`, `exports.X = …`,
-/// `module.exports = { X: … }`, `Object.defineProperty(exports, "X", …)`).
-/// Regex-style heuristic — misses computed-name / dynamic exports.
+/++
+ + Scrape named CJS exports (`module.exports.X = …`, `exports.X = …`,
+ + `module.exports = { X: … }`, `Object.defineProperty(exports, "X", …)`).
+ + Regex-style heuristic — misses computed-name / dynamic exports.
+ +/
 private string[] extractCjsExports(string source) @safe pure
 {
     import std.algorithm : canFind;

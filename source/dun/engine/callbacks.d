@@ -1,11 +1,13 @@
 module dun.engine.callbacks;
 
 
-/// `@trusted policy`: global NativeCallback registry — slot ID →
-/// function pointer table. Every `@trusted` is one of:
-///   1. `__gshared` table mutation under the writer mutex.
-///   2. Lockfree read on the array.length (see `get()` for the
-///     append-only invariant).
+/++
+ + `@trusted policy`: global NativeCallback registry — slot ID →
+ + function pointer table. Every `@trusted` is one of:
+ +   1. `__gshared` table mutation under the writer mutex.
+ +   2. Lockfree read on the array.length (see `get()` for the
+ +     append-only invariant).
+ +/
 import dun.engine.iface : NativeCallback;
 import core.sync.mutex : Mutex;
 
@@ -52,11 +54,13 @@ int register(NativeCallback cb) nothrow @trusted
     }
 }
 
-/// `@trusted`: lockfree read from an append-only global table.
-/// The lock-free justification is in the function body comment;
-/// the @trusted is for the read of `_table` which is `__gshared`
-/// (D's @safe forbids access to module-level mutable state, even
-/// when the access is provably race-free).
+/++
+ + `@trusted`: lockfree read from an append-only global table.
+ + The lock-free justification is in the function body comment;
+ + the @trusted is for the read of `_table` which is `__gshared`
+ + (D's @safe forbids access to module-level mutable state, even
+ + when the access is provably race-free).
+ +/
 NativeCallback get(int id) nothrow @nogc @trusted
 {
     // No lock on the read path: the table only grows, so reading a

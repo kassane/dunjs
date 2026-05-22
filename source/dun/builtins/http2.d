@@ -1,17 +1,19 @@
 module dun.builtins.http2;
 
 
-/// `@trusted policy`: HTTP/2 server + client over TLS (OpenSSL ALPN).
-/// Every `@trusted` is one of:
-///
-///   1. POSIX socket syscalls (`socket`, `bind`, `listen`, `accept4`,
-///      `setsockopt`, `read`, `write`, `close`) — same as `net.d`.
-///   2. OpenSSL FFI for the TLS layer + ALPN negotiation
-///      (`SSL_CTX_set_alpn_select_cb`, etc.).
-///   3. HPACK header encoding/decoding via static tables (Huffman
-///      coding) — `__gshared` cached tables, single-threaded read.
-///   4. `__gshared` connection / stream pools.
-///   5. `cast(DunState*) ctx` via `ctxState(ctx)` in callbacks.
+/++
+ + `@trusted policy`: HTTP/2 server + client over TLS (OpenSSL ALPN).
+ + Every `@trusted` is one of:
+ +
+ +   1. POSIX socket syscalls (`socket`, `bind`, `listen`, `accept4`,
+ +      `setsockopt`, `read`, `write`, `close`) — same as `net.d`.
+ +   2. OpenSSL FFI for the TLS layer + ALPN negotiation
+ +      (`SSL_CTX_set_alpn_select_cb`, etc.).
+ +   3. HPACK header encoding/decoding via static tables (Huffman
+ +      coding) — `__gshared` cached tables, single-threaded read.
+ +   4. `__gshared` connection / stream pools.
+ +   5. `cast(DunState*) ctx` via `ctxState(ctx)` in callbacks.
+ +/
 import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
 import dun.runtime.globals : DunState, ctxState;
 import dun.loop.agnostic_pending : pushAgnosticPending;

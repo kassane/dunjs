@@ -1,14 +1,18 @@
-/// Rewrite `import("x")` → `__dunImport__("x")` so JSC/V8 (which
-/// don't wire `HostImportModuleDynamically`) can service dynamic
-/// import. Static `import x from "y"` and `import.meta` are left
-/// alone; string/template/comment/regex contexts are skipped.
+/++
+ + Rewrite `import("x")` → `__dunImport__("x")` so JSC/V8 (which
+ + don't wire `HostImportModuleDynamically`) can service dynamic
+ + import. Static `import x from "y"` and `import.meta` are left
+ + alone; string/template/comment/regex contexts are skipped.
+ +/
 module dun.ts.dynamic_import;
 
 
-/// `@trusted policy`: source-rewriter that turns `import(x)` into
-/// `__dunImport__(x)` for JSC/V8 (which don't expose dynamic-import
-/// at the engine level). Pure D scanner; `@trusted` is for the
-/// `cast(string) char[]` on the output buffer.
+/++
+ + `@trusted policy`: source-rewriter that turns `import(x)` into
+ + `__dunImport__(x)` for JSC/V8 (which don't expose dynamic-import
+ + at the engine level). Pure D scanner; `@trusted` is for the
+ + `cast(string) char[]` on the output buffer.
+ +/
 import dun.platform.arena : Appender;
 import dun.ts.parser.lexer : skipRegexLit, charAllowsRegex,
     regexAllowingKeywordEndsAt;
@@ -58,9 +62,11 @@ private size_t skipTemplateLit(string buf, size_t i) @safe pure nothrow @nogc
     return i;
 }
 
-/// Rewrite all dynamic `import(...)` calls in `src` to
-/// `__dunImport__(...)`. Returns a new string with the rewrites
-/// applied; returns `src` unchanged if no rewrites needed.
+/++
+ + Rewrite all dynamic `import(...)` calls in `src` to
+ + `__dunImport__(...)`. Returns a new string with the rewrites
+ + applied; returns `src` unchanged if no rewrites needed.
+ +/
 string rewriteDynamicImport(string src) @trusted
 {
     if (src.length < 8 || !hasImportCall(src))
@@ -162,8 +168,10 @@ string rewriteDynamicImport(string src) @trusted
     return (() @trusted => cast(string) out_[])();
 }
 
-/// Cheap pre-check so the common no-`import(` case avoids the full
-/// scanner pass. Looks for the substring `import(` or `import (`.
+/++
+ + Cheap pre-check so the common no-`import(` case avoids the full
+ + scanner pass. Looks for the substring `import(` or `import (`.
+ +/
 private bool hasImportCall(string src) @safe pure nothrow @nogc
 {
     if (src.length < 7) return false;
@@ -186,11 +194,13 @@ private bool isIdentCont(char c) @safe pure nothrow @nogc
         || (c >= '0' && c <= '9') || c == '_' || c == '$';
 }
 
-/// JS source for the runtime helper. Installed once at engine boot;
-/// the rewriter above redirects all dynamic-import call sites here.
-/// Wraps `require(specifier)` so the CJS namespace becomes a resolved
-/// Promise -- matches the typical `await import("fs")` usage that
-/// only cares about the CJS namespace shape.
+/++
+ + JS source for the runtime helper. Installed once at engine boot;
+ + the rewriter above redirects all dynamic-import call sites here.
+ + Wraps `require(specifier)` so the CJS namespace becomes a resolved
+ + Promise -- matches the typical `await import("fs")` usage that
+ + only cares about the CJS namespace shape.
+ +/
 string dunImportShimSource() pure nothrow @safe
 {
     return

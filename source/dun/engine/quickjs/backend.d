@@ -1,21 +1,23 @@
 module dun.engine.quickjs.backend;
 
-/// `@trusted policy`: this entire file is the QuickJS C API binding
-/// layer. Every method wraps an `extern(C)` call into `quickjs.h`
-/// (declared in `dun.engine.quickjs.bindings`); the `@trusted` is the
-/// FFI escape required to call them from D's `@safe` boundary. The
-/// invariants the wrappers rely on:
-///
-///   - `ctx` and `rt` are non-null after `initialize()` (asserted at
-///     every entry point);
-///   - `JSValueRef` / `JSValue` handles are either freshly created
-///     (caller owns refcount) or duplicated via `JS_DupValue` before
-///     storage — see CLAUDE.md §"FFI Bridge: D ↔ Engine Memory Rules";
-///   - the QuickJS C API runs on a single thread; concurrent use
-///     would be UB (also documented in CLAUDE.md).
-///
-/// Per-method `///` overrides this baseline when the rationale
-/// differs (e.g., extra invariants like `argp` bounds, layout casts).
+/++
+ + `@trusted policy`: this entire file is the QuickJS C API binding
+ + layer. Every method wraps an `extern(C)` call into `quickjs.h`
+ + (declared in `dun.engine.quickjs.bindings`); the `@trusted` is the
+ + FFI escape required to call them from D's `@safe` boundary. The
+ + invariants the wrappers rely on:
+ +
+ +   - `ctx` and `rt` are non-null after `initialize()` (asserted at
+ +     every entry point);
+ +   - `JSValueRef` / `JSValue` handles are either freshly created
+ +     (caller owns refcount) or duplicated via `JS_DupValue` before
+ +     storage — see CLAUDE.md §"FFI Bridge: D ↔ Engine Memory Rules";
+ +   - the QuickJS C API runs on a single thread; concurrent use
+ +     would be UB (also documented in CLAUDE.md).
+ +
+ + Per-method `///` overrides this baseline when the rationale
+ + differs (e.g., extra invariants like `argp` bounds, layout casts).
+ +/
 
 import dun.engine.iface;
 import dun.engine.quickjs.bindings;

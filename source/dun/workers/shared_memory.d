@@ -1,29 +1,33 @@
-/// SharedArrayBuffer registry. Cross-worker shared memory blocks are
-/// allocated via `malloc()` and kept alive via a refcount-style slot
-/// table. Workers post `{ id, len }` over the message channel; the
-/// receiver looks up the pointer via `sabGet(id)`.
-///
-/// Concurrency: `sabAlloc` grows the registry under a mutex (rare —
-/// once per `new SharedArrayBuffer(...)` call). `sabRef` / `sabUnref`
-/// use `core.atomic.atomicOp!"+="` on the refcount (lockfree, hot
-/// path for worker termination). `sabGet` reads under a brief mutex
-/// only because slot reuse via `sabUnref` could race a concurrent
-/// read; the lock window is two pointer loads.
-///
-/// Per the `/debug-native-callback` skill's mutex-audit guidance:
-/// register/grow paths keep the lock (cold), refcount paths are
-/// now atomic (hot).
+/++
+ + SharedArrayBuffer registry. Cross-worker shared memory blocks are
+ + allocated via `malloc()` and kept alive via a refcount-style slot
+ + table. Workers post `{ id, len }` over the message channel; the
+ + receiver looks up the pointer via `sabGet(id)`.
+ +
+ + Concurrency: `sabAlloc` grows the registry under a mutex (rare —
+ + once per `new SharedArrayBuffer(...)` call). `sabRef` / `sabUnref`
+ + use `core.atomic.atomicOp!"+="` on the refcount (lockfree, hot
+ + path for worker termination). `sabGet` reads under a brief mutex
+ + only because slot reuse via `sabUnref` could race a concurrent
+ + read; the lock window is two pointer loads.
+ +
+ + Per the `/debug-native-callback` skill's mutex-audit guidance:
+ + register/grow paths keep the lock (cold), refcount paths are
+ + now atomic (hot).
+ +/
 module dun.workers.shared_memory;
 
 
-/// `@trusted policy`: SharedArrayBuffer backing storage —
-/// page-aligned mmap'd region shared across worker threads.
-/// Every `@trusted` is one of:
-///   1. `core.sys.posix.sys.mman.mmap` / `munmap` for the backing
-///      pages.
-///   2. `cast(ubyte[]) (ptr[0..size])` to expose the mapped region
-///      as a D slice.
-///   3. Refcount via `atomicFetchAdd` on the shared header.
+/++
+ + `@trusted policy`: SharedArrayBuffer backing storage —
+ + page-aligned mmap'd region shared across worker threads.
+ + Every `@trusted` is one of:
+ +   1. `core.sys.posix.sys.mman.mmap` / `munmap` for the backing
+ +      pages.
+ +   2. `cast(ubyte[]) (ptr[0..size])` to expose the mapped region
+ +      as a D slice.
+ +   3. Refcount via `atomicFetchAdd` on the shared header.
+ +/
 import core.stdc.stdlib : malloc, free;
 import core.stdc.string : memset;
 import core.sync.mutex : Mutex;

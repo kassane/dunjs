@@ -1,18 +1,20 @@
 module dun.builtins.ws;
 
 
-/// `@trusted policy`: WebSocket protocol implementation (RFC 6455
-/// + RFC 7692 permessage-deflate). Every `@trusted` is one of:
-///
-///   1. POSIX socket syscalls — same surface as `net.d`.
-///   2. OpenSSL FFI for the TLS layer (wss:// connections).
-///   3. SHA-1 + base64 for the Sec-WebSocket-Accept handshake
-///      header (HMAC isn't needed; the handshake digest is
-///      uncovered per the RFC).
-///   4. zlib (via `dun.builtins.zlib`) for permessage-deflate.
-///   5. Pre-allocated stack buffers for frame encoding (no
-///      per-frame allocation on the send path).
-///   6. `__gshared` connection pool, `cast(DunState*) ctx`.
+/++
+ + `@trusted policy`: WebSocket protocol implementation (RFC 6455
+ + + RFC 7692 permessage-deflate). Every `@trusted` is one of:
+ +
+ +   1. POSIX socket syscalls — same surface as `net.d`.
+ +   2. OpenSSL FFI for the TLS layer (wss:// connections).
+ +   3. SHA-1 + base64 for the Sec-WebSocket-Accept handshake
+ +      header (HMAC isn't needed; the handshake digest is
+ +      uncovered per the RFC).
+ +   4. zlib (via `dun.builtins.zlib`) for permessage-deflate.
+ +   5. Pre-allocated stack buffers for frame encoding (no
+ +      per-frame allocation on the send path).
+ +   6. `__gshared` connection pool, `cast(DunState*) ctx`.
+ +/
 import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
 import dun.runtime.globals : DunState, ctxState;
 import dun.loop.agnostic_pending : pushAgnosticPending;
@@ -206,8 +208,10 @@ WsServerState[] wsServers;
 WsConnState[] wsConns;
 int nextWsServerId;
 int nextWsConnId;
-/// Free-lists for ws slot recycling. Same pattern as net.d
-/// _freeSocketIds — push on connection close, pop on new conn.
+/++
+ + Free-lists for ws slot recycling. Same pattern as net.d
+ + _freeSocketIds — push on connection close, pop on new conn.
+ +/
 int[] _freeWsServerIds;
 int[] _freeWsConnIds;
 

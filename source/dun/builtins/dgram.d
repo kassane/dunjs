@@ -1,14 +1,16 @@
 module dun.builtins.dgram;
 
 
-/// `@trusted policy`: UDP datagram sockets (`dgram` module).
-/// Every `@trusted` is one of:
-///
-///   1. POSIX socket syscalls (`socket`, `bind`, `sendto`,
-///      `recvfrom`, `setsockopt`, `close`).
-///   2. `Permission.net` gate before any UDP operation.
-///   3. `__gshared UdpSocketState[MAX_UDP_SOCKETS]` pool — slot
-///      index passed across JS/D as an int, lookup is O(1).
+/++
+ + `@trusted policy`: UDP datagram sockets (`dgram` module).
+ + Every `@trusted` is one of:
+ +
+ +   1. POSIX socket syscalls (`socket`, `bind`, `sendto`,
+ +      `recvfrom`, `setsockopt`, `close`).
+ +   2. `Permission.net` gate before any UDP operation.
+ +   3. `__gshared UdpSocketState[MAX_UDP_SOCKETS]` pool — slot
+ +      index passed across JS/D as an int, lookup is O(1).
+ +/
 import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
 import dun.runtime.globals : DunState, ctxState;
 import dun.security.permissions : Permission;

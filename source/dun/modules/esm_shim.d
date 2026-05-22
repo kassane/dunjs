@@ -1,14 +1,16 @@
 module dun.modules.esm_shim;
 
 
-/// `@trusted policy`: ESM-to-CJS interop shim — wraps each ESM
-/// module in a CJS factory so the require() resolver can load it.
-/// Every `@trusted` is one of:
-///   1. `engine.eval` of the wrapped source — one eval per module
-///      at load time (cached afterwards).
-///   2. `Appender!(char[])` pre-reserved string building for the
-///      shim wrapper. Pure D, but the `cast(string) char[]` to
-///      build the final source is `@trusted`-by-pattern.
+/++
+ + `@trusted policy`: ESM-to-CJS interop shim — wraps each ESM
+ + module in a CJS factory so the require() resolver can load it.
+ + Every `@trusted` is one of:
+ +   1. `engine.eval` of the wrapped source — one eval per module
+ +      at load time (cached afterwards).
+ +   2. `Appender!(char[])` pre-reserved string building for the
+ +      shim wrapper. Pure D, but the `cast(string) char[]` to
+ +      build the final source is `@trusted`-by-pattern.
+ +/
 import dun.platform.arena : Appender;
 
 struct ExportEntry
@@ -351,10 +353,12 @@ string transpileESM(string source, string filename) @safe pure
     return transpiled;
 }
 
-/// True if `await` appears at top-level (outside string/comment/
-/// function/class). Block statements don't count as scopes, so
-/// `try { await … }` still qualifies. Decides whether to wrap in an
-/// async IIFE.
+/++
+ + True if `await` appears at top-level (outside string/comment/
+ + function/class). Block statements don't count as scopes, so
+ + `try { await … }` still qualifies. Decides whether to wrap in an
+ + async IIFE.
+ +/
 private bool hasTopLevelAwait(string s) @safe pure nothrow
 {
     // Stack of brace "kinds": true = function/method/class body (await

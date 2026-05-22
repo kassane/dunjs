@@ -1,12 +1,16 @@
-/// SHA-256-keyed persistent cache for the tsc transpile path —
-/// skips the ~300–700 ms tsc cold-start on cache hit. Bounded by
-/// `DUN_TSC_CACHE_MAX_{ENTRIES,MB}`; oldest-modified evicted first.
+/++
+ + SHA-256-keyed persistent cache for the tsc transpile path —
+ + skips the ~300–700 ms tsc cold-start on cache hit. Bounded by
+ + `DUN_TSC_CACHE_MAX_{ENTRIES,MB}`; oldest-modified evicted first.
+ +/
 module dun.ts.transpile_cache;
 
 
-/// `@trusted policy`: persistent transpile cache (SHA-256 keyed,
-/// 24h TTL). Every `@trusted` is `std.file` Phobos calls + the
-/// SHA-256 routine in `dun.builtins.crypto`.
+/++
+ + `@trusted policy`: persistent transpile cache (SHA-256 keyed,
+ + 24h TTL). Every `@trusted` is `std.file` Phobos calls + the
+ + SHA-256 routine in `dun.builtins.crypto`.
+ +/
 import std.file : exists, mkdirRecurse, write, read, dirEntries,
                   SpanMode, remove, getSize, timeLastModified;
 import std.path : buildPath, dirName;
@@ -22,10 +26,12 @@ private string cacheRoot() @trusted
     return buildPath(dunGlobalRoot(), "cache", "tsc");
 }
 
-/// Build the cache key for a transpile request. The compiler-options
-/// fingerprint is a static string today (we use the same options for
-/// every transpile); when that changes, bump the literal here so
-/// stale entries from older configs invalidate automatically.
+/++
+ + Build the cache key for a transpile request. The compiler-options
+ + fingerprint is a static string today (we use the same options for
+ + every transpile); when that changes, bump the literal here so
+ + stale entries from older configs invalidate automatically.
+ +/
 string cacheKey(scope const(char)[] source, string filename,
     string tscVersion) @safe
 {
@@ -58,9 +64,11 @@ string lookup(string key) @trusted
     catch (Throwable) { return null; }
 }
 
-/// Store a transpile result under the given key. Best-effort: if the
-/// disk write fails (full disk, permissions, etc.) we silently skip --
-/// the caller already has the in-memory output.
+/++
+ + Store a transpile result under the given key. Best-effort: if the
+ + disk write fails (full disk, permissions, etc.) we silently skip --
+ + the caller already has the in-memory output.
+ +/
 void store(string key, string output) @trusted
 {
     assert(key.length == 64, "cache key must be 64-char SHA-256 hex");
@@ -86,11 +94,13 @@ void store(string key, string output) @trusted
     maybeTrim();
 }
 
-/// Best-effort cache trim. Called once per `store()` but rate-limited
-/// via an mtime marker file (since every `dun` invocation is a fresh
-/// process, an in-process counter would never advance). Trims at most
-/// once per `DUN_TSC_CACHE_TRIM_INTERVAL_SECS` (default 300 = 5 min).
-/// Errors are swallowed.
+/++
+ + Best-effort cache trim. Called once per `store()` but rate-limited
+ + via an mtime marker file (since every `dun` invocation is a fresh
+ + process, an in-process counter would never advance). Trims at most
+ + once per `DUN_TSC_CACHE_TRIM_INTERVAL_SECS` (default 300 = 5 min).
+ + Errors are swallowed.
+ +/
 void maybeTrim() @trusted
 {
     import std.datetime : Clock;

@@ -1,15 +1,17 @@
 module dun.builtins.os;
 
 
-/// `@trusted policy`: Node's `os` module. Every `@trusted` is one
-/// of:
-///
-///   1. POSIX syscalls — `uname`, `getpriority`, `setpriority`,
-///      `sysconf`, `gethostname`, `getloadavg`, `getifaddrs`,
-///      `freeifaddrs`. Same surface as `net.d`/`fs.d`.
-///   2. Linux-specific reads from `/proc/cpuinfo`, `/proc/meminfo`,
-///      `/proc/stat` — `std.file.readText` is `@trusted`-by-impl.
-///   3. `cast(DunState*) ctx` via `ctxState(ctx)` in callbacks.
+/++
+ + `@trusted policy`: Node's `os` module. Every `@trusted` is one
+ + of:
+ +
+ +   1. POSIX syscalls — `uname`, `getpriority`, `setpriority`,
+ +      `sysconf`, `gethostname`, `getloadavg`, `getifaddrs`,
+ +      `freeifaddrs`. Same surface as `net.d`/`fs.d`.
+ +   2. Linux-specific reads from `/proc/cpuinfo`, `/proc/meminfo`,
+ +      `/proc/stat` — `std.file.readText` is `@trusted`-by-impl.
+ +   3. `cast(DunState*) ctx` via `ctxState(ctx)` in callbacks.
+ +/
 import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
 import dun.runtime.globals : DunState, ctxState;
 import dun.security.permissions : Permission, checkPerm;

@@ -1,13 +1,15 @@
 module dun.builtins.sqlite;
 
-/// `@trusted policy`: ImportC bindings to libsqlite3.h. Every method
-/// wraps a `sqlite3_*` call (open / prepare / step / bind / column /
-/// finalize / close). The C bindings come straight from the upstream
-/// header via D's ImportC support (see `dun.platform.sqlite3`); the
-/// `@trusted` is the FFI escape. Connection + statement lifecycles
-/// are slot-based (pool indices) with RAII finalize on close.
-/// Permission gate: `Permission.read` / `Permission.write` for the
-/// path passed to `sqlite3_open_v2`.
+/++
+ + `@trusted policy`: ImportC bindings to libsqlite3.h. Every method
+ + wraps a `sqlite3_*` call (open / prepare / step / bind / column /
+ + finalize / close). The C bindings come straight from the upstream
+ + header via D's ImportC support (see `dun.platform.sqlite3`); the
+ + `@trusted` is the FFI escape. Connection + statement lifecycles
+ + are slot-based (pool indices) with RAII finalize on close.
+ + Permission gate: `Permission.read` / `Permission.write` for the
+ + path passed to `sqlite3_open_v2`.
+ +/
 
 import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
 import dun.runtime.globals : DunState, ctxState;

@@ -1,8 +1,10 @@
 module dun.platform.simd;
 
-/// SIMD-accelerated primitives for hot paths.
-/// Uses LDC intrinsics (loadUnaligned, storeUnaligned, shufflevector) when
-/// available; falls back to core.simd pointer casts, then scalar.
+/++
+ + SIMD-accelerated primitives for hot paths.
+ + Uses LDC intrinsics (loadUnaligned, storeUnaligned, shufflevector) when
+ + available; falls back to core.simd pointer casts, then scalar.
+ +/
 
 version (D_SIMD)
 {
@@ -13,18 +15,22 @@ version (D_SIMD)
         import ldc.simd : loadUnaligned, storeUnaligned, shufflevector;
         import ldc.intrinsics : llvm_cttz, llvm_prefetch;
 
-        /// `@trusted`: LDC `loadUnaligned` is the documented, alignment-safe
-        /// SIMD load intrinsic. Caller asserts `p` points to ≥ 16 readable
-        /// bytes; aliasing is OK because the result is a value type.
+        /++
+         + `@trusted`: LDC `loadUnaligned` is the documented, alignment-safe
+         + SIMD load intrinsic. Caller asserts `p` points to ≥ 16 readable
+         + bytes; aliasing is OK because the result is a value type.
+         +/
         pragma(inline, true)
         private ubyte16 simdLoad(const(ubyte)* p) pure nothrow @nogc @trusted
         {
             return loadUnaligned!ubyte16(p);
         }
 
-        /// `@trusted`: LDC `storeUnaligned` is the documented, alignment-safe
-        /// SIMD store intrinsic. Caller asserts `p` points to ≥ 16 writable
-        /// bytes.
+        /++
+         + `@trusted`: LDC `storeUnaligned` is the documented, alignment-safe
+         + SIMD store intrinsic. Caller asserts `p` points to ≥ 16 writable
+         + bytes.
+         +/
         pragma(inline, true)
         private void simdStore(ubyte* p, ubyte16 v) pure nothrow @nogc @trusted
         {
@@ -33,18 +39,22 @@ version (D_SIMD)
     }
     else
     {
-        /// `@trusted`: pointer-cast SIMD load fallback. Same alignment +
-        /// length contract as the LDC intrinsic path — caller must ensure
-        /// ≥ 16 readable bytes at `p`. Cast is well-defined: `ubyte16` is
-        /// a layout-compatible POD.
+        /++
+         + `@trusted`: pointer-cast SIMD load fallback. Same alignment +
+         + length contract as the LDC intrinsic path — caller must ensure
+         + ≥ 16 readable bytes at `p`. Cast is well-defined: `ubyte16` is
+         + a layout-compatible POD.
+         +/
         pragma(inline, true)
         private ubyte16 simdLoad(const(ubyte)* p) pure nothrow @nogc @trusted
         {
             return *cast(const(ubyte16)*) p;
         }
 
-        /// `@trusted`: pointer-cast SIMD store fallback. Same contract as
-        /// the LDC intrinsic path — caller must ensure ≥ 16 writable bytes.
+        /++
+         + `@trusted`: pointer-cast SIMD store fallback. Same contract as
+         + the LDC intrinsic path — caller must ensure ≥ 16 writable bytes.
+         +/
         pragma(inline, true)
         private void simdStore(ubyte* p, ubyte16 v) pure nothrow @nogc @trusted
         {
@@ -52,10 +62,12 @@ version (D_SIMD)
         }
     }
 
-    /// `@trusted`: splat scalar to 16-byte vector via stack-array cast.
-    /// `a` is a local fixed-size array (its address is always valid for
-    /// 16 readable bytes). The cast is `ubyte[16]* → ubyte16*` — same
-    /// layout-compatible POD.
+    /++
+     + `@trusted`: splat scalar to 16-byte vector via stack-array cast.
+     + `a` is a local fixed-size array (its address is always valid for
+     + 16 readable bytes). The cast is `ubyte[16]* → ubyte16*` — same
+     + layout-compatible POD.
+     +/
     pragma(inline, true)
     private ubyte16 splat(ubyte val) pure nothrow @nogc @trusted
     {
@@ -63,9 +75,11 @@ version (D_SIMD)
         return *cast(ubyte16*) a.ptr;
     }
 
-    /// `@trusted`: pure ALU on a register. The `cast(ubyte16)` from a
-    /// boolean-mask vector is bit-pattern preserving (all-ones / all-zeros
-    /// per lane). No memory access — no possible UB.
+    /++
+     + `@trusted`: pure ALU on a register. The `cast(ubyte16)` from a
+     + boolean-mask vector is bit-pattern preserving (all-ones / all-zeros
+     + per lane). No memory access — no possible UB.
+     +/
     pragma(inline, true)
     ubyte16 toLower16(ubyte16 v) pure nothrow @nogc @trusted
     {
@@ -81,9 +95,11 @@ version (D_SIMD)
         return v & ~(mask & splat(0x20));
     }
 
-    /// `@trusted`: pure ALU on a register. Each lane of `nibbles` is in
-    /// 0..15 by the caller's contract (it's an extracted nibble), so the
-    /// result is always a valid lowercase hex ASCII character.
+    /++
+     + `@trusted`: pure ALU on a register. Each lane of `nibbles` is in
+     + 0..15 by the caller's contract (it's an extracted nibble), so the
+     + result is always a valid lowercase hex ASCII character.
+     +/
     pragma(inline, true)
     ubyte16 nibblesToHex16(ubyte16 nibbles) pure nothrow @nogc @trusted
     {
@@ -93,9 +109,11 @@ version (D_SIMD)
         return nibbles + (digitBase | alphaBase);
     }
 
-    /// `@trusted`: 16-byte SIMD lowercase loop + scalar tail. The SIMD
-    /// stride is bounded by `i + 16 <= buf.length`; the scalar tail handles
-    /// the residue. No out-of-bounds access possible.
+    /++
+     + `@trusted`: 16-byte SIMD lowercase loop + scalar tail. The SIMD
+     + stride is bounded by `i + 16 <= buf.length`; the scalar tail handles
+     + the residue. No out-of-bounds access possible.
+     +/
     void asciiToLowerBuf(char[] buf) pure nothrow @nogc @trusted
     {
         size_t i = 0;
@@ -109,10 +127,12 @@ version (D_SIMD)
                 buf[i] |= 0x20;
     }
 
-    /// `@trusted`: 16-byte SIMD hex encoder + scalar tail. The SIMD stride
-    /// requires both `src[i .. i+16]` readable AND `dst[i*2 .. i*2+32]`
-    /// writable; the assert at the top establishes `dst.length >= src.length*2`
-    /// and the loop condition `i + 16 <= src.length` then guarantees both.
+    /++
+     + `@trusted`: 16-byte SIMD hex encoder + scalar tail. The SIMD stride
+     + requires both `src[i .. i+16]` readable AND `dst[i*2 .. i*2+32]`
+     + writable; the assert at the top establishes `dst.length >= src.length*2`
+     + and the loop condition `i + 16 <= src.length` then guarantees both.
+     +/
     void hexEncodeBuf(const(ubyte)[] src, char[] dst) pure nothrow @nogc @trusted
     {
         assert(dst.length >= src.length * 2, "dst too small for hex encoding");
@@ -154,12 +174,14 @@ version (D_SIMD)
         }
     }
 
-    /// `@trusted`: SIMD byte search with `llvm_cttz` for O(1) first-match
-    /// extraction. The SIMD stride is bounded by `i + 16 <= buf.length`;
-    /// the `cast(ubyte[16])` extracts the SIMD lanes by value (no aliasing).
-    /// The `cast(ulong*)` reads on `eqBytes` are well-defined: `eqBytes`
-    /// is a 16-byte stack array, `ulong*` reads 8 bytes each — both halves
-    /// stay in-bounds.
+    /++
+     + `@trusted`: SIMD byte search with `llvm_cttz` for O(1) first-match
+     + extraction. The SIMD stride is bounded by `i + 16 <= buf.length`;
+     + the `cast(ubyte[16])` extracts the SIMD lanes by value (no aliasing).
+     + The `cast(ulong*)` reads on `eqBytes` are well-defined: `eqBytes`
+     + is a 16-byte stack array, `ulong*` reads 8 bytes each — both halves
+     + stay in-bounds.
+     +/
     size_t findByte(const(ubyte)[] buf, ubyte needle) pure nothrow @nogc @trusted
     {
         auto target = splat(needle);
@@ -192,9 +214,11 @@ version (D_SIMD)
         return buf.length;
     }
 
-    /// `@trusted`: LDC `llvm_prefetch` is a CPU hint that never reads or
-    /// writes memory observably — even an invalid pointer just produces a
-    /// no-op prefetch. Safe to call with any pointer.
+    /++
+     + `@trusted`: LDC `llvm_prefetch` is a CPU hint that never reads or
+     + writes memory observably — even an invalid pointer just produces a
+     + no-op prefetch. Safe to call with any pointer.
+     +/
     void prefetchRead(const(void)* ptr) pure nothrow @nogc @trusted
     {
         version (LDC)
@@ -210,10 +234,12 @@ else
                 c |= 0x20;
     }
 
-    /// `@trusted`: scalar hex encode fallback (no D_SIMD support). The
-    /// dst indexing is bounded by the assert; lut indexing uses nibbles
-    /// (0..15) which are always in range. Could be `@safe` once
-    /// dscanner stops complaining about the multi-statement assert.
+    /++
+     + `@trusted`: scalar hex encode fallback (no D_SIMD support). The
+     + dst indexing is bounded by the assert; lut indexing uses nibbles
+     + (0..15) which are always in range. Could be `@safe` once
+     + dscanner stops complaining about the multi-statement assert.
+     +/
     void hexEncodeBuf(const(ubyte)[] src, char[] dst) pure nothrow @nogc @trusted
     {
         assert(dst.length >= src.length * 2);
@@ -271,11 +297,13 @@ ulong bswap64(ulong val) pure nothrow @nogc @safe
                ((val << 40) & 0xFF_0000_0000_0000) | (val << 56);
 }
 
-/// SIMD-accelerated hex encoder returning a heap-allocated char[].
-/// Single allocation + SIMD path (when LDC) for sizes ≥ 16. Use this
-/// in place of `std.digest.toHexString!(LetterCase.lower)(buf).idup`
-/// — saves one allocation (no `.idup` immutable copy) and uses the
-/// 16-byte/cycle SIMD interleave path.
+/++
+ + SIMD-accelerated hex encoder returning a heap-allocated char[].
+ + Single allocation + SIMD path (when LDC) for sizes ≥ 16. Use this
+ + in place of `std.digest.toHexString!(LetterCase.lower)(buf).idup`
+ + — saves one allocation (no `.idup` immutable copy) and uses the
+ + 16-byte/cycle SIMD interleave path.
+ +/
 char[] hexEncode(const(ubyte)[] src) @safe
 {
     auto dst = new char[src.length * 2];
@@ -294,15 +322,19 @@ char[] hexEncode(const(ubyte)[] src) @safe
 import dun.declarations :
     UTF8_ASCII_MAX, UTF8_CONT_BASE, UTF8_CONT_MASK, UTF8_2BYTE_LEAD;
 
-/// Worst-case UTF-8 length for a Latin-1 input: every byte ≥ 0x80
-/// expands to 2 bytes. Useful for pre-sizing destination buffers.
+/++
+ + Worst-case UTF-8 length for a Latin-1 input: every byte ≥ 0x80
+ + expands to 2 bytes. Useful for pre-sizing destination buffers.
+ +/
 size_t latin1ToUtf8MaxLen(size_t srcLen) pure nothrow @nogc @safe
 {
     return srcLen * 2;
 }
 
-/// Exact UTF-8 length for a Latin-1 input (counts bytes ≥ 0x80 and
-/// adds them once for the extra continuation byte they require).
+/++
+ + Exact UTF-8 length for a Latin-1 input (counts bytes ≥ 0x80 and
+ + adds them once for the extra continuation byte they require).
+ +/
 size_t latin1ToUtf8Len(const(ubyte)[] src) pure nothrow @nogc @safe
 {
     size_t extra = 0;
@@ -310,14 +342,16 @@ size_t latin1ToUtf8Len(const(ubyte)[] src) pure nothrow @nogc @safe
     return src.length + extra;
 }
 
-/// Encode a Latin-1 (ISO-8859-1) byte sequence into a UTF-8 byte
-/// sequence written into `dst`. Returns the actual bytes written.
-/// `dst` must be at least `latin1ToUtf8MaxLen(src.length)` (or
-/// exactly `latin1ToUtf8Len(src)` if the caller pre-measured).
-/// Used by `Buffer.toString('latin1')` to feed `IJSEngine.newString`
-/// in a form the engine's UTF-8 parser will read each byte as a
-/// distinct Latin-1 code point. Equivalent to Node/Bun's
-/// `Buffer.prototype.latin1Slice`.
+/++
+ + Encode a Latin-1 (ISO-8859-1) byte sequence into a UTF-8 byte
+ + sequence written into `dst`. Returns the actual bytes written.
+ + `dst` must be at least `latin1ToUtf8MaxLen(src.length)` (or
+ + exactly `latin1ToUtf8Len(src)` if the caller pre-measured).
+ + Used by `Buffer.toString('latin1')` to feed `IJSEngine.newString`
+ + in a form the engine's UTF-8 parser will read each byte as a
+ + distinct Latin-1 code point. Equivalent to Node/Bun's
+ + `Buffer.prototype.latin1Slice`.
+ +/
 size_t latin1ToUtf8Buf(const(ubyte)[] src, char[] dst)
     pure nothrow @nogc @trusted
 {
@@ -337,13 +371,15 @@ size_t latin1ToUtf8Buf(const(ubyte)[] src, char[] dst)
     return j;
 }
 
-/// Decode a UTF-8 byte sequence (assumed valid for Latin-1 round-trip
-/// — only 1- and 2-byte sequences are expected) back into the
-/// corresponding Latin-1 byte sequence. Returns the number of Latin-1
-/// bytes written. Higher-plane code points (3+ byte UTF-8) get
-/// truncated to their low 8 bits, matching Node/Bun's
-/// `Buffer.prototype.write('latin1')` behavior. `dst` must be at
-/// least `src.length` bytes (Latin-1 output is ≤ UTF-8 input length).
+/++
+ + Decode a UTF-8 byte sequence (assumed valid for Latin-1 round-trip
+ + — only 1- and 2-byte sequences are expected) back into the
+ + corresponding Latin-1 byte sequence. Returns the number of Latin-1
+ + bytes written. Higher-plane code points (3+ byte UTF-8) get
+ + truncated to their low 8 bits, matching Node/Bun's
+ + `Buffer.prototype.write('latin1')` behavior. `dst` must be at
+ + least `src.length` bytes (Latin-1 output is ≤ UTF-8 input length).
+ +/
 size_t utf8ToLatin1Buf(const(char)[] src, ubyte[] dst)
     pure nothrow @nogc @trusted
 {
@@ -390,12 +426,14 @@ size_t utf8ToLatin1Buf(const(char)[] src, ubyte[] dst)
     return j;
 }
 
-/// Compile-time-sized variant: stack-allocates the destination so
-/// callers with a known-N input (GCM tag = 16 bytes, SHA-256 = 32,
-/// etc.) skip the GC allocation entirely. Returns by value; callers
-/// can either keep the returned `char[2*N]` array on the stack or
-/// hand the slice straight to `engine.newString` (copies into engine
-/// storage synchronously, before the stack frame unwinds).
+/++
+ + Compile-time-sized variant: stack-allocates the destination so
+ + callers with a known-N input (GCM tag = 16 bytes, SHA-256 = 32,
+ + etc.) skip the GC allocation entirely. Returns by value; callers
+ + can either keep the returned `char[2*N]` array on the stack or
+ + hand the slice straight to `engine.newString` (copies into engine
+ + storage synchronously, before the stack frame unwinds).
+ +/
 char[2 * N] hexEncodeFixed(size_t N)(scope const ubyte[N] src)
     pure nothrow @nogc @trusted
 {

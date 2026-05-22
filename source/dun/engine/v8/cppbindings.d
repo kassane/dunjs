@@ -1,11 +1,13 @@
 module dun.engine.v8.cppbindings;
 
 
-/// `@trusted policy`: D template metaprogramming bridge to V8's C++
-/// TMP (see `vendor/v8shim/v8shim_tmpl.hpp`). Every `@trusted` is
-/// the function pointer table init + lazy-init lock. Single-threaded
-/// init.
-/// V8 value type tag — ordinals must match dun::V8Tag in v8shim_tmpl.hpp.
+/++
+ + `@trusted policy`: D template metaprogramming bridge to V8's C++
+ + TMP (see `vendor/v8shim/v8shim_tmpl.hpp`). Every `@trusted` is
+ + the function pointer table init + lazy-init lock. Single-threaded
+ + init.
+ + V8 value type tag — ordinals must match dun::V8Tag in v8shim_tmpl.hpp.
+ +/
 enum V8TypeTag
 {
     Undefined,

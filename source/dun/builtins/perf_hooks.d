@@ -1,10 +1,12 @@
 module dun.builtins.perf_hooks;
 
 
-/// `@trusted policy`: `perf_hooks` Node module — PerformanceObserver,
-/// performance.mark/measure, timerify. Every `@trusted` is one of:
-///   1. `core.time.MonoTime.currTime` — `@trusted`-by-impl in druntime.
-///   2. `cast(DunState*) ctx` via `ctxState(ctx)` in callbacks.
+/++
+ + `@trusted policy`: `perf_hooks` Node module — PerformanceObserver,
+ + performance.mark/measure, timerify. Every `@trusted` is one of:
+ +   1. `core.time.MonoTime.currTime` — `@trusted`-by-impl in druntime.
+ +   2. `cast(DunState*) ctx` via `ctxState(ctx)` in callbacks.
+ +/
 import dun.engine.iface : IJSEngine, JSHandle;
 
 void registerPerfHooksModule(IJSEngine engine) @trusted

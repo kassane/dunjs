@@ -431,7 +431,7 @@ Key shim patterns:
 ## Testing
 
 See [TESTING.md](TESTING.md) — unit tests (71 passed, 0 failed),
-integration sweep (**158/158** on QJS / V8; **157/158 + 1 SKIP** on JSC),
+integration sweep (**162/162** on QJS / V8; **161/162 + 1 SKIP** on JSC),
 145 npm-compat checks, 98/98 ECMAScript spec, 35/35 TypeScript spec,
 81/81 react-compat, 231/231 safe-features, 45/45 security audit,
 12/12 ts_parity vs `tsc`, 12/12 deno_deploy_compat vs Deno 2.7,

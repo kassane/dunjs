@@ -1,12 +1,14 @@
 module dun.runtime.console;
 
 
-/// `@trusted policy`: `console.*` global. Every `@trusted` is one
-/// of:
-///   1. `std.stdio.writefln`/`writeln` to stdout/stderr.
-///   2. `engine.extractString` for arg formatting.
-///   3. Forward to the DevTools inspector via
-///      `dun.cli.inspector.emitConsoleAPICalled` (Posix only).
+/++
+ + `@trusted policy`: `console.*` global. Every `@trusted` is one
+ + of:
+ +   1. `std.stdio.writefln`/`writeln` to stdout/stderr.
+ +   2. `engine.extractString` for arg formatting.
+ +   3. Forward to the DevTools inspector via
+ +      `dun.cli.inspector.emitConsoleAPICalled` (Posix only).
+ +/
 import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
 import dun.runtime.globals : DunState, ctxState;
 
@@ -59,9 +61,11 @@ JSHandle consoleError(void* ctx, JSHandle thisVal, scope JSHandle[] args) @safe
     return state.engine.newUndefined();
 }
 
-/// Forward a console.* call to an attached Chrome DevTools session as
-/// a Runtime.consoleAPICalled event. No-op if `--inspect` wasn't set
-/// or no client has connected.
+/++
+ + Forward a console.* call to an attached Chrome DevTools session as
+ + a Runtime.consoleAPICalled event. No-op if `--inspect` wasn't set
+ + or no client has connected.
+ +/
 version (Posix) import dun.cli.inspector : emitConsoleAPICalled;
 
 private void forwardToInspector(IJSEngine engine, string level, scope JSHandle[] args) @trusted nothrow

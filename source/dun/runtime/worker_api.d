@@ -1,17 +1,19 @@
 module dun.runtime.worker_api;
 
 
-/// `@trusted policy`: Web Workers + SharedArrayBuffer + Atomics +
-/// Atomics.wait/notify (futex). Every `@trusted` is one of:
-///
-///   1. Linux `futex` syscall for `Atomics.wait` / `Atomics.notify`
-///      — `__NR_futex` directly via syscall(2).
-///   2. `cast(shared(int)*) &slot` reinterprets the slot's
-///      underlying int as shared for `atomicLoad/atomicStore`.
-///   3. `__gshared` worker / shared-array-buffer registries —
-///      coordinated cross-thread access via the mutex/semaphore
-///      primitives from `dun.workers.{worker,channel,shared_memory}`.
-///   4. `cast(DunState*) ctx` via `ctxState(ctx)` in callbacks.
+/++
+ + `@trusted policy`: Web Workers + SharedArrayBuffer + Atomics +
+ + Atomics.wait/notify (futex). Every `@trusted` is one of:
+ +
+ +   1. Linux `futex` syscall for `Atomics.wait` / `Atomics.notify`
+ +      — `__NR_futex` directly via syscall(2).
+ +   2. `cast(shared(int)*) &slot` reinterprets the slot's
+ +      underlying int as shared for `atomicLoad/atomicStore`.
+ +   3. `__gshared` worker / shared-array-buffer registries —
+ +      coordinated cross-thread access via the mutex/semaphore
+ +      primitives from `dun.workers.{worker,channel,shared_memory}`.
+ +   4. `cast(DunState*) ctx` via `ctxState(ctx)` in callbacks.
+ +/
 import dun.declarations : MS_PER_SEC, NS_PER_MS;
 import dun.engine.iface : IJSEngine, JSHandle, mustEval;
 import dun.runtime.globals : DunState, ctxState;

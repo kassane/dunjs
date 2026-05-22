@@ -1,10 +1,12 @@
 module dun.engine.jsc.cppbindings;
 
 
-/// `@trusted policy`: D template metaprogramming bridge to JSC's
-/// C API type tags. `@trusted` for the function pointer table init
-/// + lazy-init lock. Single-threaded init.
-/// JSC type tag — values 0-6 match kJSType* constants.
+/++
+ + `@trusted policy`: D template metaprogramming bridge to JSC's
+ + C API type tags. `@trusted` for the function pointer table init
+ + + lazy-init lock. Single-threaded init.
+ + JSC type tag — values 0-6 match kJSType* constants.
+ +/
 enum JSCTypeTag
 {
     Undefined = 0,

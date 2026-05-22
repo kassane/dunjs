@@ -1,15 +1,17 @@
 module dun.builtins.wasi;
 
 
-/// `@trusted policy`: WebAssembly System Interface (WASI) preview1
-/// subset — `args_get`, `environ_get`, `clock_time_get`,
-/// `random_get`, `fd_read`/`fd_write`/`fd_close`,
-/// `path_open`/`path_create_directory`, etc. Every `@trusted` is
-/// one of:
-///   1. POSIX syscalls (same surface as `fs.d`/`net.d`).
-///   2. `engine.getTypedArrayBytes` to access the wasm guest
-///      memory — returns a slice scoped to the JSHandle (DIP1000).
-///   3. `Permission.read` / `Permission.write` gates.
+/++
+ + `@trusted policy`: WebAssembly System Interface (WASI) preview1
+ + subset — `args_get`, `environ_get`, `clock_time_get`,
+ + `random_get`, `fd_read`/`fd_write`/`fd_close`,
+ + `path_open`/`path_create_directory`, etc. Every `@trusted` is
+ + one of:
+ +   1. POSIX syscalls (same surface as `fs.d`/`net.d`).
+ +   2. `engine.getTypedArrayBytes` to access the wasm guest
+ +      memory — returns a slice scoped to the JSHandle (DIP1000).
+ +   3. `Permission.read` / `Permission.write` gates.
+ +/
 import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
 import dun.runtime.globals : DunState;
 import dun.builtins.helpers : installPureJsModule;

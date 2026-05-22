@@ -1,10 +1,12 @@
 module dun.engine.test;
 
 
-/// `@trusted policy`: engine contract test suite. `@trusted` is for
-/// the various engine-FFI calls under test (newInt, newString,
-/// callFunction, getContextOpaque, etc.). Test-only code; the
-/// `@trusted` is appropriate for the test harness.
+/++
+ + `@trusted policy`: engine contract test suite. `@trusted` is for
+ + the various engine-FFI calls under test (newInt, newString,
+ + callFunction, getContextOpaque, etc.). Test-only code; the
+ + `@trusted` is appropriate for the test harness.
+ +/
 version (DunTest):
 
 import dun.engine.iface;

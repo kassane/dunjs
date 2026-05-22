@@ -1,10 +1,12 @@
 module dun.platform.openssl;
 
 
-/// `@trusted policy`: OpenSSL FFI declarations (extern(C) for
-/// libssl / libcrypto). All wrappers are `@trusted` by definition;
-/// see `dun.builtins.crypto` / `dun.builtins.tls` policy headers
-/// for the call-site invariants.
+/++
+ + `@trusted policy`: OpenSSL FFI declarations (extern(C) for
+ + libssl / libcrypto). All wrappers are `@trusted` by definition;
+ + see `dun.builtins.crypto` / `dun.builtins.tls` policy headers
+ + for the call-site invariants.
+ +/
 version (Posix):
 
 // Minimal extern(C) bindings for OpenSSL 1.1+ / 3.x (libssl + libcrypto).

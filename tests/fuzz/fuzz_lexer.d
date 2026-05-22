@@ -1,28 +1,30 @@
-/// Fuzz harness for `dun.ts.parser.lexer` — the JS/TS scanner that
-/// powers the lint pass, the type-stripper, and the source-rewriter
-/// (dynamic_import for JSC/V8). Three exported helpers, all `@safe
-/// pure nothrow @nogc`, take arbitrary source bytes:
-///
-///   - `hasSyntaxError(src)` — coarse syntax check used by the lint
-///     pre-pass + the TS-strip eligibility gate.
-///   - `skipStringLit(buf, i)` — advance past a `'…'` / `"…"` string
-///     literal (handles escapes).
-///   - `skipTemplateLit(buf, i)` — advance past a template literal,
-///     accounting for nested `${…}` expressions.
-///
-/// All three are pure scanners; the invariant is "no segfault on
-/// arbitrary input." The fuzzer asserts that `skip*` returns a
-/// position bounded by the input length.
-///
-/// Build:
-///   ldc2 -fsanitize=fuzzer -fsanitize=address -O1 -g \
-///        -I=source -Jsource \
-///        -of=build/fuzz_lexer \
-///        tests/fuzz/fuzz_lexer.d \
-///        source/dun/ts/parser/lexer.d
-///
-/// Run:
-///   build/fuzz_lexer tests/fuzz/corpus/lexer -max_len=4096 -timeout=5
+/++
+ + Fuzz harness for `dun.ts.parser.lexer` — the JS/TS scanner that
+ + powers the lint pass, the type-stripper, and the source-rewriter
+ + (dynamic_import for JSC/V8). Three exported helpers, all `@safe
+ + pure nothrow @nogc`, take arbitrary source bytes:
+ +
+ +   - `hasSyntaxError(src)` — coarse syntax check used by the lint
+ +     pre-pass + the TS-strip eligibility gate.
+ +   - `skipStringLit(buf, i)` — advance past a `'…'` / `"…"` string
+ +     literal (handles escapes).
+ +   - `skipTemplateLit(buf, i)` — advance past a template literal,
+ +     accounting for nested `${…}` expressions.
+ +
+ + All three are pure scanners; the invariant is "no segfault on
+ + arbitrary input." The fuzzer asserts that `skip*` returns a
+ + position bounded by the input length.
+ +
+ + Build:
+ +   ldc2 -fsanitize=fuzzer -fsanitize=address -O1 -g \
+ +        -I=source -Jsource \
+ +        -of=build/fuzz_lexer \
+ +        tests/fuzz/fuzz_lexer.d \
+ +        source/dun/ts/parser/lexer.d
+ +
+ + Run:
+ +   build/fuzz_lexer tests/fuzz/corpus/lexer -max_len=4096 -timeout=5
+ +/
 
 import dun.ts.parser.lexer : hasSyntaxError, skipStringLit, skipTemplateLit;
 

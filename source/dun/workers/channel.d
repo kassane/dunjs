@@ -1,11 +1,13 @@
 module dun.workers.channel;
 
 
-/// `@trusted policy`: lockfree single-producer/single-consumer
-/// MessageChannel for postMessage IPC. Every `@trusted` is one of:
-///   1. `Mutex` + condition var for the blocking variant.
-///   2. `atomicLoad`/`atomicStore` on the head/tail indices for
-///      the lockfree variant.
+/++
+ + `@trusted policy`: lockfree single-producer/single-consumer
+ + MessageChannel for postMessage IPC. Every `@trusted` is one of:
+ +   1. `Mutex` + condition var for the blocking variant.
+ +   2. `atomicLoad`/`atomicStore` on the head/tail indices for
+ +      the lockfree variant.
+ +/
 import core.sync.mutex : Mutex;
 import core.sync.condition : Condition;
 
