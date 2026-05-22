@@ -1,7 +1,7 @@
 # DunJS
 
 A secure, multi-engine JavaScript/TypeScript runtime written in D.
-**v1.1.25** — stable.
+**v1.1.26** — stable.
 
 ```sh
 dun run server.ts --allow-net --allow-read
@@ -145,9 +145,9 @@ for 24 hours. `dun install` checks packages before download. See [SECURITY.md](S
 
 | Backend | Tests | Notes |
 |---------|-------|-------|
-| QuickJS-NG | 156/156 | Default. Interpreter, ES2025, smallest binary (9.8MB) |
-| JavaScriptCore | 155/155 + 1 SKIP | JIT. Same engine as Safari/Bun. SKIP is `bun_v7_additions` (handle-pressure conflict with `deno_deploy_compat` — pre-existing design constraint) |
-| V8 | 156/156 | JIT. Same engine as Chrome/Node.js (V8 15.0). Via C++ shim, ships full ICU by default |
+| QuickJS-NG | 158/158 | Default. Interpreter, ES2025, smallest binary (9.8MB) |
+| JavaScriptCore | 157/158 + 1 SKIP | JIT. Same engine as Safari/Bun. SKIP is `bun_v7_additions` (handle-pressure conflict with `deno_deploy_compat` — pre-existing design constraint) |
+| V8 | 158/158 | JIT. Same engine as Chrome/Node.js (V8 15.0). Via C++ shim, ships full ICU by default |
 
 All 24 built-in modules, Workers, SharedArrayBuffer, Atomics, fetch, Deno compat, and web globals work identically on every backend.
 
@@ -177,7 +177,7 @@ BACKEND=jsc DUN=./dun-jsc bash tests/integration/run.sh
 BACKEND=v8  DUN=./dun-v8  bash tests/integration/run.sh
 ```
 
-156/156 integration on QJS / V8 (155/155 + 1 SKIP on JSC), plus 145 npm-compat checks,
+158/158 integration on QJS / V8 (157/158 + 1 SKIP on JSC), plus 145 npm-compat checks,
 98/98 ECMAScript spec audit (all 3 backends — /v set-op gap on
 QJS / V8 closed via source rewriter), 81/81 react-compat,
 231/231 safe-features, 45/45 security audit, 35/35 TypeScript
@@ -190,6 +190,15 @@ high-byte + NUL handling), **16/16 `audit_roundtrip`** (Buffer
 encoding round-trips across all 256 byte values), **5/5
 `cve_path_traversal`** (CVE-2023-32004 class, fixed in v1.1.0),
 and cross-runtime grids for real-world apps (n8n, gaia, opencode).
+
+**Memory safety audit** (v1.1.26 + follow-ups): 1,470 `@trusted`
+sites across 67 K LOC of D — 0% missing rationale via the
+auto-generated [`docs/research/trusted-ledger.md`](docs/research/trusted-ledger.md)
+(DunJS's analogue of [bun.com/bun-unsafe-audit](https://bun.com/bun-unsafe-audit)).
+Fuzz harness at [`tests/fuzz/`](tests/fuzz/) — `fuzz_strip` + `fuzz_simd`
+clean to ~5 M iterations / 30 s per target. See the
+[Bun vs DunJS unsafe-audit case study](docs/research/bun-unsafe-audit-vs-dunjs.md)
+for the methodology comparison.
 
 See [TESTING.md](TESTING.md) for the full suite breakdown.
 
@@ -211,7 +220,15 @@ User-facing docs live in [`docs/`](./docs/README.md):
 
 Internals (developer-facing) live in [`ARCHITECTURE.md`](./ARCHITECTURE.md),
 [`CLAUDE.md`](./CLAUDE.md), [`TESTING.md`](./TESTING.md),
-[`SECURITY.md`](./SECURITY.md), [`CHANGELOG.md`](./CHANGELOG.md).
+[`SECURITY.md`](./SECURITY.md), [`CHANGELOG.md`](./CHANGELOG.md),
+[`HANDOFF.md`](./HANDOFF.md).
+
+Research / case studies in [`docs/research/`](./docs/research/):
+- [Bun unsafe-audit vs DunJS](./docs/research/bun-unsafe-audit-vs-dunjs.md) — methodology comparison + Deno Node-compat deep dive
+- [`@trusted` ledger](./docs/research/trusted-ledger.md) — auto-generated public audit of every `@trusted` site
+- [Custom GC via V8 cppgc / JSC heap](./docs/research/custom-gc-v8-jsc.md) — feasibility study
+
+Fuzz harness at [`tests/fuzz/`](./tests/fuzz/) — `bash tests/fuzz/run.sh [seconds]`.
 
 ## Comparison
 
@@ -279,7 +296,7 @@ Partially. Honest assessment:
 **Where it works today** (CLI tools, build scripts, microservices,
 test harnesses, learning projects):
 
-- 156/156 integration sweep on QJS / V8 (155/155 + 1 SKIP on JSC); 145/145 npm-compat,
+- 158/158 integration sweep on QJS / V8 (157/158 + 1 SKIP on JSC); 145/145 npm-compat,
   98/98 ES2025 spec, 12/12 `deno_deploy_compat` vs Deno 2.7,
   13/13 `bun_bundler_compat` vs Bun 1.3, 38/38 v0.6.0 web API
   audit.
@@ -303,8 +320,8 @@ test harnesses, learning projects):
 
 **Where it can't yet**:
 
-- **Maturity.** v1.1.25 stable — 156/156
-  integration sweep on QJS / V8 (155/155 + 1 SKIP on JSC),
+- **Maturity.** v1.1.26 stable — 158/158
+  integration sweep on QJS / V8 (157/158 + 1 SKIP on JSC),
   ThreadSanitizer clean (modulo intentional daemon worker threads),
   JSC handle leaks plugged (v1.1.5 → v1.1.20 — fetch.d, child_process.d,
   fs.d, crypto.d, fs streams, cluster), QJS shape-table crash fix

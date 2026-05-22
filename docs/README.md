@@ -113,7 +113,7 @@ const greet = (name: string): string => `Hello, ${name}!`;
 console.log(greet("DunJS"));
 ```
 
-## Performance snapshot (v1.1.25)
+## Performance snapshot (v1.1.26)
 
 | Bench | Bun 1.3 | Node 22 | Deno 2.7 | dun-jsc | dun-v8 | dun-qjs |
 |---|---:|---:|---:|---:|---:|---:|

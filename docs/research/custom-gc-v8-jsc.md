@@ -250,7 +250,7 @@ D class destructors run during `runFinalizers`. cppgc finalizers run during swee
 
 ## 5. Where DunJS actually spends time
 
-From the per-test bench delta on v1.1.25 (dun-v8 vs Node, cascadelake):
+From the per-test bench delta on v1.1.26 (dun-v8 vs Node, cascadelake):
 
 | Test | dun-v8 ns/op | Node ns/op | Limiter |
 |------|-------------:|-----------:|---------|
@@ -258,7 +258,7 @@ From the per-test bench delta on v1.1.25 (dun-v8 vs Node, cascadelake):
 | Object.keys/values/entries | 74 | 86 | engine |
 | string replace (regex) | 125 | 166 | engine (V8 regex JIT) |
 | Buffer.from string | 885 | 64 | **FFI scope overhead** |
-| Buffer.concat (after v1.1.25 fused shim) | 1500-3500 | 215-300 | **FFI scope overhead** (improved 2×) |
+| Buffer.concat (after v1.1.26 fused shim) | 1500-3500 | 215-300 | **FFI scope overhead** (improved 2×) |
 | crypto.createHash SHA-256 | 5051 | 1183 | OpenSSL + per-call D allocation |
 
 **The V8 backend's real bottleneck is FFI scope-entry overhead** (each `dun_v8_*` call enters `withContext<F>` — Isolate::Scope + HandleScope + Context::Scope). The fix is `v8::FastApiCallback`, **not** GC routing. Closing it via FastApi closes 5-30% per bench item.
