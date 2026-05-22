@@ -48,7 +48,7 @@ times during the runtime-parity session.
 ## Known gotchas (encountered this session)
 
 - **JSC linker order:** adding libs to top-level `libs-linux` in `dub.json` reorders the JSC config's libs, breaking ICU resolution. Use `lflags-linux: ["-l<name>"]` instead.
-- **V8 needs `--link-internally`:** V8 14.9 monolith uses CREL relocations; only LDC's internal LLVM21 linker handles them.
+- **V8 needs `--link-internally`:** V8 15.0.91 monolith uses CREL relocations (LLVM 19+); only LDC's internal LLVM21 linker handles them.
 - **ICU mismatch on Ubuntu noble:** system has libicu74 but JSC needs symbols `_75`. The static `libicu*.a` in `vendor/jsc/lib/` provide them — they must be linked before libWTF (JSC config's `libs-linux` order matters).
 - **`dub.json` deliberately does NOT set `--mcpu`.** `--mcpu=native` ties release binaries to the build host's exact CPU (so the side-by-side `./dun-rel-{qjs,jsc,v8}` you stage here can't be redistributed), and on cross / WASM / embedded targets even named CPUs like `x86-64-v3` can resolve to `features ''` — verified on LDC 1.42.0, see [ldc-developers/ldc#4919](https://github.com/ldc-developers/ldc/issues/4919). If you need a specific instruction set for a bench, add it ad-hoc:
   ```sh

@@ -61,12 +61,16 @@ parallel-ish test layout (port reuse + node_modules state).
   (port/state contention), always pass standalone.
 - **JSC `bun_v7_additions`**: gated SKIP (`.backends` sidecar). v1.1.7 cached
   the per-fetch Response builder + headers flattener, lifting the threshold
-  from 9-10 → 13-14 servers with v7 extras enabled. Residual per-request
-  listener-chain leak still tips `deno_deploy_compat` (15 servers) over
-  threshold ~33% of the time under sweep heap-load. Standalone: 3/3 PASS.
-- **JSC `deno_deploy_compat` under sweep heap-load**: flakes when run after
-  the full preceding test corpus has loaded JSC's heap. Standalone-reruns
-  pass 3/3. Same root as the bun_v7 SKIP (per-request listener accumulation).
+  from 9-10 → 13-14 servers with v7 extras enabled. v1.1.26 added a
+  `_writeHeadFlattener` cache + three more `newArray()` replacements + a
+  `makeResponse` isException fallback, taking the residual `deno_deploy_compat`
+  flake rate from ~60% to ~15-20% (v1.1.27 measured 3/20 over 20 runs).
+  v1.1.27 investigation (negative result, see HANDOFF Known issue #1)
+  confirmed the residual is a **fetch-hang on the server side**, not an
+  allocation race in `makeResponse`. Standalone: 24/24 PASS.
+- **JSC `deno_deploy_compat` under sweep heap-load**: flakes ~15% when run
+  after the full preceding test corpus has loaded JSC's heap. Standalone-
+  reruns pass. Same root as the bun_v7 SKIP — see HANDOFF Known issue #1.
 - **JSC `production_gaps4`**: occasional stderr-vs-stdout flake on
   `DeprecationWarning: deprecated`.
 
@@ -99,7 +103,7 @@ they target.
 ```sh
 # AddressSanitizer sweep (memory bugs: UAF, OOB, double-free)
 dub build -c quickjs -b asan
-ASAN_OPTIONS=detect_leaks=0 bash tests/integration/run.sh   # 158/158 expected
+ASAN_OPTIONS=detect_leaks=0 bash tests/integration/run.sh   # 162/162 expected
 
 # ThreadSanitizer sweep (data races, esp. Worker / SAB / Atomics paths)
 dub build -c quickjs -b tsan
@@ -115,7 +119,7 @@ ASan adds ~2-3× runtime; the full sweep takes ~3-4 min instead of
 (single-threaded fixtures pass trivially). Both build types live
 in `dub.json` under `buildTypes`.
 
-The DunJS baseline: **158/158 ASan-clean on QJS** (caught the original
+The DunJS baseline: **162/162 ASan-clean on QJS** (caught the original
 v1.1.3 Latin-1 high-byte UB before release). TSan-clean modulo
 intentional daemon worker threads (those use audited lockfree
 primitives).
