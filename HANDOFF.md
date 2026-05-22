@@ -10,7 +10,7 @@ and the gotchas that bite you on day one. Read alongside
 - Integration sweep: **158/158** on QJS / V8, **157/158 + 1 SKIP**
   on JSC (deno_deploy_compat flakes ~1 in 5 sweeps under heap-load —
   see `## JSC deno_deploy_compat flake` below). The `cve_priv_files.js`
-  fixture (8/8) added in v1.1.25 regression-tests the sandbox-bypass
+  fixture (8/8) added in v1.1.26 regression-tests the sandbox-bypass
   fix (CVE-2024-34346 class).
 - npm package corpus: `dun install express@4 moment axios jsonwebtoken
   semver validator commander cookie qs chalk uuid dotenv minimist
@@ -34,7 +34,7 @@ and the gotchas that bite you on day one. Read alongside
 
 | Window | Class | Status | Tested |
 |--------|-------|--------|--------|
-| **NEW v1.1.25** | CVE-2024-34346 / GHSA-23rx-c3g5-hv9w — privileged-path sandbox bypass | **Fixed** in `source/dun/security/permissions.d` (this PR) | `cve_priv_files.js` 8/8 on QJS/JSC/V8 |
+| **NEW v1.1.26** | CVE-2024-34346 / GHSA-23rx-c3g5-hv9w — privileged-path sandbox bypass | **Fixed** in `source/dun/security/permissions.d` (this PR) | `cve_priv_files.js` 8/8 on QJS/JSC/V8 |
 | Reviewed 2026-05 | CVE-2026-32260 / CVE-2026-27190 — Deno child_process shell metachar bypass | **Not vulnerable** — `hasShellMetaChars` in `child_process.d:113` blocks `; & \| $ \` ( ) { } < > \n` before the shell sees the command | Existing fixtures + `/tmp/test_shell_meta.js` ad-hoc |
 | Reviewed 2026-05 | CVE-2026-0821 / CVE-2026-0822 / CVE-2026-1145 — QuickJS-NG heap overflows in `js_typed_array_constructor[_ta]` and `js_typed_array_sort` (affect ≤ 0.11.0) | **Not vulnerable** — DunJS bundles QJS-NG **0.14.0** which includes the fixes (PRs #1299, #1306, commit `53eefbcd`) | Upstream regression suite + DunJS fuzz tests |
 | v1.1.0 | CVE-2023-32004 / CVE-2024-21896 — path-traversal scope bypass | Fixed | `cve_path_traversal.js` 5/5 |
@@ -124,7 +124,7 @@ deno_deploy_compat flakes.
 ## Rule-compliance audit (2026-05) — applied + deferred
 
 A three-track audit (`@trusted` overuse, magic-number duplicates, DIP
-coverage) ran on the v1.1.25 tree across two commits.
+coverage) ran on the v1.1.26 tree across two commits.
 
 **Pass 1 — Cross-module constants + paths.canonicalizePath**
 
@@ -298,9 +298,9 @@ done
 
 # Integration sweep
 dub test -c unittest                                # 71/71
-bash tests/integration/run.sh                      # QJS  156/156
-BACKEND=jsc DUN=./dun-rel-jsc bash tests/integration/run.sh   # JSC  155/155 + 1 SKIP
-BACKEND=v8  DUN=./dun-rel-v8  bash tests/integration/run.sh   # V8   156/156
+bash tests/integration/run.sh                      # QJS  158/158
+BACKEND=jsc DUN=./dun-rel-jsc bash tests/integration/run.sh   # JSC  157/158 + 1 SKIP
+BACKEND=v8  DUN=./dun-rel-v8  bash tests/integration/run.sh   # V8   158/158
 ```
 
 The slash-command equivalents are documented in

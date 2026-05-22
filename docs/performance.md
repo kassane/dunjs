@@ -3,16 +3,21 @@
 How DunJS performs against Node, Deno, and Bun — and how to get the
 best out of it.
 
-## Cross-runtime benchmarks (v1.1.25)
+## Cross-runtime benchmarks (v1.1.26)
+
+Numbers from `/bench-compare` on 2026-05-22 against `tests/benchmarks/*.js`,
+release + PGO builds.
 
 ### feature_bench.js — JS compute throughput
 
 | Runtime | ops/sec | vs Node |
 |---------|--------:|--------:|
-| Bun 1.3 | 501M | 3.09× |
-| **dun-jsc** | **500M** | **3.09×** (par with Bun) |
-| Node 22 | 162M | 1.00× |
-| dun-v8 | 161M | 0.99× |
+| **dun-pgo-jsc** | **514M** | **3.05×** (faster than Bun) |
+| Bun 1.3.11 | 481M | 2.86× |
+| Node 22.22.2 | 176M | 1.00× |
+| Deno 2.7.14 | 169M | 0.96× |
+| dun-pgo-v8 | 164M | 0.93× |
+| dun-pgo-qjs | 22M | 0.13× (interpreter) |
 | Deno 2.7 | 160M | 0.99× |
 | dun-qjs | 23M | 0.14× |
 
@@ -27,12 +32,12 @@ paths), dgram + cluster method caching, and jscpd-driven dedup.
 
 | Runtime | ops/sec | vs Node |
 |---------|--------:|--------:|
-| Bun 1.3 | 300M | 1.69× |
-| **dun-jsc** | **266M** | 1.49× |
-| Node 22 | 178M | 1.00× |
-| dun-v8 | 164M | 0.92× |
-| Deno 2.7 | 159M | 0.89× |
-| dun-qjs | 17M | 0.10× |
+| Bun 1.3.11 | 305M | 1.63× |
+| **dun-pgo-jsc** | **281M** | 1.50× |
+| Node 22.22.2 | 187M | 1.00× |
+| dun-pgo-v8 | 172M | 0.92× |
+| Deno 2.7.14 | 168M | 0.90× |
+| dun-pgo-qjs | 17M | 0.09× |
 
 ### npm_compat — correctness
 
