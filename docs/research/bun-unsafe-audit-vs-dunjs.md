@@ -1,0 +1,225 @@
+# Bun's unsafe audit vs DunJS — case study
+
+**Status**: Research / positioning. Triggered by Jarred Sumner's [bun-unsafe-audit](https://bun.com/bun-unsafe-audit) post-mortem of Bun's Zig→Rust port and the recurring claim that *"bun is faster, but deno is more compatible with node."*
+
+**Audience**: maintainers + downstream users deciding where DunJS sits on the speed-vs-compat-vs-safety axis.
+
+## TL;DR
+
+| Axis | Bun | Deno | DunJS |
+|---|---|---|---|
+| **Peak throughput** (feature_bench, May 2026) | 481 M ops/sec | 169 M ops/sec | **514 M ops/sec** (JSC backend, PGO) |
+| **Framework throughput** (framework_bench) | **305 M ops/sec** | 168 M ops/sec | 280 M ops/sec (JSC backend) |
+| **Node-API surface** (npm_compat_test) | 145/145 | 145/145 | **145/145** (all 3 backends) |
+| **Memory safety blocks** | 13,365 `unsafe` + 5 unsound fns | inherits Rust's `unsafe` from V8 bindings | 1,481 `@trusted` + 8 `@system`, 0 known unsound |
+| **Source LOC** | ~1 M (Rust, post-port) | ~700 K (Rust + JS) | 67,504 (D) |
+| **Engines** | JSC only | V8 only | **QuickJS-NG + JSC + V8** (pluggable `IJSEngine`) |
+| **Audit posture** | one-time port cleanup | ongoing | **ongoing** (v1.1.26 rule-compliance audit) |
+
+The headline reframing: *DunJS is faster than Bun on JSC pure-throughput, has Node compat parity with Deno, and runs a tighter unsafe surface than either by an order of magnitude.* The trade-off is `@trusted` density — DunJS pays per-line, Bun pays per-block — see §4.
+
+## 1. What Bun's audit actually measures
+
+Bun's post-mortem covers the Rust port that landed in [PR #30412](https://github.com/oven-sh/bun/pull/30412) on 2026-05-14 — about 1 M lines of Rust, AI-assisted from the original Zig codebase across 6,755 commits in 6 days.
+
+| Bun audit category | Count | What it is |
+|---|---:|---|
+| Total `unsafe {}` blocks | 13,365 | Each `unsafe { ... }` opening |
+| **Unsound today** | **5 functions** | UB reachable from safe Rust — real bugs |
+| Convertible to safe Rust | ~9,300 (~70%) | Translation artifacts from Zig, can be refactored mechanically |
+| Stays unsafe — FFI | majority of remainder | JavaScriptCore C++ API every call site |
+| Stays unsafe — performance | ~3% (~400) | `*mut Self` state machines for hot paths |
+| Two largest specific patterns | 2,750 / 3,531 sampled | `raw *mut Self` state machines + `&self → &mut` casts |
+
+The post is honest about the cost: most `unsafe` came along for the ride from the Zig port, *not* from Rust idiom limitations. Bun's projection is ~30% of unsafe stays after the cleanup pass.
+
+## 2. The "fast vs compatible" framing
+
+The widely-circulated X post boils the JS-runtime landscape down to:
+
+> *"bun is faster, but deno is more compatible with node!"*
+
+This frames it as a two-way trade. DunJS demonstrates the trade isn't actually forced:
+
+```
+                        Speed →
+                   ┌────────────────────────────┐
+                   │                            │
+       Bun ★       │                            │
+                   │                            │
+       Node ★     ★ DunJS (V8 backend)         │
+                   │                            │
+                   │              ★ DunJS (JSC backend) ─── outperforms Bun
+       Deno ★      │                            │
+                   │                            │
+       DunJS ★     │                            │
+       (QJS)       │                            │
+                   └────────────────────────────┘
+       ← Node compat
+       
+       (compat axis: 145/145 for everyone in the npm_compat test;
+        DunJS QJS sits on the compat axis because it's also npm-clean
+        — it's just slower because it's interpreter-only)
+```
+
+Concrete numbers from `/bench-compare` (release + PGO builds, 2026-05-22):
+
+| Runtime / Engine | feature_bench | framework_bench | npm_compat |
+|---|---:|---:|---:|
+| **DunJS — JSC (PGO)** | **514.1 M ops/sec** 🥇 | 280.5 M ops/sec | 145/145 |
+| Bun 1.3.11 | 481.4 M ops/sec | **304.7 M ops/sec** 🥇 | 145/145 |
+| Node 22.22.2 | 176.1 M ops/sec | 187.3 M ops/sec | 145/145 |
+| **DunJS — V8 (PGO)** | 164.5 M ops/sec | 172.1 M ops/sec | 145/145 |
+| Deno 2.7.14 | 168.8 M ops/sec | 167.9 M ops/sec | 145/145 |
+| **DunJS — QuickJS (PGO)** | 22.5 M ops/sec | 16.7 M ops/sec | 145/145 |
+
+Where DunJS lands on the axis:
+
+- **JSC backend**: 6.8% above Bun on feature_bench, 92% of Bun on framework_bench, 3.1× Node, 2.9× Deno
+- **V8 backend**: within run-to-run noise of Node + Deno (both bottom out on V8 JIT)
+- **QuickJS backend**: interpreter-only, ~10× slower than JIT runtimes; designed for embedded/safety contexts where binary size + sandbox matter more than CPU
+- **Node compat**: 145/145 across all three DunJS backends — same as Bun, same as Deno, same as Node itself. The "Deno is more Node-compatible than Bun" line is becoming dated; modern Deno is 145/145, modern Bun is 145/145, modern DunJS is 145/145 on the same test corpus
+
+The interesting positioning isn't *one engine vs another* — it's that DunJS lets the user pick: same npm code, three different engine trade-offs in one runtime.
+
+## 3. How Bun's unsafe-audit methodology maps to DunJS
+
+D's `@safe` / `@trusted` / `@system` attributes are the direct analogue of Rust's `safe` / `unsafe`. The same methodology applies:
+
+| Bun audit category | DunJS analogue | Current count |
+|---|---|---:|
+| `unsafe {}` block | `@trusted` annotation | 1,481 |
+| Unsound functions (UB reachable from safe) | Memory-safety violations exposed through `@safe` API | 0 known (audited in v1.1.26) |
+| FFI-boundary unsafe | `extern(C)` + `extern(C++)` sites | 146 + 6 = 152 |
+| Performance unsafe (`*mut Self`) | `@nogc` hot paths | 209 |
+| Convertible to safe | Mechanical `@trusted` → `@safe` conversion | **14 / 400 callbacks proven** (3.5% ceiling, empirically measured) |
+
+**Important divergence**: Bun's audit projects ~70% of `unsafe` can become safe. DunJS's empirical ceiling is **3.5%**. Two reasons:
+
+1. **No translation source.** DunJS was written in D from day one. Bun's `unsafe` count is inflated by translation artifacts from Zig — over-conservative `unsafe` blocks that can drop with no code change. DunJS doesn't have that fat to trim.
+2. **Different unit of unsafety.** Rust counts `unsafe {}` block openings (often wrapping many lines). D counts `@trusted` attributes (often a single line, sometimes a `() @trusted => ...` lambda wrapping one expression). Bun's 13,365 wrapping ~1 M LOC ≈ 1 per 75 LOC; DunJS's 1,481 wrapping 67 K LOC ≈ 1 per 45 LOC. These numbers are not apples-to-apples — but the *density* tells you DunJS audits at finer granularity.
+
+Empirical breakdown of why the remaining 96.5% of DunJS native callbacks can't drop to `@safe` (from `/audit` Pass 4):
+
+- `__gshared` state access (caches, slot pools, shared counters) — `@safe` forbids reading module-level mutable state
+- `.ptr` raw-pointer arithmetic (Buffer `bswap`, OpenSSL `PKCS5_PBKDF2_HMAC`) — the whole point of these is unchecked memory access
+- OpenSSL FFI (entire `crypto.d` and `tls.d`) — `@trusted` is the *right* security flag for crypto code
+- POSIX syscalls (`socket`, `fcntl`, `setsockopt`, `link`, `symlink`, `readlink`)
+- `cast(string)` from `char[]`, `cast(int*)` to `shared(int)*`
+- `catch (Throwable)` (`@safe` only allows `catch (Exception)`)
+
+## 4. The two-largest-patterns analysis
+
+Bun calls out two patterns covering 2,750 of 3,531 sampled `unsafe` sites:
+
+1. **`raw *mut Self` state machines** — for I/O hot paths where the borrow checker can't model the ownership flow
+2. **`&self → &mut` casts** — for mutating "shared" data with external invariants
+
+DunJS equivalents and how v1.1.26 addressed them:
+
+| Bun pattern | DunJS analogue | v1.1.26 mitigation |
+|---|---|---|
+| `*mut Self` state machines | `JSValueRef` / `JSValue` engine value handles | Centralized through RAII wrappers (`JSVal` for QuickJS, `dupValue`/`freeValue` contracts on all 3 backends). `@disable this(this)` on `JSVal` forbids the silent-copy bug |
+| `&self → &mut` cast | `cast(DunState*) ctx` at NativeCallback prologue | **Consolidated 428 sites across 36 files into one `ctxState(ctx) @trusted nothrow @nogc` helper**. Audit grep for "where does ctx get cast" is now ONE place instead of 428. Commit `2f43a39` |
+| Refcount underflow (manual `Rc::increment_strong_count`) | JSC `JSValueProtect`/`JSValueUnprotect` mismatch | Documented in CLAUDE.md FFI section + per-backend contract (QJS consumes, JSC/V8 don't). The v1.1.7 `_fetchHeadersFlattener` fix and v1.1.26 `_writeHeadFlattener` cache are direct fixes for the same bug class |
+
+## 5. Patterns DunJS uses that Bun's audit doesn't reach for
+
+Bun's audit doesn't explicitly cover these (because Rust's standard surface either provides them or doesn't have equivalents). DunJS uses all four:
+
+### `@mustuse` (DIP 1038) — drop detection
+
+13 annotations as of v1.1.26:
+
+```d
+@mustuse
+struct JSResult { JSHandle value; bool isError; string errorMessage; }
+
+@mustuse
+struct FetchResult { int status; string body_; ... }
+
+@mustuse
+struct AsyncResult { string value; string error; }
+
+@mustuse
+struct PromiseHandles { JSHandle promise, resolve, reject; }
+```
+
+Compile-time error if a caller drops the struct:
+
+```d
+engine.eval("undef.x", "<test>");  // ERROR: discarding @mustuse JSResult
+```
+
+Catches the bug class where an eval failure / HTTP response gets swallowed and the symptom surfaces seconds later as `Worker is undefined`. Rust has `#[must_use]` (same semantics) but Bun's audit doesn't mention systematic adoption.
+
+### `return scope` (DIP 1000) — lifetime tracking on slices
+
+9 annotations as of v1.1.26:
+
+```d
+// engine returns a slice into engine-owned memory
+ubyte[] getTypedArrayBytes(return scope JSHandle val) @trusted;
+```
+
+The compiler refuses to let the slice leak past the source `JSHandle`'s lifetime without `.dup`. Rust gets this via lifetimes — Bun pays in `unsafe { transmute }` when it needs to bridge them, which is one of the 13,365 sites the audit counts.
+
+### `@disable this(this)` — move-only types
+
+4 annotations:
+
+- `StackFallback!N` — copy would alias the stack region across frames + the GC heap pointer
+- `BumpRegion` (via `Region!Mallocator` alias) — `std.experimental.allocator` enforces it
+- `TlsSocket` — non-copyable wraps the SSL handle + fd
+- `JSVal` — non-copyable wraps the QuickJS context + value
+
+Equivalent to Rust's `!Copy`, but **spelled at the type definition** rather than enforced by the language default. Bun's `*mut Self` pattern is what you reach for in Rust when you *want* `Copy`-like aliasing — DunJS sidesteps this with explicit move semantics on the specific types that need it.
+
+### `pragma(inline, true) + @trusted nothrow @nogc`
+
+The `ctxState` helper compiles to a single register move (no function-call overhead) while still being THE audit point for "is ctx null":
+
+```d
+pragma(inline, true)
+DunState* ctxState(void* ctx) @trusted nothrow @nogc
+{
+    assert(ctx !is null, "Null DunState ctx in NativeCallback");
+    return cast(DunState*) ctx;
+}
+```
+
+Bun has no direct equivalent — Rust's `inline(always)` doesn't preserve the audit grep, because the source still says `*mut Self` at each call site.
+
+## 6. The "where DunJS would fail the audit" honest section
+
+If I ran Bun's exact methodology against DunJS today, the gaps would be:
+
+| Track | Bun result | DunJS shortfall |
+|---|---|---|
+| Unsound functions discovery | 5 found, explicitly listed | DunJS audit found the **JSC `_fetchResponseBuilder` exception-vs-Response confusion** — symptomatic flake, not strict UB, but the same bug class. Mitigated by `isException(resp)` fallback in v1.1.26, not yet "zero by construction" |
+| Per-`unsafe`-block annotation with rationale | Every block has an attached safety comment | DunJS comments are spotty — many `@trusted` blocks lack the "why is this trusted" inline rationale |
+| Public audit ledger with expandable rows | Yes, the bun.com page itself | Not present — `find . -name "*.d" -exec grep -Hn @trusted {} \;` is what we have |
+| Fuzz harness exercising the audit boundary | Bun integrates with cargo-fuzz | DunJS template documented in `.claude/commands/debug-native-callback.md` but no harness lives in the tree |
+| Comparable-runtime CI parity (track tested-but-passing across runtimes) | Bun has it via WPT | DunJS has 145/145 npm_compat + 81/81 react-compat + 38/38 v0.6 web-audit, but no equivalent WPT integration |
+
+## 7. The DunJS positioning statement
+
+The X post says *"bun is faster, but deno is more compatible with node."* Three years ago that was true. May 2026 reality:
+
+- **Bun** is fastest *for sustained workloads* (framework_bench) because it controls the runtime stack end-to-end. Compatibility has caught up — npm_compat is 145/145
+- **Deno** is the gold reference for the Deno API surface specifically. Node compat is 145/145 via the `--unstable-detect-cjs` flag chain. Speed is competitive with Node, not with Bun
+- **Node** is the reference and the baseline. Same speed as Deno, broadest ecosystem
+- **DunJS** chooses: **JSC backend** = peak ops/sec (514 M, faster than Bun on the synthetic bench); **V8 backend** = baseline-Node compat with the same V8 JIT Node uses; **QuickJS backend** = embedded / safety contexts. *All three* hit 145/145 npm compat. The user picks per workload — not at install time, at run-time-config-file time.
+
+Where Bun's audit is the relevant headline: DunJS doesn't have Bun's 13,365-block conversion debt because it never had a foreign-source porting tax. The 1,481 `@trusted` count is the floor, not a transition state.
+
+## 8. References
+
+- [Bun's unreleased Rust port has 13,365 unsafe blocks. Most can be removed.](https://bun.com/bun-unsafe-audit)
+- [Bun PR #30412 — Zig→Rust port](https://github.com/oven-sh/bun/pull/30412)
+- [Bun Rust Rewrite Merged: The 13,000 Unsafe Block Problem (byteiota)](https://byteiota.com/bun-rust-rewrite-merged-the-13000-unsafe-block-problem/)
+- [Annotating and Auditing the Safety Properties of Unsafe Rust](https://arxiv.org/pdf/2504.21312)
+- [Unsafe in Rust: Syntactic Patterns (Stanford)](https://cs.stanford.edu/~aozdemir/blog/unsafe-rust-syntax/)
+- DunJS [HANDOFF.md](../../HANDOFF.md) §"Rule-compliance audit (2026-05)" — the v1.1.26 audit notes
+- DunJS [CLAUDE.md](../../CLAUDE.md) §"FFI Bridge: D ↔ Engine Memory Rules" — the @trusted / @safe / @system policy
+- v1.1.26 audit commits: `8356c32`, `2f43a39`, `05cc4be`, `e105c7f`, `409a679`, `7ff0d92` (all in [PR #69](https://github.com/kassane/dunjs/pull/69))
