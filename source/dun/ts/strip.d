@@ -833,7 +833,20 @@ string stripTypes(const(char)[] source) @safe
             auto qPos = prevNonWS(buf, pos);
 
             // Return type: ) : Type { or =>
-            if (qPos < buf.length && buf[qPos] == ')' && parenDepth == 0)
+            //
+            // Previously gated on `parenDepth == 0` — but that broke
+            // arrow functions inside call expressions, e.g.
+            // `arr.map((x): T => ...)`. After the inner `(x)` closes,
+            // parenDepth is back to 1 (outer `.map(`), and the `:`
+            // would never be recognized as a return-type annotation.
+            // The post-type `=> || {` guard at line 863 is enough to
+            // disambiguate from ternaries / object literals at any
+            // paren depth: a ternary `(cond ? a() : foo)` has `foo`
+            // followed by something else (`,`, `)`, `;`), not `=>` or
+            // `{`. Surfaced by yt-dlp/ejs's `(input): Response => {}`
+            // pattern; covered by `tests/integration/fixtures/`
+            // arrow-return tests on all 3 backends.
+            if (qPos < buf.length && buf[qPos] == ')')
             {
                 // If the return type itself starts with `{` (object
                 // type literal like `): { x: number }`), walk past the

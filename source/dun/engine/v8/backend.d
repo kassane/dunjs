@@ -393,24 +393,40 @@ class V8Engine : IJSEngine
         return result;
     }
 
+    /* Throw helpers: V8 14+ requires the throw path to be
+       (1) `isolate->ThrowException(err)` then (2) the native
+       function returns WITHOUT calling `info.GetReturnValue().Set`.
+       The shim's throw helpers return nullptr + set
+       `cw->has_thrown = true`; the trampoline checks the flag and
+       skips Set. The D-side surfaces this by setting
+       `lastCallWasException = true` so `engine.isException(h)`
+       returns the expected `true` for callers that gate further
+       work on it (e.g. `loadNativeAddon` failure → require.d). */
+
     JSHandle throwTypeError(scope const(char)[] msg) @trusted
     {
         assert(ctx !is null, "V8 context not initialized");
         char[V8_STACK_STRING_SIZE] buf = void;
-        return toHandle(dun_v8_throw_type_error(ctx, stackTerminate(msg, buf)));
+        auto h = toHandle(dun_v8_throw_type_error(ctx, stackTerminate(msg, buf)));
+        lastCallWasException = true;
+        return h;
     }
 
     JSHandle throwRangeError(scope const(char)[] msg) @trusted
     {
         assert(ctx !is null, "V8 context not initialized");
         char[V8_STACK_STRING_SIZE] buf = void;
-        return toHandle(dun_v8_throw_range_error(ctx, stackTerminate(msg, buf)));
+        auto h = toHandle(dun_v8_throw_range_error(ctx, stackTerminate(msg, buf)));
+        lastCallWasException = true;
+        return h;
     }
 
     JSHandle throwValue(JSHandle val) @trusted
     {
         assert(ctx !is null, "V8 context not initialized");
-        return toHandle(dun_v8_throw_value(ctx, fromHandle(val)));
+        auto h = toHandle(dun_v8_throw_value(ctx, fromHandle(val)));
+        lastCallWasException = true;
+        return h;
     }
 
     PromiseHandles newPromise() @trusted

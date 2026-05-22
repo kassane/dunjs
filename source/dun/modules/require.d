@@ -410,6 +410,23 @@ JSHandle jsRequire(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
             }
             import dun.napi.loader : loadNativeAddon;
             auto addonResult = loadNativeAddon(engine, state, resolved);
+            /* If `loadNativeAddon` threw (dlopen failed, missing
+               napi_register_module_v1, etc.), DON'T cache and DON'T
+               wrap — the addonResult is the engine's exception
+               value, and on V8 the trampoline + JS try/catch only
+               see the throw if we propagate the exception state
+               cleanly back. Caching + setProperty + dupValue on the
+               exception value clears V8's pending-exception flag
+               and turns the throw into a returned-value, which
+               broke yuku-parser's `try { require(p) } catch (e)`
+               recovery on V8 (the catch fired on QJS/JSC because
+               their exception state survives the engine-call
+               chain, but V8's doesn't). */
+            if (engine.isException(addonResult))
+            {
+                engine.freeValue(cache);
+                return addonResult;
+            }
             auto wrapper = engine.newObject();
             engine.setProperty(wrapper, "exports", engine.dupValue(addonResult));
             engine.setProperty(cache, resolved, wrapper);
