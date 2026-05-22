@@ -5,11 +5,21 @@ and the gotchas that bite you on day one. Read alongside
 [`CLAUDE.md`](CLAUDE.md), [`SECURITY.md`](SECURITY.md), and
 [`TESTING.md`](TESTING.md).
 
-## Current state (v1.1.25)
+## Current state (v1.1.26)
 
-- Integration sweep: **156/156** on QJS / V8, **155/155 + 1 SKIP**
-  on JSC. The `cve_priv_files.js` fixture (8/8) added in v1.1.25
-  regression-tests the sandbox-bypass fix (CVE-2024-34346 class).
+- Integration sweep: **158/158** on QJS / V8, **157/158 + 1 SKIP**
+  on JSC (deno_deploy_compat flakes ~1 in 5 sweeps under heap-load —
+  see `## JSC deno_deploy_compat flake` below). The `cve_priv_files.js`
+  fixture (8/8) added in v1.1.25 regression-tests the sandbox-bypass
+  fix (CVE-2024-34346 class).
+- npm package corpus: `dun install express@4 moment axios jsonwebtoken
+  semver validator commander cookie qs chalk uuid dotenv minimist
+  which yargs-parser underscore` is required for the 5 npm-dependent
+  fixtures (express_e2e, npm_deep_compat, npm_packages_e2e,
+  npm_real_packages, production_advanced) to pass. The integration
+  runner does NOT auto-install — sweep against a fresh checkout
+  starts with the 5 FAIL baseline; install the corpus once, sweep
+  again, and the FAILs become 0.
 - Unit tests: **71/71** clean.
 - Backends: QuickJS-NG **0.14.0**, JavaScriptCore (prebuilt
   WebKit), V8 **15.0.91** (via `vendor/v8shim/`). All three
@@ -68,11 +78,45 @@ The Dockerfiles **do not** currently copy `icudtl.dat` into the
 runtime image — proposed fix is documented but deferred (see
 "Known issues" below).
 
+## JSC deno_deploy_compat flake
+
+v1.1.26 stabilization pass — improved the JSC `deno_deploy_compat`
+flake rate from **~60% pre-fix** to **~20% post-fix**. Mechanism:
+JSC's concurrent-GC sweeps intermediate JSValueRef values that
+aren't on the conservative-stack-scan path. Under the 15-server
+fixture sustained allocation pattern, the fetch path's cached
+`_fetchResponseBuilder` got called with one of its argument values
+mid-sweep, returning the exception value instead of the Response.
+The failure surface was `r2.text is not a function` at section 7.
+
+Three fixes applied (see commit 409a679):
+
+1. **`writeHead` flatten cache** (`http.d`): the `res.writeHead(status,
+   headers)` path used to `engine.eval(...)` a fresh flattener fn per
+   call. Cached once into `_writeHeadFlattener` via
+   `ensureWriteHeadFlattener(engine)`.
+2. **`makeResponse` exception fallback** (`fetch.d`): if the cached
+   builder's `callFunction` returns an exception (concurrent-GC of
+   an intermediate), fall back to `makeResponseFallback` which
+   doesn't allocate transient nested arrays.
+3. **Async thread pool** (`async.d`): replaced per-asyncSubmit
+   `new Thread({...})` with an 8-worker `Semaphore`-driven pool.
+4. **`gc()` hint on `srv.close`** (`deno_compat.d`): synchronous
+   `JSGarbageCollect` after each cycle's server close reclaims
+   the handler closure + events map + listener chain.
+
+Net: 4-of-5 sweeps clean (157 PASS, 0 FAIL, 1 SKIP); 1-of-5 still
+shows the `deno_deploy_compat` flake. The bun_v7 SKIP gate stays
+in place — enabling it pushes flake rate back up to ~55% standalone
+(45% pass) because even the v7 install-time bytecode adds enough
+JSC heap pressure to tip the cycle. Trade-off: 1 SKIP beats 3× more
+deno_deploy_compat flakes.
+
 ## Known issues / deferred work
 
 | # | Issue | Impact | Notes |
 |---|-------|--------|-------|
-| 1 | JSC `bun_v7_additions` SKIP under `deno_deploy_compat` heap load | Single fixture skipped (1/156) | Pre-existing per-request listener-chain leak in fetch path. v1.1.5 → v1.1.20 plugged most of the JSC handle leaks but didn't fully close this. Standalone `bun_v7_additions` passes 24/24. Documented in CHANGELOG #43a/#58d/#59a/#60d for a future v1.2.x worker-lifecycle pass |
+| 1 | JSC `bun_v7_additions` SKIP — gate stays | Single fixture skipped (1/158) | v1.1.26 root-caused the related deno_deploy_compat flake to JSC concurrent-GC sweeping intermediates in the cached response builder. The bun_v7 install-time bytecode is enough additional pressure to tip the flake rate back up; we keep the gate as the strictly-better trade-off. Standalone `bun_v7_additions` passes 24/24 on JSC. Full fix needs either (a) the cached response builder rewritten to not depend on transient arrays, or (b) a JSC config knob to dial down concurrent-GC aggression during HTTP server work |
 | 2 | Dockerfile V8 image missing `icudtl.dat` | `docker run dunjs:v8 run any-script-using-Intl-or-Unicode-regex.js` → `Internal error. Icu error.` | Proposed fix in earlier session: `COPY --from=build /src/build/icudtl.dat /usr/local/bin/icudtl.dat`. Needs the `touch build/icudtl.dat` placeholder trick for QJS/JSC images where postBuildCommand skips the copy |
 | 3 | QJS `Worker(src, {eval:true})` + `setTimeout`-deferred `terminate` race | Edge-case crash | gdb-traced to QJS internal `add_shape_property`. Documented in CHANGELOG #58d/#59e. JSC/V8 don't hit it. Real apps use `await terminate(); process.exit()` rather than the racy pattern |
 | 4 | No fuzzer harness for parser / type-stripper / Buffer roundtrip | Theoretical | LDC supports `-fsanitize=fuzzer` since 1.4 (see `.claude/commands/debug-native-callback.md`). Template is documented but no harness lives in the tree |
