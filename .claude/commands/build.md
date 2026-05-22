@@ -218,11 +218,11 @@ Reference: https://johanengelen.github.io/ldc/2016/09/17/LDC-object-file-caching
 
 ```sh
 # Unit tests (see TESTING.md for the canonical breakdown by suite)
-dub test -c unittest                 # QuickJS (118)
+dub test -c unittest                 # QuickJS (71)
 dub test -c unittest-jsc             # JSC (47)
-dub test -c unittest-v8              # V8 (118)
+dub test -c unittest-v8              # V8 (71)
 
-# Integration tests (131 fixtures, requires built binary)
+# Integration tests (162 fixtures, requires built binary)
 dub build -c quickjs
 bash tests/integration/run.sh
 
@@ -297,5 +297,5 @@ The GitHub Actions workflow (`.github/workflows/ci.yml`) runs:
 - **Windows MSVC errors**: Ensure `ilammy/msvc-dev-cmd` or VS Developer prompt is active
 - **Windows __imp_fesetround**: QuickJS CRT mismatch -- build.d forces `/MT` via CMake flags
 - **OpenSSL not found (macOS)**: Install via `brew install openssl`, paths auto-detected
-- **V8 "unknown architecture" link error**: V8 14.9 monolith uses CREL relocations (LLVM 19+). LDC's internal linker (`--link-internally`) handles this; GNU ld 2.42 and lld-18 cannot. The `dflags-linux-ldc` in dub.json enables this automatically
+- **V8 "unknown architecture" link error**: V8 15.0.91 monolith uses CREL relocations (LLVM 19+). LDC's internal linker (`--link-internally`) handles this; GNU ld 2.42 and lld-18 cannot. The `dflags-linux-ldc` in dub.json enables this automatically
 - **segfault debugging**: Use `gdb ./build/dun` with `run script.js`, check backtrace
