@@ -104,7 +104,7 @@ string stripTypes(const(char)[] source) @safe
         }
         if (c == '`')
         {
-            pos = skipTemplateLit(buf, pos);
+            pos = stripAndSkipTemplateLit(buf, pos);
             continue;
         }
 
@@ -1746,6 +1746,69 @@ bool isStmtStartMultiline(const(char)[] buf, size_t i) @safe pure nothrow @nogc
 // the same implementation serves strip.d, jsx.d, and the lexer itself.
 public import dun.ts.parser.lexer : skipStringLit, skipTemplateLit;
 
+/// Walk a template literal at `buf[i]`, recursively stripping TS-only
+/// syntax (`as T`, `satisfies T`, `(x: T)`, `<T>foo`, …) inside each
+/// `${...}` interpolation. Returns the index past the matching outer
+/// backtick. Mutates `buf` in place via the recursive `stripTypes` call.
+///
+/// Surfaced by yt-dlp/ejs's `solvers.ts:173` which interpolates a
+/// `generate({...} as ESTree.Node)` call. Pre-fix, the main strip loop
+/// just called `skipTemplateLit` so any TS construct inside `${...}`
+/// reached the engine verbatim and tripped a `SyntaxError`. The strip
+/// is length-preserving for expression-context TS (no enum/namespace
+/// /import declarations can appear inside `${...}`), so we can copy
+/// the result back into the same slice. If the recursive call ever
+/// produces a different length (degenerate input), we bail to the
+/// original bytes rather than corrupting surrounding code.
+size_t stripAndSkipTemplateLit(char[] buf, size_t i) @safe
+{
+    if (i >= buf.length) return i;
+    assert(buf[i] == '`');
+    i++;  // skip opening `
+    while (i < buf.length)
+    {
+        if (buf[i] == '\\') { i += 2; continue; }
+        if (buf[i] == '`') return i + 1;
+        if (buf[i] == '$' && i + 1 < buf.length && buf[i + 1] == '{')
+        {
+            size_t exprStart = i + 2;
+            size_t exprEnd = exprStart;
+            int depth = 1;
+            while (exprEnd < buf.length && depth > 0)
+            {
+                immutable cc = buf[exprEnd];
+                if (cc == '\'' || cc == '"')
+                {
+                    exprEnd = skipStringLit(buf, exprEnd);
+                    continue;
+                }
+                if (cc == '`')
+                {
+                    exprEnd = stripAndSkipTemplateLit(buf, exprEnd);
+                    continue;
+                }
+                if (cc == '{') depth++;
+                else if (cc == '}')
+                {
+                    depth--;
+                    if (depth == 0) break;
+                }
+                exprEnd++;
+            }
+            if (exprEnd > exprStart)
+            {
+                auto stripped = stripTypes(cast(const(char)[]) buf[exprStart .. exprEnd]);
+                if (stripped.length == exprEnd - exprStart)
+                    buf[exprStart .. exprEnd] = stripped[];
+            }
+            i = exprEnd;  // sits on the `}` (or buf end)
+            continue;
+        }
+        i++;
+    }
+    return i;
+}
+
 size_t skipToEOL(const(char)[] buf, size_t i) @safe pure nothrow @nogc
 {
     while (i < buf.length && buf[i] != '\n')
@@ -1886,18 +1949,31 @@ size_t findSemiOrEOL(const(char)[] buf, size_t start) @safe pure nothrow @nogc
             if (c == ';') return i + 1;
             if (c == '\n')
             {
-                // The declaration can wrap to the next line in three
+                // The declaration can wrap to the next line in four
                 // common ways:
                 //   * union / intersection continuation: `| Foo`, `& Bar`
-                //   * conditional-type continuation: prev line ends in
-                //     `?`, `:`, or `=` (the latter for `type X =\n  ...`)
-                //   * the next line starts with an obvious continuation
-                //     keyword like `extends`
+                //   * conditional-type continuation with the operator
+                //     on the prev line: `... ?\n  "a" :\n  "b"`
+                //   * conditional-type continuation with the operator
+                //     leading the next line: `... extends X\n  ? A\n  : B`
+                //     (the yt-dlp/ejs `src/types.ts` style)
+                //   * `type X =\n  ...` (assignment dangles to next line)
                 size_t next = i + 1;
                 while (next < buf.length && (buf[next] == ' ' || buf[next] == '\t'
                         || buf[next] == '\r')) next++;
                 if (next < buf.length && (buf[next] == '|' || buf[next] == '&')
                         && (next + 1 >= buf.length || buf[next + 1] != buf[next]))
+                {
+                    i = next;
+                    continue;
+                }
+                // `?` or `:` at the start of the next line — leading-operator
+                // conditional-type style. Guard `?.` (optional chaining) and
+                // `::` just to be safe; neither appears in type-alias bodies
+                // but they're cheap to exclude.
+                if (next < buf.length && (buf[next] == '?' || buf[next] == ':')
+                        && (next + 1 >= buf.length
+                            || (buf[next + 1] != '.' && buf[next + 1] != buf[next])))
                 {
                     i = next;
                     continue;
