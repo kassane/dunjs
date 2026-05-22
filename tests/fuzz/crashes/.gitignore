@@ -1,0 +1,6 @@
+# libFuzzer drops crash-<sha1> / strip-<sha1> / simd-<sha1> here when
+# it finds an input that aborts. Reproduce locally with the artifact
+# file as argv[1] to the fuzzer binary. Don't commit — these are
+# bug reproducers, not source.
+
+*-*
