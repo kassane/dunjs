@@ -1,5 +1,25 @@
 module dun.napi.napi;
 
+/// `@trusted policy`: this file is the N-API surface (~91 functions
+/// per CLAUDE.md) that Node-API addons compile against. Every
+/// `@trusted` is one of:
+///
+///   1. `extern(C)` N-API function with the documented Node-API
+///      contract — `@trusted` is required because the entire N-API
+///      surface is `extern(C) @system`. Addons rely on the contract
+///      (handle lifetime, finalizer semantics, scope rules) being
+///      honored by both sides.
+///   2. `__gshared` value/scope/buffer pools (`gValuePool`,
+///      `gScopePool`, `gExternalSide`). Single-threaded per the
+///      engine's main-thread-only contract.
+///   3. `cast(napi_value)` reinterprets slot indices as opaque
+///      pointer-sized handles. The handle is opaque to the caller
+///      (Node-API spec); decoding is internal to this file.
+///   4. `napi_wrap` / `napi_create_external` finalizer thunks —
+///      the side-table indirection (the `(data, hint, finalize_cb)`
+///      triple stored in `gExternalSide`) keeps the finalize callback
+///      alive past the GC sweep that triggers it.
+
 import dun.napi.types;
 import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
 import dun.runtime.globals : DunState;

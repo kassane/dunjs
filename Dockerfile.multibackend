@@ -79,7 +79,11 @@ RUN case "${TARGETARCH:-amd64}" in \
 
 RUN export DFLAGS="$(cat /tmp/dflags)" && dub build -c quickjs -b release && strip build/dun && cp build/dun /tmp/dun-quickjs
 RUN export DFLAGS="$(cat /tmp/dflags)" && dub build -c jsc -b release     && strip build/dun && cp build/dun /tmp/dun-jsc
-RUN export DFLAGS="$(cat /tmp/dflags)" && dub build -c v8  -b release     && strip build/dun && cp build/dun /tmp/dun-v8
+# V8 build also produces build/icudtl.dat (V8 ICU data) via the
+# dub.json postBuildCommands-posix hook. Stage it next to the v8
+# binary; the runtime stage will copy it to /usr/local/bin/ so
+# V8's `InitializeICUDefaultLocation(argv[0])` finds it.
+RUN export DFLAGS="$(cat /tmp/dflags)" && dub build -c v8  -b release     && strip build/dun && cp build/dun /tmp/dun-v8 && cp build/icudtl.dat /tmp/icudtl.dat
 
 # Build backend switcher (statically linked, runs anywhere)
 RUN gcc -static -O2 -o /tmp/dun-switch docker/dun-switch.c && strip /tmp/dun-switch
@@ -132,10 +136,16 @@ COPY --from=build --chown=1001:1001 /tmp/dun-jsc     /usr/local/bin/dun-jsc
 COPY --from=build --chown=1001:1001 /tmp/dun-v8      /usr/local/bin/dun-v8
 COPY --from=build --chown=1001:1001 /deps/lib/       /usr/local/lib/
 COPY --from=build --chown=1001:1001 /tmp/dun-switch  /usr/local/bin/dun
+# V8 ICU data — without this, `DUN_BACKEND=v8 dun run any-Intl-script.js`
+# fails with `Internal error. Icu error.` Putting it next to the
+# binaries lets V8's `InitializeICUDefaultLocation(argv[0])` resolve
+# the path automatically.
+COPY --from=build --chown=1001:1001 /tmp/icudtl.dat  /usr/local/bin/icudtl.dat
 
 # CIS 4.8 — final SUID/SGID scrub on the binaries that landed in /usr/local.
 RUN find /usr/local/bin /usr/local/lib -xdev -perm /6000 -exec chmod a-s {} \; 2>/dev/null || true \
     && chmod 0555 /usr/local/bin/dun-quickjs /usr/local/bin/dun-jsc /usr/local/bin/dun-v8 /usr/local/bin/dun \
+    && chmod 0444 /usr/local/bin/icudtl.dat \
     && ldconfig
 
 ENV DUN_BACKEND="quickjs"

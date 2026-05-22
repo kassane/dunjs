@@ -1,5 +1,13 @@
 module dun.runtime.web_apis;
 
+
+/// `@trusted policy`: web API polyfill installer (101 globals
+/// per CLAUDE.md table). Every `@trusted` is one of:
+///   1. `engine.eval` of large polyfill sources at install time
+///      (cached).
+///   2. Lazy-load getter shim for `installLazyExtras` — first
+///      access compiles + evaluates the lazy chunk.
+///   3. `cast(DunState*) ctx` via `ctxState(ctx)` in callbacks.
 import dun.engine.iface : IJSEngine, JSHandle;
 import dun.runtime.globals : DunState, ctxState;
 

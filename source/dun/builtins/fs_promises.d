@@ -1,5 +1,17 @@
 module dun.builtins.fs_promises;
 
+
+/// `@trusted policy`: promise-based file system API
+/// (`fs.promises.*`). Every `@trusted` is one of:
+///
+///   1. POSIX file syscall — same surface as `fs.d` (open, read,
+///      write, stat, mkdir, …). Each call sits behind a
+///      `Permission.read` / `Permission.write` gate.
+///   2. Async work submission via `asyncSubmit` (worker thread
+///      runs the blocking syscall, main thread resolves the
+///      promise from the result). Thread-pool pattern from
+///      `dun.loop.async`.
+///   3. `cast(DunState*) ctx` via `ctxState(ctx)` in callbacks.
 import dun.engine.iface : IJSEngine, JSHandle, JSResult, NativeCallback;
 import dun.runtime.globals : DunState, ctxState;
 import dun.security.permissions : Permission;

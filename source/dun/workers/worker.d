@@ -1,5 +1,16 @@
 module dun.workers.worker;
 
+
+/// `@trusted policy`: dedicated Worker (separate engine instance
+/// per worker, postMessage IPC). Every `@trusted` is one of:
+///
+///   1. `cast(shared(int)*) &slot` reinterprets the slot's int as
+///      shared for `atomicLoad/atomicStore` access. Lockfree pattern.
+///   2. `new Thread` + `Mutex` per worker instance.
+///   3. `__gshared` worker registry — coordinated cross-thread
+///      access via the worker_api mutex.
+///   4. Cross-engine message passing — postMessage serializes via
+///      JSON; receiver deserializes on its thread.
 import core.thread : Thread;
 import core.sync.mutex : Mutex;
 import dun.workers.channel : MessageChannel;
@@ -23,6 +34,12 @@ private WorkerStatus loadStatus(WorkerState wst) @trusted nothrow @nogc
         atomicLoad!(MemoryOrder.acq)(*cast(shared(int)*) &wst.status_);
 }
 
+/// `@trusted`: `cast(shared(int)*) &wst.status_` reinterprets the
+/// underlying int slot as shared so `atomicStore` can write it with
+/// release semantics. Same lockfree pattern as `loadStatus` above —
+/// the worker thread writes this; the main thread reads via
+/// `loadStatus`. Single 4-byte aligned write is atomic on all
+/// supported targets.
 private void storeStatus(WorkerState wst, WorkerStatus s) @trusted nothrow @nogc
 {
     atomicStore!(MemoryOrder.rel)(*cast(shared(int)*) &wst.status_, cast(int) s);

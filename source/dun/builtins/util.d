@@ -1,5 +1,12 @@
 module dun.builtins.util;
 
+
+/// `@trusted policy`: Node's `util` module (inspect, format,
+/// promisify, TextEncoder/Decoder). Every `@trusted` is one of:
+///   1. Engine method calls for value introspection.
+///   2. `Appender!(char[])` + `cast(string)` for format string
+///      building. Pure D logic.
+///   3. `cast(DunState*) ctx` via `ctxState(ctx)` in callbacks.
 import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
 import dun.runtime.globals : DunState;
 import dun.builtins.helpers : installPureJsModule;

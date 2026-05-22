@@ -1,5 +1,30 @@
 module dun.builtins.crypto;
 
+/// `@trusted policy`: this file implements Node's `crypto` module
+/// surface (createHash, createHmac, randomBytes, createCipheriv,
+/// pbkdf2Sync, scryptSync, createSign / createVerify, DH, subtle).
+///
+/// Every `@trusted` block in this file falls into one of three
+/// categories:
+///
+///   1. OpenSSL FFI call (EVP_*, HMAC_*, PKCS5_PBKDF2_HMAC, etc.).
+///      `@trusted` IS the security signal — these are the audited
+///      entry points to libcrypto/libssl. Annotated `@system` C
+///      bindings live in `dun.platform.openssl`. Each call sits
+///      inside a slot-based RAII pool (`_hashBuffers`, `_hmacBuffers`,
+///      `_cipherCtxs`, …) with free-list recycling.
+///   2. `cast(JSValueRef)` / `.ptr` slice access. The `.ptr` calls
+///      pass byte buffers to OpenSSL's `unsigned char*` parameters;
+///      length is asserted and bounded before each call.
+///   3. `__gshared` cipher / hash slot tables (`_hashFnsCached`,
+///      `_freeHashIds`, …). The append-only / slot-recycle pattern
+///      is single-threaded (matches the engine's main-thread-only
+///      contract).
+///
+/// Per-function `///` overrides this baseline when a method has
+/// additional invariants (e.g., HMAC key length, scrypt parameter
+/// bounds) that aren't captured by the policy above.
+
 import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
 import dun.runtime.globals : DunState, ctxState;
 

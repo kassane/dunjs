@@ -1,5 +1,10 @@
 module dun.platform.memory;
 
+
+/// `@trusted policy`: low-level memory utilities (zero, copy, fill)
+/// for the @nogc hot paths. Each function wraps `core.stdc.string`
+/// `@system` calls with `@trusted` (length and overlap bounds are
+/// asserted by the caller).
 version (EngineQuickJS):
 
 import core.stdc.stdlib : malloc, free, realloc;

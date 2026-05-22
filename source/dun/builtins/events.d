@@ -1,5 +1,10 @@
 module dun.builtins.events;
 
+
+/// `@trusted policy`: Node's `events` module (EventEmitter). Every
+/// `@trusted` is one of:
+///   1. `cast(DunState*) ctx` via `ctxState(ctx)` in callbacks.
+///   2. Engine method calls for the listener chain.
 import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
 import dun.runtime.globals : DunState;
 import dun.builtins.helpers : installPureJsModule;

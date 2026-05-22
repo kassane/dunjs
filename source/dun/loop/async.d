@@ -1,5 +1,18 @@
 module dun.loop.async;
 
+
+/// `@trusted policy`: async work pool (CPU-bound work runs on a
+/// worker thread, result resolves the promise on the main thread).
+/// Every `@trusted` is one of:
+///
+///   1. `new Thread` + `Semaphore` + `Mutex` for the worker pool
+///      (lazy-initialized on first `asyncSubmit`). 8 workers.
+///   2. `atomicLoad` / `atomicStore` on `task.completed` for
+///      cross-thread signalling.
+///   3. `cast(JSHandle)` of resolve/reject handles passed across
+///      to the worker thread (the worker doesn't touch JSC; only
+///      stores `task.result` / `task.error`; main thread calls
+///      `callFunction` to resolve).
 import dun.engine.iface : IJSEngine, JSHandle;
 import core.atomic : atomicStore, atomicLoad, MemoryOrder;
 import core.sync.mutex : Mutex;

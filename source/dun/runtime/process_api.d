@@ -1,5 +1,20 @@
 module dun.runtime.process_api;
 
+
+/// `@trusted policy`: Node's `process` global + signal handlers
+/// + exit handlers + stdio. Every `@trusted` is one of:
+///
+///   1. POSIX syscalls (`getuid`, `getgid`, `getppid`, `kill`,
+///      `getloadavg`, `getrusage`, `setsid`, `sysconf`, …) +
+///      Linux-specific (`/proc/self/stat` parsing for memory
+///      usage). `@trusted` is required because `core.sys.posix.*`
+///      and `core.sys.linux.*` are `@system`.
+///   2. `__gshared` global handler tables (`gUncaughtHandler`,
+///      `gRejectionHandler`, `gExitEngine`) — single-threaded
+///      under the engine's main-thread-only contract.
+///   3. `cast(DunState*) ctx` via `ctxState(ctx)` in callbacks.
+///   4. `env` Proxy native getters/setters that read/write the
+///      D process environment (`std.process.environment`).
 import dun.declarations : PAGE_SIZE_BYTES;
 import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
 import dun.runtime.globals : DunState, ctxState;
@@ -18,6 +33,11 @@ private __gshared bool gHasRejectionHandler;
 
 private __gshared IJSEngine gExitEngine;
 
+/// `@trusted`: reads a single `bool __gshared` flag. `bool` read is
+/// atomic on every supported architecture; the flag is set/cleared
+/// by the same module under the same single-engine assumption, so
+/// the lack of an atomic-load barrier is intentional (no cross-thread
+/// concurrent writers at this surface).
 bool hasUncaughtExceptionHandler() @trusted nothrow @nogc
 {
     return gHasUncaughtHandler;
@@ -74,6 +94,8 @@ bool invokeUncaughtExceptionHandler(IJSEngine engine, string errorMsg) @trusted 
     catch (Throwable) { return false; }
 }
 
+/// `@trusted`: same justification as `hasUncaughtExceptionHandler` —
+/// single `bool __gshared` flag, atomic single-instruction read.
 bool hasUnhandledRejectionHandler() @trusted nothrow @nogc
 {
     return gHasRejectionHandler;

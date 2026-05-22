@@ -24,6 +24,12 @@
 ///   - Binary base64 blocks
 module dun.builtins.yaml;
 
+
+/// `@trusted policy`: YAML parser (subset compatible with
+/// js-yaml). Every `@trusted` is one of:
+///   1. `Appender!(char[])` + `cast(string)` for building output —
+///      pure D parser, no FFI.
+///   2. `cast(DunState*) ctx` via `ctxState(ctx)` in callbacks.
 import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
 import dun.runtime.globals : DunState, ctxState;
 import std.array : Appender, appender;

@@ -1,5 +1,17 @@
 module dun.cli.repl;
 
+
+/// `@trusted policy`: REPL (interactive mode) — line editing,
+/// history, multi-line input. Every `@trusted` is one of:
+///
+///   1. POSIX terminal ioctls (`tcgetattr`, `tcsetattr`) for raw
+///      mode + restoration on exit.
+///   2. `read(STDIN_FILENO, &c, 1)` byte-at-a-time for keystroke
+///      processing.
+///   3. `__gshared` REPL state (history buffer, prompt, env).
+///   4. Engine eval (`engine.eval(line)`) of each REPL input —
+///      isolated per-line via try/catch; no cross-line state
+///      bleed beyond the `var` declarations the user introduces.
 import dun.engine.iface : IJSEngine, EngineConfig, createEngine;
 import dun.runtime.globals : DunState, installGlobals;
 import dun.cli.errors : isColorEnabled, formatUncaughtError;

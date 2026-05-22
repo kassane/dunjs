@@ -1,5 +1,15 @@
 module dun.modules.npm;
 
+
+/// `@trusted policy`: dependency installer (HTTP fetch + tar extract +
+/// package-lock writer). Every `@trusted` is one of:
+///   1. `std.file.{readText, exists, write, mkdirRecurse}` for
+///      package.json/node_modules manipulation — these are
+///      `@trusted` by Phobos because of their syscalls.
+///   2. `std.process.execute` to invoke `tar` for tarball extraction.
+///      Shell-escape: never; tar is invoked via argv (no shell).
+///   3. `dun.builtins.fetch.doFetch` for the npm registry HTTP call.
+///   4. `std.json` parsing of the registry response + package.json.
 enum AuditMode
 {
     warn,

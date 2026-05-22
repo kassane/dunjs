@@ -1,5 +1,11 @@
 module dun.platform.arena;
 
+
+/// `@trusted policy`: arena/bump allocator wrappers — re-exports
+/// `std.experimental.allocator` primitives with the `@nogc pure
+/// nothrow` decorations the hot paths need. The `@trusted` is to
+/// localize the @nogc boundary; see `dun.builtins.crypto` and
+/// `dun.builtins.buffer` for callers.
 public import std.experimental.allocator.building_blocks.region :
     Region, BorrowedRegion, InSituRegion;
 public import std.experimental.allocator.mallocator : Mallocator;
@@ -9,12 +15,20 @@ alias BumpRegion = Region!Mallocator;
 
 static assert(BumpRegion.alignment > 0);
 
+/// `@trusted`: `Region!Mallocator` constructor is @safe in Phobos; the
+/// wrapper exists to localize the `@nogc` boundary so callers can stay
+/// in `@nogc nothrow` hot paths without a separate trusted lambda.
 BumpRegion makeBumpRegion(size_t capacity) @trusted pure nothrow @nogc
 {
     assert(capacity > 0);
     return BumpRegion(capacity);
 }
 
+/// `@trusted`: pointer-cast from `void[]` to `T[]` after a successful
+/// allocator call. The allocator guarantees `bytes.length >= T.sizeof * count`
+/// and the cast preserves the byte sequence — well-defined per
+/// `std.experimental.allocator` documentation. The early `null` return
+/// shortcuts a degenerate alloc-failure path.
 T[] regionAlloc(T, Alloc)(ref Alloc alloc, size_t count) @trusted pure nothrow @nogc
 {
     assert(count > 0);

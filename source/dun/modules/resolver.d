@@ -1,6 +1,10 @@
 /// Import specifier resolution (builtins, paths, node_modules).
 module dun.modules.resolver;
 
+
+/// `@trusted policy`: module resolution (Node algorithm + package.json
+/// exports/imports field + file/directory walk). Pure D; `@trusted`
+/// is for `std.file` and `std.json` operations.
 /// Resolves import specifiers to absolute paths or built-in names.
 struct ModuleResolver
 {

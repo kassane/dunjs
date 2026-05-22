@@ -1,5 +1,24 @@
 module dun.builtins.tls;
 
+/// `@trusted policy`: this file is the TLS layer over OpenSSL.
+/// Every `@trusted` is one of:
+///
+///   1. OpenSSL FFI (SSL_CTX_new, SSL_new, SSL_set_fd, SSL_connect,
+///      SSL_read, SSL_write, SSL_free, …) — `@trusted` is the
+///      security signal. `dun.platform.openssl` is the @system
+///      bindings module.
+///   2. `setsockopt` / `fcntl` / socket fd operations on the
+///      underlying TCP socket — POSIX surface, same justification
+///      as `net.d`.
+///   3. `__gshared SSL_CTX* gClientCtx` initialized lazily under
+///      `gInitDone` flag, single-threaded init guarded by the
+///      engine's main-thread-only contract.
+///
+/// RAII: `TlsSocket` struct is non-copyable (`@disable this(this)`)
+/// and has a destructor that calls `SSL_free`. Matches the audit
+/// pattern from Bun's @safe-rust review — manual SSL_free is
+/// otherwise a frequent leak source.
+
 version (Posix):
 
 import dun.platform.openssl;

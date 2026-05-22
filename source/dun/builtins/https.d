@@ -1,5 +1,12 @@
 module dun.builtins.https;
 
+
+/// `@trusted policy`: HTTPS server + client. Thin wrapper over
+/// `dun.builtins.http` that swaps TCP for TLS via
+/// `dun.builtins.tls`. Every `@trusted` is one of:
+///   1. OpenSSL FFI for the TLS handshake + read/write — same
+///      surface as `tls.d`.
+///   2. Underlying HTTP server logic from `http.d`.
 import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
 import dun.runtime.globals : DunState, ctxState;
 

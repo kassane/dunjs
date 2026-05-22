@@ -1,5 +1,18 @@
 module dun.loop.iopoller;
 
+
+/// `@trusted policy`: cross-platform I/O event poller (epoll on
+/// Linux, kqueue on macOS/BSD, poll() fallback). Every `@trusted`
+/// is one of:
+///
+///   1. epoll syscalls (`epoll_create1`, `epoll_ctl`, `epoll_wait`)
+///      — `core.sys.linux.epoll` is `@system`.
+///   2. kqueue syscalls (`kqueue`, `kevent`) — `core.sys.posix.sys.*`
+///      is `@system`.
+///   3. io_uring syscalls (`io_uring_setup`, `io_uring_enter`,
+///      `io_uring_register`) on supported kernels — same justification.
+///   4. `timespec` + `time_t` math for timeout deadline conversion
+///      (uses `MS_PER_SEC` / `NS_PER_MS` from `declarations.d`).
 import dun.declarations : MS_PER_SEC, NS_PER_MS;
 
 private enum MAX_FD_WATCHES = 64;

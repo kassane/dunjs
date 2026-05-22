@@ -1,5 +1,9 @@
 module dun.platform.lsquic;
 
+
+/// `@trusted policy`: lsquic FFI declarations (extern(C) function
+/// declarations for QUIC engine init / send / recv / connection
+/// management). Wrapped from `dun.builtins.http3`.
 // extern(C) bindings to lsquic — QUIC/HTTP3 library (litespeedtech/lsquic).
 // Only the subset needed for HTTP/3 server and client.
 

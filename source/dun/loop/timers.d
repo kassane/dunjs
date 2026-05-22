@@ -1,5 +1,14 @@
 module dun.loop.timers;
 
+
+/// `@trusted policy`: timer wheel (sorted-array of pending
+/// callbacks + deadline). Every `@trusted` is one of:
+///   1. `core.time.MonoTime` operations — `@trusted`-by-impl in
+///      druntime.
+///   2. Engine method calls (`callFunction`, `freeValue`,
+///      `dupValue`, `newUndefined`) — `@trusted`-by-interface.
+///   3. Manual sortEntries (insertion sort) — pure D but
+///      `@trusted` for the mutation of `entries[]`.
 import core.time;
 import dun.engine.iface : IJSEngine, JSHandle;
 

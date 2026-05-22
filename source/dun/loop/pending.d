@@ -1,5 +1,9 @@
 module dun.loop.pending;
 
+
+/// `@trusted policy`: QuickJS-specific pending-call queue. Every
+/// `@trusted` is `engine.callFunction` / `engine.freeValue` /
+/// `engine.dupValue` on cached function handles (engine-FFI surface).
 // Thread-local queue for I/O callbacks that need to call into JS.
 // I/O event callbacks (eventcore delegates) push here; the event loop
 // drains after each processEvents call so JS is never invoked from

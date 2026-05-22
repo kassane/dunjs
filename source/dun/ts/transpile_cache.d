@@ -3,6 +3,10 @@
 /// `DUN_TSC_CACHE_MAX_{ENTRIES,MB}`; oldest-modified evicted first.
 module dun.ts.transpile_cache;
 
+
+/// `@trusted policy`: persistent transpile cache (SHA-256 keyed,
+/// 24h TTL). Every `@trusted` is `std.file` Phobos calls + the
+/// SHA-256 routine in `dun.builtins.crypto`.
 import std.file : exists, mkdirRecurse, write, read, dirEntries,
                   SpanMode, remove, getSize, timeLastModified;
 import std.path : buildPath, dirName;

@@ -1,5 +1,10 @@
 module dun.runtime.microtask_api;
 
+
+/// `@trusted policy`: `queueMicrotask` JS global. `@trusted` for
+/// the `cast(DunState*) ctx` via `ctxState(ctx)` + the
+/// `state.eventLoop.microtasks.enqueue` call (mutates the
+/// `__gshared` queue).
 import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
 import dun.runtime.globals : DunState, ctxState;
 

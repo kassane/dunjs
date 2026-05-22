@@ -15,6 +15,15 @@
 /// now atomic (hot).
 module dun.workers.shared_memory;
 
+
+/// `@trusted policy`: SharedArrayBuffer backing storage —
+/// page-aligned mmap'd region shared across worker threads.
+/// Every `@trusted` is one of:
+///   1. `core.sys.posix.sys.mman.mmap` / `munmap` for the backing
+///      pages.
+///   2. `cast(ubyte[]) (ptr[0..size])` to expose the mapped region
+///      as a D slice.
+///   3. Refcount via `atomicFetchAdd` on the shared header.
 import core.stdc.stdlib : malloc, free;
 import core.stdc.string : memset;
 import core.sync.mutex : Mutex;
