@@ -1,0 +1,5 @@
+map sum: 12
+filter len: 2
+reduced: 6
+applyFn: x=42
+json: {"a":10,"b":20}

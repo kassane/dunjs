@@ -95,6 +95,14 @@ struct DunV8Context {
     DunV8Isolate* isolate_wrapper;
     void* user_data;
     std::string last_exception;
+    // Set by `dun_v8_throw_type_error` / `dun_v8_throw_range_error`
+    // / `dun_v8_throw_value` after `isolate->ThrowException`.
+    // Checked + cleared by the FunctionTemplate trampoline +
+    // `dun_v8_call` so callers know a JS exception is in flight.
+    // V8 14+'s `HasPendingException()` returns false from inside
+    // the same call frame on freshly scheduled exceptions, so we
+    // can't rely on it.
+    bool has_thrown{false};
 };
 
 struct DunV8Value {
@@ -248,6 +256,29 @@ static void v8FunctionTrampoline(const v8::FunctionCallbackInfo<v8::Value>& info
     for (int i = 0; i < argc; i++)
         dun_v8_value_unref(argv[i]);
 
+    // If the D callback called `engine.throwTypeError(...)` (or
+    // throwRangeError / throwValue), the engine throw helpers set
+    // `cw->has_thrown = true` after `isolate->ThrowException`. V8's
+    // public `HasPendingException()` returns false from inside the
+    // same trampoline frame on V8 14+ (the exception is scheduled
+    // but not visible to public API until control returns to V8),
+    // so we can't rely on it here.
+    //
+    // The flag-based path: if `has_thrown` is set, the JS-side
+    // try/catch will see the throw — we just skip Set() so V8
+    // doesn't override the exception state with a returned value.
+    //
+    // Surfaced by the yuku-parser N-API addon load path: the
+    // first `require(p)` inside `try { } catch (e) { }` failed
+    // and didn't trigger the catch on V8 specifically — the
+    // TypeError was returned as the function's value instead of
+    // being thrown.
+    if (fd->context->has_thrown) {
+        fd->context->has_thrown = false;
+        if (result) dun_v8_value_unref(result);
+        return;
+    }
+
     if (result) {
         info.GetReturnValue().Set(getLocal(result, isolate));
         dun_v8_value_unref(result);
@@ -336,10 +367,12 @@ DunV8Value* dun_v8_eval(DunV8Context* cw, const char* source,
                 v8::String::Utf8Value msg(isolate, try_catch.Exception());
                 cw->last_exception = *msg ? *msg : "unknown error";
             }
+            cw->has_thrown = false;  // Caller observes via *is_error
             return wrapValue(iw, v8::Undefined(isolate));
         }
 
         *is_error = 0;
+        cw->has_thrown = false;
         return wrapValue(iw, result.ToLocalChecked());
     });
 }
@@ -807,33 +840,45 @@ DunV8Value* dun_v8_throw_error(DunV8Context* cw, const char* msg) {
 DunV8Value* dun_v8_throw_type_error(DunV8Context* cw, const char* msg) {
     assert(cw && "dun_v8_throw_type_error: null context");
     assert(msg && "dun_v8_throw_type_error: null msg");
-    return dun::withContext(cw, [&](auto isolate, auto, auto* iw) {
+    dun::withContext(cw, [&](auto isolate, auto, auto*) {
         auto err = v8::Exception::TypeError(
             v8::String::NewFromUtf8(isolate, msg).ToLocalChecked());
         isolate->ThrowException(err);
-        return wrapValue(iw, err);
+        return nullptr;
     });
+    // Set the context-level thrown flag so the trampoline knows to
+    // skip Set() — V8's `HasPendingException()` returns false from
+    // inside the same trampoline frame on V8 14+ (the exception is
+    // scheduled but not visible to public API until control returns
+    // to V8). The flag is set here + checked + cleared in the
+    // trampoline + dun_v8_call.
+    cw->has_thrown = true;
+    return nullptr;
 }
 
 DunV8Value* dun_v8_throw_range_error(DunV8Context* cw, const char* msg) {
     assert(cw && "dun_v8_throw_range_error: null context");
     assert(msg && "dun_v8_throw_range_error: null msg");
-    return dun::withContext(cw, [&](auto isolate, auto, auto* iw) {
+    dun::withContext(cw, [&](auto isolate, auto, auto*) -> DunV8Value* {
         auto err = v8::Exception::RangeError(
             v8::String::NewFromUtf8(isolate, msg).ToLocalChecked());
         isolate->ThrowException(err);
-        return wrapValue(iw, err);
+        return nullptr;
     });
+    cw->has_thrown = true;
+    return nullptr;
 }
 
 DunV8Value* dun_v8_throw_value(DunV8Context* cw, DunV8Value* val) {
     assert(cw && "dun_v8_throw_value: null context");
     assert(val && "dun_v8_throw_value: null value");
-    return dun::withContext(cw, [&](auto isolate, auto, auto* iw) {
+    dun::withContext(cw, [&](auto isolate, auto, auto*) -> DunV8Value* {
         auto local = getLocal(val, isolate);
         isolate->ThrowException(local);
-        return wrapValue(iw, local);
+        return nullptr;
     });
+    cw->has_thrown = true;
+    return nullptr;
 }
 
 // --- Function call (unique — TryCatch + args marshalling) ---
@@ -876,10 +921,12 @@ DunV8Value* dun_v8_call(DunV8Context* cw, DunV8Value* func,
                 v8::String::Utf8Value msg(isolate, try_catch.Exception());
                 cw->last_exception = *msg ? *msg : "unknown error";
             }
+            cw->has_thrown = false;  // Caller observes via *is_error
             return wrapValue(iw, v8::Undefined(isolate));
         }
 
         *is_error = 0;
+        cw->has_thrown = false;
         return wrapValue(iw, result.ToLocalChecked());
     });
 }
