@@ -372,51 +372,11 @@ FetchResult doFetch(string url, string method, string reqBody,
     }
 }
 
-struct ParsedUrl
-{
-    string scheme;
-    string host;
-    ushort port;
-    string path;
-}
-
-ParsedUrl parseUrl(string url) @safe
-{
-    import std.string : indexOf;
-
-    ParsedUrl p;
-    p.path = "/";
-
-    auto schemeEnd = url.indexOf("://");
-    if (schemeEnd < 0) throw new Exception("invalid URL: " ~ url);
-    p.scheme = url[0 .. schemeEnd];
-    auto rest = url[schemeEnd + 3 .. $];
-
-    auto pathStart = rest.indexOf('/');
-    string hostPort;
-    if (pathStart < 0)
-        hostPort = rest;
-    else
-    {
-        hostPort = rest[0 .. pathStart];
-        p.path = rest[pathStart .. $];
-    }
-
-    auto colonIdx = hostPort.indexOf(':');
-    if (colonIdx < 0)
-    {
-        p.host = hostPort;
-        p.port = 0;
-    }
-    else
-    {
-        p.host = hostPort[0 .. colonIdx];
-        try { p.port = hostPort[colonIdx + 1 .. $].to!ushort; }
-        catch (Exception) { p.port = 0; }
-    }
-
-    return p;
-}
+// `parseUrl` + `ParsedUrl` moved to `dun.platform.url_parser` so
+// tools / fuzz harnesses can depend on it without pulling the
+// full fetch.d transitive surface (TLS, async, permissions, ...).
+// Re-exported here for the existing callers.
+public import dun.platform.url_parser : ParsedUrl, parseUrl;
 
 string buildRequest(string method, ParsedUrl p, string body_,
     bool hasBody, string[string] extraHeaders) @safe
