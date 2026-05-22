@@ -208,11 +208,37 @@ __gshared JSHandle _httpSrvAddress;
 __gshared JSHandle _httpSrvSetTimeout;
 __gshared JSHandle _httpJsDispatchFn;
 __gshared JSHandle _httpCachedUndef;
+__gshared JSHandle _writeHeadFlattener;
+__gshared bool _writeHeadFlattenerCached = false;
 __gshared bool _httpFnsCached = false;
+
+void ensureWriteHeadFlattener(IJSEngine engine) @trusted
+{
+    if (_writeHeadFlattenerCached) return;
+    auto res = engine.eval(
+        "(h => { const out = []; if (!h) return out; "
+        ~ "for (const k of Object.keys(h)) { "
+        ~ "  const v = h[k]; "
+        ~ "  if (Array.isArray(v)) for (const vi of v) out.push(k, String(vi)); "
+        ~ "  else if (v != null) out.push(k, String(v)); "
+        ~ "} return out; "
+        ~ "})",
+        "<http-writehead-flatten>");
+    if (!res.isError && engine.isFunction(res.value))
+    {
+        _writeHeadFlattener = res.value;
+        _writeHeadFlattenerCached = true;
+    }
+    else
+    {
+        engine.freeValue(res.value);
+    }
+}
 
 void ensureHttpFnsCached(IJSEngine engine) @trusted
 {
     if (_httpFnsCached) return;
+    ensureWriteHeadFlattener(engine);
     _httpSrvListen = engine.newFunction(&jsHttpServerListen, "listen", 1);
     _httpSrvClose = engine.newFunction(&jsHttpServerClose, "close", 0);
     _httpSrvOn = engine.newFunction(&jsHttpServerOn, "on", 2);
@@ -871,7 +897,7 @@ JSHandle jsHttpServerOn(void* ctx, JSHandle thisVal, scope JSHandle[] args) @tru
     if (engine.isUndefined(listeners) || engine.isNull(listeners) || !engine.isArray(listeners))
     {
         engine.freeValue(listeners);
-        listeners = engine.eval("([])", "<http-srv-on>").value;
+        listeners = engine.newArray();
     }
     // Push the callback
     auto lenProp = engine.getProperty(listeners, "length");
@@ -1094,12 +1120,12 @@ JSHandle jsResGetHeader(void* ctx, JSHandle thisVal, scope JSHandle[] args) @tru
         {
             if ((*found).length == 1)
                 return engine.newString((*found)[0]);
-            auto arr = engine.eval("[]", "<arr>");
+            auto arr = engine.newArray();
             foreach (i, s; *found)
             {
-                engine.setPropertyIndex(arr.value, cast(uint) i, engine.newString(s));
+                engine.setPropertyIndex(arr, cast(uint) i, engine.newString(s));
             }
-            return arr.value;
+            return arr;
         }
     }
     catch (Exception) {}
@@ -1123,10 +1149,10 @@ JSHandle jsResGetHeaders(void* ctx, JSHandle thisVal, scope JSHandle[] args) @tr
                 engine.setProperty(obj, k, engine.newString(vals[0]));
             else if (vals.length > 1)
             {
-                auto arr = engine.eval("[]", "<arr>");
+                auto arr = engine.newArray();
                 foreach (i, s; vals)
-                    engine.setPropertyIndex(arr.value, cast(uint) i, engine.newString(s));
-                engine.setProperty(obj, k, arr.value);
+                    engine.setPropertyIndex(arr, cast(uint) i, engine.newString(s));
+                engine.setProperty(obj, k, arr);
             }
         }
     }
@@ -1220,48 +1246,42 @@ JSHandle jsResWriteHead(void* ctx, JSHandle thisVal, scope JSHandle[] args) @tru
     // specific names...). Use a JS-side flatten to emit a string
     // array `[k1, v1, k2, v2, ...]` so D can iterate without needing
     // getOwnPropertyNames on IJSEngine.
-    if (args.length >= 2 && engine.isObject(args[1]))
+    //
+    // v1.1.26: Pre-compile the flattener once into _writeHeadFlattener
+    // (see ensureHttpFnsCached). Same pattern as `_fetchHeadersFlattener`
+    // in fetch.d — JSC compiles fresh bytecode per `engine.eval(...)`
+    // call even when the source string is identical, and the
+    // resulting JSFunction objects accumulate as protected handles.
+    // Per-request eval was the root cause of the `deno_deploy_compat`
+    // fetch-hang flake on JSC under sweep heap-load.
+    if (args.length >= 2 && engine.isObject(args[1]) && _writeHeadFlattenerCached)
     {
         try
         {
-            // Compile the flatten helper once per engine.
-            auto flatRes = engine.eval(
-                "(h => { const out = []; if (!h) return out; "
-                ~ "for (const k of Object.keys(h)) { "
-                ~ "  const v = h[k]; "
-                ~ "  if (Array.isArray(v)) for (const vi of v) out.push(k, String(vi)); "
-                ~ "  else if (v != null) out.push(k, String(v)); "
-                ~ "} return out; "
-                ~ "})",
-                "<http-writehead-flatten>");
-            if (!flatRes.isError && engine.isFunction(flatRes.value))
+            JSHandle[1] callArgs = [args[1]];
+            auto undef = engine.newUndefined();
+            auto flat = engine.callFunction(_writeHeadFlattener, undef, callArgs[]);
+            engine.freeValue(undef);
+            if (engine.isArray(flat))
             {
-                JSHandle[1] callArgs = [args[1]];
-                auto undef = engine.newUndefined();
-                auto flat = engine.callFunction(flatRes.value, undef, callArgs[]);
-                engine.freeValue(undef);
-                if (engine.isArray(flat))
+                auto n = engine.getArrayLength(flat);
+                for (int i = 0; i + 1 < n; i += 2)
                 {
-                    auto n = engine.getArrayLength(flat);
-                    for (int i = 0; i + 1 < n; i += 2)
+                    auto k = engine.getPropertyIndex(flat, cast(uint) i);
+                    auto v = engine.getPropertyIndex(flat, cast(uint)(i + 1));
+                    if (engine.isString(k) && engine.isString(v))
                     {
-                        auto k = engine.getPropertyIndex(flat, cast(uint) i);
-                        auto v = engine.getPropertyIndex(flat, cast(uint)(i + 1));
-                        if (engine.isString(k) && engine.isString(v))
-                        {
-                            auto kn = engine.extractString(k);
-                            auto vn = sanitizeHeaderValue(engine.extractString(v));
-                            auto existing = kn in conn.respHeaders;
-                            if (existing) (*existing) ~= vn;
-                            else conn.respHeaders[kn] = [vn];
-                        }
-                        engine.freeValue(k);
-                        engine.freeValue(v);
+                        auto kn = engine.extractString(k);
+                        auto vn = sanitizeHeaderValue(engine.extractString(v));
+                        auto existing = kn in conn.respHeaders;
+                        if (existing) (*existing) ~= vn;
+                        else conn.respHeaders[kn] = [vn];
                     }
+                    engine.freeValue(k);
+                    engine.freeValue(v);
                 }
-                engine.freeValue(flat);
-                engine.freeValue(flatRes.value);
             }
+            engine.freeValue(flat);
         }
         catch (Exception) {}
     }

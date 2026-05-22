@@ -2,6 +2,9 @@ module dun.loop.async;
 
 import dun.engine.iface : IJSEngine, JSHandle;
 import core.atomic : atomicStore, atomicLoad, MemoryOrder;
+import core.sync.mutex : Mutex;
+import core.sync.semaphore : Semaphore;
+import core.thread : Thread;
 
 alias ResultTransform = JSHandle delegate(IJSEngine engine, string result) @trusted;
 
@@ -29,7 +32,78 @@ private struct AsyncTask
     shared bool completed;
 }
 
-private AsyncTask*[] tasks;
+private struct WorkItem
+{
+    AsyncTask* task;
+    AsyncResult delegate() @trusted nothrow work;
+}
+
+private __gshared AsyncTask*[] tasks;
+private __gshared WorkItem[] workQueue;
+private __gshared Mutex queueMutex;
+private __gshared Semaphore queueSem;
+private __gshared Thread[] poolThreads;
+private __gshared bool poolInitialized;
+
+/// Thread pool size. Most fetches are I/O-bound (TCP connect +
+/// HTTP roundtrip + TLS handshake). 8 workers handles sustained
+/// concurrent load while keeping the resident memory + GC pressure
+/// from per-thread Thread objects low.
+///
+/// v1.1.26 (this commit): per-fetch `new Thread()` accumulation
+/// was the JSC `deno_deploy_compat` flake root cause. After ~20-30
+/// fetches, the cumulative D GC + JSC concurrent-GC pressure tipped
+/// fetch into 5s+ stalls. Pooling eliminates the Thread allocation
+/// path; the workers sleep on the semaphore between jobs.
+private enum POOL_SIZE = 8;
+
+private void initPool() @trusted nothrow
+{
+    if (poolInitialized) return;
+    try
+    {
+        queueMutex = new Mutex();
+        queueSem = new Semaphore(0);
+        for (size_t i = 0; i < POOL_SIZE; i++)
+        {
+            auto t = new Thread(&poolWorker);
+            t.isDaemon = true;
+            t.start();
+            poolThreads ~= t;
+        }
+        poolInitialized = true;
+    }
+    catch (Throwable) {}
+}
+
+private void poolWorker() @trusted nothrow
+{
+    while (true)
+    {
+        try
+        {
+            queueSem.wait();
+            WorkItem item;
+            bool got = false;
+            synchronized (queueMutex)
+            {
+                if (workQueue.length > 0)
+                {
+                    item = workQueue[0];
+                    workQueue = workQueue[1 .. $];
+                    got = true;
+                }
+            }
+            if (!got) continue;
+
+            auto r = item.work();
+            item.task.result = r.value;
+            item.task.error = r.error;
+            atomicStore!(MemoryOrder.rel)(item.task.completed, true);
+        }
+        catch (Throwable) {}
+    }
+}
 
 void asyncSubmit(IJSEngine engine, JSHandle resolve, JSHandle reject,
     string delegate() @trusted work,
@@ -52,6 +126,8 @@ void asyncSubmitSafe(IJSEngine engine, JSHandle resolve, JSHandle reject,
     AsyncResult delegate() @trusted nothrow work,
     ResultTransform transform = null) @trusted
 {
+    initPool();
+
     auto task = new AsyncTask();
     task.engine = engine;
     task.resolve = resolve;
@@ -61,15 +137,11 @@ void asyncSubmitSafe(IJSEngine engine, JSHandle resolve, JSHandle reject,
 
     tasks ~= task;
 
-    import core.thread : Thread;
-    auto t = new Thread({
-        auto r = work();
-        task.result = r.value;
-        task.error = r.error;
-        atomicStore!(MemoryOrder.rel)(task.completed, true);
-    });
-    t.isDaemon = true;
-    t.start();
+    synchronized (queueMutex)
+    {
+        workQueue ~= WorkItem(task, work);
+    }
+    queueSem.notify();
 }
 
 int asyncDrain() @trusted

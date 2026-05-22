@@ -776,6 +776,19 @@ JSHandle makeResponse(IJSEngine engine, FetchResult r) @trusted
     engine.freeValue(urlVal);
     engine.freeValue(headerArr);
 
+    /* JSC concurrent-GC safety net: if the cached builder threw —
+       typically because concurrent GC swept an intermediate (a
+       pair entry, the header array itself) before `callFunction`
+       ran — `resp` is the exception value, not a Response.
+       Returning it through `resolve()` made `r2.text is not a
+       function` surface to the test. Fall back to the plain-object
+       builder, which doesn't allocate transient nested arrays. */
+    if (engine.isException(resp))
+    {
+        engine.freeValue(resp);
+        return makeResponseFallback(engine, r);
+    }
+
     return resp;
 }
 
