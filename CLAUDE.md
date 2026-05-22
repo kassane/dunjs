@@ -630,8 +630,8 @@ It cross-links to this file, [SECURITY.md](SECURITY.md), and
 - The exact build & test recipe (also matches `/all-backends
   release` + `/integration-sweep` + `/bench-compare`)
 - Known issues / deferred work (JSC `bun_v7_additions` SKIP,
-  Dockerfile `icudtl.dat` staging, QJS Worker+setTimeout race,
-  fuzzer harness gap)
+  QJS Worker+setTimeout race — Dockerfile `icudtl.dat` and
+  fuzzer harness gaps both closed in v1.1.26)
 - Open questions for the next maintainer (CVE intake cadence,
   N-API stability gate, Bun parity drift, LDC version pin)
 

@@ -243,7 +243,7 @@ dub build -c v8  && BACKEND=v8  bash tests/integration/run.sh
 ./build/dun "--DRT-gcopt=parallel:4 minPoolSize:32" run --allow-all tests/benchmarks/feature_bench.js
 ```
 
-Backend test scores: **QuickJS 146/146, JSC 145/145 + 1 SKIP (`bun_v7_additions`), V8 146/146** (full parity, Workers on all backends).
+Backend test scores: **QuickJS 162/162, JSC 161/162 + 1 SKIP (`bun_v7_additions`), V8 162/162** (full parity, Workers on all backends).
 
 ### 4. Docker
 
@@ -265,7 +265,7 @@ docker run --rm -e DUN_BACKEND=v8 dunjs:multi run script.js
 The GitHub Actions workflow (`.github/workflows/ci.yml`) runs:
 1. **Build matrix**: QuickJS (Linux/macOS/Windows), JSC (Linux/macOS), V8 (Linux compile-check)
 2. **Unit tests**: `dub test -c unittest` on Linux/macOS/Windows
-3. **Integration tests**: Run 131 fixtures against expected output on Linux/macOS/Windows
+3. **Integration tests**: Run 162 fixtures against expected output on Linux/macOS/Windows
 
 ## DUB Configurations
 
@@ -273,7 +273,7 @@ The GitHub Actions workflow (`.github/workflows/ci.yml`) runs:
 |--------|-------------|-------------|------------|
 | `quickjs` | `EngineQuickJS` | CMake-built libqjs.a | `-lqjs`, `-lm`, `-ldl` |
 | `jsc` | `EngineJSC` | Prebuilt from oven-sh/WebKit | `-L vendor/jsc/lib`, JSC libs |
-| `v8` | `EngineV8` | V8 14.9.207.4 from kassane/libv8 + v8shim | `-lv8`, `-lv8_libplatform`, `-lv8shim` (LDC: `--link-internally`) |
+| `v8` | `EngineV8` | V8 15.0.91 from kassane/libv8 + v8shim | `-lv8`, `-lv8_libplatform`, `-lv8shim` (LDC: `--link-internally`) |
 | `unittest` | `EngineQuickJS` + `DunTest` | Same as quickjs | Same as quickjs |
 
 ## GC Tuning
