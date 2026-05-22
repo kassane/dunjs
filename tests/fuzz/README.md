@@ -1,12 +1,15 @@
 # DunJS fuzz harness
 
-LDC's `-fsanitize=fuzzer` (libFuzzer, LLVM-backed) wired up for the two
-audit-surface modules most likely to take arbitrary user-supplied bytes:
+LDC's `-fsanitize=fuzzer` (libFuzzer, LLVM-backed) wired up for the
+audit-surface modules most likely to take arbitrary user-supplied
+bytes:
 
 | Target | Source under test | What it asserts |
 |---|---|---|
 | `fuzz_strip` | `source/dun/ts/strip.d` + `source/dun/ts/parser/lexer.d` | TS type stripper preserves source positions (`stripped.length == src.length`) |
 | `fuzz_simd` | `source/dun/platform/simd.d` (codecs) | latin1↔UTF-8 round-trip byte-exact + hex encoder output well-formed |
+| `fuzz_url` | `source/dun/platform/url_parser.d` | `parseUrl(s)` returns a well-formed `ParsedUrl` or throws — never UB. `scheme.length > 0`, `path.length >= 1` |
+| `fuzz_lexer` | `source/dun/ts/parser/lexer.d` | `hasSyntaxError`, `skipStringLit`, `skipTemplateLit` never read past `src.length` |
 
 ## Quick start
 
@@ -65,13 +68,19 @@ fuzz targets are:
 
 Future targets (call-out for follow-up PRs):
 
-- `fuzz_json` — `source/dun/builtins/json*` if any custom serialization
-  ships. (Phobos's `std.json` is the reference, but if DunJS adds a
-  Fast-JSON path, it'd want coverage.)
-- `fuzz_url` — `URL` parser surface, especially the IDN + IPv6 cases.
-- `fuzz_buffer` — `Buffer.from(str, encoding)` across all 6 encodings
-  + `Buffer.write/slice/concat`. Some of this is covered by the
-  `audit_roundtrip` integration fixture; fuzzing would extend it.
+- `fuzz_json` — `source/dun/builtins/json*` if any custom
+  serialization ships. (Phobos's `std.json` is the reference, but
+  if DunJS adds a Fast-JSON path, it'd want coverage.)
+- `fuzz_buffer` — `Buffer.from(str, encoding)` across all 6
+  encodings + `Buffer.write/slice/concat`. Some of this is covered
+  by the `audit_roundtrip` integration fixture; fuzzing would
+  extend it.
+- `fuzz_path` — Node's `path.normalize`, `path.resolve`,
+  `path.relative`. The CVE-2023-32004 path-traversal class lives
+  here; the existing `cve_path_traversal.js` integration fixture
+  is the regression, and fuzz would cover the long-tail of weird
+  inputs (`\0`-embedded, `..//.//..`, Windows drive letters
+  mixed with POSIX separators).
 
 ## Reference
 

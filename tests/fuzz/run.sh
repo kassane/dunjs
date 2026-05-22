@@ -49,6 +49,20 @@ for fuzz_d in tests/fuzz/${TARGET_GLOB}; do
                  source/dun/platform/simd.d \
                  source/dun/declarations.d
             ;;
+        url)
+            ldc2 -fsanitize=fuzzer -fsanitize=address -O1 -g \
+                 -I=source -Jsource \
+                 -of=build/${name} \
+                 "${fuzz_d}" \
+                 source/dun/platform/url_parser.d
+            ;;
+        lexer)
+            ldc2 -fsanitize=fuzzer -fsanitize=address -O1 -g \
+                 -I=source -Jsource \
+                 -of=build/${name} \
+                 "${fuzz_d}" \
+                 source/dun/ts/parser/lexer.d
+            ;;
         *)
             echo "ERROR: unknown fuzz target '${target}' — add a build case to tests/fuzz/run.sh"
             fail=1
