@@ -81,9 +81,12 @@ After running the skill, the working tree has:
   binary; **must** be present or any Intl / regex-Unicode / certain
   crypto operations throw `Internal error. Icu error.`)
 
-The Dockerfiles **do not** currently copy `icudtl.dat` into the
-runtime image — proposed fix is documented but deferred (see
-"Known issues" below).
+Both `Dockerfile` and `Dockerfile.multibackend` stage
+`icudtl.dat` into `/usr/local/bin/icudtl.dat` automatically
+(see Known issue #2 — closed in v1.1.26). V8 image variants
+ship the real ICU file from the V8 build stage; QJS/JSC
+variants copy an empty `touch`-ed placeholder so the COPY
+directive succeeds with no harm to the backend.
 
 ## JSC deno_deploy_compat flake
 
