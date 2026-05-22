@@ -351,8 +351,16 @@ private string denoServeAndKvSource() pure nothrow @safe
     "    finished: finished," ~
     "    ref: function() {}," ~
     "    unref: function() {}," ~
+    /* shutdown(): JSC-only GC hint after close — each cycle leaves
+       orphaned closure state (the handler, the events map, the
+       per-request listener chain) that the JS-side resolved promise
+       chain doesn't trigger collection of. Without the hint the
+       `deno_deploy_compat` 15-server fixture pushes JSC's
+       protected-handle table past the threshold and fetch starts
+       timing out at section 7. The `gc()` is exposed by DunJS on
+       all backends; on QJS/V8 it's a cheaper no-op-ish call. */
     "    shutdown: function() {" ~
-    "      return new Promise(function(r) { srv.close(function() { r(); }); });" ~
+    "      return new Promise(function(r) { srv.close(function() { try { gc(); } catch(_){} r(); }); });" ~
     "    }" ~
     "  };" ~
     "};" ~
