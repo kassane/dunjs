@@ -159,6 +159,30 @@ int extractOptInt(IJSEngine engine, JSHandle opts, string key, int def) @trusted
     return def;
 }
 
+// Cached `(o) => Object.keys(o)` factory — per /debug-native-callback
+// hot-path eval pattern. Pre-cache fix: every `spawnSync({env:{...}})`
+// compiled fresh bytecode for the same one-line keys helper, which
+// JSC never evicts. Thread-local for Worker engine isolation.
+private static JSHandle _envKeysFactory;
+private static bool _envKeysFactoryCached = false;
+
+private void ensureEnvKeysFactoryCached(IJSEngine engine) @trusted nothrow
+{
+    if (_envKeysFactoryCached) return;
+    try
+    {
+        auto r = engine.eval("(function(o){return Object.keys(o);})", "<env-keys>");
+        if (!r.isError && engine.isFunction(r.value))
+        {
+            _envKeysFactory = r.value;
+            _envKeysFactoryCached = true;
+        }
+        else
+            engine.freeValue(r.value);
+    }
+    catch (Exception) {}
+}
+
 string[string] extractOptEnv(IJSEngine engine, JSHandle opts) @trusted
 {
     string[string] result;
@@ -166,13 +190,12 @@ string[string] extractOptEnv(IJSEngine engine, JSHandle opts) @trusted
     scope(exit) engine.freeValue(envVal);
     if (engine.isUndefined(envVal) || engine.isNull(envVal) || !engine.isObject(envVal))
         return result;
-    auto keysResult = engine.eval(
-        `(function(o) { return Object.keys(o); })`, "<env-keys>");
-    if (keysResult.isError) { engine.freeValue(keysResult.value); return result; }
+    ensureEnvKeysFactoryCached(engine);
+    if (!_envKeysFactoryCached) return result;
     auto undef = engine.newUndefined();
     JSHandle[1] callArgs = [envVal];
-    auto keysArr = engine.callFunction(keysResult.value, undef, callArgs[]);
-    engine.freeValue(keysResult.value);
+    auto keysArr = engine.callFunction(
+        engine.dupValue(_envKeysFactory), undef, callArgs[]);
     engine.freeValue(undef);
     if (engine.isArray(keysArr))
     {

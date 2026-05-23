@@ -157,6 +157,33 @@ __gshared JSHandle _bufCompare, _bufIncludes, _bufSubarray, _bufIsEncoding;
 __gshared JSHandle _bufProto; // Shared prototype object with all methods
 __gshared bool _bufFnsCached = false;
 
+// Cached `(ab, off, len) => new Uint8Array(ab, off, len)` factory for
+// `Buffer.from(ArrayBuffer, ...)` — per /debug-native-callback
+// hot-path eval pattern. Pre-cache fix: every Buffer.from(ab) call
+// compiled fresh bytecode (JSC never evicts). Thread-local so each
+// Worker engine builds its own factory pinned by its own engine.
+private static JSHandle _uint8ArrayViewFactory;
+private static bool _uint8ArrayViewFactoryCached = false;
+
+private void ensureUint8ArrayViewFactoryCached(IJSEngine engine) @trusted nothrow
+{
+    if (_uint8ArrayViewFactoryCached) return;
+    try
+    {
+        auto r = engine.eval(
+            "(function(ab,off,len){return new Uint8Array(ab,off,len);})",
+            "<buf-ab-view>");
+        if (!r.isError && engine.isFunction(r.value))
+        {
+            _uint8ArrayViewFactory = r.value;
+            _uint8ArrayViewFactoryCached = true;
+        }
+        else
+            engine.freeValue(r.value);
+    }
+    catch (Exception) {}
+}
+
 void ensureBufferFnsCached(IJSEngine engine) @trusted
 {
     if (_bufFnsCached) return;
@@ -673,43 +700,40 @@ JSHandle jsBufferFrom(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trust
             engine.freeValue(byteLenVal);
 
             // Support Buffer.from(ArrayBuffer, byteOffset, length)
+            // — single cached factory handles both forms: Uint8Array
+            // constructor treats undefined off/len as "use defaults",
+            // so one factory suffices.
+            ensureUint8ArrayViewFactoryCached(engine);
             bool hasOffset = args.length >= 2 && engine.isNumber(args[1]);
-            if (hasOffset)
+            if (_uint8ArrayViewFactoryCached)
             {
-                int offset = engine.extractInt(args[1]);
-                int len = (args.length >= 3 && engine.isNumber(args[2]))
-                    ? engine.extractInt(args[2])
-                    : byteLen - offset;
-                import std.conv : to;
-                auto u8Result = engine.eval(
-                    "(function(ab,off,len){return new Uint8Array(ab,off,len)})", "<buf-ab-off>");
-                if (!u8Result.isError)
+                JSHandle offArg, lenArg;
+                if (hasOffset)
                 {
-                    auto u8arr = engine.callFunction(u8Result.value, engine.newUndefined(),
-                        [args[0], engine.newInt(offset), engine.newInt(len)]);
-                    engine.freeValue(u8Result.value);
-                    auto bytes = engine.getTypedArrayBytes(u8arr);
-                    engine.freeValue(u8arr);
-                    if (bytes !is null)
-                        return makeBufferObj(engine, bytes);
+                    int offset = engine.extractInt(args[1]);
+                    int len = (args.length >= 3 && engine.isNumber(args[2]))
+                        ? engine.extractInt(args[2])
+                        : byteLen - offset;
+                    offArg = engine.newInt(offset);
+                    lenArg = engine.newInt(len);
                 }
                 else
-                    engine.freeValue(u8Result.value);
-            }
-
-            auto u8Result = engine.eval(
-                "(function(ab){return new Uint8Array(ab)})", "<buf-ab>");
-            if (!u8Result.isError)
-            {
-                auto u8arr = engine.callFunction(u8Result.value, engine.newUndefined(), [args[0]]);
-                engine.freeValue(u8Result.value);
+                {
+                    offArg = engine.newUndefined();
+                    lenArg = engine.newUndefined();
+                }
+                auto undef = engine.newUndefined();
+                JSHandle[3] viewArgs = [args[0], offArg, lenArg];
+                auto u8arr = engine.callFunction(
+                    engine.dupValue(_uint8ArrayViewFactory), undef, viewArgs[]);
+                engine.freeValue(offArg);
+                engine.freeValue(lenArg);
+                engine.freeValue(undef);
                 auto bytes = engine.getTypedArrayBytes(u8arr);
                 engine.freeValue(u8arr);
                 if (bytes !is null)
                     return makeBufferObj(engine, bytes);
             }
-            else
-                engine.freeValue(u8Result.value);
             auto fallbackBytes = new ubyte[byteLen];
             return makeBufferObj(engine, fallbackBytes);
         }

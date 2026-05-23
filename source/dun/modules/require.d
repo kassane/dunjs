@@ -378,7 +378,11 @@ JSHandle jsRequire(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
         return engine.throwTypeError("require() denied: requires --allow-read");
     }
 
-    // JSON files: parse and return directly
+    // JSON files: parse via cached `JSON.parse` factory rather than
+    // `eval("(" ~ jsonSource ~ ")")`. Pre-cache fix: every .json
+    // require() compiled fresh bytecode with the file contents
+    // inlined (JSC bytecode cache leak — /debug-native-callback
+    // hot-path eval pattern).
     import std.algorithm : endsWith;
     if (resolved.endsWith(".json"))
     {
@@ -386,14 +390,28 @@ JSHandle jsRequire(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
         {
             import std.file : readText;
             auto jsonSource = readText(resolved);
-            auto parseResult = engine.eval("(" ~ jsonSource ~ ")", resolved);
-            if (!parseResult.isError)
+            ensureJsonParseFactoryCached(engine);
+            JSHandle parsed;
+            bool ok = false;
+            if (_jsonParseFactoryCached)
+            {
+                auto srcVal = engine.newString(jsonSource);
+                auto undef = engine.newUndefined();
+                JSHandle[1] argv = [srcVal];
+                parsed = engine.callFunction(
+                    engine.dupValue(_jsonParseFactory), undef, argv[]);
+                engine.freeValue(srcVal);
+                engine.freeValue(undef);
+                ok = !engine.isException(parsed);
+                if (!ok) engine.freeValue(parsed);
+            }
+            if (ok)
             {
                 auto wrapper = engine.newObject();
-                engine.setProperty(wrapper, "exports", engine.dupValue(parseResult.value));
+                engine.setProperty(wrapper, "exports", engine.dupValue(parsed));
                 engine.setProperty(cache, resolved, wrapper);
                 engine.freeValue(cache);
-                return parseResult.value;
+                return parsed;
             }
         }
         catch (Exception) {}
@@ -1050,20 +1068,80 @@ private string resolveExportTarget(JSONValue target, string pkgDir,
     return "";
 }
 
+// Cached `JSON.parse` for `.json` require() — per
+// /debug-native-callback hot-path eval pattern. Pre-cache fix:
+// `eval("(" ~ jsonText ~ ")")` compiled fresh bytecode per JSON
+// file (JSC bytecode cache never evicts). Thread-local so each
+// Worker engine builds its own factory pinned by its own engine.
+private static JSHandle _jsonParseFactory;
+private static bool _jsonParseFactoryCached = false;
+
+private void ensureJsonParseFactoryCached(IJSEngine engine) @trusted nothrow
+{
+    if (_jsonParseFactoryCached) return;
+    try
+    {
+        auto r = engine.eval("(function(s){return JSON.parse(s);})", "<json-parse>");
+        if (!r.isError && engine.isFunction(r.value))
+        {
+            _jsonParseFactory = r.value;
+            _jsonParseFactoryCached = true;
+        }
+        else
+            engine.freeValue(r.value);
+    }
+    catch (Exception) {}
+}
+
+// Cached `(msg) => Error{code:MODULE_NOT_FOUND, requireStack:[]}`
+// factory — per /debug-native-callback hot-path eval pattern.
+// Pre-cache fix: every module-not-found compiled fresh bytecode with
+// the message inlined (JSC never evicts). Thread-local so each Worker
+// engine builds its own.
+private static JSHandle _moduleNotFoundFactory;
+private static bool _moduleNotFoundFactoryCached = false;
+
+private void ensureModuleNotFoundFactoryCached(IJSEngine engine) @trusted nothrow
+{
+    if (_moduleNotFoundFactoryCached) return;
+    try
+    {
+        auto r = engine.eval(
+            "(function(m){var e=new Error(m);e.code='MODULE_NOT_FOUND';"
+            ~ "e.requireStack=[];return e;})",
+            "<module-not-found>");
+        if (!r.isError && engine.isFunction(r.value))
+        {
+            _moduleNotFoundFactory = r.value;
+            _moduleNotFoundFactoryCached = true;
+        }
+        else
+            engine.freeValue(r.value);
+    }
+    catch (Exception) {}
+}
+
 JSHandle throwModuleNotFound(IJSEngine engine, string specifier) @trusted
 {
     auto msg = "Cannot find module '" ~ specifier ~ "'";
-    auto errResult = engine.eval(
-        "(function(){var e=new Error('" ~ escapeForJs(msg) ~ "');"
-        ~ "e.code='MODULE_NOT_FOUND';"
-        ~ "e.requireStack=[];return e;})()", "<require-error>");
-    if (!errResult.isError)
+    ensureModuleNotFoundFactoryCached(engine);
+    if (_moduleNotFoundFactoryCached)
     {
-        auto thrown = engine.throwValue(errResult.value);
-        engine.freeValue(errResult.value);
-        return thrown;
+        auto msgVal = engine.newString(msg);
+        auto undef = engine.newUndefined();
+        JSHandle[1] argv = [msgVal];
+        auto errVal = engine.callFunction(
+            engine.dupValue(_moduleNotFoundFactory), undef, argv[]);
+        engine.freeValue(msgVal);
+        engine.freeValue(undef);
+        if (!engine.isException(errVal))
+        {
+            auto thrown = engine.throwValue(errVal);
+            engine.freeValue(errVal);
+            return thrown;
+        }
+        engine.freeValue(errVal);
     }
-    engine.freeValue(errResult.value);
     return engine.throwTypeError(msg);
 }
 

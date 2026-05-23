@@ -1105,6 +1105,38 @@ napi_status napi_is_dataview(napi_env env, napi_value value, bool* result)
 
 // --- Class / wrap / instanceof ---
 
+// Cached `(slot) => function(){return __dun_napi_dispatch__(slot,this,arguments)}`
+// builder — per /debug-native-callback hot-path eval pattern. Pre-cache
+// fix: every `napi_create_function` inlined the slot ID into a fresh
+// source string, leaking JSC bytecode per addon function registered.
+// Cache once, invoke with slot as a value arg.
+__gshared JSHandle _napiFnFactory;
+__gshared bool _napiFnFactoryCached = false;
+
+private void ensureNapiFnFactoryCached(napi_env env) @trusted nothrow
+{
+    if (_napiFnFactoryCached) return;
+    try
+    {
+        auto r = env.engine.eval(
+            "(function(__slot){return function(){"
+            ~ "return globalThis.__dun_napi_dispatch__(__slot,this,arguments);"
+            ~ "};})",
+            "<napi-create-function>");
+        if (!r.isError && env.engine.isFunction(r.value))
+        {
+            // Double-dup to permanently pin (same JSC ownership story
+            // as `_fetchResponseBuilder` — eval-returned value is
+            // unprotected, freeValue would otherwise decrement to 0).
+            env.engine.dupValue(r.value);
+            _napiFnFactory = env.engine.dupValue(r.value);
+            _napiFnFactoryCached = true;
+        }
+        env.engine.freeValue(r.value);
+    }
+    catch (Throwable) {}
+}
+
 napi_status napi_create_function(napi_env env, const(char)* utf8name, size_t length,
     napi_callback cb, void* data, napi_value* result)
 {
@@ -1117,17 +1149,25 @@ napi_status napi_create_function(napi_env env, const(char)* utf8name, size_t len
         if (slot < 0) return napi_generic_failure;
 
         // Build a JS closure that captures the slot ID and forwards to
-        // the shared trampoline. This avoids needing per-function D
-        // function pointers, which we can't generate at runtime.
+        // the shared trampoline. The factory is compiled ONCE; we just
+        // call it with the slot as a value arg per addon function.
         ensureNapiDispatcher(env);
+        ensureNapiFnFactoryCached(env);
+        if (!_napiFnFactoryCached) return napi_generic_failure;
 
-        import std.conv : to;
-        auto src = "(function(__slot){return function(){"
-            ~ "return globalThis.__dun_napi_dispatch__(__slot,this,arguments);"
-            ~ "};})(" ~ to!string(slot) ~ ")";
-        auto wrap = env.engine.eval(src, "<napi-create-function>");
-        if (wrap.isError) return napi_generic_failure;
-        *result = allocValue(wrap.value);
+        auto slotVal = env.engine.newInt(slot);
+        auto undef = env.engine.newUndefined();
+        JSHandle[1] argv = [slotVal];
+        auto wrap = env.engine.callFunction(
+            env.engine.dupValue(_napiFnFactory), undef, argv[]);
+        env.engine.freeValue(slotVal);
+        env.engine.freeValue(undef);
+        if (env.engine.isException(wrap))
+        {
+            env.engine.freeValue(wrap);
+            return napi_generic_failure;
+        }
+        *result = allocValue(wrap);
     }
     catch (Throwable) { return napi_generic_failure; }
     return napi_ok;

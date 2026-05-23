@@ -1832,8 +1832,13 @@ private ubyte[] osRandomBytes(int n) @trusted
     {
         import core.sys.windows.windows : BOOL, ULONG;
         extern (Windows) BOOL BCryptGenRandom(void*, ubyte*, ULONG, ULONG) nothrow;
+        // BCRYPT_USE_SYSTEM_PREFERRED_RNG — pulls from the system's
+        // default RNG (CNG SP800-90 AES_CTR_DRBG on Win10+), avoiding
+        // the algorithm-handle path. See Microsoft docs:
+        // https://learn.microsoft.com/en-us/windows/win32/api/bcrypt/nf-bcrypt-bcryptgenrandom
+        enum ULONG BCRYPT_USE_SYSTEM_PREFERRED_RNG = 0x00000002;
         auto buf = new ubyte[n];
-        BCryptGenRandom(null, buf.ptr, cast(ULONG) n, 0x00000002);
+        BCryptGenRandom(null, buf.ptr, cast(ULONG) n, BCRYPT_USE_SYSTEM_PREFERRED_RNG);
         return buf;
     }
     else

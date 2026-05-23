@@ -972,17 +972,19 @@ JSHandle jsFspOpen(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
     return ph.promise;
 }
 
-JSHandle buildFileHandle(IJSEngine engine, string fdStr, string path) @trusted
-{
-    assert(engine !is null, "Null engine in buildFileHandle");
-    import std.conv : to;
-    int fd;
-    try { fd = to!int(fdStr); }
-    catch (Exception) { return engine.throwTypeError("Invalid fd in FileHandle"); }
+// Cached factory for `fs.promises.open()` FileHandle objects —
+// per /debug-native-callback hot-path eval pattern. Pre-cache fix:
+// every `fs.promises.open()` re-compiled ~200 lines of JS factory
+// source (JSC bytecode cache never evicts). The source string is
+// static; the cached handle is reused per Worker. Thread-local
+// because each Worker engine pins its own factory.
+private static JSHandle _fileHandleFactory;
+private static bool _fileHandleFactoryCached = false;
 
-    // Build FileHandle as a JS object with fd property and read/write/close/stat methods
-    // Uses sync fs operations wrapped in Promises for the FileHandle API
-    auto code =
+private void ensureFileHandleFactoryCached(IJSEngine engine) @trusted nothrow
+{
+    if (_fileHandleFactoryCached) return;
+    enum string fileHandleFactorySource =
         "(function(fd, path) {"
         ~ "var fs = globalThis.__dun_cjs_fs__;"
         ~ "var fh = { fd: fd, path: path, _closed: false };"
@@ -1057,21 +1059,41 @@ JSHandle buildFileHandle(IJSEngine engine, string fdStr, string path) @trusted
         ~ "};"
         ~ "return fh;"
         ~ "})";
+    try
+    {
+        auto r = engine.eval(fileHandleFactorySource, "<fs_promises_filehandle>");
+        if (!r.isError && engine.isFunction(r.value))
+        {
+            _fileHandleFactory = r.value;
+            _fileHandleFactoryCached = true;
+        }
+        else
+            engine.freeValue(r.value);
+    }
+    catch (Exception) {}
+}
 
-    auto factoryResult = engine.eval(code, "<fs_promises_filehandle>");
-    if (factoryResult.isError)
-        return factoryResult.value;
+JSHandle buildFileHandle(IJSEngine engine, string fdStr, string path) @trusted
+{
+    assert(engine !is null, "Null engine in buildFileHandle");
+    import std.conv : to;
+    int fd;
+    try { fd = to!int(fdStr); }
+    catch (Exception) { return engine.throwTypeError("Invalid fd in FileHandle"); }
 
-    // Call the factory with the fd and path
+    ensureFileHandleFactoryCached(engine);
+    if (!_fileHandleFactoryCached)
+        return engine.throwTypeError("FileHandle factory init failed");
+
     JSHandle[2] callArgs;
     callArgs[0] = engine.newInt(fd);
     callArgs[1] = engine.newString(path);
     auto thisArg = engine.newUndefined();
-    auto result = engine.callFunction(factoryResult.value, thisArg, callArgs[0 .. 2]);
+    auto result = engine.callFunction(
+        engine.dupValue(_fileHandleFactory), thisArg, callArgs[0 .. 2]);
     engine.freeValue(callArgs[0]);
     engine.freeValue(callArgs[1]);
     engine.freeValue(thisArg);
-    engine.freeValue(factoryResult.value);
     return result;
 }
 
@@ -1117,6 +1139,9 @@ AsyncResult serializeStatSafe(string path, bool useLstat) nothrow @trusted
             return AsyncResult.ok(
                 to!string(typeVal) ~ "\n"
                 ~ to!string(st.st_size) ~ "\n"
+                // 0xFFFF mask = POSIX `S_IMODE` (file-type bits + perm
+                // bits), excluding the kernel-internal flags Linux
+                // packs into the upper bits of `st_mode`.
                 ~ to!string(st.st_mode & 0xFFFF) ~ "\n"
                 ~ to!string(cast(int) st.st_uid) ~ "\n"
                 ~ to!string(cast(int) st.st_gid) ~ "\n"
