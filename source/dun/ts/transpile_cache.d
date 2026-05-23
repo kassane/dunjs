@@ -43,11 +43,11 @@ string cacheKey(scope const(char)[] source, string filename,
         cast(const(ubyte)[]) tscVersion,
         cast(const(ubyte)[]) COMPILER_OPTS_FINGERPRINT);
     char[64] hex;
-    static immutable hexChars = "0123456789abcdef";
+    import dun.declarations : HEX_LOWER;
     foreach (i, b; hash)
     {
-        hex[i * 2]     = hexChars[b >> 4];
-        hex[i * 2 + 1] = hexChars[b & 0xF];
+        hex[i * 2]     = HEX_LOWER[b >> 4];
+        hex[i * 2 + 1] = HEX_LOWER[b & 0xF];
     }
     return hex.idup;
 }

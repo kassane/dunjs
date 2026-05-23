@@ -15,6 +15,7 @@ module dun.builtins.os;
 import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
 import dun.runtime.globals : DunState, ctxState;
 import dun.security.permissions : Permission, checkPerm;
+import std.array : split;
 
 private enum HOSTNAME_BUF_SIZE = 256;
 
@@ -282,7 +283,6 @@ JSHandle jsOsTotalmem(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trust
                 auto end = line.indexOf("\n");
                 if (end > 0) line = line[0 .. end];
                 import std.string : strip;
-                import std.array : split;
                 auto parts = line.split();
                 if (parts.length >= 2)
                 {
@@ -313,7 +313,6 @@ JSHandle jsOsFreemem(void* ctx, JSHandle thisVal, scope JSHandle[] args) @truste
                 auto line = info[idx .. $];
                 auto end = line.indexOf("\n");
                 if (end > 0) line = line[0 .. end];
-                import std.array : split;
                 auto parts = line.split();
                 if (parts.length >= 2)
                 {
@@ -336,7 +335,6 @@ JSHandle jsOsUptime(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
         try
         {
             import std.file : readText;
-            import std.array : split;
             import std.conv : to;
             auto content = readText("/proc/uptime");
             auto parts = content.split();
@@ -461,7 +459,6 @@ JSHandle jsOsLoadavg(void* ctx, JSHandle thisVal, scope JSHandle[] args) @truste
         try
         {
             import std.file : readText;
-            import std.array : split;
             import std.conv : to;
             auto content = readText("/proc/loadavg");
             auto parts = content.split();

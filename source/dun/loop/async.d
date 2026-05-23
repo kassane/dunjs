@@ -181,10 +181,35 @@ int asyncDrain() @trusted
             auto engine = task.engine;
             if (task.error.length > 0)
             {
-                auto errResult = engine.eval(
-                    "new Error('" ~ escapeForEval(task.error) ~ "')", "<async>");
-                auto errVal = errResult.isError
-                    ? engine.newString(task.error) : errResult.value;
+                /* Cached `(msg) => new Error(msg)` factory — was a
+                   per-failure `engine.eval("new Error('" ~ escape ~ "')")`
+                   pre-v1.1.30, which is the canonical /debug-native-callback
+                   hot-path eval anti-pattern (JSC bytecode cache never
+                   evicts unique sources). Cache lives thread-local so
+                   each Worker engine builds its own (same Worker-foreign-
+                   handle pattern as v1.1.29 `_uncaughtErrFactory` /
+                   `_jsonParseFactory` / `_hrtimeBigIntFactory`). */
+                ensureAsyncErrFactoryCached(engine);
+                JSHandle errVal;
+                if (_asyncErrFactoryCached)
+                {
+                    auto msgVal = engine.newString(task.error);
+                    auto undef = engine.newUndefined();
+                    JSHandle[1] argv = [msgVal];
+                    errVal = engine.callFunction(
+                        engine.dupValue(_asyncErrFactory), undef, argv[]);
+                    engine.freeValue(msgVal);
+                    engine.freeValue(undef);
+                    if (engine.isException(errVal))
+                    {
+                        engine.freeValue(errVal);
+                        errVal = engine.newString(task.error);
+                    }
+                }
+                else
+                {
+                    errVal = engine.newString(task.error);
+                }
                 /* `callFunction` returns an owned protected value per
                    the cross-backend contract — discard via freeValue.
                    v1.1.7: previously discarded directly, leaking one
@@ -238,16 +263,26 @@ bool asyncHasWork() @trusted nothrow
     return tasks.length > 0;
 }
 
-private string escapeForEval(string s) @safe
+// Cached `(msg) => new Error(msg)` factory for async-drain rejections.
+// Per /debug-native-callback hot-path eval anti-pattern: per-call
+// `engine.eval("new Error('<inlined>')")` leaks JSC bytecode forever.
+// Thread-local so each Worker engine builds its own.
+private static JSHandle _asyncErrFactory;
+private static bool _asyncErrFactoryCached = false;
+
+private void ensureAsyncErrFactoryCached(IJSEngine engine) @trusted nothrow
 {
-    string r;
-    foreach (c; s)
+    if (_asyncErrFactoryCached) return;
+    try
     {
-        if (c == '\'') r ~= "\\'";
-        else if (c == '\\') r ~= "\\\\";
-        else if (c == '\n') r ~= "\\n";
-        else if (c == '\r') r ~= "\\r";
-        else r ~= c;
+        auto r = engine.eval("(function(m){return new Error(m);})", "<async-err>");
+        if (!r.isError && engine.isFunction(r.value))
+        {
+            _asyncErrFactory = r.value;
+            _asyncErrFactoryCached = true;
+        }
+        else
+            engine.freeValue(r.value);
     }
-    return r;
+    catch (Exception) {}
 }

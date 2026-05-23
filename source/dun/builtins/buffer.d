@@ -364,11 +364,12 @@ public JSHandle makeBufferObjZeroed(IJSEngine engine, int size) @trusted
 }
 
 private immutable char[512] hexLUT = () {
+    import dun.declarations : HEX_LOWER;
     char[512] t;
     foreach (i; 0 .. 256)
     {
-        t[i * 2]     = "0123456789abcdef"[i >> 4];
-        t[i * 2 + 1] = "0123456789abcdef"[i & 0xF];
+        t[i * 2]     = HEX_LOWER[i >> 4];
+        t[i * 2 + 1] = HEX_LOWER[i & 0xF];
     }
     return t;
 }();
@@ -1083,7 +1084,6 @@ JSHandle jsBufferToString(void* ctx, JSHandle thisVal, scope JSHandle[] args) @t
         import dun.platform.simd : latin1ToUtf8Buf, latin1ToUtf8MaxLen;
         enum STACK_LATIN1_BUDGET = 4096;
         StackFallback!STACK_LATIN1_BUDGET sfb;
-        scope(exit) sfb.deallocateAll();
         if (slice.length == 0) return engine.newString("");
         auto raw = sfb.allocate(latin1ToUtf8MaxLen(slice.length));
         if (raw is null) return engine.newString("");
@@ -1370,7 +1370,6 @@ JSHandle jsBufferWrite(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trus
         import dun.platform.arena : StackFallback;
         enum WRITE_STACK_BUDGET = 4096;
         StackFallback!WRITE_STACK_BUDGET sfb;
-        scope(exit) sfb.deallocateAll();
         auto raw = sfb.allocate(str.length);
         if (raw is null) return engine.newInt(0);
         auto decoded = cast(ubyte[]) raw;

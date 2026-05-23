@@ -613,17 +613,14 @@ private string replaceImportMeta(string s) @safe pure
     return (() @trusted => cast(string) out_[])();
 }
 
+// Delegates to the canonical helper. Same shape as before
+// (escape `'` and `\`) plus a few extra control-char escapes —
+// none of which appear in real ESM specifiers so the behavior
+// is observationally identical for this caller.
 private string escapeJsString(string s) @safe pure
 {
-    Appender!(char[]) buf;
-    buf.reserve(s.length + s.length / 8);
-    foreach (c; s)
-    {
-        if (c == '\'') { buf ~= '\\'; buf ~= '\''; }
-        else if (c == '\\') { buf ~= '\\'; buf ~= '\\'; }
-        else buf ~= c;
-    }
-    return (() @trusted => cast(string) buf[])();
+    import dun.builtins.helpers : escapeJsString = escapeJsString;
+    return escapeJsString(s);
 }
 
 private string toAbsPath(string path) @safe pure nothrow

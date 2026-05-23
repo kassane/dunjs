@@ -109,6 +109,12 @@ enum size_t PAGE_SIZE_BYTES         = 4096;  /// Linux page; default file/readli
 enum size_t NETWORK_READ_BUF_BYTES  = 8192;  /// Default socket-read buffer (HTTP/TLS)
 enum size_t STACK_BUFFER_BUDGET     = 4096;  /// StackFallback companion budget
 
+// Lowercase hex alphabet — used by `builtins/{buffer,crypto,http}.d`
+// (4 D-side hex-encode call sites; the SIMD encoder in
+// `platform/simd.d` keeps its own LUT inline for cache-line
+// locality during the SIMD shuffle).
+enum string HEX_LOWER = "0123456789abcdef";
+
 // ─── Time unit conversions ──────────────────────────────────────
 //
 // Used by the event-loop timer wheel, `setTimeout`, `fs.utimes`,

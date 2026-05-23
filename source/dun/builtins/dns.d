@@ -15,6 +15,7 @@ module dun.builtins.dns;
 import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
 import dun.runtime.globals : DunState, ctxState;
 import dun.security.permissions : Permission;
+import std.array : split;
 
 void registerDnsModule(IJSEngine engine) @trusted
 {
@@ -494,7 +495,6 @@ version (Posix)
     {
         import std.stdio : File;
         import std.string : strip, startsWith;
-        import std.array : split;
 
         string[] servers;
         try
