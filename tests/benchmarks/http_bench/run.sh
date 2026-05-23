@@ -195,21 +195,21 @@ for rt in "${SELECTED[@]}"; do
             ;;
         dun_quickjs|dun-quickjs|quickjs)
             if build_dun_if_needed quickjs dun-quickjs; then
-                bench_runtime "DunJS QuickJS" "$PROJECT_DIR/build/dun-quickjs run" \
+                bench_runtime "DunJS QuickJS" "$PROJECT_DIR/build/dun-quickjs run --allow-net" \
                     "$SCRIPT_DIR/server_dun.js" "$PORT"
                 PORT=$((PORT + 1))
             fi
             ;;
         dun_jsc|dun-jsc|jsc)
             if build_dun_if_needed jsc dun-jsc; then
-                bench_runtime "DunJS JSC" "$PROJECT_DIR/build/dun-jsc run" \
+                bench_runtime "DunJS JSC" "$PROJECT_DIR/build/dun-jsc run --allow-net" \
                     "$SCRIPT_DIR/server_dun.js" "$PORT"
                 PORT=$((PORT + 1))
             fi
             ;;
         dun_v8|dun-v8|v8)
             if build_dun_if_needed v8 dun-v8; then
-                bench_runtime "DunJS V8" "$PROJECT_DIR/build/dun-v8 run" \
+                bench_runtime "DunJS V8" "$PROJECT_DIR/build/dun-v8 run --allow-net" \
                     "$SCRIPT_DIR/server_dun.js" "$PORT"
                 PORT=$((PORT + 1))
             fi
