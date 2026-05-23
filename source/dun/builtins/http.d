@@ -320,44 +320,93 @@ void ensureHttpFnsCached(IJSEngine engine) @trusted
     engine.freeValue(global);
 
     import dun.engine.iface : JSResult;
+    /* HTTP per-request dispatcher — proto-based to amortize the
+       per-request object setup. Building `req` / `res` as object
+       literals (the pre-1.1.30 form) set ~30 properties per request
+       and re-bound every method via `globalThis.__http*` lookups.
+       Now we build `reqProto` / `resProto` / `sockProto` ONCE at
+       install time; per request we `Object.create(proto)` and set
+       only the varying properties (method, url, __cid, _events,
+       _headerValues, connection, socket). JIT engines (V8/JSC) keep
+       the shape inline-cache warm across requests because every call
+       site sees the same hidden-class transitions.
+
+       The `req.headers` getter lives on the proto and accesses
+       `this.__cid` instead of a closure variable so it's shareable;
+       on first read it still snapshots via `Object.defineProperty`
+       on the instance (so subsequent reads bypass the FFI call). */
     auto dispatchResult = engine.eval(
-        "(function(cb, method, url, cid) {" ~
-        "  var _gh = globalThis.__httpGetHeaders;" ~
-        "  var _ron = globalThis.__httpResOn;" ~
-        "  var _rem = globalThis.__httpResEmit;" ~
-        "  var sock = { remoteAddress: '127.0.0.1', remotePort: 0, localAddress: '0.0.0.0'," ~
-        "    localPort: 0, writable: true, readable: true," ~
-        "    destroy: function(){this.writable=false;return this;}," ~
-        "    write: function(){return true;}, end: function(){} };" ~
-        "  var req = { method: method, url: url, httpVersion: 'HTTP/1.1', __cid: cid," ~
-        "    complete: false, readable: true, aborted: false, rawHeaders: []," ~
-        "    get headers() { var h = _gh(cid); Object.defineProperty(this, 'headers', {value: h}); return h; }," ~
-        "    on: globalThis.__httpReqOn, once: globalThis.__httpReqOn," ~
-        "    emit: _rem, _events: {}," ~
-        "    connection: sock, socket: sock," ~
-        "    resume: function(){return this;}, pause: function(){return this;}," ~
-        "    destroy: function(){this.readable=false;return this;}," ~
-        "    pipe: function(d){this.on('data',function(c){d.write(c)});this.on('end',function(){d.end()});return d;}" ~
-        "  };" ~
-        "  var res = { __cid: cid, statusCode: 200, statusMessage: 'OK', headersSent: false," ~
-        "    finished: false, writableEnded: false, writableFinished: false," ~
-        "    _events: {}, connection: sock, socket: sock," ~
-        "    _headerValues: {}," ~
-        "    setHeader: globalThis.__httpSetHeader," ~
-        "    getHeader: globalThis.__httpGetHeader," ~
-        "    getHeaders: globalThis.__httpGetHeaders," ~
-        "    hasHeader: globalThis.__httpHasHeader," ~
-        "    removeHeader: globalThis.__httpRemoveHeader," ~
-        "    writeHead: globalThis.__httpWriteHead," ~
-        "    write: globalThis.__httpWrite," ~
-        "    end: globalThis.__httpEnd," ~
-        "    on: _ron, once: _ron, emit: _rem," ~
-        "    flushHeaders: function(){} };" ~
-        "  try { cb(req, res); } catch(e) {" ~
-        "    if (!res.headersSent) { try{res.writeHead(500);res.end('Internal Server Error');}catch(e2){} }" ~
-        "    if (typeof process !== 'undefined' && process.emit) process.emit('uncaughtException', e);" ~
-        "  }" ~
-        "})", "<http-dispatch>");
+        "(function(){"
+        ~ "var _gh = globalThis.__httpGetHeaders;"
+        ~ "var _ron = globalThis.__httpResOn;"
+        ~ "var _rem = globalThis.__httpResEmit;"
+        ~ "var _reqOn = globalThis.__httpReqOn;"
+        ~ "var sockProto = {"
+        ~ "  remoteAddress: '127.0.0.1', remotePort: 0,"
+        ~ "  localAddress: '0.0.0.0', localPort: 0,"
+        ~ "  writable: true, readable: true,"
+        ~ "  destroy: function(){this.writable=false;return this;},"
+        ~ "  write: function(){return true;}, end: function(){}"
+        ~ "};"
+        ~ "var reqProto = {"
+        ~ "  httpVersion: 'HTTP/1.1', complete: false, readable: true,"
+        ~ "  aborted: false, rawHeaders: [],"
+        ~ "  get headers() {"
+        ~ "    var h = _gh(this.__cid);"
+        ~ "    Object.defineProperty(this, 'headers',"
+        ~ "      {value: h, writable: true, enumerable: true, configurable: true});"
+        ~ "    return h;"
+        ~ "  },"
+        ~ "  on: _reqOn, once: _reqOn, emit: _rem,"
+        ~ "  resume: function(){return this;},"
+        ~ "  pause: function(){return this;},"
+        ~ "  destroy: function(){this.readable=false;return this;},"
+        ~ "  pipe: function(d){"
+        ~ "    this.on('data',function(c){d.write(c)});"
+        ~ "    this.on('end',function(){d.end()});"
+        ~ "    return d;"
+        ~ "  }"
+        ~ "};"
+        ~ "var resProto = {"
+        ~ "  statusCode: 200, statusMessage: 'OK',"
+        ~ "  headersSent: false, finished: false,"
+        ~ "  writableEnded: false, writableFinished: false,"
+        ~ "  setHeader: globalThis.__httpSetHeader,"
+        ~ "  getHeader: globalThis.__httpGetHeader,"
+        ~ "  getHeaders: globalThis.__httpGetHeaders,"
+        ~ "  hasHeader: globalThis.__httpHasHeader,"
+        ~ "  removeHeader: globalThis.__httpRemoveHeader,"
+        ~ "  writeHead: globalThis.__httpWriteHead,"
+        ~ "  write: globalThis.__httpWrite,"
+        ~ "  end: globalThis.__httpEnd,"
+        ~ "  on: _ron, once: _ron, emit: _rem,"
+        ~ "  flushHeaders: function(){}"
+        ~ "};"
+        ~ "return function(cb, method, url, cid) {"
+        ~ "  var sock = Object.create(sockProto);"
+        ~ "  var req = Object.create(reqProto);"
+        ~ "  req.method = method;"
+        ~ "  req.url = url;"
+        ~ "  req.__cid = cid;"
+        ~ "  req._events = {};"
+        ~ "  req.connection = sock;"
+        ~ "  req.socket = sock;"
+        ~ "  var res = Object.create(resProto);"
+        ~ "  res.__cid = cid;"
+        ~ "  res._events = {};"
+        ~ "  res._headerValues = {};"
+        ~ "  res.connection = sock;"
+        ~ "  res.socket = sock;"
+        ~ "  try { cb(req, res); } catch(e) {"
+        ~ "    if (!res.headersSent) {"
+        ~ "      try { res.writeHead(500); res.end('Internal Server Error'); } catch(e2){}"
+        ~ "    }"
+        ~ "    if (typeof process !== 'undefined' && process.emit)"
+        ~ "      process.emit('uncaughtException', e);"
+        ~ "  }"
+        ~ "};"
+        ~ "})()",
+        "<http-dispatch>");
     if (!dispatchResult.isError && engine.isFunction(dispatchResult.value))
         _httpJsDispatchFn = engine.dupValue(dispatchResult.value);
     engine.freeValue(dispatchResult.value);
