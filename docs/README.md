@@ -79,7 +79,9 @@ detail: `dun run`, `dun test`, `dun bench`, `dun lint`, `dun fmt`,
 
 3. **Built on D.** Memory-safe (`@safe` by default with the `safer`
    preview), `nothrow` callbacks at every FFI boundary, DIP1000
-   (`return scope`) and DIP1038 (`@mustuse`) enforced. Native code
+   (`return scope`), DIP1038 (`@mustuse`), DIP1008 (`@nogc throw`),
+   DIP1051 (bitfields) all enabled. `--edition=2025` rolls forward
+   to D's post-Zero-Edition feature defaults (DIP 1052). Native code
    without the C unsafety footguns.
 
 4. **Comprehensive Node / Deno / Bun compat.** All 30+ Node built-in
