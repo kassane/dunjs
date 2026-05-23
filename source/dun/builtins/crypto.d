@@ -2449,8 +2449,11 @@ private JSHandle resolvedPromise(IJSEngine engine, JSHandle value) @trusted
 // forever (per /debug-native-callback hot-path eval pattern), so a
 // busy WebCrypto user accumulated KB of bytecode per failed op. Cache
 // the factory once + call with the message as a value arg.
-private __gshared JSHandle _cryptoErrFactory;
-private __gshared bool _cryptoErrFactoryCached = false;
+// Thread-local — Workers run on their own threads with their own
+// IJSEngine. See `_fsErrFactory` / `_hrtimeBigIntFactory` comments
+// for the foreign-handle segfault that motivates `static` here.
+private static JSHandle _cryptoErrFactory;
+private static bool _cryptoErrFactoryCached = false;
 
 private void ensureCryptoErrFactoryCached(IJSEngine engine) @trusted
 {

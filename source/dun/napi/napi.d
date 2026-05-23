@@ -69,6 +69,19 @@ napi_env getOrCreateEnv(DunState* state) nothrow @trusted
     return &gEnvStorage;
 }
 
+// `extern(C) @trusted:` (NOT `nothrow` — the IJSEngine factory
+// methods (`newObject`, `newArray`, `newString`, …) may throw on
+// OOM. Adding `nothrow` here would require wrapping every body
+// in `try { ... } catch (Throwable) {}` (audited deferred —
+// roughly 50 functions in this block; a focused mechanical PR).
+// Native addons calling these from C++ already assume normal
+// C semantics: if a D exception did escape, it would unwind
+// through C++ frames which is UB on every supported ABI. The
+// `try { ... } catch (Throwable) { return napi_generic_failure; }`
+// pattern in the ~23 already-wrapped functions IS the right
+// shape; the remaining ~30 just haven't been migrated yet.
+// Tracked in HANDOFF.md "Still deferred — `@trusted` IO reduction"
+// alongside the broader N-API hardening pass.
 extern(C) @trusted:
 
 napi_status napi_get_undefined(napi_env env, napi_value* result)
@@ -300,8 +313,14 @@ napi_status napi_call_function(napi_env env, napi_value recv, napi_value func, s
                 argHandles[i] = argv[i].handle;
         }
         auto res = env.engine.callFunction(func.handle, thisVal, argHandles);
+        // `callFunction` returns an owned protected value — caller MUST
+        // free it (per IJSEngine contract). When `result` is null the
+        // caller doesn't want the return; previously `res` was silently
+        // dropped, leaking a JSValueProtect slot per call on JSC.
         if (result !is null)
             *result = allocValue(res);
+        else
+            env.engine.freeValue(res);
     }
     catch (Throwable) { return napi_generic_failure; }
     return napi_ok;
@@ -1387,7 +1406,7 @@ private extern (D) JSHandle napiDispatch(void* engineCtx, JSHandle thisVal, scop
 // supports this exact pattern. We use it for async crypto / fs already, so
 // the queue/dispatch infrastructure is reused here.
 
-extern(C) @trusted:
+extern(C) @trusted:  // see nothrow note at line 72
 
 napi_status napi_create_async_work(napi_env env, napi_value async_resource,
     napi_value async_resource_name,
@@ -1812,7 +1831,7 @@ import dun.declarations :
 // Without this, every napi_get_version / napi_coerce_to_bool /
 // napi_async_* / napi_set_instance_data exported below gets
 // D-mangled and invisible to dlopen'd native addons.
-extern(C) @trusted:
+extern(C) @trusted:  // see nothrow note at line 72
 
 napi_status napi_get_version(napi_env env, uint* result)
 {
@@ -1974,24 +1993,50 @@ napi_status napi_fatal_exception(napi_env env, napi_value err)
 
 // ── Date ─────────────────────────────────────────────────────────
 
+// Cached `(t) => new Date(t)` factory for napi_create_date — per
+// /debug-native-callback hot-path eval anti-pattern, evaling a fresh
+// source string per call leaks bytecode forever on JSC. Cache the
+// factory at first use, then call with `time` as a value arg.
+//
+// Thread-local (`static`, not `__gshared`) so each Worker engine
+// has its own pinned factory — a process-wide cache would let a
+// Worker call back into the main engine via a foreign JSHandle and
+// segfault inside V8 builtins (verified: workers fixture segfaulted
+// on V8/JSC with __gshared; passes with thread-local).
+static JSHandle _napiDateCtor;
+static bool _napiDateCtorCached = false;
+
 napi_status napi_create_date(napi_env env, double time, napi_value* result)
 {
     if (env is null || result is null) return napi_invalid_arg;
-    // Build via eval: `new Date(time)`.
-    auto ctorRes = env.engine.eval(
-        "(function(t){return new Date(t);})", "<napi-date>");
-    if (ctorRes.isError)
+    try
     {
-        env.engine.freeValue(ctorRes.value);
-        return napi_generic_failure;
+        if (!_napiDateCtorCached)
+        {
+            auto r = env.engine.eval(
+                "(function(t){return new Date(t);})", "<napi-date>");
+            if (r.isError || !env.engine.isFunction(r.value))
+            {
+                env.engine.freeValue(r.value);
+                return napi_generic_failure;
+            }
+            _napiDateCtor = r.value;
+            _napiDateCtorCached = true;
+        }
+        auto tArg = env.engine.newFloat(time);
+        auto undef = env.engine.newUndefined();
+        JSHandle[1] argv = [tArg];
+        // dupValue pins the cached factory across this call (callFunction
+        // doesn't consume the function on QJS, but to keep the contract
+        // uniform across backends we always dup before calling).
+        auto date = env.engine.callFunction(
+            env.engine.dupValue(_napiDateCtor), undef, argv[]);
+        env.engine.freeValue(tArg);
+        env.engine.freeValue(undef);
+        *result = allocValue(date);
+        return napi_ok;
     }
-    auto tArg = env.engine.newFloat(time);
-    JSHandle[1] argv = [tArg];
-    auto date = env.engine.callFunction(ctorRes.value, env.engine.newUndefined(), argv[]);
-    env.engine.freeValue(ctorRes.value);
-    env.engine.freeValue(tArg);
-    *result = allocValue(date);
-    return napi_ok;
+    catch (Throwable) { return napi_generic_failure; }
 }
 
 napi_status napi_get_date_value(napi_env env, napi_value value, double* result)

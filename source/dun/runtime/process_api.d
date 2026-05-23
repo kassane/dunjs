@@ -47,6 +47,13 @@ bool hasUncaughtExceptionHandler() @trusted nothrow @nogc
     return gHasUncaughtHandler;
 }
 
+// Cached factory for the uncaughtException Error object — same
+// /debug-native-callback hot-path eval pattern. Thread-local because
+// each Worker engine needs its own factory pinned by its own engine
+// (see `_hrtimeBigIntFactory` comment above for the rationale).
+private static JSHandle _uncaughtErrFactory;
+private static bool _uncaughtErrFactoryCached = false;
+
 bool invokeUncaughtExceptionHandler(IJSEngine engine, string errorMsg) @trusted nothrow
 {
     if (!gHasUncaughtHandler || engine is null) return false;
@@ -66,26 +73,37 @@ bool invokeUncaughtExceptionHandler(IJSEngine engine, string errorMsg) @trusted 
                 : errorMsg[colonIdx + 2 .. $];
         }
 
-        auto result = engine.eval(
-            "(function(n,m,s){var E=globalThis[n]||Error;var e=new E(m);if(s)e.stack=s;return e;})",
-            "<uncaught:mk>"
-        );
+        if (!_uncaughtErrFactoryCached)
+        {
+            auto r = engine.eval(
+                "(function(n,m,s){var E=globalThis[n]||Error;var e=new E(m);if(s)e.stack=s;return e;})",
+                "<uncaught:mk>"
+            );
+            if (!r.isError && engine.isFunction(r.value))
+            {
+                _uncaughtErrFactory = r.value;
+                _uncaughtErrFactoryCached = true;
+            }
+            else
+                engine.freeValue(r.value);
+        }
         JSHandle errObj;
-        if (!result.isError)
+        if (_uncaughtErrFactoryCached)
         {
             auto nameVal = engine.newString(errName);
             auto msgVal = engine.newString(errMessage);
             auto stackVal = engine.newString(errorMsg);
+            auto undef = engine.newUndefined();
             JSHandle[3] mkArgs = [nameVal, msgVal, stackVal];
-            errObj = engine.callFunction(result.value, engine.newUndefined(), mkArgs[]);
+            errObj = engine.callFunction(
+                engine.dupValue(_uncaughtErrFactory), undef, mkArgs[]);
             engine.freeValue(nameVal);
             engine.freeValue(msgVal);
             engine.freeValue(stackVal);
-            engine.freeValue(result.value);
+            engine.freeValue(undef);
         }
         else
         {
-            engine.freeValue(result.value);
             errObj = engine.newString(errorMsg);
         }
         JSHandle[1] args = [errObj];
@@ -782,6 +800,21 @@ public JSHandle jsPerformanceNow(void* ctx, JSHandle thisVal, scope JSHandle[] a
     catch (Throwable) { return engine.newFloat(0.0); }
 }
 
+// Cached `(s) => BigInt(s)` factory for `process.hrtime.bigint`.
+// Perf libraries call `hrtime.bigint()` thousands of times/sec;
+// previously this did `engine.eval("BigInt(<ns>)")` per call which
+// leaks JSC bytecode (the cache never evicts unique sources — per
+// /debug-native-callback canonical pattern).
+//
+// Storage is **thread-local** (`static`, not `__gshared`) because
+// each Worker runs on its own thread with its own IJSEngine — a
+// process-wide cache would let a worker call back into the main
+// thread's engine via a foreign JSHandle and segfault inside V8's
+// `Builtins_CallFunction_ReceiverIsAny`. Verified: workers fixture
+// segfaults on V8/JSC with `__gshared` cache, passes with thread-local.
+private static JSHandle _hrtimeBigIntFactory;
+private static bool _hrtimeBigIntCached = false;
+
 JSHandle jsHrtimeBigint(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     auto state = ctxState(ctx);
@@ -793,10 +826,28 @@ JSHandle jsHrtimeBigint(void* ctx, JSHandle thisVal, scope JSHandle[] args) @tru
         import std.conv : to;
         auto now = MonoTime.currTime;
         long totalNs = ticksToNSecs(now.ticks);
-        auto result = engine.eval("BigInt(" ~ totalNs.to!string ~ ")", "<hrtime>");
-        if (result.isError)
-            return engine.newFloat(cast(double) totalNs);
-        return result.value;
+        if (!_hrtimeBigIntCached)
+        {
+            auto r = engine.eval("(function(s){return BigInt(s);})", "<hrtime>");
+            if (!r.isError && engine.isFunction(r.value))
+            {
+                _hrtimeBigIntFactory = r.value;
+                _hrtimeBigIntCached = true;
+            }
+            else
+            {
+                engine.freeValue(r.value);
+                return engine.newFloat(cast(double) totalNs);
+            }
+        }
+        auto sVal = engine.newString(totalNs.to!string);
+        auto undef = engine.newUndefined();
+        JSHandle[1] argv = [sVal];
+        auto big = engine.callFunction(
+            engine.dupValue(_hrtimeBigIntFactory), undef, argv[]);
+        engine.freeValue(sVal);
+        engine.freeValue(undef);
+        return big;
     }
     catch (Exception) { return engine.newFloat(0.0); }
 }
