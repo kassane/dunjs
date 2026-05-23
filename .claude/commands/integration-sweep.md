@@ -103,7 +103,7 @@ they target.
 ```sh
 # AddressSanitizer sweep (memory bugs: UAF, OOB, double-free)
 dub build -c quickjs -b asan
-ASAN_OPTIONS=detect_leaks=0 bash tests/integration/run.sh   # 162/162 expected
+ASAN_OPTIONS=detect_leaks=0 bash tests/integration/run.sh   # 164/164 expected
 
 # ThreadSanitizer sweep (data races, esp. Worker / SAB / Atomics paths)
 dub build -c quickjs -b tsan
@@ -119,7 +119,7 @@ ASan adds ~2-3× runtime; the full sweep takes ~3-4 min instead of
 (single-threaded fixtures pass trivially). Both build types live
 in `dub.json` under `buildTypes`.
 
-The DunJS baseline: **162/162 ASan-clean on QJS** (caught the original
+The DunJS baseline: **164/164 ASan-clean on QJS** (caught the original
 v1.1.3 Latin-1 high-byte UB before release). TSan-clean modulo
 intentional daemon worker threads (those use audited lockfree
 primitives).

@@ -5,9 +5,9 @@ and the gotchas that bite you on day one. Read alongside
 [`CLAUDE.md`](CLAUDE.md), [`SECURITY.md`](SECURITY.md), and
 [`TESTING.md`](TESTING.md).
 
-## Current state (v1.1.27)
+## Current state (v1.1.29)
 
-- Integration sweep: **162/162** on QJS / V8, **161/162 + 1 SKIP**
+- Integration sweep: **164/164** on QJS / V8, **162/164 + 1 SKIP**
   on JSC (deno_deploy_compat flakes ~1 in 7 sweeps under heap-load —
   see `## JSC deno_deploy_compat flake` below). The `cve_priv_files.js`
   fixture (8/8) added in v1.1.26 regression-tests the sandbox-bypass
@@ -23,6 +23,22 @@ and the gotchas that bite you on day one. Read alongside
   on V8/JSC/QJS) and a `canonicalizePath` fast-path for already-canonical
   POSIX paths (existsSync -22%, accessSync -25% on V8). `dub.json`
   expanded to 11 `-preview=*` flags + `--edition=2025` (DIP 1052).
+  v1.1.28 closed a CVE-class sandbox-escape: `net` / `http` / `http2`
+  module callbacks went straight to `socket()` without consulting
+  `Permission.net` (the doc-comment in `net.d` *claimed* the gate
+  existed; implementation drift). 5 `checkPerm` calls added +
+  `cve_perm_deny_net.js` regression fixture (5/5) + SECURITY.md entry.
+  v1.1.29 audit pass 2 fixed the N-API `napi_call_function` leak +
+  4 more hot-path eval caches (napi_create_date, hrtime.bigint,
+  uncaughtException, response.json) + converted all 6 factory caches
+  (incl. v1.1.28's `_fsErrFactory`/`_cryptoErrFactory`) to
+  thread-local — `__gshared` caches segfault Workers on V8/JSC
+  because a foreign-engine JSHandle dispatches via the wrong value
+  table. Bun-port follow-up added `bun_ported.js` (30 checks from
+  oven-sh/bun's `test/js/node/buffer-*.test.ts` + `bench/deepEqual`)
+  which surfaced 3 more real gaps: utf-16le encoding fall-through
+  (returned raw UTF-8 bytes), `hex` decoder treating invalid chars
+  as 0, and `Bun.deepEquals` ignoring Symbol-keyed properties.
 - npm package corpus: `dun install express@4 moment axios jsonwebtoken
   semver validator commander cookie qs chalk uuid dotenv minimist
   which yargs-parser underscore` is required for the 5 npm-dependent
@@ -130,7 +146,7 @@ deno_deploy_compat flakes.
 
 | # | Issue | Impact | Notes |
 |---|-------|--------|-------|
-| 1 | JSC `bun_v7_additions` SKIP — gate stays | Single fixture skipped (1/158) | v1.1.26 root-caused the related deno_deploy_compat flake to JSC concurrent-GC sweeping intermediates in the cached response builder. The bun_v7 install-time bytecode is enough additional pressure to tip the flake rate back up; we keep the gate as the strictly-better trade-off. Standalone `bun_v7_additions` passes 24/24 on JSC. Full fix needs either (a) the cached response builder rewritten to not depend on transient arrays, or (b) a JSC config knob to dial down concurrent-GC aggression during HTTP server work. **v1.1.27 investigation (negative result)**: tried (a) by flattening `headerEntries` from `[[k,v],...]` to `[k,v,k,v,...]` and then layering explicit `dupValue`/`freeValue` (JSValueProtect) pins around the callFunction args. 20-run flake measurement: baseline 3/20 (15%), flat 4/20 (20%), flat+pin 3/20 (15%) — all within noise. The transient allocations in `makeResponse` are already conservatively-stack-rooted, and JSC's `JSObjectCallAsFunction` already pins args internally; adding refcount churn doesn't address the actual race. The "CRASH @ line 141:44" output is the test's own outer `.catch` formatting a `Promise.race` timeout (skill `/debug-native-callback` anti-pattern), so the residual flake is a **fetch-hang**, not an allocation race. Next investigator: trace `parseRequestHeaders` / accept-loop on the server side; the failure-mode signal is a `recv()` returning 0 before headers fully arrive |
+| 1 | JSC `bun_v7_additions` SKIP — gate stays | Single fixture skipped (1/164) | v1.1.26 root-caused the related deno_deploy_compat flake to JSC concurrent-GC sweeping intermediates in the cached response builder. The bun_v7 install-time bytecode is enough additional pressure to tip the flake rate back up; we keep the gate as the strictly-better trade-off. Standalone `bun_v7_additions` passes 24/24 on JSC. Full fix needs either (a) the cached response builder rewritten to not depend on transient arrays, or (b) a JSC config knob to dial down concurrent-GC aggression during HTTP server work. **v1.1.27 investigation (negative result)**: tried (a) by flattening `headerEntries` from `[[k,v],...]` to `[k,v,k,v,...]` and then layering explicit `dupValue`/`freeValue` (JSValueProtect) pins around the callFunction args. 20-run flake measurement: baseline 3/20 (15%), flat 4/20 (20%), flat+pin 3/20 (15%) — all within noise. The transient allocations in `makeResponse` are already conservatively-stack-rooted, and JSC's `JSObjectCallAsFunction` already pins args internally; adding refcount churn doesn't address the actual race. The "CRASH @ line 141:44" output is the test's own outer `.catch` formatting a `Promise.race` timeout (skill `/debug-native-callback` anti-pattern), so the residual flake is a **fetch-hang**, not an allocation race. Next investigator: trace `parseRequestHeaders` / accept-loop on the server side; the failure-mode signal is a `recv()` returning 0 before headers fully arrive |
 | 2 | ~~Dockerfile V8 image missing `icudtl.dat`~~ | **Closed** (v1.1.26 follow-up) | `Dockerfile` + `Dockerfile.multibackend` both copy `build/icudtl.dat` → `/usr/local/bin/icudtl.dat` so V8's `InitializeICUDefaultLocation(argv[0])` resolves automatically. Single-backend Dockerfile uses `touch build/icudtl.dat` so QJS/JSC builds also have an (empty, harmless) file for the COPY. Multibackend copies the real file only from the V8 build stage |
 | 3 | QJS `Worker(src, {eval:true})` + `setTimeout`-deferred `terminate` race | Edge-case crash | gdb-traced to QJS internal `add_shape_property`. Documented in CHANGELOG #58d/#59e. JSC/V8 don't hit it. Real apps use `await terminate(); process.exit()` rather than the racy pattern |
 | 4 | ~~No fuzzer harness~~ | **Closed** (v1.1.26 follow-up) | `tests/fuzz/` ships four libFuzzer targets — `fuzz_strip` (TS type stripper), `fuzz_simd` (latin1 ↔ UTF-8 + hex), `fuzz_url` (`parseUrl` — refactored into `platform/url_parser.d` for the harness decoupling), `fuzz_lexer` (`hasSyntaxError` / `skipStringLit` / `skipTemplateLit`). All four clean to ~300 K – 4.7 M runs / 30 s. Runner: `bash tests/fuzz/run.sh`. See `tests/fuzz/README.md` for the per-target build + adding new targets |
@@ -312,9 +328,9 @@ done
 
 # Integration sweep
 dub test -c unittest                                # 71/71
-bash tests/integration/run.sh                      # QJS  162/162
-BACKEND=jsc DUN=./dun-rel-jsc bash tests/integration/run.sh   # JSC  161/162 + 1 SKIP
-BACKEND=v8  DUN=./dun-rel-v8  bash tests/integration/run.sh   # V8   162/162
+bash tests/integration/run.sh                      # QJS  164/164
+BACKEND=jsc DUN=./dun-rel-jsc bash tests/integration/run.sh   # JSC  162/164 + 1 SKIP
+BACKEND=v8  DUN=./dun-rel-v8  bash tests/integration/run.sh   # V8   164/164
 ```
 
 The slash-command equivalents are documented in
