@@ -559,7 +559,7 @@ void installProcess(IJSEngine engine) @trusted
 
 private:
 
-JSHandle jsNoop(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
+JSHandle jsNoop(void* ctx, JSHandle thisVal, scope JSHandle[] args) @safe
 {
     auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in jsNoop");
