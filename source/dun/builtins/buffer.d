@@ -23,8 +23,24 @@ module dun.builtins.buffer;
  +/
 import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
 import dun.runtime.globals : DunState, ctxState;
+import dun.declarations :
+    UTF8_ASCII_MAX, UTF8_CONT_BASE, UTF8_CONT_MASK,
+    UTF8_2BYTE_LEAD, UTF8_3BYTE_LEAD, UTF8_4BYTE_LEAD,
+    UTF8_2BYTE_MASK, UTF8_3BYTE_MASK, UTF8_4BYTE_MASK,
+    UNICODE_BMP_MAX, UNICODE_REPLACEMENT_CHAR,
+    UTF16_HIGH_SURROGATE_BASE, UTF16_LOW_SURROGATE_BASE,
+    UTF16_SURROGATE_LOW_MASK;
 
 private enum BUFFER_MAX_SIZE = 1024 * 1024 * 1024;
+
+// Encoding-name predicate used by Buffer.from / Buffer.write /
+// Buffer.byteLength — avoids the 4-way `==` chain repeating across
+// 3 call sites (and silently diverging when a new alias is added).
+private bool isUtf16LeEncoding(string enc) @safe pure nothrow @nogc
+{
+    return enc == "utf16le" || enc == "utf-16le"
+        || enc == "ucs2"    || enc == "ucs-2";
+}
 
 void registerBufferModule(IJSEngine engine) @trusted
 {
@@ -408,6 +424,10 @@ ubyte hexDigit(char c) pure @safe
 // output matches what JS sees if it called `Buffer.from(s, "utf-16le")`
 // (each JS string code unit = 2 LE bytes).
 //
+// All UTF-8 lead-byte masks + UTF-16 surrogate constants come from
+// `dun.declarations` (centralized after v1.1.3 — historically
+// duplicated copies of these constants drifted out of sync).
+//
 // Surfaced by the Bun-ported test (`buffer-utf16.test.ts`): pre-fix,
 // DunJS fell through to the raw-bytes path and `Buffer.from("A",
 // "utf-16le")` returned 1 byte instead of [0x41, 0x00].
@@ -421,33 +441,37 @@ ubyte[] utf8ToUtf16LeBytes(string s) @safe pure
     size_t i = 0;
     while (i < s.length)
     {
-        uint cp;
         immutable c0 = cast(ubyte) s[i];
+        uint cp;
         size_t consumed;
-        if (c0 < 0x80) { cp = c0; consumed = 1; }
-        else if ((c0 & 0xE0) == 0xC0 && i + 1 < s.length)
+        if (c0 <= UTF8_ASCII_MAX) { cp = c0; consumed = 1; }
+        else if ((c0 & UTF8_3BYTE_LEAD) == UTF8_2BYTE_LEAD && i + 1 < s.length)
         {
-            cp = ((c0 & 0x1F) << 6) | (cast(ubyte) s[i+1] & 0x3F);
+            cp = ((c0 & UTF8_2BYTE_MASK) << 6)
+               |  (cast(ubyte) s[i+1] & UTF8_CONT_MASK);
             consumed = 2;
         }
-        else if ((c0 & 0xF0) == 0xE0 && i + 2 < s.length)
+        else if ((c0 & UTF8_4BYTE_LEAD) == UTF8_3BYTE_LEAD && i + 2 < s.length)
         {
-            cp = ((c0 & 0x0F) << 12)
-               | ((cast(ubyte) s[i+1] & 0x3F) << 6)
-               |  (cast(ubyte) s[i+2] & 0x3F);
+            cp = ((c0 & UTF8_3BYTE_MASK) << 12)
+               | ((cast(ubyte) s[i+1] & UTF8_CONT_MASK) << 6)
+               |  (cast(ubyte) s[i+2] & UTF8_CONT_MASK);
             consumed = 3;
         }
-        else if ((c0 & 0xF8) == 0xF0 && i + 3 < s.length)
+        else if ((c0 & 0xF8) == UTF8_4BYTE_LEAD && i + 3 < s.length)
         {
-            cp = ((c0 & 0x07) << 18)
-               | ((cast(ubyte) s[i+1] & 0x3F) << 12)
-               | ((cast(ubyte) s[i+2] & 0x3F) << 6)
-               |  (cast(ubyte) s[i+3] & 0x3F);
+            // Note: no `UTF8_5BYTE_LEAD` constant — UTF-8 max is 4 bytes
+            // so we check 0xF8 inline (one of the few legitimate magic
+            // numbers; equivalent to !(0xF0 & 0xF7)).
+            cp = ((c0 & UTF8_4BYTE_MASK) << 18)
+               | ((cast(ubyte) s[i+1] & UTF8_CONT_MASK) << 12)
+               | ((cast(ubyte) s[i+2] & UTF8_CONT_MASK) << 6)
+               |  (cast(ubyte) s[i+3] & UTF8_CONT_MASK);
             consumed = 4;
         }
-        else { cp = 0xFFFD; consumed = 1; }   // invalid UTF-8 → replacement
+        else { cp = UNICODE_REPLACEMENT_CHAR; consumed = 1; }
         i += consumed;
-        if (cp <= 0xFFFF)
+        if (cp < UNICODE_BMP_MAX)
         {
             out_ ~= cast(ubyte)(cp & 0xFF);
             out_ ~= cast(ubyte)((cp >> 8) & 0xFF);
@@ -455,9 +479,9 @@ ubyte[] utf8ToUtf16LeBytes(string s) @safe pure
         else
         {
             // Supplementary plane → surrogate pair, both LE.
-            immutable adjusted = cp - 0x10000;
-            immutable high = 0xD800 | (adjusted >> 10);
-            immutable low  = 0xDC00 | (adjusted & 0x3FF);
+            immutable adjusted = cp - UNICODE_BMP_MAX;
+            immutable high = UTF16_HIGH_SURROGATE_BASE | (adjusted >> 10);
+            immutable low  = UTF16_LOW_SURROGATE_BASE  | (adjusted & UTF16_SURROGATE_LOW_MASK);
             out_ ~= cast(ubyte)(high & 0xFF);
             out_ ~= cast(ubyte)((high >> 8) & 0xFF);
             out_ ~= cast(ubyte)(low & 0xFF);
@@ -465,6 +489,19 @@ ubyte[] utf8ToUtf16LeBytes(string s) @safe pure
         }
     }
     return out_;
+}
+
+// Step size for one UTF-8 codepoint starting at `b` (the lead byte).
+// Returns 1 for ASCII / invalid lead (so the caller advances past
+// junk by one). Used by the byteLength encoders that just need to
+// count codepoints without decoding them.
+private size_t utf8StepFromLead(ubyte b) @safe pure nothrow @nogc
+{
+    if (b <= UTF8_ASCII_MAX) return 1;
+    if ((b & UTF8_3BYTE_LEAD) == UTF8_2BYTE_LEAD) return 2;
+    if ((b & UTF8_4BYTE_LEAD) == UTF8_3BYTE_LEAD) return 3;
+    if ((b & 0xF8) == UTF8_4BYTE_LEAD) return 4;
+    return 1;
 }
 
 unittest
@@ -576,8 +613,7 @@ JSHandle jsBufferFrom(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trust
             auto produced = utf8ToLatin1Buf(str, bytes);
             return makeBufferObj(engine, bytes[0 .. produced]);
         }
-        else if (encoding == "utf16le" || encoding == "utf-16le"
-              || encoding == "ucs2" || encoding == "ucs-2")
+        else if (isUtf16LeEncoding(encoding))
         {
             /* UTF-16LE: each JS code unit → 2 little-endian bytes.
                Walk the UTF-8 input and re-encode each codepoint as
@@ -904,11 +940,65 @@ JSHandle jsBufferByteLength(void* ctx, JSHandle thisVal, scope JSHandle[] args) 
     if (args.length < 1) return engine.newInt(0);
     if (engine.isString(args[0]))
     {
-        auto str = engine.extractString(args[0]);
+        auto str = engine.extractString(args[0]);  // JS string as UTF-8
+        string encoding = "utf8";
+        if (args.length >= 2 && engine.isString(args[1]))
+            encoding = engine.extractString(args[1]);
+
+        // Node accepts the encoding name case-insensitively; normalize.
+        import std.uni : toLower;
+        encoding = encoding.toLower;
+
+        if (encoding == "ascii" || encoding == "latin1" || encoding == "binary")
+        {
+            // 1 byte per JS char (codepoint). Walk UTF-8 in step-size
+            // chunks — non-Latin1 codepoints still count as 1 byte per
+            // Node semantics (the value is truncated on actual write).
+            size_t cps = 0;
+            size_t i = 0;
+            while (i < str.length)
+            {
+                i += utf8StepFromLead(cast(ubyte) str[i]);
+                cps++;
+            }
+            return engine.newInt(cast(int) cps);
+        }
+        if (encoding == "hex") return engine.newInt(cast(int)(str.length / 2));
+        if (encoding == "base64" || encoding == "base64url")
+        {
+            try
+            {
+                import std.base64 : Base64;
+                return engine.newInt(cast(int) Base64.decode(base64urlToBase64(str)).length);
+            }
+            catch (Exception) { return engine.newInt(0); }
+        }
+        if (isUtf16LeEncoding(encoding))
+        {
+            // 2 bytes per UTF-16 code unit. BMP codepoint → 1 unit
+            // (2 bytes); supplementary → 2 units (4 bytes).
+            size_t units = 0;
+            size_t i = 0;
+            while (i < str.length)
+            {
+                immutable step = utf8StepFromLead(cast(ubyte) str[i]);
+                units += (step == 4) ? 2 : 1;  // 4-byte UTF-8 → surrogate pair
+                i += step;
+            }
+            return engine.newInt(cast(int) units * 2);
+        }
+        // utf8 (default + unrecognized encoding per Node): UTF-8 byte length
         return engine.newInt(cast(int) str.length);
     }
     if (engine.isObject(args[0]))
     {
+        // ArrayBuffer / DataView have `byteLength`. Buffer / TypedArray
+        // have `length` (= byteLength / BYTES_PER_ELEMENT for non-byte
+        // typed arrays). Per Node: prefer `byteLength` so TypedArrays
+        // report bytes, not element count.
+        auto byteLenProp = engine.getProperty(args[0], "byteLength");
+        if (engine.isNumber(byteLenProp)) return byteLenProp;
+        engine.freeValue(byteLenProp);
         auto lenProp = engine.getProperty(args[0], "length");
         if (engine.isNumber(lenProp)) return lenProp;
         engine.freeValue(lenProp);
@@ -1220,7 +1310,41 @@ JSHandle jsBufferWrite(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trus
     if (length < 0 || length > avail) length = avail;
 
     int written = 0;
-    if (encoding == "latin1" || encoding == "binary")
+    if (encoding == "hex")
+    {
+        /* Per Node: decode pairs until first invalid char or buffer
+           full. Surfaced by Node's `test/parallel/test-buffer-badhex.js`
+           — DunJS previously ignored the encoding arg entirely and
+           wrote the JS string as raw UTF-8 bytes. */
+        auto decoded = hexToBytes(str);
+        size_t n = decoded.length < cast(size_t) length ? decoded.length : cast(size_t) length;
+        bytes[offset .. offset + n] = decoded[0 .. n];
+        written = cast(int) n;
+    }
+    else if (encoding == "base64" || encoding == "base64url")
+    {
+        try
+        {
+            import std.base64 : Base64;
+            auto normalized = base64urlToBase64(str);
+            auto decoded = Base64.decode(normalized);
+            size_t n = decoded.length < cast(size_t) length ? decoded.length : cast(size_t) length;
+            bytes[offset .. offset + n] = decoded[0 .. n];
+            written = cast(int) n;
+        }
+        catch (Exception)
+        {
+            written = 0;
+        }
+    }
+    else if (isUtf16LeEncoding(encoding))
+    {
+        auto decoded = utf8ToUtf16LeBytes(str);
+        size_t n = decoded.length < cast(size_t) length ? decoded.length : cast(size_t) length;
+        bytes[offset .. offset + n] = decoded[0 .. n];
+        written = cast(int) n;
+    }
+    else if (encoding == "latin1" || encoding == "binary")
     {
         /* JS strings hold UTF-8 in `extractString`; for latin1 we must
            decode each UTF-8 code point and store its low byte. Without
