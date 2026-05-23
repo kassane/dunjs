@@ -152,19 +152,19 @@ string archStr() pure @safe nothrow
     else return "unknown";
 }
 
-JSHandle jsOsPlatform(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
+JSHandle jsOsPlatform(void* ctx, JSHandle thisVal, scope JSHandle[] args) @safe
 {
     auto engine = getEngine(ctx);
     return engine.newString(platformStr());
 }
 
-JSHandle jsOsArch(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
+JSHandle jsOsArch(void* ctx, JSHandle thisVal, scope JSHandle[] args) @safe
 {
     auto engine = getEngine(ctx);
     return engine.newString(archStr());
 }
 
-JSHandle jsOsType(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
+JSHandle jsOsType(void* ctx, JSHandle thisVal, scope JSHandle[] args) @safe
 {
     auto engine = getEngine(ctx);
     version (linux) return engine.newString("Linux");

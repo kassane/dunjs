@@ -819,7 +819,7 @@ JSHandle jsBufferAllocUnsafe(void* ctx, JSHandle thisVal, scope JSHandle[] args)
 }
 
 // Buffer.isBuffer(obj)
-JSHandle jsBufferIsBuffer(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
+JSHandle jsBufferIsBuffer(void* ctx, JSHandle thisVal, scope JSHandle[] args) @safe
 {
     auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in jsBufferIsBuffer");
