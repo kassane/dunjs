@@ -3,46 +3,69 @@
 How DunJS performs against Node, Deno, and Bun — and how to get the
 best out of it.
 
-## Cross-runtime benchmarks (v1.1.26)
+## Cross-runtime benchmarks (v1.1.27)
 
-Numbers from `/bench-compare` on 2026-05-22 against `tests/benchmarks/*.js`,
-release + PGO builds.
+Numbers from `/bench-compare` on 2026-05-23 against `tests/benchmarks/*.js`,
+release builds + the `dun-rel-*` binaries the `/all-backends release`
+skill stages. Runtimes downloaded fresh from upstream tarballs:
+**Bun 1.3.14**, **Node 22.22.2**, **Deno 2.8.0**.
 
 ### feature_bench.js — JS compute throughput
 
 | Runtime | ops/sec | vs Node |
 |---------|--------:|--------:|
-| **dun-pgo-jsc** | **514M** | **3.05×** (faster than Bun) |
-| Bun 1.3.11 | 481M | 2.86× |
-| Node 22.22.2 | 176M | 1.00× |
-| Deno 2.7.14 | 169M | 0.96× |
-| dun-pgo-v8 | 164M | 0.93× |
-| dun-pgo-qjs | 22M | 0.13× (interpreter) |
-| Deno 2.7 | 160M | 0.99× |
-| dun-qjs | 23M | 0.14× |
+| Bun 1.3.14    | 413M | 3.74× |
+| **dun-rel-jsc** | **411M** | **3.73×** (within noise of Bun) |
+| dun-rel-v8    | 118M | 1.07× |
+| Deno 2.8.0    | 112M | 1.01× |
+| Node 22.22.2  | 110M | 1.00× |
+| dun-rel-qjs   | 17M  | 0.16× (interpreter) |
 
-DunJS JSC backend is at parity with Bun on `feature_bench.js` since
-the v1.1.7 cached Response builder + v1.1.9 handle pin landed.
-v1.1.16 → v1.1.20 added fs stream-method caching,
-`newUint8ArrayZeroedWithProto` fused Buffer.alloc primitive, v8shim
-hot-path opts (Persistent::Reset elimination + Int32/Number fast
-paths), dgram + cluster method caching, and jscpd-driven dedup.
+DunJS JSC reaches **99.6%** of Bun on `feature_bench.js` — same V8
+heritage (JSC), with the v1.1.7 cached Response builder + v1.1.9
+handle pin + v1.1.16-20 stream/dgram/Buffer-alloc method-cache
+campaign closing the FFI-overhead gap. v1.1.27 added a shared
+`statProto` with lazy Date getters that cuts `statSync` 45-51%
+on JIT backends and 29% on QJS (see [TESTING.md](../TESTING.md)
+fs_bench breakdown).
 
 ### framework_bench.js — real-world framework patterns
 
 | Runtime | ops/sec | vs Node |
 |---------|--------:|--------:|
-| Bun 1.3.11 | 305M | 1.63× |
-| **dun-pgo-jsc** | **281M** | 1.50× |
-| Node 22.22.2 | 187M | 1.00× |
-| dun-pgo-v8 | 172M | 0.92× |
-| Deno 2.7.14 | 168M | 0.90× |
-| dun-pgo-qjs | 17M | 0.09× |
+| Bun 1.3.14    | 283M | 2.11× |
+| **dun-rel-jsc** | **165M** | 1.24× |
+| Node 22.22.2  | 134M | 1.00× |
+| dun-rel-v8    | 130M | 0.97× |
+| Deno 2.8.0    | 125M | 0.93× |
+| dun-rel-qjs   | 13M  | 0.10× |
+
+### fs_bench.js — POSIX FS ops
+
+| Runtime | ops/sec | vs Node |
+|---------|--------:|--------:|
+| Bun 1.3.14    | 8.0M | 1.13× |
+| Node 22.22.2  | 7.1M | 1.00× |
+| Deno 2.8.0    | 4.1M | 0.58× |
+| dun-rel-qjs   | 3.9M | 0.55× |
+| dun-rel-v8    | 3.3M | 0.46× |
+| dun-rel-jsc   | 2.4M | 0.34× |
+
+DunJS lags on fs_bench — the path-canonicalization step in the
+permission check (CVE-2023-32004 fix) is unavoidable for hot writes
+but adds ~5-10μs per `writeFileSync`. The v1.1.27 `statProto`
+fix is the per-call win; further gains would need a path-canon
+cache, `sendfile()` on Linux for `copyFileSync`, and/or a fused
+`(open, write, close)` builtin for `writeFileSync`.
 
 ### npm_compat — correctness
 
-All 6 runtimes pass **145/145** checks (Bun, Node, Deno, dun-jsc,
-dun-v8, dun-qjs). Full cross-runtime correctness parity.
+All 6 runtimes pass **145/145** checks (Bun 1.3.14, Node 22, Deno 2.8.0,
+dun-jsc, dun-v8, dun-qjs). Full cross-runtime correctness parity.
+
+### react_compat — correctness
+
+All 6 runtimes pass **81/81** checks. Full cross-runtime parity.
 
 ### HTTP benchmarks (wrk, 64 conns, 10s)
 
