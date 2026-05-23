@@ -91,7 +91,12 @@ private string bunCompatSourceCore() pure nothrow @safe
     "};" ~
 
     /* Bun.deepEquals — structural equality. Bun's checks deep arrays,
-       objects, Maps, Sets, typed arrays. We cover the common cases. */
+       objects, Maps, Sets, typed arrays. We cover the common cases.
+       Symbol-keyed properties compare by per-Symbol identity: two
+       objects with different Symbol("name") keys are NOT equal (each
+       Symbol() is unique). This matches Bun's behavior + Node's
+       `assert.deepStrictEqual`. Surfaced by the bun_ported.js
+       regression port. */
     "Bun.deepEquals = function(a, b) {" ~
     "  if (a === b) return true;" ~
     "  if (typeof a !== typeof b) return false;" ~
@@ -108,6 +113,13 @@ private string bunCompatSourceCore() pure nothrow @safe
     "  for (var j = 0; j < ka.length; j++) {" ~
     "    if (!b.hasOwnProperty(ka[j])) return false;" ~
     "    if (!Bun.deepEquals(a[ka[j]], b[ka[j]])) return false;" ~
+    "  }" ~
+    "  var sa = Object.getOwnPropertySymbols(a);" ~
+    "  var sb = Object.getOwnPropertySymbols(b);" ~
+    "  if (sa.length !== sb.length) return false;" ~
+    "  for (var k = 0; k < sa.length; k++) {" ~
+    "    if (!b.hasOwnProperty(sa[k])) return false;" ~
+    "    if (!Bun.deepEquals(a[sa[k]], b[sa[k]])) return false;" ~
     "  }" ~
     "  return true;" ~
     "};" ~
