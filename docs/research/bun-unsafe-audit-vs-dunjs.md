@@ -12,7 +12,7 @@
 | **Framework throughput** (framework_bench, PGO) | **305 M ops/sec** | 168 M ops/sec | 280 M ops/sec (JSC backend) |
 | **HTTP throughput** (wrk plaintext, v1.1.29) | 50,368 req/s (Bun 1.3.14) | 45,112 req/s (Deno 2.8.0) | **40,470 req/s** (JSC), 36,722 (V8), 31,953 (QJS) |
 | **Node-API surface** (npm_compat_test) | 145/145 | 145/145 | **145/145** (all 3 backends) |
-| **Memory safety blocks** | 13,365 `unsafe` + 5 unsound fns | inherits Rust's `unsafe` from V8 bindings | 1,460 `@trusted` + 8 `@system`, 0 known unsound, 25 sites missing inline rationale (1.7%, mostly `yaml.d`) |
+| **Memory safety blocks** | 13,365 `unsafe` + 5 unsound fns | inherits Rust's `unsafe` from V8 bindings | 1,462 `@trusted` + 8 `@system`, 0 known unsound, **0 sites missing inline rationale** (v1.1.30 tool fix + `@trusted policy` header recognition for the v1.1.27 ddoc-converted blocks) |
 | **Source LOC** | ~1 M (Rust, post-port) | ~700 K (Rust + JS) | 67,504 (D) |
 | **Engines** | JSC only | V8 only | **QuickJS-NG + JSC + V8** (pluggable `IJSEngine`) |
 | **Audit posture** | one-time port cleanup | ongoing | **ongoing** (v1.1.26 rule-compliance audit + v1.1.27 perf wins + v1.1.28 CVE-class net-gate fix + v1.1.29 N-API leak + thread-local cache safety + v1.1.30 Node v26 surface ports + Bun-test ports + 5 more `@safe` callback batch) |
@@ -268,9 +268,9 @@ DunState* ctxState(void* ctx) @trusted nothrow @nogc
 
 Bun has no direct equivalent — Rust's `inline(always)` doesn't preserve the audit grep, because the source still says `*mut Self` at each call site.
 
-### Eleven `-preview=*` flags + `--edition=2025` (DIP 1052)
+### Twelve `-preview=*` flags + `--edition=2025` (DIP 1052)
 
-Where Rust gates new language features behind edition releases (2015, 2018, 2021, 2024), D gates them behind explicit `-preview=*` switches *and* a DIP-1052 edition flag. Each preview maps to an accepted DIP that tightens what the compiler accepts. DunJS opts in to a curated set of 11 — every one of them either tightens safety, fixes a latent UB class, or makes a defensive pattern compile-checkable:
+Where Rust gates new language features behind edition releases (2015, 2018, 2021, 2024), D gates them behind explicit `-preview=*` switches *and* a DIP-1052 edition flag. Each preview maps to an accepted DIP that tightens what the compiler accepts. DunJS opts in to a curated set of 12 — every one of them either tightens safety, fixes a latent UB class, or makes a defensive pattern compile-checkable:
 
 | Preview | Effect | Audit impact |
 |---|---|---|
@@ -285,13 +285,14 @@ Where Rust gates new language features behind edition releases (2015, 2018, 2021
 | `bitfields` (DIP 1051) | C-style `int field : 3;` syntax | C interop without manual `core.bitop` arithmetic — matters for the C-headers we ImportC (`sqlite3.h`, etc.) |
 | `fieldwise` | Fieldwise struct equality (no padding-byte memcmp) | Closes the padding-bytes-affect-equality footgun that bit projects like libsodium |
 | `in` parameter | `in` means `scope const [ref]` and accepts rvalues | Lifetime-checked + alias-safe by default for `in` params |
+| `nosharedaccess` | Direct access to `shared` data is disallowed; must go through `core.atomic` or explicit cast | Catches the bug class where `@safe`/non-shared code reads a `shared` global without atomic semantics. v1.1.30 enables this — the 11 direct `shared stderr`/`stdout` access sites in `napi.d` + `process_api.d` were routed through small `@trusted` helpers (`stdoutPtr` / `stderrPtr`) that cast the `shared FILE*` to `FILE*` at one audit point per file |
 | `--edition=2025` (DIP 1052) | Rolls the project to D's 2025 edition defaults | Packages all of the above into a single language version selector; future-proofs against preview flag drift |
 
 **`-preview=all` is rejected**: DIP 1021 (Mutable Function Arguments) inside breaks `core.internal.newaa` and `std.typecons` in LDC 1.42.0's druntime/Phobos. The curated list above is the most we can enable without source-tree workarounds — documented in `CLAUDE.md` so the next preview-expansion attempt doesn't re-trip it.
 
-**`-preview=nosharedaccess` is deferred**: would require fixing 3 direct `shared stderr`/`stdout` accesses in `napi.d` and `process_api.d` (would need `core.atomic` wrappers). Tracked in HANDOFF.md "Still deferred".
+**`-preview=nosharedaccess` is enabled (v1.1.30+)**: closed the 11 direct `shared stderr`/`stdout` access sites in `napi.d` (1 site) and `process_api.d` (10 sites) by routing through small `@trusted` helpers (`stdoutPtr` / `stderrPtr`) that cast the `shared FILE*` to `FILE*` at one audit point per file. C's `fprintf` / `fwrite` take a non-shared `FILE*` and the JS runtime is single-threaded at the stdio surface, so the cast is sound. **DunJS now opts in to 12 `-preview=*` flags total**.
 
-Bun's audit doesn't have a direct analogue here because Rust's safety story is one big binary: code is either `safe` or `unsafe`. D's preview-flag system is a *gradient* — you can pick exactly which compile-time checks the project opts in to, ahead of them becoming defaults. The fact that we run all 11 + the 2025 edition is itself a `tools/gen_trusted_ledger.d`-grep-able audit signal.
+Bun's audit doesn't have a direct analogue here because Rust's safety story is one big binary: code is either `safe` or `unsafe`. D's preview-flag system is a *gradient* — you can pick exactly which compile-time checks the project opts in to, ahead of them becoming defaults. The fact that we run all 12 + the 2025 edition is itself a `tools/gen_trusted_ledger.d`-grep-able audit signal.
 
 ## 7. The "where DunJS would fail the audit" honest section
 
@@ -300,7 +301,7 @@ If I ran Bun's exact methodology against DunJS today, the gaps would be:
 | Track | Bun result | DunJS state (post v1.1.26 close-the-gaps pass) |
 |---|---|---|
 | Unsound functions discovery | 5 found, explicitly listed | DunJS audit found the **JSC `_fetchResponseBuilder` exception-vs-Response confusion** — symptomatic flake, not strict UB, but the same bug class. Mitigated by `isException(resp)` fallback in v1.1.26, not yet "zero by construction" |
-| Per-`unsafe`-block annotation with rationale | Every block has an attached safety comment | **Largely closed**: 25 / 1,465 sites (≈1.7%) missing rationale, mostly in `yaml.d` (8) and `quickjs/bindings.d` (2). 28 SIMD sites carry per-line `///` rationale; the remaining ~1,400 sites are covered by a per-file file-level `@trusted policy` header (in `///` or `/++ ... +/` form). The v1.1.27 ddoc consolidation moved most headers into `/++ ... +/` blocks; v1.1.30+ updated `tools/gen_trusted_ledger.d` to recognize that format |
+| Per-`unsafe`-block annotation with rationale | Every block has an attached safety comment | **Closed (v1.1.30)**: 0 / 1,462 sites missing rationale. 16 SIMD sites carry per-line `///` rationale; the remaining ~1,446 sites are covered by a per-file file-level `@trusted policy` header (in `///` or `/++ ... +/` form). The v1.1.27 ddoc consolidation moved most headers into `/++ ... +/` blocks; v1.1.30 updated `tools/gen_trusted_ledger.d` to recognize that format AND to keep scanning past non-policy `/++` blocks (the previous bug stopped at the first `/++` it saw, missing files like `yaml.d` whose policy header sits after the parser-scope docstring) |
 | Public audit ledger with expandable rows | Yes, the bun.com page itself | **Closed**: [`docs/research/trusted-ledger.md`](trusted-ledger.md) — auto-generated by `ldc2 -run tools/gen_trusted_ledger.d`, bucketed by category (engine-FFI 270, crypto-FFI 133, network-IO 265, fs-IO 184, …). Regenerate after any `@trusted` add/remove |
 | Fuzz harness exercising the audit boundary | Bun integrates with cargo-fuzz | **Closed**: `tests/fuzz/` ships **five** libFuzzer targets — `fuzz_strip` (TS type stripper), `fuzz_simd` (latin1↔UTF-8 + hex), `fuzz_url` (`parseUrl` — `platform/url_parser.d` refactored out of `fetch.d` for harness decoupling), `fuzz_lexer` (`hasSyntaxError` / `skipStringLit` / `skipTemplateLit`), `fuzz_paths` (`canonicalizePath` — added v1.1.28 to gate the v1.1.27 `isAlreadyCanonical` fast-path against CVE-2023-32004-class regressions). Smoke runs hit ~300 K – 4.7 M iterations per target / 30 s, zero crashes. Runner: `bash tests/fuzz/run.sh [seconds]` |
 | Comparable-runtime CI parity (track tested-but-passing across runtimes) | Bun has it via WPT | DunJS has 145/145 npm_compat + 81/81 react-compat + 38/38 v0.6 web-audit + the 167/167 integration sweep. WPT integration remains out-of-scope for the current pass |

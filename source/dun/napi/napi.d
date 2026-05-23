@@ -775,7 +775,13 @@ void napi_fatal_error(const(char)* location, size_t location_len,
     auto msg = (message is null) ? "(no message)" : (message_len == size_t.max
         ? cast(string) message[0 .. () { size_t l; while (message[l] != 0) l++; return l; }()]
         : cast(string) message[0 .. message_len]);
-    fprintf(stderr, "FATAL ERROR: %.*s %.*s\n",
+    // `stderr` from core.stdc.stdio is `shared FILE*`; cast to
+    // non-shared for fprintf. `-preview=nosharedaccess` opt-in
+    // makes this cast explicit at the audit boundary. Same idiom
+    // as `process_api.d:stderrPtr` (centralized helper there);
+    // here it's one site so we inline.
+    import core.stdc.stdio : FILE;
+    fprintf(cast(FILE*) stderr, "FATAL ERROR: %.*s %.*s\n",
         cast(int) loc.length, loc.ptr,
         cast(int) msg.length, msg.ptr);
     abort();

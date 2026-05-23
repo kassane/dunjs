@@ -262,6 +262,7 @@
 		"-preview=in",
 		"-preview=inclusiveincontracts",
 		"-preview=systemVariables",
+		"-preview=nosharedaccess",
 		"--edition=2025"
 	],
 	"libs-windows": [

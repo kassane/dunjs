@@ -103,6 +103,11 @@ void main(string[] args)
                 break;
             }
             // `/++ ... +/` block-comment file policy.
+            // Don't `break` after a non-matching block — many files
+            // have a module-level docstring (e.g. yaml.d's parser
+            // description) BEFORE the `@trusted policy` block; we
+            // need to keep scanning until we either find the policy
+            // or exhaust the 80-line near-top window.
             if (t.startsWith("/++"))
             {
                 string blockBody = t;
@@ -116,8 +121,12 @@ void main(string[] args)
                     k++;
                 }
                 if (sawClose && blockBody.canFind("@trusted policy"))
+                {
                     filePolicy = blockBody;
-                if (sawClose) break;
+                    break;
+                }
+                // Otherwise keep scanning — there may be a later
+                // `/++ ... +/` block with the policy.
             }
         }
 

@@ -683,6 +683,24 @@ JSHandle jsNextTick(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
     return engine.newUndefined();
 }
 
+// `core.stdc.stdio.{stdout,stderr}` are declared `shared FILE*` —
+// `-preview=nosharedaccess` (DIP draft, opt-in v1.1.30+) forbids
+// direct reads from `@safe` / non-shared code. C's fprintf/fwrite
+// take a non-shared FILE*, and the JS runtime is single-threaded
+// at the stdio surface, so the cast is sound. Centralizing here so
+// every call site uses one audit point + one comment.
+private import core.stdc.stdio : FILE;
+private FILE* stdoutPtr() @trusted nothrow @nogc
+{
+    import core.stdc.stdio : stdout;
+    return cast(FILE*) stdout;
+}
+private FILE* stderrPtr() @trusted nothrow @nogc
+{
+    import core.stdc.stdio : stderr;
+    return cast(FILE*) stderr;
+}
+
 JSHandle jsStdoutWrite(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     auto state = ctxState(ctx);
@@ -691,7 +709,8 @@ JSHandle jsStdoutWrite(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trus
     if (args.length < 1) return engine.newBool(true);
     try
     {
-        import core.stdc.stdio : fwrite, stdout, fflush;
+        import core.stdc.stdio : fwrite, fflush;
+        auto out_ = stdoutPtr();
         // Buffer / Uint8Array path: write raw bytes so binary data (e.g.
         // from WASI fd_write) reaches the terminal unmangled instead of
         // being toString'd into "104,101,108,...". Must isObject-gate
@@ -700,19 +719,19 @@ JSHandle jsStdoutWrite(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trus
         {
             auto bytes = engine.getTypedArrayBytes(args[0]);
             if (bytes.length > 0)
-                fwrite(bytes.ptr, 1, bytes.length, stdout);
+                fwrite(bytes.ptr, 1, bytes.length, out_);
             else
             {
                 auto data = engine.extractString(args[0]);
-                fwrite(data.ptr, 1, data.length, stdout);
+                fwrite(data.ptr, 1, data.length, out_);
             }
         }
         else
         {
             auto data = engine.extractString(args[0]);
-            fwrite(data.ptr, 1, data.length, stdout);
+            fwrite(data.ptr, 1, data.length, out_);
         }
-        fflush(stdout);
+        fflush(out_);
     }
     catch (Exception) {}
     return engine.newBool(true);
@@ -726,24 +745,25 @@ JSHandle jsStderrWrite(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trus
     if (args.length < 1) return engine.newBool(true);
     try
     {
-        import core.stdc.stdio : fwrite, stderr, fflush;
+        import core.stdc.stdio : fwrite, fflush;
+        auto err = stderrPtr();
         if (engine.isObject(args[0]) && !engine.isString(args[0]))
         {
             auto bytes = engine.getTypedArrayBytes(args[0]);
             if (bytes.length > 0)
-                fwrite(bytes.ptr, 1, bytes.length, stderr);
+                fwrite(bytes.ptr, 1, bytes.length, err);
             else
             {
                 auto data = engine.extractString(args[0]);
-                fwrite(data.ptr, 1, data.length, stderr);
+                fwrite(data.ptr, 1, data.length, err);
             }
         }
         else
         {
             auto data = engine.extractString(args[0]);
-            fwrite(data.ptr, 1, data.length, stderr);
+            fwrite(data.ptr, 1, data.length, err);
         }
-        fflush(stderr);
+        fflush(err);
     }
     catch (Exception) {}
     return engine.newBool(true);
@@ -992,11 +1012,12 @@ JSHandle jsEmitWarning(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trus
         }
         if (args.length >= 2 && engine.isString(args[1]))
             wtype = engine.extractString(args[1]);
-        import core.stdc.stdio : fprintf, stderr, fflush;
-        fprintf(stderr, "(%.*s) %.*s\n",
+        import core.stdc.stdio : fprintf, fflush;
+        auto err = stderrPtr();
+        fprintf(err, "(%.*s) %.*s\n",
             cast(int) wtype.length, wtype.ptr,
             cast(int) msg.length, msg.ptr);
-        fflush(stderr);
+        fflush(err);
     }
     catch (Exception) {}
     return engine.newUndefined();
