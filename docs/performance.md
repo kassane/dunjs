@@ -67,19 +67,31 @@ dun-jsc, dun-v8, dun-qjs). Full cross-runtime correctness parity.
 
 All 6 runtimes pass **81/81** checks. Full cross-runtime parity.
 
-### HTTP benchmarks (wrk, 64 conns, 10s)
+### HTTP benchmarks (wrk, v1.1.29 measurement, 64 conns, 5s/endpoint)
 
 | Endpoint | Bun 1.3 | Deno 2.7 | Node 22 | dun-v8 | dun-jsc | dun-qjs |
 |----------|--------:|---------:|--------:|-------:|--------:|--------:|
-| /plaintext | 80,354 | 68,079 | 50,838 | 34,635 | 18,381 | 16,299 |
-| /json | 79,724 | 68,021 | 59,071 | 37,325 | 18,206 | 16,564 |
-| /echo | 70,868 | 58,193 | 57,521 | 28,994 | 17,314 | 15,046 |
-| /compute | 83,964 | 68,631 | 57,738 | 34,274 | 17,921 | 15,455 |
+| /plaintext | 50,090 | 49,428 | 32,213 | **36,587** | 28,929 | 34,120 |
+| /json     | 50,192 | 49,357 | 31,527 | **37,297** | 28,964 | 34,014 |
+| /echo     | 44,043 | 40,492 | 27,525 | **33,901** | 23,918 | 20,862 |
+| /compute  | 53,457 | 48,679 | 33,648 | **38,959** | 25,413 | 24,618 |
 
-The HTTP server is currently DunJS's weakest area relative to Bun.
-The CPU-bound benches are where JSC's JIT pays for itself; the HTTP
-hot path needs more native-side optimization (per-request handle
-recycling, zero-copy response paths).
+DunJS V8 now **beats Node 22 on all 4 endpoints** (110-118%), and
+DunJS QJS beats Node on plaintext/json despite being interpreter-
+only. The cumulative HTTP improvements through v1.1.5-v1.1.20
+(JSC handle leaks plugged), v1.1.26 (`_writeHeadFlattener` cache),
+and v1.1.27-29 (thread-local factory caches, statProto, fs perf
+wins) lifted the floor materially.
+
+Remaining gap to Bun/Deno (~30%) is dominated by per-request FFI
+overhead — `req.headers` lazy-loader, `Content-Length` string
+interpolation, response builder factory. DunJS JSC trails the
+other two backends because of the JSC concurrent-GC-vs-HTTP-server
+overhead documented in HANDOFF Known issue #1 (a fetch-hang
+class, not an allocation race per the v1.1.27 investigation).
+
+The echo endpoint on QJS is 40% slower than plaintext (req.headers
+parsing FFI) — single most actionable improvement target.
 
 ## Picking a backend
 
