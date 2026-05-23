@@ -7,7 +7,7 @@ and the gotchas that bite you on day one. Read alongside
 
 ## Current state (v1.1.29)
 
-- Integration sweep: **164/164** on QJS / V8, **162/164 + 1 SKIP**
+- Integration sweep: **167/167** on QJS / V8, **165/167 + 1 SKIP**
   on JSC (deno_deploy_compat flakes ~1 in 7 sweeps under heap-load —
   see `## JSC deno_deploy_compat flake` below). The `cve_priv_files.js`
   fixture (8/8) added in v1.1.26 regression-tests the sandbox-bypass
@@ -328,9 +328,9 @@ done
 
 # Integration sweep
 dub test -c unittest                                # 71/71
-bash tests/integration/run.sh                      # QJS  164/164
-BACKEND=jsc DUN=./dun-rel-jsc bash tests/integration/run.sh   # JSC  162/164 + 1 SKIP
-BACKEND=v8  DUN=./dun-rel-v8  bash tests/integration/run.sh   # V8   164/164
+bash tests/integration/run.sh                      # QJS  167/167
+BACKEND=jsc DUN=./dun-rel-jsc bash tests/integration/run.sh   # JSC  165/167 + 1 SKIP
+BACKEND=v8  DUN=./dun-rel-v8  bash tests/integration/run.sh   # V8   167/167
 ```
 
 The slash-command equivalents are documented in

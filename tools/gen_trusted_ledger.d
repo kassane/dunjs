@@ -19,7 +19,7 @@ module gen_trusted_ledger;
 import std.file : dirEntries, SpanMode, readText, write;
 import std.path : extension, baseName, dirName, asRelativePath;
 import std.string : strip, indexOf, splitLines;
-import std.algorithm : count, startsWith, canFind, sort;
+import std.algorithm : count, startsWith, endsWith, canFind, sort;
 import std.array : appender, array;
 import std.regex : regex, matchFirst, Captures;
 import std.conv : to;
@@ -78,10 +78,12 @@ void main(string[] args)
         auto lines = content.splitLines;
 
         // Pass 1: look for a file-level `@trusted policy:` header.
-        // Convention: place near the top of the file as a /// doc
-        // comment containing `@trusted policy:`. Every @trusted in
-        // the file is covered by this rationale unless a per-line
-        // `///` overrides it.
+        // Convention: place near the top of the file as a doc comment
+        // (either `///` lines or a `/++ ... +/` block) containing the
+        // phrase `@trusted policy`. Every @trusted in the file is
+        // covered by this rationale unless a per-line `///` overrides
+        // it. The v1.1.27 ddoc consolidation moved most policy headers
+        // into `/++ ... +/` blocks — both formats are accepted here.
         string filePolicy;
         foreach (j, l; lines)
         {
@@ -100,6 +102,23 @@ void main(string[] args)
                 }
                 break;
             }
+            // `/++ ... +/` block-comment file policy.
+            if (t.startsWith("/++"))
+            {
+                string blockBody = t;
+                auto k = j + 1;
+                bool sawClose = false;
+                while (k < lines.length && k < j + 60)
+                {
+                    auto t2 = lines[k].strip;
+                    blockBody ~= " " ~ t2;
+                    if (t2.endsWith("+/")) { sawClose = true; break; }
+                    k++;
+                }
+                if (sawClose && blockBody.canFind("@trusted policy"))
+                    filePolicy = blockBody;
+                if (sawClose) break;
+            }
         }
 
         foreach (i, line; lines)
@@ -108,6 +127,15 @@ void main(string[] args)
             // Skip @trusted inside a string literal or inside a comment.
             auto stripped = line.strip;
             if (stripped.startsWith("//") || stripped.startsWith("*") || stripped.startsWith("/*"))
+                continue;
+            // Skip ddoc block-comment content lines: ` + ...`, `+ ...`,
+            // or the opening `/++` / closing `+/`. The v1.1.27 ddoc
+            // consolidation moved most multi-line `///` rationales into
+            // `/++ ... +/` blocks; the content lines often reference
+            // `@trusted` in prose ("`@trusted` policy: ...") which used
+            // to be safely caught by the `///` startsWith check.
+            if (stripped.startsWith("+ ") || stripped == "+/"
+                    || stripped.startsWith("/++") || stripped == "+")
                 continue;
             if (stripped.canFind(`"@trusted"`) || stripped.canFind(`'@trusted'`))
                 continue;
@@ -123,9 +151,15 @@ void main(string[] args)
             //       declaration wrapping onto multiple lines
             // Walk upward skipping attribute-only lines, signature
             // continuation lines (start with `,` or contain only
-            // qualifiers), and blank lines until we find either a `///`
-            // doc comment (the rationale) or non-comment code (no
+            // qualifiers), and blank lines until we find either a doc
+            // comment (the rationale) or non-comment code (no
             // rationale).
+            //
+            // Doc-comment formats recognized:
+            //   - `///`-prefixed single or consecutive lines (legacy)
+            //   - `/++ ... +/` block (D's multi-line ddoc, adopted in
+            //     v1.1.27 — without this branch ~1600 sites looked
+            //     un-rationaled to the scanner).
             string rationale;
             ptrdiff_t scan = cast(ptrdiff_t) i - 1;
             while (scan >= 0)
@@ -143,6 +177,29 @@ void main(string[] args)
                         if (p.startsWith("///")) { rationale = p ~ " " ~ rationale; walkUp--; }
                         else break;
                     }
+                    break;
+                }
+                if (prev == "+/" || prev.endsWith("+/"))
+                {
+                    // `/++ ... +/` ddoc block. Walk back to the opening
+                    // `/++` collecting the content. Each line typically
+                    // starts with ` + ` (the conventional ddoc style).
+                    string body_ = prev;
+                    auto walkUp = scan - 1;
+                    bool foundStart = false;
+                    while (walkUp >= 0)
+                    {
+                        auto p = lines[walkUp].strip;
+                        if (p.startsWith("/++"))
+                        {
+                            body_ = p ~ " " ~ body_;
+                            foundStart = true;
+                            break;
+                        }
+                        body_ = p ~ " " ~ body_;
+                        walkUp--;
+                    }
+                    if (foundStart) rationale = body_;
                     break;
                 }
                 if (prev.startsWith("//"))
