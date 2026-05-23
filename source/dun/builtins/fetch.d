@@ -811,11 +811,53 @@ JSHandle responseJson(void* ctx, JSHandle thisVal, scope JSHandle[] args) @safe
         return engine.throwTypeError("response body is not a string");
 
     string bodyStr = engine.extractString(body_);
-    auto result = engine.eval("JSON.parse(" ~ jsonQuote(bodyStr) ~ ")", "<fetch>");
-    if (result.isError)
-        return engine.throwTypeError("invalid JSON in response body");
-    return result.value;
+    // Cache JSON.parse factory at first use. Without this, each
+    // `await response.json()` evals a fresh source with the body
+    // inlined — JSC bytecode cache grows unboundedly (canonical
+    // /debug-native-callback hot-path eval pattern). Cache is
+    // thread-local so each Worker engine has its own factory
+    // (same rationale as `_hrtimeBigIntFactory`).
+    //
+    // `responseJson` is @safe; the `__gshared`-style state access
+    // happens via a narrow `@trusted` lambda.
+    return (() @trusted {
+        if (!_jsonParseFactoryCached)
+        {
+            auto r = engine.eval(
+                "(function(s){return JSON.parse(s);})", "<fetch:json>");
+            if (!r.isError && engine.isFunction(r.value))
+            {
+                _jsonParseFactory = r.value;
+                _jsonParseFactoryCached = true;
+            }
+            else
+            {
+                engine.freeValue(r.value);
+                auto fallback = engine.eval(
+                    "JSON.parse(" ~ jsonQuote(bodyStr) ~ ")", "<fetch>");
+                if (fallback.isError)
+                    return engine.throwTypeError("invalid JSON in response body");
+                return fallback.value;
+            }
+        }
+        auto sVal = engine.newString(bodyStr);
+        auto undef = engine.newUndefined();
+        JSHandle[1] argv = [sVal];
+        auto parsed = engine.callFunction(
+            engine.dupValue(_jsonParseFactory), undef, argv[]);
+        engine.freeValue(sVal);
+        engine.freeValue(undef);
+        if (engine.isException(parsed))
+        {
+            engine.freeValue(parsed);
+            return engine.throwTypeError("invalid JSON in response body");
+        }
+        return parsed;
+    })();
 }
+
+private static JSHandle _jsonParseFactory;
+private static bool _jsonParseFactoryCached = false;
 
 string jsonQuote(string s) @safe
 {

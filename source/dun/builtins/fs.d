@@ -695,8 +695,14 @@ int errnoFromCode(string code) @safe pure nothrow @nogc
 // canonical pattern + v1.1.7 `_fetchResponseBuilder` precedent). One
 // fresh source per stat/readFile/etc. failure adds up fast on JSC.
 // Fix: cache the factory at first use, pass error fields as JS args.
-private __gshared JSHandle _fsErrFactory;
-private __gshared bool _fsErrFactoryCached = false;
+// Thread-local (`static`, not `__gshared`) so each Worker engine
+// has its own pinned factory — a process-wide cache would store a
+// JSHandle pinned by the main thread's engine, and Workers (own
+// thread, own IJSEngine) would dispatch via a foreign handle and
+// segfault inside V8 builtins. v1.1.29 audit pass 2 caught this on
+// the `workers` integration fixture.
+private static JSHandle _fsErrFactory;
+private static bool _fsErrFactoryCached = false;
 
 private void ensureFsErrFactoryCached(IJSEngine engine) @trusted
 {
