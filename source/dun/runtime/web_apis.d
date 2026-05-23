@@ -44,7 +44,7 @@ void installWebAPIs(IJSEngine engine) @trusted
 
 private void installLazyExtras(IJSEngine engine) @trusted
 {
-    import std.array : Appender;
+    import dun.platform.arena : Appender;
     Appender!string sb;
     sb.put("(function(){");
     foreach (chunk; extrasSources())
@@ -103,19 +103,12 @@ private void installLazyExtras(IJSEngine engine) @trusted
 
 private alias sanitizeTag = sanitizeTagSafe;
 
-private string escapeJsLit(string s) pure @safe
+// Double-quoted JS literal — wraps the canonical helper with the
+// outer `"..."` quotes.
+private string escapeJsLit(string s) @safe
 {
-    string r = "\"";
-    foreach (c; s)
-    {
-        if      (c == '\\') r ~= "\\\\";
-        else if (c == '"')  r ~= "\\\"";
-        else if (c == '\n') r ~= "\\n";
-        else if (c == '\r') r ~= "\\r";
-        else if (c == '\t') r ~= "\\t";
-        else                r ~= c;
-    }
-    return r ~ "\"";
+    import dun.builtins.helpers : escapeJsString;
+    return "\"" ~ escapeJsString(s, '"') ~ "\"";
 }
 
 private string sanitizeTagSafe(string tag) pure @safe

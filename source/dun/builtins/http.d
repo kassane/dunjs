@@ -1743,7 +1743,11 @@ void sendChunk(HttpConnState* conn, string data) nothrow @trusted
     int pos = 16;
     size_t n = data.length;
     if (n == 0) { hexBuf[--pos] = '0'; }
-    else while (n > 0) { hexBuf[--pos] = "0123456789abcdef"[n & 0xf]; n >>= 4; }
+    else
+    {
+        import dun.declarations : HEX_LOWER;
+        while (n > 0) { hexBuf[--pos] = HEX_LOWER[n & 0xf]; n >>= 4; }
+    }
     hexBuf[16] = '\r';
     hexBuf[17] = '\n';
     sendRaw(conn, cast(string) hexBuf[pos .. 18]);

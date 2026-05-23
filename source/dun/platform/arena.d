@@ -2,81 +2,40 @@ module dun.platform.arena;
 
 
 /++
- + `@trusted policy`: arena/bump allocator wrappers — re-exports
- + `std.experimental.allocator` primitives with the `@nogc pure
- + nothrow` decorations the hot paths need. The `@trusted` is to
- + localize the @nogc boundary; see `dun.builtins.crypto` and
- + `dun.builtins.buffer` for callers.
- +/
-public import std.experimental.allocator.building_blocks.region :
-    Region, BorrowedRegion, InSituRegion;
-public import std.experimental.allocator.mallocator : Mallocator;
-public import std.array : Appender;
-
-alias BumpRegion = Region!Mallocator;
-
-static assert(BumpRegion.alignment > 0);
-
-/++
- + `@trusted`: `Region!Mallocator` constructor is @safe in Phobos; the
- + wrapper exists to localize the `@nogc` boundary so callers can stay
- + in `@nogc nothrow` hot paths without a separate trusted lambda.
- +/
-BumpRegion makeBumpRegion(size_t capacity) @trusted pure nothrow @nogc
-{
-    assert(capacity > 0);
-    return BumpRegion(capacity);
-}
-
-/++
- + `@trusted`: pointer-cast from `void[]` to `T[]` after a successful
- + allocator call. The allocator guarantees `bytes.length >= T.sizeof * count`
- + and the cast preserves the byte sequence — well-defined per
- + `std.experimental.allocator` documentation. The early `null` return
- + shortcuts a degenerate alloc-failure path.
- +/
-T[] regionAlloc(T, Alloc)(ref Alloc alloc, size_t count) @trusted pure nothrow @nogc
-{
-    assert(count > 0);
-    auto bytes = alloc.allocate(T.sizeof * count);
-    if (bytes is null) return null;
-    return (cast(T*) bytes.ptr)[0 .. count];
-}
-
-Appender!(T[]) makeAppender(T)(size_t reserveCapacity = 0)
-{
-    Appender!(T[]) app;
-    if (reserveCapacity > 0)
-        app.reserve(reserveCapacity);
-    return app;
-}
-
-/++
- + Stack-first, heap-fallback bulk allocator — mirrors the
- + `std.heap.stackFallback(N, default_allocator)` pattern Bun uses
- + across its node bindings (`node_assert_binding.zig`,
- + `node_os.zig`, `node_process.zig`, etc.) for per-call scratch
- + buffers. The first `N` bytes come off the function's stack via
- + `InSituRegion!N`; once that fills, allocations spill to the GC
- + heap. Per-call scopes that allocate a few small strings (paths,
- + header values, /proc/* parsing) stay entirely on the stack for
- + the common case, and silently grow to heap when the input is
- + unusually large.
+ + `@trusted policy`: arena/scratch-buffer wrappers for hot paths
+ + that need `@nogc nothrow` allocation. The `@trusted` annotation
+ + localizes the unsafe FFI-shaped boundary (raw `void[]` -> `T[]`
+ + cast inside `StackFallback.allocate`); callers stay `@safe`.
  +
- + We pair `InSituRegion` with GC `new[]` overflow (rather than
- + `FallbackAllocator!(InSituRegion, Mallocator)`) so that the
- + caller doesn't have to bookkeep heap-spilled blocks individually
- + — the GC reclaims them when the slice references drop. Calling
- + `deallocateAll()` resets the stack region; GC-spilled blocks fall
- + out of scope naturally.
+ + Public surface:
+ +   - `Appender!T`  — wraps `std.array.Appender` via alias so the
+ +     symbol is private to the arena's import graph (vs. `public
+ +     import` which would transitively republish the entire
+ +     `std.array.Appender` template chain).
+ +   - `StackFallback!N` — first `N` bytes off the stack via
+ +     `InSituRegion`, then GC heap spill. Mirrors Bun's
+ +     `std.heap.stackFallback` pattern in node_*_binding.zig
+ +     for per-call scratch buffers (paths, header values,
+ +     /proc parsing).
+ +/
+
+import std.array : StdAppender = Appender;
+alias Appender(A) = StdAppender!A;
+
+private import std.experimental.allocator.building_blocks.region : InSituRegion;
+
+/++
+ + Stack-first, heap-fallback bulk allocator. The first `N` bytes
+ + come off the function's stack via `InSituRegion!N`; once that
+ + fills, allocations spill to the GC heap. The destructor resets
+ + the stack region; GC-spilled blocks fall out of scope naturally.
  +
- + Usage:
+ + Usage (RAII, no manual cleanup):
  + ```
  + import dun.platform.arena : StackFallback;
  + StackFallback!4096 sfb;
- + scope(exit) sfb.deallocateAll();
  + auto buf = sfb.allocate(needed);
- + // ... use `buf` ...
+ + // destructor runs at scope exit
  + ```
  +/
 struct StackFallback(size_t N)
@@ -84,20 +43,36 @@ struct StackFallback(size_t N)
     static assert(N > 0, "StackFallback!N requires N > 0");
 
     /++
-     + Non-copyable: copying would alias the stack region across
-     + frames and the GC heap pointer, defeating the whole point
-     + of the type. Pass by `ref` if you need to share.
+     + `InSituRegion` is itself `@disable this(this)`, so the field
+     + makes `StackFallback` non-copyable for free — no explicit
+     + postblit disable needed.
      +/
-    @disable this(this);
-
     InSituRegion!N primary;
+
+    /++
+     + D structs don't have class-style inheritance, but `alias this`
+     + forwards every `InSituRegion` method (`deallocateAll`,
+     + `alignment`, the `empty` property…) to `primary`. Our own
+     + `allocate` overload shadows the inherited one to add the
+     + heap-fallback path. Callers can still reach the underlying
+     + method explicitly via `sfb.primary.allocate(...)` if needed.
+     +/
+    alias primary this;
+
+    /++
+     + RAII reset. Runs at scope exit; callers should not retain
+     + stack-portion slices past it. GC-spilled blocks the GC owns
+     + and reclaims when the slice references drop.
+     +/
+    ~this() @trusted nothrow
+    {
+        primary.deallocateAll();
+    }
 
     /++
      + Returns a slice of `bytes` from the stack region when it
      + fits, otherwise from the GC heap. Returns `null` only for a
-     + 0-byte request or under GC `OutOfMemoryError`. Caller must
-     + not retain the stack-portion slice past `deallocateAll()` /
-     + scope exit.
+     + 0-byte request or under GC `OutOfMemoryError`.
      +/
     void[] allocate(size_t bytes) @trusted nothrow
     {
@@ -107,30 +82,26 @@ struct StackFallback(size_t N)
         try return new ubyte[bytes];
         catch (Exception) return null;
     }
-
-    /++
-     + Reset the stack region. GC-spilled blocks fall out of scope
-     + naturally when the caller stops referencing them.
-     +/
-    void deallocateAll() @trusted nothrow
-    {
-        primary.deallocateAll();
-    }
 }
 
 version (unittest)
 {
     @safe unittest
     {
-        // StackFallback: first N bytes on the stack, then GC fallback.
         StackFallback!256 sfb;
-        // Allocate within stack budget.
         auto a = (() @trusted => sfb.allocate(64))();
         assert(a.length == 64);
-        // Overflow the stack region — spills to GC heap.
         auto b = (() @trusted => sfb.allocate(4096))();
         assert(b.length == 4096);
-        // Reset stack region. GC blocks fall out of scope.
-        (() @trusted => sfb.deallocateAll())();
+        // RAII: ~this resets the stack region at scope exit.
+    }
+
+    @safe unittest
+    {
+        Appender!(char[]) buf;
+        buf.reserve(8);
+        buf ~= 'h';
+        buf ~= 'i';
+        assert(buf.data == "hi");
     }
 }

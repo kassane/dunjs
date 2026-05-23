@@ -1067,18 +1067,14 @@ JSHandle throwModuleNotFound(IJSEngine engine, string specifier) @trusted
     return engine.throwTypeError(msg);
 }
 
-private string escapeForJs(string s) @trusted nothrow
+// Delegates to the canonical helper — eliminates 8 redundant
+// try/catch nests around `Appender.put` that were a side-effect
+// of the original `@trusted nothrow` signature.
+private string escapeForJs(string s) @safe nothrow
 {
-    Appender!(char[]) buf;
-    try { buf.reserve(s.length + 10); } catch (Exception) {}
-    foreach (c; s)
-    {
-        if (c == '\'') { try { buf.put("\\'"); } catch (Exception) {} }
-        else if (c == '\\') { try { buf.put("\\\\"); } catch (Exception) {} }
-        else if (c == '\n') { try { buf.put("\\n"); } catch (Exception) {} }
-        else { try { buf.put(c); } catch (Exception) {} }
-    }
-    try { return cast(string) buf[]; } catch (Exception) { return s; }
+    import dun.builtins.helpers : escapeJsString;
+    try return escapeJsString(s);
+    catch (Exception) return s;
 }
 
 private string resolveMainEntry(JSONValue j, string pkgDir) @trusted

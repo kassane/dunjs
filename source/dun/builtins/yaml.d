@@ -36,7 +36,7 @@ module dun.builtins.yaml;
  +/
 import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
 import dun.runtime.globals : DunState, ctxState;
-import std.array : Appender, appender;
+import dun.platform.arena : Appender;
 
 void registerYamlModule(IJSEngine engine) @trusted
 {

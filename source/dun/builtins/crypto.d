@@ -29,6 +29,7 @@ module dun.builtins.crypto;
 
 import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
 import dun.runtime.globals : DunState, ctxState;
+import dun.declarations : HEX_LOWER;
 
 private enum {
     SCRYPT_DEFAULT_N      = 16_384,
@@ -436,7 +437,7 @@ ubyte[16] nextUUIDBytes() @trusted
     return r;
 }
 
-immutable char[16] hexLUT = "0123456789abcdef";
+immutable char[16] hexLUT = HEX_LOWER;
 
 __gshared int _urandomFd = -1;
 
@@ -1873,11 +1874,10 @@ private string bytesToHexStr(const(ubyte)[] data) @safe pure
     import dun.platform.arena : Appender;
     Appender!(char[]) buf;
     buf.reserve(data.length * 2);
-    static immutable hexChars = "0123456789abcdef";
     foreach (b; data)
     {
-        buf ~= hexChars[b >> 4];
-        buf ~= hexChars[b & 0xF];
+        buf ~= HEX_LOWER[b >> 4];
+        buf ~= HEX_LOWER[b & 0xF];
     }
     return (() @trusted => cast(string) buf[])();
 }
@@ -2502,20 +2502,15 @@ private JSHandle rejectedPromise(IJSEngine engine, string msg) @trusted
     return ph.promise;
 }
 
-/// Simple JS string escaping for error messages
-private string escapeJsStr(string s) @safe pure nothrow
+/// Simple JS string escaping for error messages — delegates to the
+/// canonical helper. `nothrow` shim wraps the throw-on-OOM Appender
+/// path; on the unlikely throw the unescaped string is returned (the
+/// legacy local impl swallowed the same way).
+private string escapeJsStr(string s) @safe nothrow
 {
-    import dun.platform.arena : Appender;
-    Appender!(char[]) buf;
-    buf.reserve(s.length + 8);
-    foreach (c; s)
-    {
-        if (c == '\'') { buf ~= '\\'; buf ~= '\''; }
-        else if (c == '\\') { buf ~= '\\'; buf ~= '\\'; }
-        else if (c == '\n') { buf ~= '\\'; buf ~= 'n'; }
-        else buf ~= c;
-    }
-    return (() @trusted => cast(string) buf[])();
+    import dun.builtins.helpers : escapeJsString;
+    try return escapeJsString(s);
+    catch (Exception) return s;
 }
 
 // ── subtle.digest(algorithm, data) ──

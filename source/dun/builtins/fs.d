@@ -772,18 +772,16 @@ JSHandle throwSystemError(IJSEngine engine, string syscall, string path, Excepti
     return throwNodeError(engine, code, msg, syscall, path);
 }
 
-private string escapeJs(string s) @safe pure nothrow
+// fs error JS-string escape — delegates to the canonical helper.
+// `nothrow` shim wraps the Appender-backed implementation in a
+// try/catch since the unified helper isn't nothrow (Appender can
+// throw on OOM); we swallow + return the unescaped string as a
+// last resort, which is what the legacy local impl did silently.
+private string escapeJs(string s) @safe nothrow
 {
-    string r;
-    foreach (c; s)
-    {
-        if (c == '\'') r ~= "\\'";
-        else if (c == '\\') r ~= "\\\\";
-        else if (c == '\n') r ~= "\\n";
-        else if (c == '\r') r ~= "\\r";
-        else r ~= c;
-    }
-    return r;
+    import dun.builtins.helpers : escapeJsString;
+    try return escapeJsString(s);
+    catch (Exception) return s;
 }
 
 /++
