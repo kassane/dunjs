@@ -135,7 +135,7 @@ version (EngineQuickJS)
 
 private:
 
-JSHandle jsPathJoin(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
+JSHandle jsPathJoin(void* ctx, JSHandle thisVal, scope JSHandle[] args) @safe
 {
     auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsPathJoin");
@@ -153,7 +153,7 @@ JSHandle jsPathJoin(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
     catch (Exception) { return engine.throwTypeError("Failed to join paths"); }
 }
 
-JSHandle jsPathBasename(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
+JSHandle jsPathBasename(void* ctx, JSHandle thisVal, scope JSHandle[] args) @safe
 {
     auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsPathBasename");
@@ -170,7 +170,7 @@ JSHandle jsPathBasename(void* ctx, JSHandle thisVal, scope JSHandle[] args) @tru
     catch (Exception) { return engine.newString(""); }
 }
 
-JSHandle jsPathDirname(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
+JSHandle jsPathDirname(void* ctx, JSHandle thisVal, scope JSHandle[] args) @safe
 {
     auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsPathDirname");
@@ -184,7 +184,7 @@ JSHandle jsPathDirname(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trus
     catch (Exception) { return engine.newString("."); }
 }
 
-JSHandle jsPathExtname(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
+JSHandle jsPathExtname(void* ctx, JSHandle thisVal, scope JSHandle[] args) @safe
 {
     auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsPathExtname");
@@ -198,7 +198,7 @@ JSHandle jsPathExtname(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trus
     catch (Exception) { return engine.newString(""); }
 }
 
-JSHandle jsPathIsAbsolute(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
+JSHandle jsPathIsAbsolute(void* ctx, JSHandle thisVal, scope JSHandle[] args) @safe
 {
     auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsPathIsAbsolute");
@@ -212,7 +212,7 @@ JSHandle jsPathIsAbsolute(void* ctx, JSHandle thisVal, scope JSHandle[] args) @t
     catch (Exception) { return engine.newBool(false); }
 }
 
-JSHandle jsPathResolve(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
+JSHandle jsPathResolve(void* ctx, JSHandle thisVal, scope JSHandle[] args) @safe
 {
     auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsPathResolve");
@@ -236,7 +236,7 @@ JSHandle jsPathResolve(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trus
     catch (Exception) { return engine.throwTypeError("Failed to resolve path"); }
 }
 
-JSHandle jsPathNormalize(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
+JSHandle jsPathNormalize(void* ctx, JSHandle thisVal, scope JSHandle[] args) @safe
 {
     auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsPathNormalize");
@@ -250,7 +250,7 @@ JSHandle jsPathNormalize(void* ctx, JSHandle thisVal, scope JSHandle[] args) @tr
     catch (Exception) { return engine.newString("."); }
 }
 
-JSHandle jsPathRelative(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
+JSHandle jsPathRelative(void* ctx, JSHandle thisVal, scope JSHandle[] args) @safe
 {
     auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsPathRelative");
@@ -265,7 +265,7 @@ JSHandle jsPathRelative(void* ctx, JSHandle thisVal, scope JSHandle[] args) @tru
     catch (Exception) { return engine.newString(""); }
 }
 
-JSHandle jsPathParse(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
+JSHandle jsPathParse(void* ctx, JSHandle thisVal, scope JSHandle[] args) @safe
 {
     auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsPathParse");
@@ -291,7 +291,7 @@ JSHandle jsPathParse(void* ctx, JSHandle thisVal, scope JSHandle[] args) @truste
     catch (Exception) { return engine.throwTypeError("Failed to parse path"); }
 }
 
-JSHandle jsPathFormat(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
+JSHandle jsPathFormat(void* ctx, JSHandle thisVal, scope JSHandle[] args) @safe
 {
     auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsPathFormat");
@@ -327,7 +327,7 @@ JSHandle jsPathFormat(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trust
     catch (Exception) { return engine.newString(""); }
 }
 
-JSHandle jsPathToNamespacedPath(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
+JSHandle jsPathToNamespacedPath(void* ctx, JSHandle thisVal, scope JSHandle[] args) @safe
 {
     auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in jsPathToNamespacedPath");
