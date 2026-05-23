@@ -18,7 +18,11 @@ and the gotchas that bite you on day one. Read alongside
   pattern), and verified `dunjs install sfw` + `dun run sfw.mjs`
   (2325-line ESM bundle with `createRequire(import.meta.url)`,
   `__commonJS` factories, dynamic `__require`) clean on all 3
-  backends.
+  backends. v1.1.27 follow-up shipped two perf wins on `fs_bench` —
+  shared stat prototype + lazy Date getters (statSync -44%/-51%/-29%
+  on V8/JSC/QJS) and a `canonicalizePath` fast-path for already-canonical
+  POSIX paths (existsSync -22%, accessSync -25% on V8). `dub.json`
+  expanded to 11 `-preview=*` flags + `--edition=2025` (DIP 1052).
 - npm package corpus: `dun install express@4 moment axios jsonwebtoken
   semver validator commander cookie qs chalk uuid dotenv minimist
   which yargs-parser underscore` is required for the 5 npm-dependent
@@ -260,7 +264,7 @@ over the auto-vectorizable code that PGO most improves.
 
 | Track | Module | Pattern | Why deferred |
 |-------|--------|---------|--------------|
-| `@safe` callback rollout | All builtins (~400 callbacks) | The interface annotation in Pass 3 unblocks this. Each callback drops to `@safe` if its body only calls IJSEngine methods + ctxState + safe Phobos. ~10 already piloted | Mechanical but huge diff; would obscure unrelated PRs in `git blame`. Best done in small per-file batches |
+| `@safe` callback rollout | All builtins (~400 callbacks) | The interface annotation in Pass 3 unblocks this. Each callback drops to `@safe` if its body only calls IJSEngine methods + ctxState + safe Phobos. **Progress**: 14 in v1.1.26 (process_api / buffer / console / timers / microtask / fetch), 11 in v1.1.27 (`source/dun/builtins/path.d` — all jsPath* callbacks). ~25/400 done so far. | Mechanical but huge diff; would obscure unrelated PRs in `git blame`. Best done in small per-file batches |
 | `@trusted` IO reduction | `dun.modules.npm` (11 remaining) | Functions that touch `spawnShell`, `doFetch`, `readText`, `writefln` — keeping `@trusted` annotated as security flags | Real IO surface; keep `@trusted` as the audit signal |
 | DIP1038 `@mustuse` on funcs | `StackFallback.allocate` and friends | D currently reserves `@mustuse on functions for future use`; only struct types accept it (compile error: `@mustuse on functions is reserved for future use`) | Compiler limitation; revisit when LDC/DMD lifts it |
 | DIP1000 `return scope` | `JSVal` constructor (engine-context lifetime), additional `Buffer` slice getters | Compiler-enforced lifetime tracking | Current `JSVal` ctor stores a raw `JSContext*` field — `scope` on a ctor parameter doesn't track lifetime through struct fields. Practical answer is `@disable this(this)` + doc comment, which is what the wrapper already does. `getTypedArrayBytes` + `extractBytes` are already annotated `return scope` |

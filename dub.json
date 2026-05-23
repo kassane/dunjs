@@ -255,7 +255,14 @@
 		"-preview=fixAliasThis",
 		"-preview=rvaluerefparam",
 		"-preview=safer",
-		"-preview=dip1000"
+		"-preview=dip1000",
+		"-preview=dip1008",
+		"-preview=bitfields",
+		"-preview=fieldwise",
+		"-preview=in",
+		"-preview=inclusiveincontracts",
+		"-preview=systemVariables",
+		"--edition=2025"
 	],
 	"libs-windows": [
 		"legacy_stdio_definitions",

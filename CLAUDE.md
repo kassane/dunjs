@@ -567,8 +567,10 @@ overhead — `--DRT-gcopt=profile:1` reports it.
 
 ## D-side previews + DIPs enabled
 
-`dub.json` `dflags` enables five DMD/LDC previews. Each maps to an
-accepted DIP and tightens what the compiler will accept:
+`dub.json` `dflags` enables eleven DMD/LDC previews + `--edition=2025`.
+Each preview maps to an accepted DIP and tightens what the compiler
+will accept; the edition flag rolls the project forward to D's
+post-Zero-Edition feature defaults (per [DIP 1052](https://github.com/dlang/DIPs/blob/master/DIPs/accepted/DIP1052.md)).
 
 | Preview | Effect | DIP |
 |---------|--------|-----|
@@ -577,6 +579,22 @@ accepted DIP and tightens what the compiler will accept:
 | `rvaluerefparam` | Allow rvalue → `ref` parameter binding | (LDC patch) |
 | `safer` | `@safe` is the default for non-extern functions | (in progress) |
 | `dip1000` | Scope / `return scope` lifetime tracking on slices, refs, pointers | [DIP 1000](https://github.com/dlang/DIPs/blob/master/DIPs/other/DIP1000.md) |
+| `dip1008` | `@nogc throw new Exception(...)` (heap-allocated Throwables) | [DIP 1008](https://github.com/dlang/DIPs/blob/master/DIPs/other/DIP1008.md) |
+| `bitfields` | C-style bitfield syntax (`int field : 3;`) | [DIP 1051](https://github.com/dlang/DIPs/blob/master/DIPs/accepted/DIP1051.md) |
+| `fieldwise` | Fieldwise struct equality (no padding-byte memcmp) | (no DIP — bugfix preview) |
+| `in` | `in` parameter means `scope const [ref]` and accepts rvalues | (function-spec change) |
+| `inclusiveincontracts` | `in {}` contracts of overrides must be a superset of parent | (contract-spec change) |
+| `systemVariables` | `@system` variables can't be accessed from `@safe` | (attribute-spec change) |
+
+`-preview=all` is **rejected** — DIP 1021 (Mutable Function Arguments)
+inside breaks `core.internal.newaa` and `std.typecons` in LDC 1.42.0's
+druntime/Phobos. Stick to the curated list above.
+
+`--edition=2025` rolls the project to D's 2025 edition (per DIP 1052),
+which formalizes the set of approved preview flags that have matured.
+The explicit `-preview=*` list above is kept because it documents
+*which* features we depend on (the edition is opaque and may roll
+forward with the compiler).
 
 DIP1000 specifically: `scope` is **not** inferred for virtual / interface
 methods, so engine APIs that return slices into engine-owned memory must
