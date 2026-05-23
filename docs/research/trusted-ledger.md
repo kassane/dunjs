@@ -6,7 +6,7 @@ This is DunJS's analogue of [bun.com/bun-unsafe-audit](https://bun.com/bun-unsaf
 
 ## Summary
 
-- **Total `@trusted` sites**: 1460
+- **Total `@trusted` sites**: 1462
 - **Categories**: 12
 - **Generated**: ledger snapshot of `source/` tree at this commit.
 
@@ -18,7 +18,7 @@ This is DunJS's analogue of [bun.com/bun-unsafe-audit](https://bun.com/bun-unsaf
 | `engine-bridge` | 4 | Helpers that bridge `void* ctx` callbacks to typed `DunState*`. |
 | `event-loop` | 42 | Cross-platform I/O poller, timer wheel, async work queue. |
 | `fs-IO` | 177 | POSIX file syscalls, child_process spawn / exec. |
-| `hot-path` | 7 | `@nogc nothrow` hot paths where `@safe` would block needed operations. |
+| `hot-path` | 9 | `@nogc nothrow` hot paths where `@safe` would block needed operations. |
 | `napi-FFI` | 22 | N-API bindings (Node-compatible native addons). |
 | `network-IO` | 247 | POSIX socket syscalls, HTTP/HTTP2/WebSocket builtins, fetch. |
 | `other` | 535 | Miscellaneous — review for re-categorization opportunities. |
@@ -313,8 +313,8 @@ This is DunJS's analogue of [bun.com/bun-unsafe-audit](https://bun.com/bun-unsaf
 | [`source/dun/engine/quickjs/backend.d:567`](../../source/dun/engine/quickjs/backend.d#L567) | `static JSHandle toHandle(JSValue v) pure nothrow @nogc @trusted` | [file policy] /++ + \`@trusted policy\`: this entire file is the QuickJS C AP... |
 | [`source/dun/engine/quickjs/backend.d:575`](../../source/dun/engine/quickjs/backend.d#L575) | `static JSValue fromHandle(JSHandle h) pure nothrow @nogc @trusted` | [file policy] /++ + \`@trusted policy\`: this entire file is the QuickJS C AP... |
 | [`source/dun/engine/quickjs/backend.d:583`](../../source/dun/engine/quickjs/backend.d#L583) | `int magic) nothrow @trusted` | [file policy] /++ + \`@trusted policy\`: this entire file is the QuickJS C AP... |
-| [`source/dun/engine/quickjs/bindings.d:127`](../../source/dun/engine/quickjs/bindings.d#L127) | `const(char)* name, int length) nothrow @nogc @trusted` | _(missing)_ |
-| [`source/dun/engine/quickjs/bindings.d:338`](../../source/dun/engine/quickjs/bindings.d#L338) | `int JS_ToUint32(JSContext* ctx, uint* pres, JSValueConst val) nothrow @trusted` | _(missing)_ |
+| [`source/dun/engine/quickjs/bindings.d:127`](../../source/dun/engine/quickjs/bindings.d#L127) | `const(char)* name, int length) nothrow @nogc @trusted` | [file policy] /++ + \`@trusted policy\`: QuickJS C API bindings (extern(C) fu... |
+| [`source/dun/engine/quickjs/bindings.d:338`](../../source/dun/engine/quickjs/bindings.d#L338) | `int JS_ToUint32(JSContext* ctx, uint* pres, JSValueConst val) nothrow @trusted` | [file policy] /++ + \`@trusted policy\`: QuickJS C API bindings (extern(C) fu... |
 | [`source/dun/engine/quickjs/context.d:22`](../../source/dun/engine/quickjs/context.d#L22) | `static Context create(ref Runtime rt) @trusted` | /// Create a new context bound to the given runtime. |
 | [`source/dun/engine/quickjs/context.d:29`](../../source/dun/engine/quickjs/context.d#L29) | `~this() @trusted` | [file policy] /++ + \`@trusted policy\`: RAII wrapper for JSContext*. Constru... |
 | [`source/dun/engine/quickjs/context.d:37`](../../source/dun/engine/quickjs/context.d#L37) | `int flags = JS_EVAL_TYPE_GLOBAL) @trusted` | /// Evaluate JavaScript source code. Returns a managed JSVal. |
@@ -671,7 +671,7 @@ This is DunJS's analogue of [bun.com/bun-unsafe-audit](https://bun.com/bun-unsaf
 | [`source/dun/builtins/fs_promises.d:1080`](../../source/dun/builtins/fs_promises.d#L1080) | `AsyncResult serializeStatSafe(string path, bool useLstat) nothrow @trusted` | [file policy] /++ + \`@trusted policy\`: promise-based file system API + (\`f... |
 | [`source/dun/builtins/fs_promises.d:1157`](../../source/dun/builtins/fs_promises.d#L1157) | `JSHandle deserializeStatObj(IJSEngine engine, string data) @trusted` | [file policy] /++ + \`@trusted policy\`: promise-based file system API + (\`f... |
 
-## hot-path (7 sites)
+## hot-path (9 sites)
 
 | File:Line | Declaration | Rationale |
 |---|---|---|
@@ -680,6 +680,8 @@ This is DunJS's analogue of [bun.com/bun-unsafe-audit](https://bun.com/bun-unsaf
 | [`source/dun/platform/arena.d:38`](../../source/dun/platform/arena.d#L38) | `T[] regionAlloc(T, Alloc)(ref Alloc alloc, size_t count) @trusted pure nothro...` | /++ + \`@trusted\`: pointer-cast from \`void[]\` to \`T[]\` after a successfu... |
 | [`source/dun/runtime/process_api.d:45`](../../source/dun/runtime/process_api.d#L45) | `bool hasUncaughtExceptionHandler() @trusted nothrow @nogc` | /++ + \`@trusted\`: reads a single \`bool __gshared\` flag. \`bool\` read is ... |
 | [`source/dun/runtime/process_api.d:123`](../../source/dun/runtime/process_api.d#L123) | `bool hasUnhandledRejectionHandler() @trusted nothrow @nogc` | /++ + \`@trusted\`: same justification as \`hasUncaughtExceptionHandler\` —... |
+| [`source/dun/runtime/process_api.d:693`](../../source/dun/runtime/process_api.d#L693) | `private FILE* stdoutPtr() @trusted nothrow @nogc` | [file policy] /++ + \`@trusted policy\`: Node's \`process\` global + signal h... |
+| [`source/dun/runtime/process_api.d:698`](../../source/dun/runtime/process_api.d#L698) | `private FILE* stderrPtr() @trusted nothrow @nogc` | [file policy] /++ + \`@trusted policy\`: Node's \`process\` global + signal h... |
 | [`source/dun/workers/worker.d:35`](../../source/dun/workers/worker.d#L35) | `private WorkerStatus loadStatus(WorkerState wst) @trusted nothrow @nogc` | /++ + Lockfree accessors for \`WorkerState.status_\`. Writes from the + worke... |
 | [`source/dun/workers/worker.d:49`](../../source/dun/workers/worker.d#L49) | `private void storeStatus(WorkerState wst, WorkerStatus s) @trusted nothrow @nogc` | /++ + \`@trusted\`: \`cast(shared(int)*) &wst.status_\` reinterprets the + un... |
 
@@ -691,24 +693,24 @@ This is DunJS's analogue of [bun.com/bun-unsafe-audit](https://bun.com/bun-unsaf
 | [`source/dun/napi/napi.d:33`](../../source/dun/napi/napi.d#L33) | `napi_value allocValue(JSHandle h) nothrow @trusted` | [file policy] /++ + \`@trusted policy\`: this file is the N-API surface (~91 ... |
 | [`source/dun/napi/napi.d:59`](../../source/dun/napi/napi.d#L59) | `napi_env getOrCreateEnv(DunState* state) nothrow @trusted` | [file policy] /++ + \`@trusted policy\`: this file is the N-API surface (~91 ... |
 | [`source/dun/napi/napi.d:85`](../../source/dun/napi/napi.d#L85) | `extern(C) @trusted:` | [file policy] /++ + \`@trusted policy\`: this file is the N-API surface (~91 ... |
-| [`source/dun/napi/napi.d:1132`](../../source/dun/napi/napi.d#L1132) | `private void ensureNapiDispatcher(napi_env env) @trusted` | [file policy] /++ + \`@trusted policy\`: this file is the N-API surface (~91 ... |
-| [`source/dun/napi/napi.d:1304`](../../source/dun/napi/napi.d#L1304) | `private extern (D) JSHandle napiNoopFn(void* engineCtx, JSHandle thisVal, sco...` | [file policy] /++ + \`@trusted policy\`: this file is the N-API surface (~91 ... |
-| [`source/dun/napi/napi.d:1330`](../../source/dun/napi/napi.d#L1330) | `private int registerNapiFn(napi_env env, napi_callback cb, void* data) nothro...` | [file policy] /++ + \`@trusted policy\`: this file is the N-API surface (~91 ... |
-| [`source/dun/napi/napi.d:1342`](../../source/dun/napi/napi.d#L1342) | `private extern (D) JSHandle napiDispatch(void* engineCtx, JSHandle thisVal, s...` | [file policy] /++ + \`@trusted policy\`: this file is the N-API surface (~91 ... |
-| [`source/dun/napi/napi.d:1409`](../../source/dun/napi/napi.d#L1409) | `extern(C) @trusted:  // see nothrow note at line 72` | [file policy] /++ + \`@trusted policy\`: this file is the N-API surface (~91 ... |
-| [`source/dun/napi/napi.d:1491`](../../source/dun/napi/napi.d#L1491) | `private void ensureNapiMutexes() nothrow @trusted` | [file policy] /++ + \`@trusted policy\`: this file is the N-API surface (~91 ... |
-| [`source/dun/napi/napi.d:1505`](../../source/dun/napi/napi.d#L1505) | `extern(D) int napiDrainAsyncWork() nothrow @trusted` | /++ + Called by the event loop on each tick to flush any completed async + wo... |
-| [`source/dun/napi/napi.d:1546`](../../source/dun/napi/napi.d#L1546) | `extern(D) bool napiHasAsyncWork() nothrow @trusted` | /++ + True when there is at least one async work entry still pending — + ei... |
-| [`source/dun/napi/napi.d:1654`](../../source/dun/napi/napi.d#L1654) | `extern(D) int napiDrainThreadsafeCalls() nothrow @trusted` | /++ + Called by the event loop on each tick to dispatch pending threadsafe + ... |
-| [`source/dun/napi/napi.d:1694`](../../source/dun/napi/napi.d#L1694) | `extern(D) bool napiHasThreadsafeCalls() nothrow @trusted` | [file policy] /++ + \`@trusted policy\`: this file is the N-API surface (~91 ... |
-| [`source/dun/napi/napi.d:1737`](../../source/dun/napi/napi.d#L1737) | `void ensureWrapMutex() nothrow @trusted` | [file policy] /++ + \`@trusted policy\`: this file is the N-API surface (~91 ... |
-| [`source/dun/napi/napi.d:1743`](../../source/dun/napi/napi.d#L1743) | `ulong getWrapId(napi_env env, JSHandle obj) nothrow @trusted` | [file policy] /++ + \`@trusted policy\`: this file is the N-API surface (~91 ... |
-| [`source/dun/napi/napi.d:1768`](../../source/dun/napi/napi.d#L1768) | `void* lookupWrap(napi_env env, JSHandle obj) nothrow @trusted` | [file policy] /++ + \`@trusted policy\`: this file is the N-API surface (~91 ... |
-| [`source/dun/napi/napi.d:1779`](../../source/dun/napi/napi.d#L1779) | `void* removeWrap(napi_env env, JSHandle obj) nothrow @trusted` | [file policy] /++ + \`@trusted policy\`: this file is the N-API surface (~91 ... |
-| [`source/dun/napi/napi.d:1834`](../../source/dun/napi/napi.d#L1834) | `extern(C) @trusted:  // see nothrow note at line 72` | [file policy] /++ + \`@trusted policy\`: this file is the N-API surface (~91 ... |
-| [`source/dun/napi/napi.d:2178`](../../source/dun/napi/napi.d#L2178) | `private void _ensureCleanupMu() nothrow @trusted` | [file policy] /++ + \`@trusted policy\`: this file is the N-API surface (~91 ... |
-| [`source/dun/napi/napi.d:2223`](../../source/dun/napi/napi.d#L2223) | `public extern(D) void napiFireCleanupHooks() nothrow @trusted` | /++ + Fire all registered cleanup hooks. Called from \`napiFireFinalizers\` +... |
-| [`source/dun/napi/napi.d:2516`](../../source/dun/napi/napi.d#L2516) | `public extern(D) void napiFireFinalizers() nothrow @trusted` | /++ + Fire all pending finalizers. Called at runtime shutdown. Each finalizer... |
+| [`source/dun/napi/napi.d:1138`](../../source/dun/napi/napi.d#L1138) | `private void ensureNapiDispatcher(napi_env env) @trusted` | [file policy] /++ + \`@trusted policy\`: this file is the N-API surface (~91 ... |
+| [`source/dun/napi/napi.d:1310`](../../source/dun/napi/napi.d#L1310) | `private extern (D) JSHandle napiNoopFn(void* engineCtx, JSHandle thisVal, sco...` | [file policy] /++ + \`@trusted policy\`: this file is the N-API surface (~91 ... |
+| [`source/dun/napi/napi.d:1336`](../../source/dun/napi/napi.d#L1336) | `private int registerNapiFn(napi_env env, napi_callback cb, void* data) nothro...` | [file policy] /++ + \`@trusted policy\`: this file is the N-API surface (~91 ... |
+| [`source/dun/napi/napi.d:1348`](../../source/dun/napi/napi.d#L1348) | `private extern (D) JSHandle napiDispatch(void* engineCtx, JSHandle thisVal, s...` | [file policy] /++ + \`@trusted policy\`: this file is the N-API surface (~91 ... |
+| [`source/dun/napi/napi.d:1415`](../../source/dun/napi/napi.d#L1415) | `extern(C) @trusted:  // see nothrow note at line 72` | [file policy] /++ + \`@trusted policy\`: this file is the N-API surface (~91 ... |
+| [`source/dun/napi/napi.d:1497`](../../source/dun/napi/napi.d#L1497) | `private void ensureNapiMutexes() nothrow @trusted` | [file policy] /++ + \`@trusted policy\`: this file is the N-API surface (~91 ... |
+| [`source/dun/napi/napi.d:1511`](../../source/dun/napi/napi.d#L1511) | `extern(D) int napiDrainAsyncWork() nothrow @trusted` | /++ + Called by the event loop on each tick to flush any completed async + wo... |
+| [`source/dun/napi/napi.d:1552`](../../source/dun/napi/napi.d#L1552) | `extern(D) bool napiHasAsyncWork() nothrow @trusted` | /++ + True when there is at least one async work entry still pending — + ei... |
+| [`source/dun/napi/napi.d:1660`](../../source/dun/napi/napi.d#L1660) | `extern(D) int napiDrainThreadsafeCalls() nothrow @trusted` | /++ + Called by the event loop on each tick to dispatch pending threadsafe + ... |
+| [`source/dun/napi/napi.d:1700`](../../source/dun/napi/napi.d#L1700) | `extern(D) bool napiHasThreadsafeCalls() nothrow @trusted` | [file policy] /++ + \`@trusted policy\`: this file is the N-API surface (~91 ... |
+| [`source/dun/napi/napi.d:1743`](../../source/dun/napi/napi.d#L1743) | `void ensureWrapMutex() nothrow @trusted` | [file policy] /++ + \`@trusted policy\`: this file is the N-API surface (~91 ... |
+| [`source/dun/napi/napi.d:1749`](../../source/dun/napi/napi.d#L1749) | `ulong getWrapId(napi_env env, JSHandle obj) nothrow @trusted` | [file policy] /++ + \`@trusted policy\`: this file is the N-API surface (~91 ... |
+| [`source/dun/napi/napi.d:1774`](../../source/dun/napi/napi.d#L1774) | `void* lookupWrap(napi_env env, JSHandle obj) nothrow @trusted` | [file policy] /++ + \`@trusted policy\`: this file is the N-API surface (~91 ... |
+| [`source/dun/napi/napi.d:1785`](../../source/dun/napi/napi.d#L1785) | `void* removeWrap(napi_env env, JSHandle obj) nothrow @trusted` | [file policy] /++ + \`@trusted policy\`: this file is the N-API surface (~91 ... |
+| [`source/dun/napi/napi.d:1840`](../../source/dun/napi/napi.d#L1840) | `extern(C) @trusted:  // see nothrow note at line 72` | [file policy] /++ + \`@trusted policy\`: this file is the N-API surface (~91 ... |
+| [`source/dun/napi/napi.d:2184`](../../source/dun/napi/napi.d#L2184) | `private void _ensureCleanupMu() nothrow @trusted` | [file policy] /++ + \`@trusted policy\`: this file is the N-API surface (~91 ... |
+| [`source/dun/napi/napi.d:2229`](../../source/dun/napi/napi.d#L2229) | `public extern(D) void napiFireCleanupHooks() nothrow @trusted` | /++ + Fire all registered cleanup hooks. Called from \`napiFireFinalizers\` +... |
+| [`source/dun/napi/napi.d:2522`](../../source/dun/napi/napi.d#L2522) | `public extern(D) void napiFireFinalizers() nothrow @trusted` | /++ + Fire all pending finalizers. Called at runtime shutdown. Each finalizer... |
 
 ## network-IO (247 sites)
 
@@ -1142,13 +1144,13 @@ This is DunJS's analogue of [bun.com/bun-unsafe-audit](https://bun.com/bun-unsaf
 | [`source/dun/builtins/worker_threads.d:13`](../../source/dun/builtins/worker_threads.d#L13) | `void registerWorkerThreadsModule(IJSEngine engine) @trusted` | [file policy] /++ + \`@trusted policy\`: Node-compatible \`worker_threads\` m... |
 | [`source/dun/builtins/worker_threads.d:56`](../../source/dun/builtins/worker_threads.d#L56) | `private void registerQuickJSModule(IJSEngine engine) @trusted` | [file policy] /++ + \`@trusted policy\`: Node-compatible \`worker_threads\` m... |
 | [`source/dun/builtins/worker_threads.d:69`](../../source/dun/builtins/worker_threads.d#L69) | `private extern (C) int workerThreadsModuleInit(JSContext* ctx, JSModuleDef* m...` | [file policy] /++ + \`@trusted policy\`: Node-compatible \`worker_threads\` m... |
-| [`source/dun/builtins/yaml.d:41`](../../source/dun/builtins/yaml.d#L41) | `void registerYamlModule(IJSEngine engine) @trusted` | _(missing)_ |
-| [`source/dun/builtins/yaml.d:55`](../../source/dun/builtins/yaml.d#L55) | `private JSHandle jsYamlParse(void* ctx, JSHandle thisVal, scope JSHandle[] ar...` | _(missing)_ |
-| [`source/dun/builtins/yaml.d:77`](../../source/dun/builtins/yaml.d#L77) | `private JSHandle jsYamlStringify(void* ctx, JSHandle thisVal, scope JSHandle[...` | _(missing)_ |
-| [`source/dun/builtins/yaml.d:656`](../../source/dun/builtins/yaml.d#L656) | `private JSHandle nodeToJs(IJSEngine engine, Node n) @trusted` | _(missing)_ |
-| [`source/dun/builtins/yaml.d:707`](../../source/dun/builtins/yaml.d#L707) | `ref Appender!string out_) @trusted` | _(missing)_ |
-| [`source/dun/builtins/yaml.d:780`](../../source/dun/builtins/yaml.d#L780) | `ref Appender!string out_) @trusted` | _(missing)_ |
-| [`source/dun/builtins/yaml.d:871`](../../source/dun/builtins/yaml.d#L871) | `private JSHandle lookupKeysFn(IJSEngine engine) @trusted` | _(missing)_ |
+| [`source/dun/builtins/yaml.d:41`](../../source/dun/builtins/yaml.d#L41) | `void registerYamlModule(IJSEngine engine) @trusted` | [file policy] /++ + \`@trusted policy\`: YAML parser (subset compatible with ... |
+| [`source/dun/builtins/yaml.d:55`](../../source/dun/builtins/yaml.d#L55) | `private JSHandle jsYamlParse(void* ctx, JSHandle thisVal, scope JSHandle[] ar...` | [file policy] /++ + \`@trusted policy\`: YAML parser (subset compatible with ... |
+| [`source/dun/builtins/yaml.d:77`](../../source/dun/builtins/yaml.d#L77) | `private JSHandle jsYamlStringify(void* ctx, JSHandle thisVal, scope JSHandle[...` | [file policy] /++ + \`@trusted policy\`: YAML parser (subset compatible with ... |
+| [`source/dun/builtins/yaml.d:656`](../../source/dun/builtins/yaml.d#L656) | `private JSHandle nodeToJs(IJSEngine engine, Node n) @trusted` | [file policy] /++ + \`@trusted policy\`: YAML parser (subset compatible with ... |
+| [`source/dun/builtins/yaml.d:707`](../../source/dun/builtins/yaml.d#L707) | `ref Appender!string out_) @trusted` | [file policy] /++ + \`@trusted policy\`: YAML parser (subset compatible with ... |
+| [`source/dun/builtins/yaml.d:780`](../../source/dun/builtins/yaml.d#L780) | `ref Appender!string out_) @trusted` | [file policy] /++ + \`@trusted policy\`: YAML parser (subset compatible with ... |
+| [`source/dun/builtins/yaml.d:871`](../../source/dun/builtins/yaml.d#L871) | `private JSHandle lookupKeysFn(IJSEngine engine) @trusted` | [file policy] /++ + \`@trusted policy\`: YAML parser (subset compatible with ... |
 | [`source/dun/builtins/zlib.d:24`](../../source/dun/builtins/zlib.d#L24) | `void registerZlibModule(IJSEngine engine) @trusted` | [file policy] /++ + \`@trusted policy\`: zlib (DEFLATE / GZIP) + brotli compr... |
 | [`source/dun/builtins/zlib.d:70`](../../source/dun/builtins/zlib.d#L70) | `private void registerQuickJSModule(IJSEngine engine) @trusted` | [file policy] /++ + \`@trusted policy\`: zlib (DEFLATE / GZIP) + brotli compr... |
 | [`source/dun/builtins/zlib.d:82`](../../source/dun/builtins/zlib.d#L82) | `private extern (C) int zlibModuleInit(JSContext* ctx, JSModuleDef* m) nothrow...` | [file policy] /++ + \`@trusted policy\`: zlib (DEFLATE / GZIP) + brotli compr... |
@@ -1179,8 +1181,8 @@ This is DunJS's analogue of [bun.com/bun-unsafe-audit](https://bun.com/bun-unsaf
 | [`source/dun/cli/inspector.d:476`](../../source/dun/cli/inspector.d#L476) | `private long gMonotonicMs() nothrow @trusted` | /++ + Monotonic milliseconds for CDP event timestamps. nothrow so the + conso... |
 | [`source/dun/cli/inspector.d:486`](../../source/dun/cli/inspector.d#L486) | `void sendCDPResponse(int id, string resultJson) nothrow @trusted` | [file policy] /++ + \`@trusted policy\`: Chrome DevTools Inspector protocol �... |
 | [`source/dun/cli/inspector.d:498`](../../source/dun/cli/inspector.d#L498) | `void sendWebSocketFrame(ubyte[] payload) nothrow @trusted` | [file policy] /++ + \`@trusted policy\`: Chrome DevTools Inspector protocol �... |
-| [`source/dun/cli/lint.d:53`](../../source/dun/cli/lint.d#L53) | `tiny @trusted shim so the rest of this module stays @safe. */` | _(missing)_ |
-| [`source/dun/cli/lint.d:54`](../../source/dun/cli/lint.d#L54) | `private void writeErr(string s) @trusted` | _(missing)_ |
+| [`source/dun/cli/lint.d:53`](../../source/dun/cli/lint.d#L53) | `tiny @trusted shim so the rest of this module stays @safe. */` | [file policy] /++ + \`@trusted policy\`: lexer-based linter (no-eval, eqeqeq,... |
+| [`source/dun/cli/lint.d:54`](../../source/dun/cli/lint.d#L54) | `private void writeErr(string s) @trusted` | [file policy] /++ + \`@trusted policy\`: lexer-based linter (no-eval, eqeqeq,... |
 | [`source/dun/cli/repl.d:239`](../../source/dun/cli/repl.d#L239) | `private void printHelp(bool color) @trusted` | [file policy] /++ + \`@trusted policy\`: REPL (interactive mode) — line edi... |
 | [`source/dun/cli/repl.d:271`](../../source/dun/cli/repl.d#L271) | `private void doLoad(IJSEngine engine, DunState* state, string path, bool colo...` | [file policy] /++ + \`@trusted policy\`: REPL (interactive mode) — line edi... |
 | [`source/dun/cli/repl.d:303`](../../source/dun/cli/repl.d#L303) | `private void doSave(string[] sessionLines, string path, bool color) @trusted` | [file policy] /++ + \`@trusted policy\`: REPL (interactive mode) — line edi... |
@@ -1313,8 +1315,8 @@ This is DunJS's analogue of [bun.com/bun-unsafe-audit](https://bun.com/bun-unsaf
 | [`source/dun/platform/arena.d:131`](../../source/dun/platform/arena.d#L131) | `auto b = (() @trusted => sfb.allocate(4096))();` | [file policy] /++ + \`@trusted policy\`: arena/bump allocator wrappers — re... |
 | [`source/dun/platform/arena.d:134`](../../source/dun/platform/arena.d#L134) | `(() @trusted => sfb.deallocateAll())();` | [file policy] /++ + \`@trusted policy\`: arena/bump allocator wrappers — re... |
 | [`source/dun/platform/paths.d:9`](../../source/dun/platform/paths.d#L9) | `string dunGlobalRoot() @trusted` | /++ + User-global DunJS store (npm packages, transpile cache). + Posix \`$HOM... |
-| [`source/dun/runtime/bun_compat.d:18`](../../source/dun/runtime/bun_compat.d#L18) | `void installBunCompat(IJSEngine engine) @trusted` | _(missing)_ |
-| [`source/dun/runtime/bun_extras_v7.d:27`](../../source/dun/runtime/bun_extras_v7.d#L27) | `void installBunExtrasV7(IJSEngine engine) @trusted` | _(missing)_ |
+| [`source/dun/runtime/bun_compat.d:18`](../../source/dun/runtime/bun_compat.d#L18) | `void installBunCompat(IJSEngine engine) @trusted` | [file policy] /++ + \`@trusted policy\`: Bun.* compatibility shim (Bun.serve,... |
+| [`source/dun/runtime/bun_extras_v7.d:27`](../../source/dun/runtime/bun_extras_v7.d#L27) | `void installBunExtrasV7(IJSEngine engine) @trusted` | [file policy] /++ + \`@trusted policy\`: Bun.* v0.7.0 extras (deepMatch, + co... |
 | [`source/dun/runtime/console.d:15`](../../source/dun/runtime/console.d#L15) | `void installConsole(IJSEngine engine) @trusted` | [file policy] /++ + \`@trusted policy\`: \`console.*\` global. Every \`@trust... |
 | [`source/dun/runtime/console.d:71`](../../source/dun/runtime/console.d#L71) | `private void forwardToInspector(IJSEngine engine, string level, scope JSHandl...` | /++ + Forward a console.* call to an attached Chrome DevTools session as + a ... |
 | [`source/dun/runtime/console.d:92`](../../source/dun/runtime/console.d#L92) | `JSHandle consoleAssert(void* ctx, JSHandle thisVal, scope JSHandle[] args) @t...` | [file policy] /++ + \`@trusted policy\`: \`console.*\` global. Every \`@trust... |
@@ -1378,31 +1380,31 @@ This is DunJS's analogue of [bun.com/bun-unsafe-audit](https://bun.com/bun-unsaf
 | [`source/dun/runtime/process_api.d:593`](../../source/dun/runtime/process_api.d#L593) | `JSHandle jsExit(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted` | [file policy] /++ + \`@trusted policy\`: Node's \`process\` global + signal h... |
 | [`source/dun/runtime/process_api.d:607`](../../source/dun/runtime/process_api.d#L607) | `JSHandle jsProcessOn(void* ctx, JSHandle thisVal, scope JSHandle[] args) @tru...` | [file policy] /++ + \`@trusted policy\`: Node's \`process\` global + signal h... |
 | [`source/dun/runtime/process_api.d:646`](../../source/dun/runtime/process_api.d#L646) | `JSHandle jsNextTick(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted` | [file policy] /++ + \`@trusted policy\`: Node's \`process\` global + signal h... |
-| [`source/dun/runtime/process_api.d:686`](../../source/dun/runtime/process_api.d#L686) | `JSHandle jsStdoutWrite(void* ctx, JSHandle thisVal, scope JSHandle[] args) @t...` | [file policy] /++ + \`@trusted policy\`: Node's \`process\` global + signal h... |
-| [`source/dun/runtime/process_api.d:721`](../../source/dun/runtime/process_api.d#L721) | `JSHandle jsStderrWrite(void* ctx, JSHandle thisVal, scope JSHandle[] args) @t...` | [file policy] /++ + \`@trusted policy\`: Node's \`process\` global + signal h... |
-| [`source/dun/runtime/process_api.d:752`](../../source/dun/runtime/process_api.d#L752) | `JSHandle jsHrtime(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted` | [file policy] /++ + \`@trusted policy\`: Node's \`process\` global + signal h... |
-| [`source/dun/runtime/process_api.d:787`](../../source/dun/runtime/process_api.d#L787) | `public JSHandle jsPerformanceNow(void* ctx, JSHandle thisVal, scope JSHandle[...` | /++ + \`performance.now()\` via MonoTime — sub-ms precision. Overrides + JS... |
-| [`source/dun/runtime/process_api.d:818`](../../source/dun/runtime/process_api.d#L818) | `JSHandle jsHrtimeBigint(void* ctx, JSHandle thisVal, scope JSHandle[] args) @...` | [file policy] /++ + \`@trusted policy\`: Node's \`process\` global + signal h... |
-| [`source/dun/runtime/process_api.d:855`](../../source/dun/runtime/process_api.d#L855) | `JSHandle jsUptime(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted` | [file policy] /++ + \`@trusted policy\`: Node's \`process\` global + signal h... |
-| [`source/dun/runtime/process_api.d:872`](../../source/dun/runtime/process_api.d#L872) | `JSHandle jsMemoryUsage(void* ctx, JSHandle thisVal, scope JSHandle[] args) @t...` | [file policy] /++ + \`@trusted policy\`: Node's \`process\` global + signal h... |
-| [`source/dun/runtime/process_api.d:901`](../../source/dun/runtime/process_api.d#L901) | `JSHandle jsAvailableMemory(void* ctx, JSHandle thisVal, scope JSHandle[] args...` | [file policy] /++ + \`@trusted policy\`: Node's \`process\` global + signal h... |
-| [`source/dun/runtime/process_api.d:934`](../../source/dun/runtime/process_api.d#L934) | `JSHandle jsCpuUsage(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted` | [file policy] /++ + \`@trusted policy\`: Node's \`process\` global + signal h... |
-| [`source/dun/runtime/process_api.d:957`](../../source/dun/runtime/process_api.d#L957) | `JSHandle jsChdir(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted` | [file policy] /++ + \`@trusted policy\`: Node's \`process\` global + signal h... |
-| [`source/dun/runtime/process_api.d:976`](../../source/dun/runtime/process_api.d#L976) | `JSHandle jsEmitWarning(void* ctx, JSHandle thisVal, scope JSHandle[] args) @t...` | [file policy] /++ + \`@trusted policy\`: Node's \`process\` global + signal h... |
-| [`source/dun/runtime/process_api.d:1005`](../../source/dun/runtime/process_api.d#L1005) | `JSHandle jsProcessKill(void* ctx, JSHandle thisVal, scope JSHandle[] args) @t...` | [file policy] /++ + \`@trusted policy\`: Node's \`process\` global + signal h... |
-| [`source/dun/runtime/process_api.d:1032`](../../source/dun/runtime/process_api.d#L1032) | `JSHandle jsProcessAbort(void* ctx, JSHandle thisVal, scope JSHandle[] args) @...` | [file policy] /++ + \`@trusted policy\`: Node's \`process\` global + signal h... |
-| [`source/dun/runtime/process_api.d:1040`](../../source/dun/runtime/process_api.d#L1040) | `JSHandle jsProcessUmask(void* ctx, JSHandle thisVal, scope JSHandle[] args) @...` | [file policy] /++ + \`@trusted policy\`: Node's \`process\` global + signal h... |
-| [`source/dun/runtime/process_api.d:1068`](../../source/dun/runtime/process_api.d#L1068) | `return state.engine.newInt(cast(int) (() @trusted => getuid())());` | [file policy] /++ + \`@trusted policy\`: Node's \`process\` global + signal h... |
-| [`source/dun/runtime/process_api.d:1076`](../../source/dun/runtime/process_api.d#L1076) | `return state.engine.newInt(cast(int) (() @trusted => getgid())());` | [file policy] /++ + \`@trusted policy\`: Node's \`process\` global + signal h... |
-| [`source/dun/runtime/process_api.d:1084`](../../source/dun/runtime/process_api.d#L1084) | `return state.engine.newInt(cast(int) (() @trusted => geteuid())());` | [file policy] /++ + \`@trusted policy\`: Node's \`process\` global + signal h... |
-| [`source/dun/runtime/process_api.d:1092`](../../source/dun/runtime/process_api.d#L1092) | `return state.engine.newInt(cast(int) (() @trusted => getegid())());` | [file policy] /++ + \`@trusted policy\`: Node's \`process\` global + signal h... |
-| [`source/dun/runtime/process_api.d:1095`](../../source/dun/runtime/process_api.d#L1095) | `JSHandle jsProcessGetgroups(void* ctx, JSHandle thisVal, scope JSHandle[] arg...` | [file policy] /++ + \`@trusted policy\`: Node's \`process\` global + signal h... |
-| [`source/dun/runtime/process_api.d:1127`](../../source/dun/runtime/process_api.d#L1127) | `JSHandle jsProcessResourceUsage(void* ctx, JSHandle thisVal, scope JSHandle[]...` | [file policy] /++ + \`@trusted policy\`: Node's \`process\` global + signal h... |
-| [`source/dun/runtime/process_api.d:1200`](../../source/dun/runtime/process_api.d#L1200) | `JSHandle jsNativeSetEnv(void* ctx, JSHandle thisVal, scope JSHandle[] args) @...` | [file policy] /++ + \`@trusted policy\`: Node's \`process\` global + signal h... |
-| [`source/dun/runtime/process_api.d:1216`](../../source/dun/runtime/process_api.d#L1216) | `JSHandle jsNativeUnsetEnv(void* ctx, JSHandle thisVal, scope JSHandle[] args)...` | [file policy] /++ + \`@trusted policy\`: Node's \`process\` global + signal h... |
-| [`source/dun/runtime/process_api.d:1231`](../../source/dun/runtime/process_api.d#L1231) | `JSHandle jsStdinRead(void* ctx, JSHandle thisVal, scope JSHandle[] args) @tru...` | [file policy] /++ + \`@trusted policy\`: Node's \`process\` global + signal h... |
-| [`source/dun/runtime/process_api.d:1250`](../../source/dun/runtime/process_api.d#L1250) | `return engine.newString((() @trusted => cast(string) buf[0 .. n])());` | [file policy] /++ + \`@trusted policy\`: Node's \`process\` global + signal h... |
-| [`source/dun/runtime/process_api.d:1256`](../../source/dun/runtime/process_api.d#L1256) | `JSHandle jsStdinSetEncoding(void* ctx, JSHandle thisVal, scope JSHandle[] arg...` | [file policy] /++ + \`@trusted policy\`: Node's \`process\` global + signal h... |
+| [`source/dun/runtime/process_api.d:704`](../../source/dun/runtime/process_api.d#L704) | `JSHandle jsStdoutWrite(void* ctx, JSHandle thisVal, scope JSHandle[] args) @t...` | [file policy] /++ + \`@trusted policy\`: Node's \`process\` global + signal h... |
+| [`source/dun/runtime/process_api.d:740`](../../source/dun/runtime/process_api.d#L740) | `JSHandle jsStderrWrite(void* ctx, JSHandle thisVal, scope JSHandle[] args) @t...` | [file policy] /++ + \`@trusted policy\`: Node's \`process\` global + signal h... |
+| [`source/dun/runtime/process_api.d:772`](../../source/dun/runtime/process_api.d#L772) | `JSHandle jsHrtime(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted` | [file policy] /++ + \`@trusted policy\`: Node's \`process\` global + signal h... |
+| [`source/dun/runtime/process_api.d:807`](../../source/dun/runtime/process_api.d#L807) | `public JSHandle jsPerformanceNow(void* ctx, JSHandle thisVal, scope JSHandle[...` | /++ + \`performance.now()\` via MonoTime — sub-ms precision. Overrides + JS... |
+| [`source/dun/runtime/process_api.d:838`](../../source/dun/runtime/process_api.d#L838) | `JSHandle jsHrtimeBigint(void* ctx, JSHandle thisVal, scope JSHandle[] args) @...` | [file policy] /++ + \`@trusted policy\`: Node's \`process\` global + signal h... |
+| [`source/dun/runtime/process_api.d:875`](../../source/dun/runtime/process_api.d#L875) | `JSHandle jsUptime(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted` | [file policy] /++ + \`@trusted policy\`: Node's \`process\` global + signal h... |
+| [`source/dun/runtime/process_api.d:892`](../../source/dun/runtime/process_api.d#L892) | `JSHandle jsMemoryUsage(void* ctx, JSHandle thisVal, scope JSHandle[] args) @t...` | [file policy] /++ + \`@trusted policy\`: Node's \`process\` global + signal h... |
+| [`source/dun/runtime/process_api.d:921`](../../source/dun/runtime/process_api.d#L921) | `JSHandle jsAvailableMemory(void* ctx, JSHandle thisVal, scope JSHandle[] args...` | [file policy] /++ + \`@trusted policy\`: Node's \`process\` global + signal h... |
+| [`source/dun/runtime/process_api.d:954`](../../source/dun/runtime/process_api.d#L954) | `JSHandle jsCpuUsage(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted` | [file policy] /++ + \`@trusted policy\`: Node's \`process\` global + signal h... |
+| [`source/dun/runtime/process_api.d:977`](../../source/dun/runtime/process_api.d#L977) | `JSHandle jsChdir(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted` | [file policy] /++ + \`@trusted policy\`: Node's \`process\` global + signal h... |
+| [`source/dun/runtime/process_api.d:996`](../../source/dun/runtime/process_api.d#L996) | `JSHandle jsEmitWarning(void* ctx, JSHandle thisVal, scope JSHandle[] args) @t...` | [file policy] /++ + \`@trusted policy\`: Node's \`process\` global + signal h... |
+| [`source/dun/runtime/process_api.d:1026`](../../source/dun/runtime/process_api.d#L1026) | `JSHandle jsProcessKill(void* ctx, JSHandle thisVal, scope JSHandle[] args) @t...` | [file policy] /++ + \`@trusted policy\`: Node's \`process\` global + signal h... |
+| [`source/dun/runtime/process_api.d:1053`](../../source/dun/runtime/process_api.d#L1053) | `JSHandle jsProcessAbort(void* ctx, JSHandle thisVal, scope JSHandle[] args) @...` | [file policy] /++ + \`@trusted policy\`: Node's \`process\` global + signal h... |
+| [`source/dun/runtime/process_api.d:1061`](../../source/dun/runtime/process_api.d#L1061) | `JSHandle jsProcessUmask(void* ctx, JSHandle thisVal, scope JSHandle[] args) @...` | [file policy] /++ + \`@trusted policy\`: Node's \`process\` global + signal h... |
+| [`source/dun/runtime/process_api.d:1089`](../../source/dun/runtime/process_api.d#L1089) | `return state.engine.newInt(cast(int) (() @trusted => getuid())());` | [file policy] /++ + \`@trusted policy\`: Node's \`process\` global + signal h... |
+| [`source/dun/runtime/process_api.d:1097`](../../source/dun/runtime/process_api.d#L1097) | `return state.engine.newInt(cast(int) (() @trusted => getgid())());` | [file policy] /++ + \`@trusted policy\`: Node's \`process\` global + signal h... |
+| [`source/dun/runtime/process_api.d:1105`](../../source/dun/runtime/process_api.d#L1105) | `return state.engine.newInt(cast(int) (() @trusted => geteuid())());` | [file policy] /++ + \`@trusted policy\`: Node's \`process\` global + signal h... |
+| [`source/dun/runtime/process_api.d:1113`](../../source/dun/runtime/process_api.d#L1113) | `return state.engine.newInt(cast(int) (() @trusted => getegid())());` | [file policy] /++ + \`@trusted policy\`: Node's \`process\` global + signal h... |
+| [`source/dun/runtime/process_api.d:1116`](../../source/dun/runtime/process_api.d#L1116) | `JSHandle jsProcessGetgroups(void* ctx, JSHandle thisVal, scope JSHandle[] arg...` | [file policy] /++ + \`@trusted policy\`: Node's \`process\` global + signal h... |
+| [`source/dun/runtime/process_api.d:1148`](../../source/dun/runtime/process_api.d#L1148) | `JSHandle jsProcessResourceUsage(void* ctx, JSHandle thisVal, scope JSHandle[]...` | [file policy] /++ + \`@trusted policy\`: Node's \`process\` global + signal h... |
+| [`source/dun/runtime/process_api.d:1221`](../../source/dun/runtime/process_api.d#L1221) | `JSHandle jsNativeSetEnv(void* ctx, JSHandle thisVal, scope JSHandle[] args) @...` | [file policy] /++ + \`@trusted policy\`: Node's \`process\` global + signal h... |
+| [`source/dun/runtime/process_api.d:1237`](../../source/dun/runtime/process_api.d#L1237) | `JSHandle jsNativeUnsetEnv(void* ctx, JSHandle thisVal, scope JSHandle[] args)...` | [file policy] /++ + \`@trusted policy\`: Node's \`process\` global + signal h... |
+| [`source/dun/runtime/process_api.d:1252`](../../source/dun/runtime/process_api.d#L1252) | `JSHandle jsStdinRead(void* ctx, JSHandle thisVal, scope JSHandle[] args) @tru...` | [file policy] /++ + \`@trusted policy\`: Node's \`process\` global + signal h... |
+| [`source/dun/runtime/process_api.d:1271`](../../source/dun/runtime/process_api.d#L1271) | `return engine.newString((() @trusted => cast(string) buf[0 .. n])());` | [file policy] /++ + \`@trusted policy\`: Node's \`process\` global + signal h... |
+| [`source/dun/runtime/process_api.d:1277`](../../source/dun/runtime/process_api.d#L1277) | `JSHandle jsStdinSetEncoding(void* ctx, JSHandle thisVal, scope JSHandle[] arg...` | [file policy] /++ + \`@trusted policy\`: Node's \`process\` global + signal h... |
 | [`source/dun/runtime/rejection_tracker.d:15`](../../source/dun/runtime/rejection_tracker.d#L15) | `void installRejectionTracker(IJSEngine engine, DunState* state) @trusted` | [file policy] /++ + \`@trusted policy\`: unhandled-promise-rejection tracker.... |
 | [`source/dun/runtime/rejection_tracker.d:49`](../../source/dun/runtime/rejection_tracker.d#L49) | `bool is_handled, void* opaque) nothrow @trusted` | [file policy] /++ + \`@trusted policy\`: unhandled-promise-rejection tracker.... |
 | [`source/dun/runtime/rejection_tracker.d:122`](../../source/dun/runtime/rejection_tracker.d#L122) | `private void installJSRejectionTracker(IJSEngine engine, DunState* state) @tr...` | [file policy] /++ + \`@trusted policy\`: unhandled-promise-rejection tracker.... |
@@ -1466,18 +1468,18 @@ This is DunJS's analogue of [bun.com/bun-unsafe-audit](https://bun.com/bun-unsaf
 | [`source/dun/security/cve_db.d:464`](../../source/dun/security/cve_db.d#L464) | `long currentUnixTime() @trusted nothrow` | [file policy] /++ + \`@trusted policy\`: CVE audit (OSV API client + local ca... |
 | [`source/dun/security/permissions.d:379`](../../source/dun/security/permissions.d#L379) | `bool checkPerm(StateT)(StateT* state, Permission perm, string resource = "") ...` | /++ + \`extern(C)\`-safe permission check — nothrow, defaults to deny on + ... |
 | [`source/dun/ts/dynamic_import.d:70`](../../source/dun/ts/dynamic_import.d#L70) | `string rewriteDynamicImport(string src) @trusted` | /++ + Rewrite all dynamic \`import(...)\` calls in \`src\` to + \`__dunImport... |
-| [`source/dun/ts/dynamic_import.d:168`](../../source/dun/ts/dynamic_import.d#L168) | `return (() @trusted => cast(string) out_[])();` | _(missing)_ |
-| [`source/dun/ts/jsx.d:125`](../../source/dun/ts/jsx.d#L125) | `return (() @trusted => cast(string) out_.data)();` | _(missing)_ |
-| [`source/dun/ts/jsx.d:260`](../../source/dun/ts/jsx.d#L260) | `return (() @trusted => cast(string) frag.data)();` | _(missing)_ |
-| [`source/dun/ts/jsx.d:411`](../../source/dun/ts/jsx.d#L411) | `return (() @trusted => cast(string) el.data)();` | _(missing)_ |
-| [`source/dun/ts/jsx.d:428`](../../source/dun/ts/jsx.d#L428) | `return (() @trusted => cast(string) el.data)();` | _(missing)_ |
-| [`source/dun/ts/jsx.d:530`](../../source/dun/ts/jsx.d#L530) | `return (() @trusted => cast(string) sb.data)();` | _(missing)_ |
-| [`source/dun/ts/jsx.d:547`](../../source/dun/ts/jsx.d#L547) | `return (() @trusted => cast(string) sb.data)();` | _(missing)_ |
+| [`source/dun/ts/dynamic_import.d:168`](../../source/dun/ts/dynamic_import.d#L168) | `return (() @trusted => cast(string) out_[])();` | [file policy] /++ + \`@trusted policy\`: source-rewriter that turns \`import(... |
+| [`source/dun/ts/jsx.d:125`](../../source/dun/ts/jsx.d#L125) | `return (() @trusted => cast(string) out_.data)();` | [file policy] /++ + \`@trusted policy\`: JSX → React.createElement transfor... |
+| [`source/dun/ts/jsx.d:260`](../../source/dun/ts/jsx.d#L260) | `return (() @trusted => cast(string) frag.data)();` | [file policy] /++ + \`@trusted policy\`: JSX → React.createElement transfor... |
+| [`source/dun/ts/jsx.d:411`](../../source/dun/ts/jsx.d#L411) | `return (() @trusted => cast(string) el.data)();` | [file policy] /++ + \`@trusted policy\`: JSX → React.createElement transfor... |
+| [`source/dun/ts/jsx.d:428`](../../source/dun/ts/jsx.d#L428) | `return (() @trusted => cast(string) el.data)();` | [file policy] /++ + \`@trusted policy\`: JSX → React.createElement transfor... |
+| [`source/dun/ts/jsx.d:530`](../../source/dun/ts/jsx.d#L530) | `return (() @trusted => cast(string) sb.data)();` | [file policy] /++ + \`@trusted policy\`: JSX → React.createElement transfor... |
+| [`source/dun/ts/jsx.d:547`](../../source/dun/ts/jsx.d#L547) | `return (() @trusted => cast(string) sb.data)();` | [file policy] /++ + \`@trusted policy\`: JSX → React.createElement transfor... |
 | [`source/dun/ts/strip.d:1080`](../../source/dun/ts/strip.d#L1080) | `return (() @trusted {` | [file policy] /++ + \`@trusted policy\`: TypeScript type stripper (scanner-ba... |
 | [`source/dun/ts/strip.d:1108`](../../source/dun/ts/strip.d#L1108) | `size_t afterEnumKw, out string decl) @trusted pure nothrow` | /++ + Rewrite \`enum Name { … }\` to an equivalent JS object in place. + Nu... |
 | [`source/dun/ts/strip.d:1273`](../../source/dun/ts/strip.d#L1273) | `size_t nsKwStart, out string decl) @trusted` | /++ + Rewrite \`namespace\|module Name { body }\` to an IIFE emitted + via \`... |
 | [`source/dun/ts/strip.d:1472`](../../source/dun/ts/strip.d#L1472) | `out size_t injectAt, out string injectText) @trusted pure nothrow` | /++ + Erase \`constructor(public/private/protected x)\` modifiers in place + ... |
-| [`source/dun/ts/transpile_cache.d:23`](../../source/dun/ts/transpile_cache.d#L23) | `private string cacheRoot() @trusted` | _(missing)_ |
+| [`source/dun/ts/transpile_cache.d:23`](../../source/dun/ts/transpile_cache.d#L23) | `private string cacheRoot() @trusted` | [file policy] /++ + \`@trusted policy\`: persistent transpile cache (SHA-256 ... |
 | [`source/dun/ts/transpile_cache.d:56`](../../source/dun/ts/transpile_cache.d#L56) | `string lookup(string key) @trusted` | /// Read a cached transpile result. Returns the cached JS or null on miss. |
 | [`source/dun/ts/transpile_cache.d:72`](../../source/dun/ts/transpile_cache.d#L72) | `void store(string key, string output) @trusted` | /++ + Store a transpile result under the given key. Best-effort: if the + dis... |
 | [`source/dun/ts/transpile_cache.d:104`](../../source/dun/ts/transpile_cache.d#L104) | `void maybeTrim() @trusted` | /++ + Best-effort cache trim. Called once per \`store()\` but rate-limited + ... |
@@ -1487,10 +1489,10 @@ This is DunJS's analogue of [bun.com/bun-unsafe-audit](https://bun.com/bun-unsaf
 | [`source/dun/workers/channel.d:59`](../../source/dun/workers/channel.d#L59) | `void close() nothrow @trusted` | [file policy] /++ + \`@trusted policy\`: lockfree single-producer/single-cons... |
 | [`source/dun/workers/channel.d:65`](../../source/dun/workers/channel.d#L65) | `bool isClosed() nothrow @trusted` | [file policy] /++ + \`@trusted policy\`: lockfree single-producer/single-cons... |
 | [`source/dun/workers/channel.d:69`](../../source/dun/workers/channel.d#L69) | `bool empty() nothrow @trusted` | [file policy] /++ + \`@trusted policy\`: lockfree single-producer/single-cons... |
-| [`source/dun/workers/shared_memory.d:51`](../../source/dun/workers/shared_memory.d#L51) | `int sabAlloc(size_t len) @trusted` | _(missing)_ |
-| [`source/dun/workers/shared_memory.d:78`](../../source/dun/workers/shared_memory.d#L78) | `bool sabGet(int id, out void* ptr, out size_t len) @trusted` | _(missing)_ |
-| [`source/dun/workers/shared_memory.d:90`](../../source/dun/workers/shared_memory.d#L90) | `void sabRef(int id) @trusted` | _(missing)_ |
-| [`source/dun/workers/shared_memory.d:105`](../../source/dun/workers/shared_memory.d#L105) | `void sabUnref(int id) @trusted` | _(missing)_ |
+| [`source/dun/workers/shared_memory.d:51`](../../source/dun/workers/shared_memory.d#L51) | `int sabAlloc(size_t len) @trusted` | [file policy] /++ + \`@trusted policy\`: SharedArrayBuffer backing storage �... |
+| [`source/dun/workers/shared_memory.d:78`](../../source/dun/workers/shared_memory.d#L78) | `bool sabGet(int id, out void* ptr, out size_t len) @trusted` | [file policy] /++ + \`@trusted policy\`: SharedArrayBuffer backing storage �... |
+| [`source/dun/workers/shared_memory.d:90`](../../source/dun/workers/shared_memory.d#L90) | `void sabRef(int id) @trusted` | [file policy] /++ + \`@trusted policy\`: SharedArrayBuffer backing storage �... |
+| [`source/dun/workers/shared_memory.d:105`](../../source/dun/workers/shared_memory.d#L105) | `void sabUnref(int id) @trusted` | [file policy] /++ + \`@trusted policy\`: SharedArrayBuffer backing storage �... |
 | [`source/dun/workers/worker.d:69`](../../source/dun/workers/worker.d#L69) | `this(string path, IJSEngine engine) @trusted` | [file policy] /++ + \`@trusted policy\`: dedicated Worker (separate engine in... |
 | [`source/dun/workers/worker.d:90`](../../source/dun/workers/worker.d#L90) | `void registerWorker(WorkerState wst) @trusted` | [file policy] /++ + \`@trusted policy\`: dedicated Worker (separate engine in... |
 | [`source/dun/workers/worker.d:96`](../../source/dun/workers/worker.d#L96) | `bool hasActiveWorkers() @trusted` | [file policy] /++ + \`@trusted policy\`: dedicated Worker (separate engine in... |
@@ -1547,7 +1549,7 @@ This is DunJS's analogue of [bun.com/bun-unsafe-audit](https://bun.com/bun-unsaf
 
 ## Missing-rationale audit
 
-- **Sites without an inline rationale comment**: 25 / 1460 (1.7%)
+- **Sites without an inline rationale comment**: 0 / 1462 (0.0%)
 - Goal: every `@trusted` block has a `///` doc comment on the preceding line explaining why the trust is justified. Use this ledger to find the gaps.
 - Process: when adding a new `@trusted` annotation, add a `///` line above it with the form `/// <why this @trusted is safe — invariant being asserted by the programmer>`.
 

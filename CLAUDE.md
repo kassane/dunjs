@@ -567,7 +567,7 @@ overhead — `--DRT-gcopt=profile:1` reports it.
 
 ## D-side previews + DIPs enabled
 
-`dub.json` `dflags` enables eleven DMD/LDC previews + `--edition=2025`.
+`dub.json` `dflags` enables twelve DMD/LDC previews + `--edition=2025`.
 Each preview maps to an accepted DIP and tightens what the compiler
 will accept; the edition flag rolls the project forward to D's
 post-Zero-Edition feature defaults (per [DIP 1052](https://github.com/dlang/DIPs/blob/master/DIPs/accepted/DIP1052.md)).
@@ -585,6 +585,7 @@ post-Zero-Edition feature defaults (per [DIP 1052](https://github.com/dlang/DIPs
 | `in` | `in` parameter means `scope const [ref]` and accepts rvalues | (function-spec change) |
 | `inclusiveincontracts` | `in {}` contracts of overrides must be a superset of parent | (contract-spec change) |
 | `systemVariables` | `@system` variables can't be accessed from `@safe` | (attribute-spec change) |
+| `nosharedaccess` | Direct access to `shared` data is disallowed; must go through `core.atomic` or an explicit cast | (attribute-spec change) |
 
 `-preview=all` is **rejected** — DIP 1021 (Mutable Function Arguments)
 inside breaks `core.internal.newaa` and `std.typecons` in LDC 1.42.0's
