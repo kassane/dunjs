@@ -10,6 +10,7 @@ bytes:
 | `fuzz_simd` | `source/dun/platform/simd.d` (codecs) | latin1↔UTF-8 round-trip byte-exact + hex encoder output well-formed |
 | `fuzz_url` | `source/dun/platform/url_parser.d` | `parseUrl(s)` returns a well-formed `ParsedUrl` or throws — never UB. `scheme.length > 0`, `path.length >= 1` |
 | `fuzz_lexer` | `source/dun/ts/parser/lexer.d` | `hasSyntaxError`, `skipStringLit`, `skipTemplateLit` never read past `src.length` |
+| `fuzz_paths` | `source/dun/platform/paths.d` (`canonicalizePath` + `isAlreadyCanonical` fast-path) | CVE-2023-32004 class — predicate's "canonical" verdict matches the full `buildNormalizedPath(absolutePath(...))` result on every input |
 
 ## Quick start
 
@@ -49,11 +50,11 @@ script will list the artifact paths).
        ;;
    ```
 
-## Why these two targets first
+## Why these targets
 
 Per the [v1.1.26 audit](../../docs/research/bun-unsafe-audit-vs-dunjs.md)
-§7 "where DunJS would fail Bun's audit," the two highest-leverage
-fuzz targets are:
+§7 "where DunJS would fail Bun's audit," the highest-leverage
+fuzz targets shipped are:
 
 - **Type stripper** — parses untrusted source. Position-tracking bugs
   silently corrupt source maps + stack traces. Audit pass already
@@ -65,6 +66,15 @@ fuzz targets are:
   preservation bugs in this path (`audit_simd`, `audit_roundtrip`
   fixtures). Fuzz the same surface with random byte patterns +
   SIMD-boundary lengths (15/16/17/31/32/33 bytes).
+- **Path canonicalization** — `dun.platform.paths.canonicalizePath`
+  is the CVE-2023-32004 / CVE-2024-21896 gate. v1.1.27 added an
+  `isAlreadyCanonical` predicate fast-path; `fuzz_paths` asserts the
+  predicate's verdict matches `buildNormalizedPath(absolutePath(...))`
+  on every input — a false-positive in the predicate would skip the
+  canonicalize step and break the CVE class.
+- **URL + lexer** — adversarial inputs reach the URL parser via every
+  `fetch(...)` and the lexer via every `.ts` load. Both already passed
+  hand-written audits; fuzzing fills the long-tail combinations.
 
 Future targets (call-out for follow-up PRs):
 
@@ -75,12 +85,6 @@ Future targets (call-out for follow-up PRs):
   encodings + `Buffer.write/slice/concat`. Some of this is covered
   by the `audit_roundtrip` integration fixture; fuzzing would
   extend it.
-- `fuzz_path` — Node's `path.normalize`, `path.resolve`,
-  `path.relative`. The CVE-2023-32004 path-traversal class lives
-  here; the existing `cve_path_traversal.js` integration fixture
-  is the regression, and fuzz would cover the long-tail of weird
-  inputs (`\0`-embedded, `..//.//..`, Windows drive letters
-  mixed with POSIX separators).
 
 ## Reference
 

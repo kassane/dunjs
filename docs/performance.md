@@ -95,8 +95,15 @@ behind Bun 45,599; Deno 31,789).
 Remaining ~25-30% gap to Bun on plaintext/json is dominated by
 per-request FFI overhead — `req.headers` lazy-loader (40% of the
 echo gap on QJS), `Content-Length` string interpolation, response
-builder factory. Specific improvement targets surfaced in the wrk
-runs are in the v1.1.30 roadmap.
+builder factory. **v1.1.30 partial fix (PR #99 + #100)**: HTTP
+dispatcher now uses `sockProto` / `reqProto` / `resProto` installed
+once + `Object.create(proto)` per request, cutting per-request
+object setup from ~30 property assignments to ~8 (varying fields
+only — method, url, __cid, connection, socket). Methods + defaults
+inherit from the proto so JIT engines (V8 / JSC) share one inline-
+cache call site across all dispatched requests. PR #100 also dropped
+the unused `_events: {}` / `_headerValues: {}` per-request initializations.
+Re-run `/bench-compare` to verify the wrk numbers update.
 
 ## Picking a backend
 
