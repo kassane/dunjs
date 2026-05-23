@@ -155,7 +155,7 @@ https://johanengelen.github.io/posts/2017-12-25-ldc-and-addresssanitizer/
 dub build -c quickjs -b asan
 # LSan often false-positives on D's GC roots — disable on integration sweeps
 ASAN_OPTIONS=detect_leaks=0 ./build/dun run --allow-all /tmp/repro.js
-ASAN_OPTIONS=detect_leaks=0 bash tests/integration/run.sh   # full 164/164 sweep
+ASAN_OPTIONS=detect_leaks=0 bash tests/integration/run.sh   # full 167/167 sweep
 ```
 
 ASan symbolicates D mangled names automatically. The runtime-overhead

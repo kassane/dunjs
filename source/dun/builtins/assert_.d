@@ -39,6 +39,7 @@ version (EngineQuickJS)
         JS_AddModuleExport(ctx, m, "notStrictEqual");
         JS_AddModuleExport(ctx, m, "deepEqual");
         JS_AddModuleExport(ctx, m, "deepStrictEqual");
+        JS_AddModuleExport(ctx, m, "partialDeepStrictEqual");
         JS_AddModuleExport(ctx, m, "notDeepEqual");
         JS_AddModuleExport(ctx, m, "notDeepStrictEqual");
         JS_AddModuleExport(ctx, m, "throws");
@@ -63,7 +64,8 @@ version (EngineQuickJS)
         JS_SetModuleExport(ctx, m, "default", JS_DupValue(ctx, assertMod));
         static immutable names = [
             "ok", "equal", "notEqual", "strictEqual", "notStrictEqual",
-            "deepEqual", "deepStrictEqual", "notDeepEqual", "notDeepStrictEqual",
+            "deepEqual", "deepStrictEqual", "partialDeepStrictEqual",
+            "notDeepEqual", "notDeepStrictEqual",
             "throws", "doesNotThrow", "rejects", "doesNotReject",
             "match", "doesNotMatch", "fail", "ifError", "AssertionError", "strict"
         ];
@@ -166,6 +168,49 @@ private string assertSource() pure nothrow @safe
     assertFn.deepStrictEqual = function deepStrictEqualFn(actual, expected, message) {
         if (!deepEqual(actual, expected)) throw new AssertionError({
             message: message, actual: actual, expected: expected, operator: 'deepStrictEqual'
+        });
+    };
+
+    // assert.partialDeepStrictEqual (Node v22+) — like deepStrictEqual
+    // but the expected value is a subset matcher: every key in expected
+    // must exist in actual with a recursively-partial-equal value;
+    // extra keys in actual are allowed. Surfaced by exploring Node v26.x.
+    function partialDeepStrictEqual(actual, expected) {
+        if (expected === actual) return true;
+        if (expected === null || actual === null) return actual === expected;
+        if (typeof expected !== 'object') return Object.is(actual, expected);
+        if (typeof actual !== 'object') return false;
+        if (Array.isArray(expected)) {
+            if (!Array.isArray(actual) || actual.length < expected.length) return false;
+            for (var i = 0; i < expected.length; i++) {
+                if (!partialDeepStrictEqual(actual[i], expected[i])) return false;
+            }
+            return true;
+        }
+        if (expected instanceof Map) {
+            if (!(actual instanceof Map)) return false;
+            for (var ent of expected) {
+                if (!actual.has(ent[0])) return false;
+                if (!partialDeepStrictEqual(actual.get(ent[0]), ent[1])) return false;
+            }
+            return true;
+        }
+        if (expected instanceof Set) {
+            if (!(actual instanceof Set)) return false;
+            for (var v of expected) if (!actual.has(v)) return false;
+            return true;
+        }
+        var keys = Object.keys(expected);
+        for (var k = 0; k < keys.length; k++) {
+            var key = keys[k];
+            if (!(key in actual)) return false;
+            if (!partialDeepStrictEqual(actual[key], expected[key])) return false;
+        }
+        return true;
+    }
+    assertFn.partialDeepStrictEqual = function partialDeepStrictEqualFn(actual, expected, message) {
+        if (!partialDeepStrictEqual(actual, expected)) throw new AssertionError({
+            message: message, actual: actual, expected: expected, operator: 'partialDeepStrictEqual'
         });
     };
 

@@ -37,7 +37,8 @@ version (EngineQuickJS)
                         "isDeepStrictEqual", "types", "_extend",
                         "toUSVString", "stripVTControlCharacters",
                         "TextEncoder", "TextDecoder",
-                        "getSystemErrorName", "parseArgs", "styleText", "MIMEType",
+                        "getSystemErrorName", "getSystemErrorMap", "getSystemErrorMessage",
+                        "parseArgs", "styleText", "MIMEType", "MIMEParams", "formatWithOptions",
                         "aborted", "transferableAbortController", "transferableAbortSignal", "getCallSites"])
             JS_AddModuleExport(ctx, m, name.ptr);
         JS_AddModuleExport(ctx, m, "default");
@@ -53,7 +54,8 @@ version (EngineQuickJS)
                         "isDeepStrictEqual", "types", "_extend",
                         "toUSVString", "stripVTControlCharacters",
                         "TextEncoder", "TextDecoder",
-                        "getSystemErrorName", "parseArgs", "styleText", "MIMEType",
+                        "getSystemErrorName", "getSystemErrorMap", "getSystemErrorMessage",
+                        "parseArgs", "styleText", "MIMEType", "MIMEParams", "formatWithOptions",
                         "aborted", "transferableAbortController", "transferableAbortSignal", "getCallSites"])
         {
             auto val = JS_GetPropertyStr(ctx, mod, name.ptr);
@@ -438,6 +440,84 @@ string utilSource() pure @safe nothrow
     }
   };
   mod.MIMEType.prototype.toString = function() { return this.essence; };
+
+  // --- util.MIMEParams (Node v18+) ---
+  // Iterable map of MIME parameters. Bare minimum to satisfy
+  // new MIMEParams() callers that iterate via .entries().
+  mod.MIMEParams = function MIMEParams() { this._store = new Map(); };
+  mod.MIMEParams.prototype.get = function(name) { return this._store.get(name); };
+  mod.MIMEParams.prototype.set = function(name, value) {
+    this._store.set(String(name).toLowerCase(), String(value));
+  };
+  mod.MIMEParams.prototype.has = function(name) {
+    return this._store.has(String(name).toLowerCase());
+  };
+  mod.MIMEParams.prototype.delete = function(name) {
+    this._store.delete(String(name).toLowerCase());
+  };
+  mod.MIMEParams.prototype.entries = function() { return this._store.entries(); };
+  mod.MIMEParams.prototype.keys = function() { return this._store.keys(); };
+  mod.MIMEParams.prototype.values = function() { return this._store.values(); };
+  mod.MIMEParams.prototype[Symbol.iterator] = function() { return this._store.entries(); };
+
+  // --- util.getSystemErrorMap (Node v16.0+) / getSystemErrorMessage (Node v22.0+) ---
+  // Map of errno (negative int) -> [code, message] tuples.
+  // Surfaced by exploring nodejs/node v26.x — pino/ws/sharp probe
+  // these to format syscall failures. Subset of POSIX errno table —
+  // covers the codes Node's errnoFromCode (in fs.d) emits.
+  var _errnoMap = new Map([
+    [-1,  ['EPERM', 'Operation not permitted']],
+    [-2,  ['ENOENT', 'No such file or directory']],
+    [-3,  ['ESRCH', 'No such process']],
+    [-4,  ['EINTR', 'Interrupted system call']],
+    [-5,  ['EIO', 'Input/output error']],
+    [-6,  ['ENXIO', 'No such device or address']],
+    [-7,  ['E2BIG', 'Argument list too long']],
+    [-9,  ['EBADF', 'Bad file descriptor']],
+    [-11, ['EAGAIN', 'Resource temporarily unavailable']],
+    [-12, ['ENOMEM', 'Out of memory']],
+    [-13, ['EACCES', 'Permission denied']],
+    [-14, ['EFAULT', 'Bad address']],
+    [-17, ['EEXIST', 'File exists']],
+    [-19, ['ENODEV', 'No such device']],
+    [-20, ['ENOTDIR', 'Not a directory']],
+    [-21, ['EISDIR', 'Is a directory']],
+    [-22, ['EINVAL', 'Invalid argument']],
+    [-23, ['ENFILE', 'Too many open files in system']],
+    [-24, ['EMFILE', 'Too many open files']],
+    [-28, ['ENOSPC', 'No space left on device']],
+    [-32, ['EPIPE', 'Broken pipe']],
+    [-39, ['ENOTEMPTY', 'Directory not empty']],
+    [-98, ['EADDRINUSE', 'Address already in use']],
+    [-99, ['EADDRNOTAVAIL', 'Cannot assign requested address']],
+    [-104, ['ECONNRESET', 'Connection reset by peer']],
+    [-110, ['ETIMEDOUT', 'Connection timed out']],
+    [-111, ['ECONNREFUSED', 'Connection refused']],
+    [-113, ['EHOSTUNREACH', 'No route to host']],
+  ]);
+  mod.getSystemErrorMap = function() { return _errnoMap; };
+  mod.getSystemErrorMessage = function(err) {
+    var entry = _errnoMap.get(err);
+    return entry ? entry[1] : '';
+  };
+
+  // --- util.formatWithOptions (Node v10.0+) ---
+  // Like util.format but takes an options object as the first arg
+  // (passed to inspect for non-string args). pino uses this for
+  // structured logging output.
+  mod.formatWithOptions = function(inspectOptions, ...args) {
+    var orig = mod.inspect;
+    if (inspectOptions && typeof inspectOptions === 'object') {
+      // Apply options by passing them as inspect's 2nd arg via wrap.
+      var wrapped = function(v) { return orig(v, inspectOptions); };
+      // Restore after the call (single-threaded JS — no race).
+      var savedInspect = mod.inspect;
+      mod.inspect = wrapped;
+      try { return mod.format.apply(null, args); }
+      finally { mod.inspect = savedInspect; }
+    }
+    return mod.format.apply(null, args);
+  };
 
   // --- util.aborted ---
   mod.aborted = function(signal, resource) {

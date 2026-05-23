@@ -13,7 +13,12 @@ stub, what's a hard won't-fix.
   `async_hooks`, `worker_threads`, `timers`, `timers/promises`,
   `perf_hooks`, `tty`, `wasi`, `buffer`, `console`, `process`,
   `readline`
-- **N-API 91 functions** — sharp + similar real native addons work
+- **N-API 140 functions** — sharp + similar real native addons work
+- **`node:buffer.{isUtf8, isAscii, kStringMaxLength}`** (Node v19.5+)
+  for jest@30 / pino bench probes
+- **`util.{MIMEParams, getSystemErrorMap, getSystemErrorMessage,
+  formatWithOptions}`** (Node v10/v16/v22+)
+- **`assert.partialDeepStrictEqual`** (Node v22+)
 - **`npm install`** with CVE audit (OSV API)
 - **145/145 npm_compat** checks pass on all 5 runtimes (Node, Deno, Bun,
   DunJS QJS, DunJS V8/JSC)
