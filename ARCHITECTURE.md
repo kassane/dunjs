@@ -608,6 +608,9 @@ tests/benchmarks/http_bench/
 ```
 
 HTTP server optimizations: TCP_NODELAY, buffered single-write response, CTFE pre-computed
-status lines, connection slot pooling, fd→connId hashmap (O(1) lookup), JS-level dispatch
-for reduced FFI overhead, lazy header loading, MSG_NOSIGNAL, EOF detection with RAII cleanup.
+status lines, connection slot pooling, fd→connId hashmap (O(1) lookup), proto-based JS-level
+dispatch (v1.1.30: `Object.create(sockProto/reqProto/resProto)` per request, ~30 → ~8
+property sets), lazy header loading, MSG_NOSIGNAL, EOF detection with RAII cleanup,
+partial-EOF connection reaping (v1.1.30: closes the connection slot when EOF arrives mid-headers
+or mid-body — was a connection-leak class flagged by HANDOFF.md Known issue #1).
 **QuickJS 167/167, V8 167/167, JSC 165/167 + 1 SKIP** (`bun_v7_additions` — JSC handle-pressure conflict with `deno_deploy_compat`; cumulative v1.1.5 → v1.1.20 JSC handle-leak fix campaign reduced but didn't eliminate the per-request listener-chain leak that tips the threshold).

@@ -191,7 +191,7 @@ encoding round-trips across all 256 byte values), **5/5
 `cve_path_traversal`** (CVE-2023-32004 class, fixed in v1.1.0),
 and cross-runtime grids for real-world apps (n8n, gaia, opencode).
 
-**Memory safety audit** (v1.1.26 + follow-ups): 1,462 `@trusted`
+**Memory safety audit** (v1.1.26 + follow-ups): 1,470 `@trusted`
 sites across 67 K LOC of D — **0 missing rationale** (every site
 carries an inline `///` or covered by a file-level `@trusted
 policy` header; see `trusted-ledger.md`) via the

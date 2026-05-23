@@ -109,7 +109,7 @@ source/dun/ts/           # TypeScript type stripping
 +-- package.d            # Re-exports
 
 source/dun/platform/
-+-- arena.d              # Arena/bump allocator (std.experimental.allocator Region, BorrowedRegion, InSituRegion, Mallocator)
++-- arena.d              # `Appender` (alias from std.array), `StackFallback!N` (stack-first + GC heap spill, RAII), `MallocArray!T` (libc-backed @nogc nothrow append)
 +-- simd.d               # SIMD primitives + LDC intrinsics (loadUnaligned, shufflevector, bswap, cttz, prefetch)
 +-- paths.d              # canonicalizePath + dunGlobalRoot() (cross-platform user-global store)
 +-- openssl.d            # extern(C) OpenSSL bindings (libssl, libcrypto, ALPN, SSL_accept, cert/key loading)
@@ -291,13 +291,13 @@ Applied across all 7 layers (~290 assertions in 25 files).
 - **CTFE hex LUT**: Fallback 512-byte lookup table for non-SIMD paths and tail bytes
 - **Pre-allocated buffers**: WebSocket frames, ESM shim use `Appender` with `reserve()`
 - **ESM shim O(n) strings**: `escapeJsString`, `splitLines`, `parseImportLine` use `Appender` instead of `~=`/`~` concatenation
-- **Arena allocator**: `dun.platform.arena` re-exports `std.experimental.allocator` (`Region!Mallocator`, `BorrowedRegion`, `InSituRegion`) for `@nogc pure` bump allocation
+- **Arena allocator**: `dun.platform.arena` exposes three tiers — `Appender!T` (GC-backed default), `StackFallback!N` (stack-first via `InSituRegion`, RAII destructor resets), `MallocArray!T` (`@nogc nothrow`, libc-backed for hot-path `~=` outside the GC)
 - **GC tuning**: `rt_options = ["gcopt=minPoolSize:16"]` reduces GC collections ~11x
 - **HTTP TCP_NODELAY**: Disables Nagle's algorithm on accepted sockets, eliminating 40ms delayed-ACK latency
 - **HTTP buffered response**: Headers + body combined in `char[MAX_BUF]` stack buffer, flushed in single `send()` call
 - **HTTP CTFE status lines**: `statusLine()` returns pre-computed `"HTTP/1.1 200 OK\r\n"` strings — `pure nothrow @safe @nogc`, zero allocation
 - **HTTP connection pool**: fd→connId hashmap (O(1) lookup) + free slot list for connection reuse
-- **HTTP JS-level dispatch**: Pre-compiled JS function creates req/res objects in JIT-optimized JS, reducing per-request FFI calls from ~25 to ~8
+- **HTTP JS-level dispatch**: Pre-compiled JS function creates req/res objects in JIT-optimized JS, reducing per-request FFI calls from ~25 to ~8. v1.1.30 follow-up: dispatcher uses `sockProto` / `reqProto` / `resProto` installed once + `Object.create(proto)` per request, cutting per-request object setup from ~30 property assignments to ~8 (only the varying fields `method`, `url`, `__cid`, `connection`, `socket` are set; methods + defaults like `statusCode: 200` inherit from the proto, so all dispatched requests share one hidden-class shape and warm the IC slot once)
 - **HTTP lazy headers**: `get headers()` getter loads headers on demand via native callback, avoiding allocation when headers unused
 - **HTTP O(1) hasActiveIO**: Counter-based `hasActiveHttpIO()` instead of O(n) scan of servers+connections per event loop tick
 - **JSC cached __cbSlot__**: JSStringRef for `__cbSlot__` created once, eliminates create+release per native function call
@@ -474,7 +474,7 @@ BACKEND=v8  DUN=./dun-v8  bash tests/integration/run.sh
 - **`@safe` first, `@system` when needed, `@trusted` only as last resort**: `@trusted` bypasses compiler safety checks entirely -- it is *more dangerous* than `@system` because it silently trusts the programmer. Use `@safe` for all pure logic. Use `@system` for raw OS/FFI calls (compiler still flags unsafe operations). Only use `@trusted` at the *narrowest possible scope* when bridging `@safe` code to a verified-safe `@system` operation -- never on entire functions unless unavoidable (e.g., `extern(C)` callbacks that call `@system` internally). Audit every `@trusted` annotation: if the function can be made `@safe` or split into `@safe` + `@system` parts, do that instead
 - Every `extern(C)` callback must be `nothrow`
 - Named constants for limits: `DEFAULT_MEMORY_LIMIT`, `DEFAULT_MAX_STACK`, `TEST_MEMORY_LIMIT`, `TEST_MAX_STACK`
-- **Avoid magic numbers**: Use named `enum` constants for buffer sizes, protocol constants, reserve capacities, and bit patterns. Centralize cross-module constants in `source/dun/declarations.d` (UTF-8 / Unicode / NAPI / RTLD lookup tables live there as of v1.1.3). Use `dun.platform.arena` for all allocation utilities (`Appender`, `BumpRegion`, `StackFallback!N`, `makeAppender`)
+- **Avoid magic numbers**: Use named `enum` constants for buffer sizes, protocol constants, reserve capacities, and bit patterns. Centralize cross-module constants in `source/dun/declarations.d` (UTF-8 / Unicode / NAPI / RTLD lookup tables live there as of v1.1.3). Use `dun.platform.arena` for all allocation utilities — pick the right tier: `Appender!T` (GC-backed, default), `StackFallback!N` (stack-first + GC heap spill, RAII), `MallocArray!T` (`@nogc nothrow`, libc-backed)
 - **Avoid redundancies**: Use `dun.platform.arena` instead of `import std.array : Appender` directly. Prefer `*To(ref Appender)` helper patterns to eliminate intermediate allocations. Remove duplicate local imports when already imported at module level. When the same constants live in two modules (e.g., UTF-8 decoder in `simd.d` and JSC backend's `newString`), hoist them to `declarations.d` — historically that's where "fixed UTF-8 here but not there" bugs come from
 - **Doc-comments are human-concise**: Default to one line. Multi-line `///` only when the WHY is non-obvious (a hidden constraint, a CVE-class workaround, a subtle invariant). Never echo what well-named identifiers already convey. Never reference the current task/PR ("added for #123") — those belong in commit messages and rot fast. Reading a doc-comment should answer a question the code itself doesn't, in the smallest number of words
 - **MUST add `assert`/`static assert` in all new features** -- TIGER_STYLE: assert preconditions at every `@trusted` boundary, every `extern(C)` callback, every FFI entry point. `static assert(N > 0)` on size-parameterized templates. `static assert(__traits(allMembers, EnumT).length == K, "enum drift")` on every enum that gets parsed externally (CLI flags, type tags)
@@ -663,7 +663,7 @@ HANDOFF.md and update the "Current state" table at the top.
 - **Native `.node` addons that bypass N-API.** Things that
   `dlopen('node')` and call into V8 / libuv internals can't be
   supported by any non-Node runtime. Addons that stay within
-  the N-API surface work — DunJS ships 91 N-API functions plus
+  the N-API surface work — DunJS ships 140+ N-API functions plus
   real `napi_wrap` / `napi_create_external` with a side-table
   for the `(data, hint, finalize_cb)` triple. Tested with sharp
   + similar real addons.

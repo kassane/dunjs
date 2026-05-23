@@ -39,7 +39,7 @@ If your code uses:
   [TypeScript Support](./typescript.md))
 - npm packages installed via `npm install` (DunJS reads
   `node_modules/` and `package.json`)
-- N-API native addons (sharp, bcrypt, etc. — 91 N-API functions
+- N-API native addons (sharp, bcrypt, etc. — 140+ N-API functions
   implemented)
 
 …then DunJS runs it. Drop in `dun run` + the right `--allow-*` flags.
@@ -157,7 +157,7 @@ Things that DO work (via N-API):
 - node-sass / sass-embedded
 - @parcel/source-map
 
-DunJS ships 91 N-API functions plus real `napi_wrap` /
+DunJS ships 140+ N-API functions plus real `napi_wrap` /
 `napi_create_external`. If an addon uses pure N-API, it works.
 
 ### Internal node module imports

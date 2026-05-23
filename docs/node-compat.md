@@ -145,7 +145,7 @@ These are documented in [CLAUDE.md](../CLAUDE.md#wont-fix-design-constraints):
 
 Things that `dlopen('node')` and directly call V8 / libuv internals
 can't be supported by any non-Node runtime. Addons that stay within
-the N-API surface work — DunJS ships 91 N-API functions plus real
+the N-API surface work — DunJS ships 140+ N-API functions plus real
 `napi_wrap` / `napi_create_external` with a side-table for the
 `(data, hint, finalize_cb)` triple. **Sharp + similar real addons
 have been tested.**
