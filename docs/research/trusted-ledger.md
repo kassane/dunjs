@@ -6,7 +6,7 @@ This is DunJS's analogue of [bun.com/bun-unsafe-audit](https://bun.com/bun-unsaf
 
 ## Summary
 
-- **Total `@trusted` sites**: 1465
+- **Total `@trusted` sites**: 1460
 - **Categories**: 12
 - **Generated**: ledger snapshot of `source/` tree at this commit.
 
@@ -21,7 +21,7 @@ This is DunJS's analogue of [bun.com/bun-unsafe-audit](https://bun.com/bun-unsaf
 | `hot-path` | 7 | `@nogc nothrow` hot paths where `@safe` would block needed operations. |
 | `napi-FFI` | 22 | N-API bindings (Node-compatible native addons). |
 | `network-IO` | 247 | POSIX socket syscalls, HTTP/HTTP2/WebSocket builtins, fetch. |
-| `other` | 540 | Miscellaneous — review for re-categorization opportunities. |
+| `other` | 535 | Miscellaneous — review for re-categorization opportunities. |
 | `quic-FFI` | 13 | lsquic / QUIC + HTTP/3. |
 | `sqlite-FFI` | 20 | ImportC bindings to libsqlite3. |
 
@@ -962,7 +962,7 @@ This is DunJS's analogue of [bun.com/bun-unsafe-audit](https://bun.com/bun-unsaf
 | [`source/dun/builtins/ws.d:1238`](../../source/dun/builtins/ws.d#L1238) | `bool parseWsUrl(string url, out string host, out ushort port, out string path...` | [file policy] /++ + \`@trusted policy\`: WebSocket protocol implementation (R... |
 | [`source/dun/builtins/ws.d:1285`](../../source/dun/builtins/ws.d#L1285) | `uint resolveHost(string host) nothrow @trusted` | [file policy] /++ + \`@trusted policy\`: WebSocket protocol implementation (R... |
 
-## other (540 sites)
+## other (535 sites)
 
 | File:Line | Declaration | Rationale |
 |---|---|---|
@@ -998,7 +998,6 @@ This is DunJS's analogue of [bun.com/bun-unsafe-audit](https://bun.com/bun-unsaf
 | [`source/dun/builtins/buffer.d:559`](../../source/dun/builtins/buffer.d#L559) | `JSHandle jsBufferFrom(void* ctx, JSHandle thisVal, scope JSHandle[] args) @tr...` | [file policy] /++ + \`@trusted policy\`: Node's Buffer implementation backed ... |
 | [`source/dun/builtins/buffer.d:740`](../../source/dun/builtins/buffer.d#L740) | `JSHandle jsBufferAlloc(void* ctx, JSHandle thisVal, scope JSHandle[] args) @t...` | [file policy] /++ + \`@trusted policy\`: Node's Buffer implementation backed ... |
 | [`source/dun/builtins/buffer.d:807`](../../source/dun/builtins/buffer.d#L807) | `JSHandle jsBufferAllocUnsafe(void* ctx, JSHandle thisVal, scope JSHandle[] ar...` | [file policy] /++ + \`@trusted policy\`: Node's Buffer implementation backed ... |
-| [`source/dun/builtins/buffer.d:822`](../../source/dun/builtins/buffer.d#L822) | `JSHandle jsBufferIsBuffer(void* ctx, JSHandle thisVal, scope JSHandle[] args)...` | [file policy] /++ + \`@trusted policy\`: Node's Buffer implementation backed ... |
 | [`source/dun/builtins/buffer.d:836`](../../source/dun/builtins/buffer.d#L836) | `JSHandle jsBufferConcat(void* ctx, JSHandle thisVal, scope JSHandle[] args) @...` | [file policy] /++ + \`@trusted policy\`: Node's Buffer implementation backed ... |
 | [`source/dun/builtins/buffer.d:1022`](../../source/dun/builtins/buffer.d#L1022) | `JSHandle jsBufferToString(void* ctx, JSHandle thisVal, scope JSHandle[] args)...` | [file policy] /++ + \`@trusted policy\`: Node's Buffer implementation backed ... |
 | [`source/dun/builtins/buffer.d:1063`](../../source/dun/builtins/buffer.d#L1063) | `auto b64 = (() @trusted => cast(string) Base64.encode(slice))();` | [file policy] /++ + \`@trusted policy\`: Node's Buffer implementation backed ... |
@@ -1075,9 +1074,6 @@ This is DunJS's analogue of [bun.com/bun-unsafe-audit](https://bun.com/bun-unsaf
 | [`source/dun/builtins/os.d:79`](../../source/dun/builtins/os.d#L79) | `private void registerQuickJSModule(IJSEngine engine) @trusted` | [file policy] /++ + \`@trusted policy\`: Node's \`os\` module. Every \`@trust... |
 | [`source/dun/builtins/os.d:100`](../../source/dun/builtins/os.d#L100) | `private extern (C) int osModuleInit(JSContext* ctx, JSModuleDef* m) nothrow @...` | [file policy] /++ + \`@trusted policy\`: Node's \`os\` module. Every \`@trust... |
 | [`source/dun/builtins/os.d:117`](../../source/dun/builtins/os.d#L117) | `IJSEngine getEngine(void* ctx) @trusted` | [file policy] /++ + \`@trusted policy\`: Node's \`os\` module. Every \`@trust... |
-| [`source/dun/builtins/os.d:155`](../../source/dun/builtins/os.d#L155) | `JSHandle jsOsPlatform(void* ctx, JSHandle thisVal, scope JSHandle[] args) @tr...` | [file policy] /++ + \`@trusted policy\`: Node's \`os\` module. Every \`@trust... |
-| [`source/dun/builtins/os.d:161`](../../source/dun/builtins/os.d#L161) | `JSHandle jsOsArch(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted` | [file policy] /++ + \`@trusted policy\`: Node's \`os\` module. Every \`@trust... |
-| [`source/dun/builtins/os.d:167`](../../source/dun/builtins/os.d#L167) | `JSHandle jsOsType(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted` | [file policy] /++ + \`@trusted policy\`: Node's \`os\` module. Every \`@trust... |
 | [`source/dun/builtins/os.d:176`](../../source/dun/builtins/os.d#L176) | `JSHandle jsOsHostname(void* ctx, JSHandle thisVal, scope JSHandle[] args) @tr...` | [file policy] /++ + \`@trusted policy\`: Node's \`os\` module. Every \`@trust... |
 | [`source/dun/builtins/os.d:208`](../../source/dun/builtins/os.d#L208) | `JSHandle jsOsHomedir(void* ctx, JSHandle thisVal, scope JSHandle[] args) @tru...` | [file policy] /++ + \`@trusted policy\`: Node's \`os\` module. Every \`@trust... |
 | [`source/dun/builtins/os.d:223`](../../source/dun/builtins/os.d#L223) | `JSHandle jsOsTmpdir(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted` | [file policy] /++ + \`@trusted policy\`: Node's \`os\` module. Every \`@trust... |
@@ -1377,7 +1373,6 @@ This is DunJS's analogue of [bun.com/bun-unsafe-audit](https://bun.com/bun-unsaf
 | [`source/dun/runtime/process_api.d:176`](../../source/dun/runtime/process_api.d#L176) | `private void ensureStartTime() @trusted nothrow` | [file policy] /++ + \`@trusted policy\`: Node's \`process\` global + signal h... |
 | [`source/dun/runtime/process_api.d:188`](../../source/dun/runtime/process_api.d#L188) | `private bool isattyFd(int fd) @trusted nothrow` | [file policy] /++ + \`@trusted policy\`: Node's \`process\` global + signal h... |
 | [`source/dun/runtime/process_api.d:199`](../../source/dun/runtime/process_api.d#L199) | `void installProcess(IJSEngine engine) @trusted` | [file policy] /++ + \`@trusted policy\`: Node's \`process\` global + signal h... |
-| [`source/dun/runtime/process_api.d:562`](../../source/dun/runtime/process_api.d#L562) | `JSHandle jsNoop(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted` | [file policy] /++ + \`@trusted policy\`: Node's \`process\` global + signal h... |
 | [`source/dun/runtime/process_api.d:569`](../../source/dun/runtime/process_api.d#L569) | `JSHandle jsGetWindowSize(void* ctx, JSHandle thisVal, scope JSHandle[] args) ...` | [file policy] /++ + \`@trusted policy\`: Node's \`process\` global + signal h... |
 | [`source/dun/runtime/process_api.d:580`](../../source/dun/runtime/process_api.d#L580) | `JSHandle jsCwd(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted` | [file policy] /++ + \`@trusted policy\`: Node's \`process\` global + signal h... |
 | [`source/dun/runtime/process_api.d:593`](../../source/dun/runtime/process_api.d#L593) | `JSHandle jsExit(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted` | [file policy] /++ + \`@trusted policy\`: Node's \`process\` global + signal h... |
@@ -1552,7 +1547,7 @@ This is DunJS's analogue of [bun.com/bun-unsafe-audit](https://bun.com/bun-unsaf
 
 ## Missing-rationale audit
 
-- **Sites without an inline rationale comment**: 25 / 1465 (1.7%)
+- **Sites without an inline rationale comment**: 25 / 1460 (1.7%)
 - Goal: every `@trusted` block has a `///` doc comment on the preceding line explaining why the trust is justified. Use this ledger to find the gaps.
 - Process: when adding a new `@trusted` annotation, add a `///` line above it with the form `/// <why this @trusted is safe — invariant being asserted by the programmer>`.
 

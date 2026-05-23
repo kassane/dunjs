@@ -1,6 +1,6 @@
 # Bun's unsafe audit vs DunJS — case study
 
-**Status**: Research / positioning. Triggered by Jarred Sumner's [bun-unsafe-audit](https://bun.com/bun-unsafe-audit) post-mortem of Bun's Zig→Rust port and the recurring [X post claim](https://x.com/i/status/2057579066744881188) that *"bun is faster, but deno is more compatible with node."*
+**Status**: Research / positioning. Triggered by Jarred Sumner's [bun-unsafe-audit](https://bun.com/bun-unsafe-audit) post-mortem of Bun's Zig→Rust port and the recurring [X post claim](https://x.com/i/status/2057579066744881188) — re-surfaced around the **Deno 2.8 release** — that *"bun is faster, but deno is more compatible with node."*
 
 **Audience**: maintainers + downstream users deciding where DunJS sits on the speed-vs-compat-vs-safety axis.
 
@@ -8,13 +8,14 @@
 
 | Axis | Bun | Deno | DunJS |
 |---|---|---|---|
-| **Peak throughput** (feature_bench, May 2026) | 481 M ops/sec | 169 M ops/sec | **514 M ops/sec** (JSC backend, PGO) |
-| **Framework throughput** (framework_bench) | **305 M ops/sec** | 168 M ops/sec | 280 M ops/sec (JSC backend) |
+| **Peak throughput** (feature_bench, May 2026 PGO) | 481 M ops/sec | 169 M ops/sec | **514 M ops/sec** (JSC backend, PGO) |
+| **Framework throughput** (framework_bench, PGO) | **305 M ops/sec** | 168 M ops/sec | 280 M ops/sec (JSC backend) |
+| **HTTP throughput** (wrk plaintext, v1.1.29) | 50,368 req/s (Bun 1.3.14) | 45,112 req/s (Deno 2.8.0) | **40,470 req/s** (JSC), 36,722 (V8), 31,953 (QJS) |
 | **Node-API surface** (npm_compat_test) | 145/145 | 145/145 | **145/145** (all 3 backends) |
-| **Memory safety blocks** | 13,365 `unsafe` + 5 unsound fns | inherits Rust's `unsafe` from V8 bindings | 1,481 `@trusted` + 8 `@system`, 0 known unsound |
+| **Memory safety blocks** | 13,365 `unsafe` + 5 unsound fns | inherits Rust's `unsafe` from V8 bindings | 1,460 `@trusted` + 8 `@system`, 0 known unsound, 25 sites missing inline rationale (1.7%, mostly `yaml.d`) |
 | **Source LOC** | ~1 M (Rust, post-port) | ~700 K (Rust + JS) | 67,504 (D) |
 | **Engines** | JSC only | V8 only | **QuickJS-NG + JSC + V8** (pluggable `IJSEngine`) |
-| **Audit posture** | one-time port cleanup | ongoing | **ongoing** (v1.1.26 rule-compliance audit + v1.1.27 perf wins + v1.1.28 CVE-class net-gate fix + v1.1.29 N-API leak + thread-local cache safety + v1.1.30+ Node v26 surface ports) |
+| **Audit posture** | one-time port cleanup | ongoing | **ongoing** (v1.1.26 rule-compliance audit + v1.1.27 perf wins + v1.1.28 CVE-class net-gate fix + v1.1.29 N-API leak + thread-local cache safety + v1.1.30 Node v26 surface ports + Bun-test ports + 5 more `@safe` callback batch) |
 
 The headline reframing: *DunJS is faster than Bun on JSC pure-throughput, has Node compat parity with Deno, and runs a tighter unsafe surface than either by an order of magnitude.* The trade-off is `@trusted` density — DunJS pays per-line, Bun pays per-block — see §4.
 
@@ -136,11 +137,20 @@ Deno fails where Node + DunJS succeed.
 *"deno is more compatible with node"* — true in spirit (Deno is a sibling runtime,
 focused on Node-API parity), but in practice both sit at the same `npm_compat_test`
 score, and **DunJS runs more real-world npm packages without flag gymnastics**.
-The 1.1.26 sweep on DunJS hits 158/158 on QJS+V8 and 157/158 on JSC; the same
-sweep on Deno would need flag tuning per-fixture and would still fail 11+ checks
-on the npm-package corpus.
+The v1.1.30 sweep on DunJS hits 167/167 on QJS+V8 and 165/167 + 1 SKIP on JSC;
+the same sweep on Deno 2.8 would need flag tuning per-fixture and would still
+fail 11+ checks on the npm-package corpus.
 
 > One-line summary: *Deno is Node-compatible by API surface, DunJS is Node-compatible by behavior under real npm packages.*
+
+### Side observation from the Deno 2.8 release-day wrk re-run
+
+The same wrk HTTP harness that prompted this doc's refresh (run
+against fresh Deno 2.8.0 + Bun 1.3.14 release tarballs, v1.1.29
+DunJS) measured Deno 2.8.0 plaintext at **45,112 req/s vs Deno
+2.7.14's 49,428 req/s** — a 9% throughput regression on the small-
+response endpoint between the two Deno releases. Not a DunJS-vs-
+Deno story; just a heads-up flagged for completeness.
 
 ## 4. How Bun's unsafe-audit methodology maps to DunJS
 
@@ -148,18 +158,18 @@ D's `@safe` / `@trusted` / `@system` attributes are the direct analogue of Rust'
 
 | Bun audit category | DunJS analogue | Current count |
 |---|---|---:|
-| `unsafe {}` block | `@trusted` annotation | 1,481 |
+| `unsafe {}` block | `@trusted` annotation | 1,460 |
 | Unsound functions (UB reachable from safe) | Memory-safety violations exposed through `@safe` API | 0 known (audited in v1.1.26) |
-| FFI-boundary unsafe | `extern(C)` + `extern(C++)` sites | 146 + 6 = 152 |
+| FFI-boundary unsafe | `extern(C)` + `extern(C++)` sites | 156 + 6 = 162 |
 | Performance unsafe (`*mut Self`) | `@nogc` hot paths | 209 |
-| Convertible to safe | Mechanical `@trusted` → `@safe` conversion | **14 / 400 callbacks proven** (3.5% ceiling, empirically measured) |
+| Convertible to safe | Mechanical `@trusted` → `@safe` conversion | **30 / 400 callbacks proven** (7.5% ceiling, empirically measured — 14 in v1.1.26, 11 in v1.1.27 path.d, 5 in v1.1.30 os/process_api/buffer) |
 
-**Important divergence**: Bun's audit projects ~70% of `unsafe` can become safe. DunJS's empirical ceiling is **3.5%**. Two reasons:
+**Important divergence**: Bun's audit projects ~70% of `unsafe` can become safe. DunJS's empirical ceiling is **~7.5%**. Two reasons:
 
 1. **No translation source.** DunJS was written in D from day one. Bun's `unsafe` count is inflated by translation artifacts from Zig — over-conservative `unsafe` blocks that can drop with no code change. DunJS doesn't have that fat to trim.
-2. **Different unit of unsafety.** Rust counts `unsafe {}` block openings (often wrapping many lines). D counts `@trusted` attributes (often a single line, sometimes a `() @trusted => ...` lambda wrapping one expression). Bun's 13,365 wrapping ~1 M LOC ≈ 1 per 75 LOC; DunJS's 1,481 wrapping 67 K LOC ≈ 1 per 45 LOC. These numbers are not apples-to-apples — but the *density* tells you DunJS audits at finer granularity.
+2. **Different unit of unsafety.** Rust counts `unsafe {}` block openings (often wrapping many lines). D counts `@trusted` attributes (often a single line, sometimes a `() @trusted => ...` lambda wrapping one expression). Bun's 13,365 wrapping ~1 M LOC ≈ 1 per 75 LOC; DunJS's 1,460 wrapping 67 K LOC ≈ 1 per 46 LOC. These numbers are not apples-to-apples — but the *density* tells you DunJS audits at finer granularity.
 
-Empirical breakdown of why the remaining 96.5% of DunJS native callbacks can't drop to `@safe` (from `/audit` Pass 4):
+Empirical breakdown of why the remaining ~92% of DunJS native callbacks can't drop to `@safe` (from `/audit` Pass 4 + subsequent batches):
 
 - `__gshared` state access (caches, slot pools, shared counters) — `@safe` forbids reading module-level mutable state
 - `.ptr` raw-pointer arithmetic (Buffer `bswap`, OpenSSL `PKCS5_PBKDF2_HMAC`) — the whole point of these is unchecked memory access
@@ -189,7 +199,7 @@ Bun's audit doesn't explicitly cover these (because Rust's standard surface eith
 
 ### `@mustuse` (DIP 1038) — drop detection
 
-13 annotations as of v1.1.26:
+4 struct annotations (as of v1.1.30 — wired on the four highest-value return types):
 
 ```d
 @mustuse
@@ -215,7 +225,7 @@ Catches the bug class where an eval failure / HTTP response gets swallowed and t
 
 ### `return scope` (DIP 1000) — lifetime tracking on slices
 
-9 annotations as of v1.1.26:
+6 annotations (interface + 3 backend overrides + 1 user-facing wrapper + 1 ctor):
 
 ```d
 // engine returns a slice into engine-owned memory
@@ -226,12 +236,20 @@ The compiler refuses to let the slice leak past the source `JSHandle`'s lifetime
 
 ### `@disable this(this)` — move-only types
 
-4 annotations:
+4 explicit annotations + 1 via Phobos:
 
-- `StackFallback!N` — copy would alias the stack region across frames + the GC heap pointer
-- `BumpRegion` (via `Region!Mallocator` alias) — `std.experimental.allocator` enforces it
-- `TlsSocket` — non-copyable wraps the SSL handle + fd
-- `JSVal` — non-copyable wraps the QuickJS context + value
+- `StackFallback!N` (`platform/arena.d`) — copy would alias the stack region across frames + the GC heap pointer
+- `Runtime` (`engine/quickjs/runtime.d`) — RAII wrapper around `JSRuntime*`; copy would double-free
+- `Context` (`engine/quickjs/context.d`) — RAII wrapper around `JSContext*`; same
+- `TlsSocket` (`builtins/tls.d`) — wraps the SSL handle + fd
+- `BumpRegion` (via `Region!Mallocator` alias in `platform/arena.d`) — `std.experimental.allocator` enforces it
+
+`JSVal` (`engine/quickjs/value.d`) is in a different category: it
+implements an explicit copy constructor `this(ref return scope JSVal
+other)` that increments the JS refcount via `JS_DupValue` rather
+than disabling copies. Same end goal (no silent aliasing), different
+mechanism — appropriate because JSC/V8 use refcount-protected
+handles too and the wrapper unifies the contract.
 
 Equivalent to Rust's `!Copy`, but **spelled at the type definition** rather than enforced by the language default. Bun's `*mut Self` pattern is what you reach for in Rust when you *want* `Copy`-like aliasing — DunJS sidesteps this with explicit move semantics on the specific types that need it.
 
@@ -264,21 +282,25 @@ If I ran Bun's exact methodology against DunJS today, the gaps would be:
 
 ## 8. The DunJS positioning statement
 
-The [X post](https://x.com/i/status/2057579066744881188) says *"bun is faster, but deno is more compatible with node."* Three years ago that was true. May 2026 reality:
+The [X post](https://x.com/i/status/2057579066744881188), re-surfaced
+around the Deno 2.8 release, says *"bun is faster, but deno is more
+compatible with node."* Three years ago that was true. May 2026
+reality:
 
-- **Bun** is fastest *for sustained workloads* (framework_bench) because it controls the runtime stack end-to-end. Compatibility has caught up — npm_compat is 145/145
-- **Deno** is the gold reference for the Deno API surface specifically. Node compat passes the *synthetic* `npm_compat_test` (145/145) but per §3 fails 21 checks across `npm_packages_e2e` + `npm_real_packages` + `circular_require` on real npm packages, with errors that resolve to "rewrite to ESM" / "add `node:` prefix" / "use `.cjs` extension." Speed is competitive with Node, not with Bun
-- **Node** is the reference and the baseline. Same speed as Deno, broadest ecosystem
-- **DunJS** chooses: **JSC backend** = peak ops/sec (514 M, faster than Bun on the synthetic bench); **V8 backend** = baseline-Node compat with the same V8 JIT Node uses; **QuickJS backend** = embedded / safety contexts. *All three* hit 145/145 synthetic + the full real-npm-package corpus (158/158 sweep). The user picks per workload — not at install time, at run-time-config-file time.
+- **Bun** is fastest *for sustained workloads* (framework_bench) because it controls the runtime stack end-to-end. Compatibility has caught up — npm_compat is 145/145. Bun 1.3.14 added a 14% jump on `json` HTTP throughput vs 1.3.11 (57k vs 50k req/s)
+- **Deno** is the gold reference for the Deno API surface specifically. Node compat passes the *synthetic* `npm_compat_test` (145/145) but per §3 fails 21 checks across `npm_packages_e2e` + `npm_real_packages` + `circular_require` on real npm packages, with errors that resolve to "rewrite to ESM" / "add `node:` prefix" / "use `.cjs` extension." Speed is competitive with Node, not with Bun. Deno 2.8 release-day wrk re-run shows a 9% throughput regression on plaintext vs 2.7.14 (45k vs 49k req/s) — worth flagging upstream
+- **Node** is the reference and the baseline. Same compute throughput as Deno, broadest ecosystem
+- **DunJS** chooses: **JSC backend** = peak ops/sec (514 M PGO, faster than Bun on the synthetic bench); **V8 backend** = baseline-Node compat with the same V8 JIT Node uses (and beats Node on all 4 wrk HTTP endpoints by 10-18%); **QuickJS backend** = embedded / safety contexts (still beats Node on wrk plaintext/json despite being interpreter-only). *All three* hit 145/145 synthetic + the full real-npm-package corpus (167/167 sweep). The user picks per workload — not at install time, at run-time-config-file time
 
-Where Bun's audit is the relevant headline: DunJS doesn't have Bun's 13,365-block conversion debt because it never had a foreign-source porting tax. The 1,481 `@trusted` count is the floor, not a transition state.
+Where Bun's audit is the relevant headline: DunJS doesn't have Bun's 13,365-block conversion debt because it never had a foreign-source porting tax. The 1,460 `@trusted` count is the floor, not a transition state.
 
 ## 9. References
 
 ### Triggering posts
 
-- [X post — "bun is faster, but deno is more compatible with node!"](https://x.com/i/status/2057579066744881188)
+- [X post — "bun is faster, but deno is more compatible with node!"](https://x.com/i/status/2057579066744881188) — re-circulated around the **Deno 2.8 release** (Nov 2025)
 - [Bun's unreleased Rust port has 13,365 unsafe blocks. Most can be removed.](https://bun.com/bun-unsafe-audit)
+- [Deno 2.8 release announcement](https://deno.com/blog) (release-day context for the refreshed bench numbers in §3 + §8)
 
 ### Bun port + Rust audit context
 
