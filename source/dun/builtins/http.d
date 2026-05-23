@@ -2072,6 +2072,27 @@ void readHttpData(int cid) nothrow @trusted
 
         if (!conn.headersDone)
             tryParseHeaders(conn, cid);
+
+        // Partial-request + EOF: client closed mid-request. If we
+        // don't reap the slot here it lingers forever (the poller
+        // won't refire on a closed fd), eventually exhausting
+        // connection slots under load — the HANDOFF.md #1 "fetch
+        // hang" pattern (recv returns 0 before headers fully arrive)
+        // that caused the JSC `bun_v7_additions` / `deno_deploy_compat`
+        // flakes. Reap any conn where EOF arrived before the full
+        // request landed.
+        if (gotEof &&
+            (!conn.headersDone ||
+             (conn.contentLength > 0 &&
+              conn.bufLen < conn.bodyStart + conn.contentLength)))
+        {
+            conn.closed = true;
+            version (linux) if (conn.fd >= 0) gHttpPoller.unwatch(conn.fd);
+            try { fdToConnId.remove(conn.fd); } catch (Exception) {}
+            closeConnFd(conn);
+            freeConnSlot(cid);
+            return;
+        }
     }
 }
 
