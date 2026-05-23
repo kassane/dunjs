@@ -2119,6 +2119,16 @@ JSHandle jsHttp2Connect(void* ctx, JSHandle thisVal, scope JSHandle[] args) @tru
     bool useTls;
     parseH2Url(url, host, port, useTls);
 
+    // Permission gate: HTTP/2 client connect needs --allow-net.
+    // Was missing pre-v1.1.28 (net.d / http.d / http2.d all had the
+    // same gap — fixed in this audit pass).
+    {
+        import dun.security.permissions : checkPerm, Permission;
+        import dun.builtins.fs : throwPermError;
+        if (!checkPerm(state, Permission.net, host))
+            return throwPermError(engine, "net", host);
+    }
+
     version (Posix)
     {
         import core.sys.posix.sys.socket;
@@ -2547,9 +2557,15 @@ JSHandle jsH2ServerListen(void* ctx, JSHandle thisVal, scope JSHandle[] args) @t
         import core.sys.posix.netinet.in_;
         import core.sys.posix.fcntl : fcntl, F_SETFL, F_GETFL, O_NONBLOCK;
         import core.stdc.string : memset;
+        import dun.security.permissions : checkPerm, Permission;
+        import dun.builtins.fs : throwPermError;
 
         auto state = ctxState(ctx);
         auto engine = state.engine;
+
+        // Permission gate: HTTP/2 server bind+listen needs --allow-net.
+        if (!checkPerm(state, Permission.net, ""))
+            return throwPermError(engine, "net");
 
         auto idProp = engine.getProperty(thisVal, "__h2sid");
         int idVal = engine.extractInt(idProp);

@@ -250,6 +250,8 @@ JSHandle jsCreateConnection(void* ctx, JSHandle thisVal, scope JSHandle[] args) 
         import core.sys.posix.netdb : getaddrinfo, addrinfo, freeaddrinfo;
         import core.sys.posix.fcntl : fcntl, F_SETFL, O_NONBLOCK, F_GETFL;
         import core.stdc.string : memset;
+        import dun.security.permissions : checkPerm, Permission;
+        import dun.builtins.fs : throwPermError;
 
         auto state = ctxState(ctx);
         assert(state !is null, "Null DunState in jsCreateConnection");
@@ -293,6 +295,17 @@ JSHandle jsCreateConnection(void* ctx, JSHandle thisVal, scope JSHandle[] args) 
                 connectCb = engine.dupValue(args[1]);
                 hasCb = true;
             }
+        }
+
+        // Permission gate: outbound TCP needs --allow-net.
+        // Was missing pre-v1.1.28 — sandboxed scripts could open
+        // arbitrary outbound connections via `net.createConnection`
+        // (the file-header doc-comment claimed the gate existed; the
+        // implementation lacked it). Audit fix per /dev rule 5.
+        if (!checkPerm(state, Permission.net, host))
+        {
+            if (hasCb) engine.freeValue(connectCb);
+            return throwPermError(engine, "net", host);
         }
 
         int fd = socket(AF_INET, SOCK_STREAM, 0);
@@ -460,10 +473,18 @@ JSHandle jsServerListen(void* ctx, JSHandle thisVal, scope JSHandle[] args) @tru
         import core.sys.posix.netinet.in_;
         import core.sys.posix.fcntl : fcntl, F_SETFL, F_GETFL, O_NONBLOCK;
         import core.stdc.string : memset;
+        import dun.security.permissions : checkPerm, Permission;
+        import dun.builtins.fs : throwPermError;
 
         auto state = ctxState(ctx);
         assert(state !is null, "Null DunState in jsServerListen");
         auto engine = state.engine;
+
+        // Permission gate: TCP server bind+listen needs --allow-net.
+        // Was missing pre-v1.1.28 — sandboxed scripts could stand up
+        // inbound listeners without --allow-net (sandbox escape).
+        if (!checkPerm(state, Permission.net, ""))
+            return throwPermError(engine, "net");
 
         auto idProp = engine.getProperty(thisVal, "__id");
         int idVal = engine.extractInt(idProp);

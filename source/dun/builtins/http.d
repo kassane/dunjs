@@ -661,10 +661,20 @@ JSHandle jsHttpServerListen(void* ctx, JSHandle thisVal, scope JSHandle[] args) 
         import core.sys.posix.netinet.in_;
         import core.sys.posix.fcntl : fcntl, F_SETFL, F_GETFL, O_NONBLOCK;
         import core.stdc.string : memset;
+        import dun.security.permissions : checkPerm, Permission;
+        import dun.builtins.fs : throwPermError;
 
         auto state = ctxState(ctx);
         assert(state !is null, "Null DunState in jsHttpServerListen");
         auto engine = state.engine;
+
+        // Permission gate: HTTP server bind/listen needs --allow-net.
+        // Without this guard, a sandboxed script can stand up an
+        // inbound listener without --allow-net being granted (same
+        // sandbox-escape class the v1.1.0 `Permission.net` model was
+        // designed to prevent — net.d/http2.d had the same gap).
+        if (!checkPerm(state, Permission.net, ""))
+            return throwPermError(engine, "net");
 
         auto idProp = engine.getProperty(thisVal, "__hid");
         int idVal = engine.extractInt(idProp);

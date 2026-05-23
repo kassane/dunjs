@@ -689,6 +689,36 @@ int errnoFromCode(string code) @safe pure nothrow @nogc
     return -1;
 }
 
+// Cached fs-error factory. JSC's bytecode cache never evicts compiled
+// sources, so the previous `engine.eval(<unique source per error>)`
+// shape leaked ~9 KB of bytecode per fs failure (per `/debug-native-callback`
+// canonical pattern + v1.1.7 `_fetchResponseBuilder` precedent). One
+// fresh source per stat/readFile/etc. failure adds up fast on JSC.
+// Fix: cache the factory at first use, pass error fields as JS args.
+private __gshared JSHandle _fsErrFactory;
+private __gshared bool _fsErrFactoryCached = false;
+
+private void ensureFsErrFactoryCached(IJSEngine engine) @trusted
+{
+    if (_fsErrFactoryCached) return;
+    enum src = "(function(msg, code, errno, syscall, path) {"
+        ~ "var e = new Error(msg);"
+        ~ "e.code = code;"
+        ~ "e.errno = errno;"
+        ~ "if (syscall) e.syscall = syscall;"
+        ~ "if (path) e.path = path;"
+        ~ "return e;"
+        ~ "})";
+    auto r = engine.eval(src, "<fs-error>");
+    if (!r.isError && engine.isFunction(r.value))
+    {
+        _fsErrFactory = r.value;
+        _fsErrFactoryCached = true;
+    }
+    else
+        engine.freeValue(r.value);
+}
+
 package JSHandle throwNodeError(IJSEngine engine, string code, string msg,
     string syscall = "", string path = "") @trusted
 {
@@ -698,20 +728,33 @@ package JSHandle throwNodeError(IJSEngine engine, string code, string msg,
     if (path.length > 0)
         fullMsg ~= " '" ~ path ~ "'";
 
-    auto errResult = engine.eval(
-        "(function(){var e=new Error('" ~ escapeJs(fullMsg) ~ "');"
-        ~ "e.code='" ~ escapeJs(code) ~ "';"
-        ~ "e.errno=" ~ intToStr(errnoFromCode(code)) ~ ";"
-        ~ (syscall.length > 0 ? "e.syscall='" ~ escapeJs(syscall) ~ "';" : "")
-        ~ (path.length > 0 ? "e.path='" ~ escapeJs(path) ~ "';" : "")
-        ~ "return e;})()", "<fs-error>");
-    if (!errResult.isError)
+    ensureFsErrFactoryCached(engine);
+    if (_fsErrFactoryCached)
     {
-        auto thrown = engine.throwValue(errResult.value);
-        engine.freeValue(errResult.value);
-        return thrown;
+        // Hot path: 5 value args, ZERO new JS source per call.
+        JSHandle[5] argv = [
+            engine.newString(fullMsg),
+            engine.newString(code),
+            engine.newInt(errnoFromCode(code)),
+            engine.newString(syscall),
+            engine.newString(path),
+        ];
+        scope(exit)
+        {
+            foreach (a; argv) engine.freeValue(a);
+        }
+        auto undef = engine.newUndefined();
+        scope(exit) engine.freeValue(undef);
+        auto errVal = engine.callFunction(
+            engine.dupValue(_fsErrFactory), undef, argv[]);
+        if (!engine.isException(errVal))
+        {
+            auto thrown = engine.throwValue(errVal);
+            engine.freeValue(errVal);
+            return thrown;
+        }
+        engine.freeValue(errVal);
     }
-    engine.freeValue(errResult.value);
     return engine.throwTypeError(fullMsg);
 }
 

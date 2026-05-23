@@ -63,6 +63,13 @@ for fuzz_d in tests/fuzz/${TARGET_GLOB}; do
                  "${fuzz_d}" \
                  source/dun/ts/parser/lexer.d
             ;;
+        paths)
+            ldc2 -fsanitize=fuzzer -fsanitize=address -O1 -g \
+                 -I=source -Jsource \
+                 -of=build/${name} \
+                 "${fuzz_d}" \
+                 source/dun/platform/paths.d
+            ;;
         *)
             echo "ERROR: unknown fuzz target '${target}' — add a build case to tests/fuzz/run.sh"
             fail=1
