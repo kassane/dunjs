@@ -358,28 +358,128 @@ string bytesToHex(const(ubyte)[] data) @trusted nothrow
     catch (Exception) { return ""; }
 }
 
+// `Buffer.from(str, "hex")` decodes pairs until it hits the first
+// invalid pair (or odd-length tail), then stops — matches Node and
+// Bun's behavior. Pre-v1.1.30 we silently treated invalid hex chars
+// as 0 (`hexDigit('z')` returned 0), so `"zz"` decoded to `[0x00]`
+// instead of empty. Surfaced by the Bun-ported `buffer-from-encoding-leak`
+// test which expects `Buffer.from("zz", "hex").length === 0`.
 ubyte[] hexToBytes(string hex) @trusted
 {
-    if (hex.length % 2 != 0) return [];
+    // Trim odd trailing char (Node drops the last char silently for
+    // odd-length input — we count valid pairs).
+    size_t maxPairs = hex.length / 2;
     ubyte[] result;
     try
     {
-        result = new ubyte[hex.length / 2];
-        for (size_t i = 0; i < hex.length; i += 2)
+        result.reserve(maxPairs);
+        for (size_t i = 0; i + 1 < hex.length; i += 2)
         {
-            result[i / 2] = cast(ubyte)(hexDigit(hex[i]) * 16 + hexDigit(hex[i + 1]));
+            immutable a = hexCharValue(hex[i]);
+            immutable b = hexCharValue(hex[i + 1]);
+            if (a < 0 || b < 0) break;   // stop at first invalid pair
+            result ~= cast(ubyte)(a * 16 + b);
         }
     }
     catch (Exception) { return []; }
     return result;
 }
 
+// Returns -1 for non-hex chars so the decoder can detect end-of-valid.
+private int hexCharValue(char c) pure @safe nothrow @nogc
+{
+    if (c >= '0' && c <= '9') return c - '0';
+    if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+    if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+    return -1;
+}
+
 ubyte hexDigit(char c) pure @safe
 {
-    if (c >= '0' && c <= '9') return cast(ubyte)(c - '0');
-    if (c >= 'a' && c <= 'f') return cast(ubyte)(c - 'a' + 10);
-    if (c >= 'A' && c <= 'F') return cast(ubyte)(c - 'A' + 10);
-    return 0;
+    auto v = hexCharValue(c);
+    return v < 0 ? 0 : cast(ubyte) v;
+}
+
+// UTF-16LE encoding of a UTF-8 input string.
+//
+// Walks codepoints, emits 2 LE bytes per BMP codepoint and a
+// surrogate pair (4 LE bytes) for supplementary codepoints. The
+// input `extractString` produces UTF-8 (engine contract); the
+// output matches what JS sees if it called `Buffer.from(s, "utf-16le")`
+// (each JS string code unit = 2 LE bytes).
+//
+// Surfaced by the Bun-ported test (`buffer-utf16.test.ts`): pre-fix,
+// DunJS fell through to the raw-bytes path and `Buffer.from("A",
+// "utf-16le")` returned 1 byte instead of [0x41, 0x00].
+ubyte[] utf8ToUtf16LeBytes(string s) @safe pure
+{
+    // Worst case: every byte is a 1-byte UTF-8 → 2 UTF-16 bytes (2×).
+    // Multi-byte UTF-8 sequences expand less, so this upper bound is
+    // safe.
+    ubyte[] out_;
+    out_.reserve(s.length * 2);
+    size_t i = 0;
+    while (i < s.length)
+    {
+        uint cp;
+        immutable c0 = cast(ubyte) s[i];
+        size_t consumed;
+        if (c0 < 0x80) { cp = c0; consumed = 1; }
+        else if ((c0 & 0xE0) == 0xC0 && i + 1 < s.length)
+        {
+            cp = ((c0 & 0x1F) << 6) | (cast(ubyte) s[i+1] & 0x3F);
+            consumed = 2;
+        }
+        else if ((c0 & 0xF0) == 0xE0 && i + 2 < s.length)
+        {
+            cp = ((c0 & 0x0F) << 12)
+               | ((cast(ubyte) s[i+1] & 0x3F) << 6)
+               |  (cast(ubyte) s[i+2] & 0x3F);
+            consumed = 3;
+        }
+        else if ((c0 & 0xF8) == 0xF0 && i + 3 < s.length)
+        {
+            cp = ((c0 & 0x07) << 18)
+               | ((cast(ubyte) s[i+1] & 0x3F) << 12)
+               | ((cast(ubyte) s[i+2] & 0x3F) << 6)
+               |  (cast(ubyte) s[i+3] & 0x3F);
+            consumed = 4;
+        }
+        else { cp = 0xFFFD; consumed = 1; }   // invalid UTF-8 → replacement
+        i += consumed;
+        if (cp <= 0xFFFF)
+        {
+            out_ ~= cast(ubyte)(cp & 0xFF);
+            out_ ~= cast(ubyte)((cp >> 8) & 0xFF);
+        }
+        else
+        {
+            // Supplementary plane → surrogate pair, both LE.
+            immutable adjusted = cp - 0x10000;
+            immutable high = 0xD800 | (adjusted >> 10);
+            immutable low  = 0xDC00 | (adjusted & 0x3FF);
+            out_ ~= cast(ubyte)(high & 0xFF);
+            out_ ~= cast(ubyte)((high >> 8) & 0xFF);
+            out_ ~= cast(ubyte)(low & 0xFF);
+            out_ ~= cast(ubyte)((low >> 8) & 0xFF);
+        }
+    }
+    return out_;
+}
+
+unittest
+{
+    // ASCII codepoints
+    assert(utf8ToUtf16LeBytes("A") == [0x41, 0x00]);
+    assert(utf8ToUtf16LeBytes("AB") == [0x41, 0x00, 0x42, 0x00]);
+    assert(utf8ToUtf16LeBytes("") == []);
+    // BMP non-ASCII: U+00FF (ÿ in UTF-8 = C3 BF)
+    assert(utf8ToUtf16LeBytes("\xC3\xBF") == [0xFF, 0x00]);
+    // BMP high: U+0FFF
+    assert(utf8ToUtf16LeBytes("\xE0\xBF\xBF") == [0xFF, 0x0F]);
+    // Supplementary: U+1F600 (😀) → surrogate pair (D83D, DE00)
+    assert(utf8ToUtf16LeBytes("\xF0\x9F\x98\x80")
+        == [0x3D, 0xD8, 0x00, 0xDE]);
 }
 
 /++
@@ -475,6 +575,18 @@ JSHandle jsBufferFrom(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trust
             auto bytes = new ubyte[str.length];  // output ≤ input bytes
             auto produced = utf8ToLatin1Buf(str, bytes);
             return makeBufferObj(engine, bytes[0 .. produced]);
+        }
+        else if (encoding == "utf16le" || encoding == "utf-16le"
+              || encoding == "ucs2" || encoding == "ucs-2")
+        {
+            /* UTF-16LE: each JS code unit → 2 little-endian bytes.
+               Walk the UTF-8 input and re-encode each codepoint as
+               UTF-16 (basic plane = 1 unit / 2 bytes; supplementary
+               plane = surrogate pair / 4 bytes). Surfaced by the
+               Bun-ported `buffer-utf16` regression — pre-v1.1.30
+               we fell through to the catch-all `cast(ubyte[]) str`
+               which returned raw UTF-8 bytes. */
+            return makeBufferObj(engine, utf8ToUtf16LeBytes(str));
         }
         else
         {
