@@ -73,6 +73,18 @@ void registerBufferModule(IJSEngine engine) @trusted
     engine.bindMethod(bufModule, "SlowBuffer", bufferClass);
     engine.setProperty(bufModule, "INSPECT_MAX_BYTES", engine.newInt(50));
     engine.setProperty(bufModule, "kMaxLength", engine.newInt(0x7FFFFFFF));
+    // `kStringMaxLength` — Node exposes the same number as
+    // `buffer.constants.MAX_STRING_LENGTH`. Surfaced by the v26.x
+    // benchmark surface check.
+    engine.setProperty(bufModule, "kStringMaxLength", engine.newFloat(536_870_888.0));
+
+    // `buffer.isUtf8(buf)` / `buffer.isAscii(buf)` — added in Node
+    // v19.5.0. Pure byte-pattern checks; no engine FFI needed.
+    // Real-world surface: jest @v30 + pino benches.
+    engine.setProperty(bufModule, "isUtf8",
+        engine.newFunction(&jsBufferIsUtf8, "isUtf8", 1));
+    engine.setProperty(bufModule, "isAscii",
+        engine.newFunction(&jsBufferIsAscii, "isAscii", 1));
 
     // `buffer.constants.{MAX_LENGTH, MAX_STRING_LENGTH}` — Node has these
     // since v8.x. Required by thread-stream (→ pino) at module-load
@@ -1438,6 +1450,98 @@ JSHandle jsBufferIsEncoding(void* ctx, JSHandle thisVal, scope JSHandle[] args) 
         enc == "ucs2" || enc == "ucs-2" || enc == "utf16le" || enc == "utf-16le")
         return engine.newBool(true);
     return engine.newBool(false);
+}
+
+// `buffer.isUtf8(buf)` — validates that the byte sequence is well-
+// formed UTF-8 (no overlong encodings, no lone surrogates, codepoints
+// ≤ U+10FFFF). Added in Node v19.5.0; required by jest@30+ + pino
+// benches that probe at module load to decide whether to invoke
+// `TextDecoder`. Returns `true` for empty buffers (matches Node).
+//
+// Lead-byte / continuation masks come from `dun.declarations` —
+// same constants the SIMD latin1 encoder and the JSC backend
+// UTF-8 → UTF-16 decoder use; centralized so a future Unicode
+// expansion fixes all three sites in one place.
+JSHandle jsBufferIsUtf8(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
+{
+    auto state = ctxState(ctx);
+    assert(state.engine !is null, "Null engine in jsBufferIsUtf8");
+    auto engine = state.engine;
+    if (args.length < 1) return engine.throwTypeError("isUtf8 requires a buffer argument");
+    auto bytes = engine.getTypedArrayBytes(args[0]);
+    // On JSC/V8 `getTypedArrayBytes` returns a null slice for valid
+    // zero-length Uint8Arrays (the backing storage `.ptr` is null);
+    // on QJS it returns a non-null empty slice. Treat null result
+    // as "valid empty buffer" iff the argument was an object — only
+    // non-object args (number, string, undefined) should throw.
+    if (bytes is null)
+    {
+        if (engine.isObject(args[0]))
+            return engine.newBool(true);   // empty Uint8Array
+        return engine.throwTypeError("isUtf8: argument must be a Buffer or Uint8Array");
+    }
+
+    size_t i = 0;
+    while (i < bytes.length)
+    {
+        immutable b0 = bytes[i];
+        if (b0 <= UTF8_ASCII_MAX) { i++; continue; }
+        size_t need;
+        uint cp;
+        if ((b0 & UTF8_3BYTE_LEAD) == UTF8_2BYTE_LEAD)
+        {
+            need = 2; cp = b0 & UTF8_2BYTE_MASK;
+            if (cp < 2) return engine.newBool(false);  // overlong (< 0xC2)
+        }
+        else if ((b0 & UTF8_4BYTE_LEAD) == UTF8_3BYTE_LEAD)
+        {
+            need = 3; cp = b0 & UTF8_3BYTE_MASK;
+        }
+        else if ((b0 & 0xF8) == UTF8_4BYTE_LEAD)
+        {
+            need = 4; cp = b0 & UTF8_4BYTE_MASK;
+            if (b0 > 0xF4) return engine.newBool(false);  // codepoint > U+10FFFF
+        }
+        else
+            return engine.newBool(false);  // 0x80..0xBF or 0xF8+ is invalid lead
+
+        if (i + need > bytes.length) return engine.newBool(false);
+        foreach (k; 1 .. need)
+        {
+            immutable bk = bytes[i + k];
+            if ((bk & UTF8_2BYTE_LEAD) != UTF8_CONT_BASE)  // top bits != 10
+                return engine.newBool(false);
+            cp = (cp << 6) | (bk & UTF8_CONT_MASK);
+        }
+        // Reject surrogate codepoints U+D800..U+DFFF (lone surrogates).
+        if (cp >= UTF16_HIGH_SURROGATE_BASE && cp < UNICODE_BMP_MAX
+                && cp <= 0xDFFFu)
+            return engine.newBool(false);
+        // Reject overlong: 3-byte must be >= U+0800, 4-byte >= U+10000.
+        if (need == 3 && cp < 0x800u) return engine.newBool(false);
+        if (need == 4 && cp < UNICODE_BMP_MAX) return engine.newBool(false);
+        i += need;
+    }
+    return engine.newBool(true);
+}
+
+// `buffer.isAscii(buf)` — checks every byte < 0x80. Trivial.
+JSHandle jsBufferIsAscii(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
+{
+    auto state = ctxState(ctx);
+    assert(state.engine !is null, "Null engine in jsBufferIsAscii");
+    auto engine = state.engine;
+    if (args.length < 1) return engine.throwTypeError("isAscii requires a buffer argument");
+    auto bytes = engine.getTypedArrayBytes(args[0]);
+    if (bytes is null)
+    {
+        if (engine.isObject(args[0]))
+            return engine.newBool(true);   // empty Uint8Array (see isUtf8)
+        return engine.throwTypeError("isAscii: argument must be a Buffer or Uint8Array");
+    }
+    foreach (b; bytes)
+        if (b > UTF8_ASCII_MAX) return engine.newBool(false);
+    return engine.newBool(true);
 }
 
 // Buffer.compare(a, b)
