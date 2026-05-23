@@ -268,6 +268,31 @@ DunState* ctxState(void* ctx) @trusted nothrow @nogc
 
 Bun has no direct equivalent — Rust's `inline(always)` doesn't preserve the audit grep, because the source still says `*mut Self` at each call site.
 
+### Eleven `-preview=*` flags + `--edition=2025` (DIP 1052)
+
+Where Rust gates new language features behind edition releases (2015, 2018, 2021, 2024), D gates them behind explicit `-preview=*` switches *and* a DIP-1052 edition flag. Each preview maps to an accepted DIP that tightens what the compiler accepts. DunJS opts in to a curated set of 11 — every one of them either tightens safety, fixes a latent UB class, or makes a defensive pattern compile-checkable:
+
+| Preview | Effect | Audit impact |
+|---|---|---|
+| `dip1000` (DIP 1000) | `return scope` / `scope` lifetime tracking on slices, refs, pointers | Bridges the gap Bun closes via `unsafe { transmute }` — the compiler refuses to let an engine-owned slice leak past its source `JSHandle`'s lifetime without an explicit `.dup` |
+| `dip1008` (DIP 1008) | `@nogc throw new Exception(...)` — heap-allocated Throwables | Lets `@nogc` hot paths still surface errors instead of silently swallowing or pre-allocating |
+| `safer` | `@safe` is the **default** for non-`extern` functions | The audit signal flips from "are unsafe blocks justified?" to "are `@trusted` blocks justified?" — the same shift Rust's editions did, but at the function-attribute layer |
+| `systemVariables` | `@system` variables can't be accessed from `@safe` code | Catches the bug class where a `@safe` function reads a `__gshared` mutable global — currently DunJS goes through `@trusted` lambdas for these (e.g. `fetch.d` `responseJson`'s `__gshared` factory cache); the preview enforces this at compile time |
+| `inclusiveincontracts` | `in {}` contracts of overrides must be a superset of parent's | Closes the LSP-violation escape hatch — Bun has no analogue because Rust traits don't have D's design-by-contract layer |
+| `fixImmutableConv` | Disallow unsafe `immutable` conversions | Closes a known type-system soundness hole |
+| `fixAliasThis` | Strict `alias this` lookup order | Catches accidentally-resolved-to-`alias this` calls that should have been errors |
+| `rvaluerefparam` | Rvalue arguments allowed for `ref` parameters | Ergonomics for `*To(ref Appender)` builder patterns — reduces the `auto tmp = X(); fn(tmp);` ceremony |
+| `bitfields` (DIP 1051) | C-style `int field : 3;` syntax | C interop without manual `core.bitop` arithmetic — matters for the C-headers we ImportC (`sqlite3.h`, etc.) |
+| `fieldwise` | Fieldwise struct equality (no padding-byte memcmp) | Closes the padding-bytes-affect-equality footgun that bit projects like libsodium |
+| `in` parameter | `in` means `scope const [ref]` and accepts rvalues | Lifetime-checked + alias-safe by default for `in` params |
+| `--edition=2025` (DIP 1052) | Rolls the project to D's 2025 edition defaults | Packages all of the above into a single language version selector; future-proofs against preview flag drift |
+
+**`-preview=all` is rejected**: DIP 1021 (Mutable Function Arguments) inside breaks `core.internal.newaa` and `std.typecons` in LDC 1.42.0's druntime/Phobos. The curated list above is the most we can enable without source-tree workarounds — documented in `CLAUDE.md` so the next preview-expansion attempt doesn't re-trip it.
+
+**`-preview=nosharedaccess` is deferred**: would require fixing 3 direct `shared stderr`/`stdout` accesses in `napi.d` and `process_api.d` (would need `core.atomic` wrappers). Tracked in HANDOFF.md "Still deferred".
+
+Bun's audit doesn't have a direct analogue here because Rust's safety story is one big binary: code is either `safe` or `unsafe`. D's preview-flag system is a *gradient* — you can pick exactly which compile-time checks the project opts in to, ahead of them becoming defaults. The fact that we run all 11 + the 2025 edition is itself a `tools/gen_trusted_ledger.d`-grep-able audit signal.
+
 ## 7. The "where DunJS would fail the audit" honest section
 
 If I ran Bun's exact methodology against DunJS today, the gaps would be:
