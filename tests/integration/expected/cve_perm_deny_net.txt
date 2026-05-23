@@ -1,0 +1,7 @@
+OK: net.createConnection denied (ERR_PERMISSION_DENIED)
+OK: net.createServer().listen denied (ERR_PERMISSION_DENIED)
+OK: http.createServer().listen denied (ERR_PERMISSION_DENIED)
+OK: http2.createServer().listen denied (ERR_PERMISSION_DENIED)
+OK: http2.connect denied (ERR_PERMISSION_DENIED)
+
+5/5 permission denials enforced

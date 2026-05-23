@@ -112,7 +112,7 @@ int main(string[] args)
 
 private:
 
-public enum VERSION = "1.1.27";
+public enum VERSION = "1.1.28";
 
 /++
  + Entry point when the running executable was produced by

@@ -2443,24 +2443,56 @@ private JSHandle resolvedPromise(IJSEngine engine, JSHandle value) @trusted
     return ph.promise;
 }
 
+// Cached `(msg) => new Error(msg)` factory. Previously each
+// `rejectedPromise` call did `engine.eval("new Error('<inlined>')")`
+// per subtle.crypto rejection — JSC caches bytecode per unique source
+// forever (per /debug-native-callback hot-path eval pattern), so a
+// busy WebCrypto user accumulated KB of bytecode per failed op. Cache
+// the factory once + call with the message as a value arg.
+private __gshared JSHandle _cryptoErrFactory;
+private __gshared bool _cryptoErrFactoryCached = false;
+
+private void ensureCryptoErrFactoryCached(IJSEngine engine) @trusted
+{
+    if (_cryptoErrFactoryCached) return;
+    auto r = engine.eval("(function(m){return new Error(m);})", "<subtle-err>");
+    if (!r.isError && engine.isFunction(r.value))
+    {
+        _cryptoErrFactory = r.value;
+        _cryptoErrFactoryCached = true;
+    }
+    else
+        engine.freeValue(r.value);
+}
+
 /// Helper: create a rejected promise with an error message
 private JSHandle rejectedPromise(IJSEngine engine, string msg) @trusted
 {
     assert(engine !is null, "Null engine in rejectedPromise");
     import dun.engine.iface : PromiseHandles;
     auto ph = engine.newPromise();
-    auto errResult = engine.eval("new Error('" ~ escapeJsStr(msg) ~ "')", "<subtle-err>");
-    if (!errResult.isError)
+    ensureCryptoErrFactoryCached(engine);
+    JSHandle errVal;
+    bool errOk = false;
+    if (_cryptoErrFactoryCached)
     {
-        engine.freeValue(engine.callFunction(ph.reject, engine.newUndefined(), [errResult.value]));
-        engine.freeValue(errResult.value);
+        auto msgVal = engine.newString(msg);
+        auto undef = engine.newUndefined();
+        scope(exit) { engine.freeValue(msgVal); engine.freeValue(undef); }
+        errVal = engine.callFunction(engine.dupValue(_cryptoErrFactory), undef, (&msgVal)[0 .. 1]);
+        errOk = !engine.isException(errVal);
+    }
+    if (errOk)
+    {
+        engine.freeValue(engine.callFunction(ph.reject, engine.newUndefined(), (&errVal)[0 .. 1]));
+        engine.freeValue(errVal);
     }
     else
     {
+        engine.freeValue(errVal);
         auto fallback = engine.newString(msg);
-        engine.freeValue(engine.callFunction(ph.reject, engine.newUndefined(), [fallback]));
+        engine.freeValue(engine.callFunction(ph.reject, engine.newUndefined(), (&fallback)[0 .. 1]));
         engine.freeValue(fallback);
-        engine.freeValue(errResult.value);
     }
     engine.freeValue(ph.resolve);
     engine.freeValue(ph.reject);
