@@ -804,7 +804,7 @@ JSHandle jsHrtime(void* ctx, JSHandle thisVal, scope JSHandle[] args) @safe
  + `performance.now()` via MonoTime — sub-ms precision. Overrides
  + JSC/V8 natives that round to integer ms (kills benchmarks).
  +/
-public JSHandle jsPerformanceNow(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
+public JSHandle jsPerformanceNow(void* ctx, JSHandle thisVal, scope JSHandle[] args) @safe
 {
     auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in performance.now");
@@ -814,10 +814,14 @@ public JSHandle jsPerformanceNow(void* ctx, JSHandle thisVal, scope JSHandle[] a
         import core.time : MonoTime, ticksToNSecs;
         auto now = MonoTime.currTime;
         long totalNs = ticksToNSecs(now.ticks);
-        long originNs = ticksToNSecs(_processStartTimeTicks);
+        // `_processStartTimeTicks` is `__gshared` (single-threaded
+        // runtime startup writes it once via `initialize`); the @trusted
+        // lambda is the minimal escape for the read.
+        long origin = (() @trusted => _processStartTimeTicks)();
+        long originNs = ticksToNSecs(origin);
         return engine.newFloat((cast(double)(totalNs - originNs)) / 1_000_000.0);
     }
-    catch (Throwable) { return engine.newFloat(0.0); }
+    catch (Exception) { return engine.newFloat(0.0); }
 }
 
 // Cached `(s) => BigInt(s)` factory for `process.hrtime.bigint`.
