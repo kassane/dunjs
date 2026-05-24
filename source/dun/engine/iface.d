@@ -193,7 +193,7 @@ interface IJSEngine
     bool isNumber(JSHandle val) @trusted;
 
     // --- Invocation ---
-    JSHandle callFunction(JSHandle func, JSHandle thisVal, JSHandle[] args) @trusted;
+    JSHandle callFunction(JSHandle func, JSHandle thisVal, scope JSHandle[] args) @trusted;
 
     // --- Exceptions ---
     string getException() @trusted;

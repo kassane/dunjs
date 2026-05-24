@@ -839,7 +839,7 @@ public JSHandle jsPerformanceNow(void* ctx, JSHandle thisVal, scope JSHandle[] a
 private static JSHandle _hrtimeBigIntFactory;
 private static bool _hrtimeBigIntCached = false;
 
-JSHandle jsHrtimeBigint(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
+JSHandle jsHrtimeBigint(void* ctx, JSHandle thisVal, scope JSHandle[] args) @safe
 {
     auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in process.hrtime.bigint");

@@ -522,7 +522,7 @@ JSHandle jsOsMachine(void* ctx, JSHandle thisVal, scope JSHandle[] args) @truste
     else return engine.newString("unknown");
 }
 
-JSHandle jsOsAvailableParallelism(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
+JSHandle jsOsAvailableParallelism(void* ctx, JSHandle thisVal, scope JSHandle[] args) @safe
 {
     auto engine = getEngine(ctx);
     try
