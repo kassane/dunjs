@@ -185,7 +185,6 @@ private void recordLockEntry(string name, string version_, string resolved) @tru
 {
     import std.file : exists, readText, write;
     import std.json : parseJSON, JSONValue, JSONType;
-    import std.path : buildPath;
 
     // dun.lock: { lockfileVersion: 1, packages: { "node_modules/<name>": {...} } }
     string dunLockPath = "dun.lock";
@@ -316,7 +315,7 @@ void createBinLinks(string pkgDir, string pkgName) @trusted
 {
     import std.file : exists, readText, mkdirRecurse;
     import std.json : parseJSON, JSONType;
-    import std.path : buildNormalizedPath, absolutePath, relativePath, dirName;
+    import std.path : buildNormalizedPath, absolutePath, dirName;
 
     auto pkgJson = buildNormalizedPath(pkgDir, "package.json");
     if (!exists(pkgJson)) return;
@@ -551,7 +550,7 @@ ubyte[] downloadTarball(string url) @trusted
 bool extractTarGz(ubyte[] data, string destDir) @trusted
 {
     import std.process : execute;
-    import std.file : mkdirRecurse, write, exists, rename, dirEntries, SpanMode;
+    import std.file : mkdirRecurse, write, exists, dirEntries, SpanMode;
     import std.path : buildNormalizedPath;
 
     // Write tarball to temp file, use system tar to extract

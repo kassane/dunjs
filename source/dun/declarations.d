@@ -98,6 +98,17 @@ enum int S_IFREG_DEFAULT_FILE   = 0x81A4;       /// S_IFREG | 0o644
 
 enum int DEFAULT_LISTEN_BACKLOG = 1024;
 
+// ─── Default scheme ports ───────────────────────────────────────
+//
+// IANA well-known ports for http/https. Used by `fetch.d`, `http2.d`,
+// `tls.d` (D-side connect + Host-header elision) — was bare 80/443
+// literals scattered across those modules + module-local copies in
+// `http.d` (HTTP_DEFAULT_PORT), `ws.d` (WS_DEFAULT_PORT/TLS), and
+// `http2.d` (H2_DEFAULT_TLS_PORT) which now alias these.
+
+enum ushort HTTP_DEFAULT_PORT_NUM  = 80;
+enum ushort HTTPS_DEFAULT_PORT_NUM = 443;
+
 // ─── I/O buffer sizes ───────────────────────────────────────────
 //
 // Shared chunk sizes for socket reads, file reads, readlink probes,

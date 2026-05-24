@@ -16,9 +16,6 @@ import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
 import dun.runtime.globals : DunState;
 import dun.builtins.helpers : installPureJsModule;
 
-/// Number of exported wasi API names
-enum WASI_EXPORT_COUNT = 2;
-
 void registerWasiModule(IJSEngine engine) @trusted
 {
     installPureJsModule(engine, wasiSource(), "<wasi>", "wasi");

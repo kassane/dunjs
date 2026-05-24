@@ -390,18 +390,9 @@ public JSHandle makeBufferObjZeroed(IJSEngine engine, int size) @trusted
     return engine.newUint8ArrayZeroedWithProto(size, _bufProto);
 }
 
-private immutable char[512] hexLUT = () {
-    import dun.declarations : HEX_LOWER;
-    char[512] t;
-    foreach (i; 0 .. 256)
-    {
-        t[i * 2]     = HEX_LOWER[i >> 4];
-        t[i * 2 + 1] = HEX_LOWER[i & 0xF];
-    }
-    return t;
-}();
-
-string bytesToHex(const(ubyte)[] data) @trusted nothrow
+// SIMD-backed hex encoder (16 bytes → 32 hex chars/cycle). `public`
+// so `crypto.d` shares it instead of carrying a scalar duplicate.
+public string bytesToHex(const(ubyte)[] data) @trusted nothrow
 {
     if (data.length == 0) return "";
     try

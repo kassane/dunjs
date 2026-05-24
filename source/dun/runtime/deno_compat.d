@@ -15,9 +15,9 @@ module dun.runtime.deno_compat;
  +      install-time only, the cached eval result is the
  +      permanent function handle.
  +/
-import dun.engine.iface : IJSEngine, JSHandle, NativeCallback, PromiseHandles;
+import dun.engine.iface : IJSEngine, JSHandle;
 import dun.runtime.globals : DunState, ctxState;
-import dun.security.permissions : Permission, PermissionState;
+import dun.security.permissions : Permission;
 
 void installDenoCompat(IJSEngine engine) @trusted
 {

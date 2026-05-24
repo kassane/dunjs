@@ -128,6 +128,7 @@ string tlsLastError() @trusted nothrow
 import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
 import dun.runtime.globals : DunState, ctxState;
 import dun.loop.agnostic_pending : pushAgnosticPending;
+import dun.declarations : HTTPS_DEFAULT_PORT_NUM;
 
 private enum : size_t {
     TLS_READ_BUF_SIZE  = 8192,
@@ -403,7 +404,7 @@ JSHandle jsTlsConnect(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trust
     import std.string : toStringz;
 
     // Parse arguments: tls.connect(options[, callback]) or tls.connect(port[, host[, callback]])
-    int port = 443;
+    int port = HTTPS_DEFAULT_PORT_NUM;
     string host = "localhost";
     string servername;
     bool rejectUnauthorized = true;

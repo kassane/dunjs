@@ -37,9 +37,6 @@ private enum : size_t {
     MAX_READ_LENGTH   = 64 * 1024 * 1024,
 }
 
-// Default poll interval (ms) for fs.watchFile when caller omits the
-// `interval` option. Matches Node's documented 5007ms default.
-private enum DEFAULT_WATCHFILE_INTERVAL_MS = 5007;
 // Default poll interval (ms) for fs.watch (no inotify path on portable
 // runtimes; falls back to polling every second).
 private enum DEFAULT_WATCH_POLL_INTERVAL_MS = 1000;
