@@ -577,7 +577,7 @@ JSHandle jsGetWindowSize(void* ctx, JSHandle thisVal, scope JSHandle[] args) @tr
     return arr;
 }
 
-JSHandle jsCwd(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
+JSHandle jsCwd(void* ctx, JSHandle thisVal, scope JSHandle[] args) @safe
 {
     auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in jsCwd");
