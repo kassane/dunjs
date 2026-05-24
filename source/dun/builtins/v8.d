@@ -247,6 +247,55 @@ private JSHandle jsSetFlagsFromString(void* ctx, JSHandle thisVal, scope JSHandl
     return state.engine.newUndefined();  // no-op; we don't expose V8 flags.
 }
 
+// Cached factories for v8.serialize / v8.deserialize — per
+// /debug-native-callback hot-path eval pattern. Pre-cache, every
+// call to v8.serialize(v) compiled fresh JSC bytecode for the
+// `(v) => new TextEncoder().encode(JSON.stringify(v))` lambda
+// (same for deserialize). Thread-local because each Worker engine
+// pins its own factory (Worker-foreign-handle pattern).
+private static JSHandle _v8SerializeFactory;
+private static bool _v8SerializeFactoryCached = false;
+private static JSHandle _v8DeserializeFactory;
+private static bool _v8DeserializeFactoryCached = false;
+
+private void ensureV8SerializeFactoryCached(IJSEngine engine) @trusted nothrow
+{
+    if (_v8SerializeFactoryCached) return;
+    try
+    {
+        auto r = engine.eval(
+            "(function(v){return new TextEncoder().encode(JSON.stringify(v));})",
+            "<v8-serialize>");
+        if (!r.isError && engine.isFunction(r.value))
+        {
+            _v8SerializeFactory = r.value;
+            _v8SerializeFactoryCached = true;
+        }
+        else
+            engine.freeValue(r.value);
+    }
+    catch (Exception) {}
+}
+
+private void ensureV8DeserializeFactoryCached(IJSEngine engine) @trusted nothrow
+{
+    if (_v8DeserializeFactoryCached) return;
+    try
+    {
+        auto r = engine.eval(
+            "(function(b){return JSON.parse(new TextDecoder().decode(b));})",
+            "<v8-deserialize>");
+        if (!r.isError && engine.isFunction(r.value))
+        {
+            _v8DeserializeFactory = r.value;
+            _v8DeserializeFactoryCached = true;
+        }
+        else
+            engine.freeValue(r.value);
+    }
+    catch (Exception) {}
+}
+
 private JSHandle jsSerialize(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     assert(ctx !is null);
@@ -254,17 +303,14 @@ private JSHandle jsSerialize(void* ctx, JSHandle thisVal, scope JSHandle[] args)
     auto engine = state.engine;
     // Fallback: JSON-encode the value into a Buffer-like Uint8Array.
     if (args.length < 1) return engine.throwTypeError("serialize requires a value");
-    auto res = engine.eval(
-        "(function(v){return new TextEncoder().encode(JSON.stringify(v));})",
-        "<v8-serialize>");
-    if (res.isError) return res.value;
+    ensureV8SerializeFactoryCached(engine);
+    if (!_v8SerializeFactoryCached) return engine.throwTypeError("v8.serialize factory init failed");
     auto undef = engine.newUndefined();
     scope(exit) engine.freeValue(undef);
     JSHandle[1] callArgs;
     callArgs[0] = args[0];
-    auto out_ = engine.callFunction(res.value, undef, callArgs[]);
-    engine.freeValue(res.value);
-    return out_;
+    return engine.callFunction(
+        engine.dupValue(_v8SerializeFactory), undef, callArgs[]);
 }
 
 private JSHandle jsDeserialize(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
@@ -273,15 +319,12 @@ private JSHandle jsDeserialize(void* ctx, JSHandle thisVal, scope JSHandle[] arg
     auto state = ctxState(ctx);
     auto engine = state.engine;
     if (args.length < 1) return engine.throwTypeError("deserialize requires a buffer");
-    auto res = engine.eval(
-        "(function(b){return JSON.parse(new TextDecoder().decode(b));})",
-        "<v8-deserialize>");
-    if (res.isError) return res.value;
+    ensureV8DeserializeFactoryCached(engine);
+    if (!_v8DeserializeFactoryCached) return engine.throwTypeError("v8.deserialize factory init failed");
     auto undef = engine.newUndefined();
     scope(exit) engine.freeValue(undef);
     JSHandle[1] callArgs;
     callArgs[0] = args[0];
-    auto out_ = engine.callFunction(res.value, undef, callArgs[]);
-    engine.freeValue(res.value);
-    return out_;
+    return engine.callFunction(
+        engine.dupValue(_v8DeserializeFactory), undef, callArgs[]);
 }
