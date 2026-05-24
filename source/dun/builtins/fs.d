@@ -390,6 +390,35 @@ __gshared bool _statProtoCached = false;
 __gshared JSHandle _cachedDateFactoryFn;
 __gshared bool _dateFactoryCached = false;
 
+// Cached `(s) => process.nextTick(emit finish+close)` factory for
+// WriteStream.end() — per /debug-native-callback hot-path eval
+// pattern. Pre-cache, every `ws.end()` recompiled the emitter
+// source (JSC never evicts). Thread-local for Worker safety.
+private static JSHandle _writeStreamEndEmitter;
+private static bool _writeStreamEndEmitterCached = false;
+
+private void ensureWriteStreamEndEmitterCached(IJSEngine engine) @trusted nothrow
+{
+    if (_writeStreamEndEmitterCached) return;
+    try
+    {
+        auto r = engine.eval(
+            "(function(s){process.nextTick(function(){"
+            ~ "var l=s._listeners;"
+            ~ "if(l&&typeof l.finish==='function')l.finish.call(s);"
+            ~ "if(l&&typeof l.close==='function')l.close.call(s);"
+            ~ "});})", "<ws:emit>");
+        if (!r.isError && engine.isFunction(r.value))
+        {
+            _writeStreamEndEmitter = r.value;
+            _writeStreamEndEmitterCached = true;
+        }
+        else
+            engine.freeValue(r.value);
+    }
+    catch (Exception) {}
+}
+
 // Cached stream method handles. Built once at registerFsModule;
 // reused across every createReadStream / createWriteStream / watch
 // call via `bindMethod` (no new JSValueProtect slot allocated per
@@ -2284,16 +2313,11 @@ JSHandle jsWriteStreamEnd(void* ctx, JSHandle thisVal, scope JSHandle[] args) @t
         engine.setProperty(thisVal, "writable", engine.newBool(false));
         engine.setProperty(thisVal, "bytesWritten", engine.newInt(cast(int) allData.length));
         auto streamRef = engine.dupValue(thisVal);
-        auto emitFn = engine.eval(
-            "(function(s){process.nextTick(function(){"
-            ~ "var l=s._listeners;"
-            ~ "if(l&&typeof l.finish==='function')l.finish.call(s);"
-            ~ "if(l&&typeof l.close==='function')l.close.call(s);"
-            ~ "});})", "<ws:emit>"
-        );
-        if (!emitFn.isError)
-            engine.freeValue(engine.callFunction(emitFn.value, engine.newUndefined(), [streamRef]));
-        engine.freeValue(emitFn.value);
+        ensureWriteStreamEndEmitterCached(engine);
+        if (_writeStreamEndEmitterCached)
+            engine.freeValue(engine.callFunction(
+                engine.dupValue(_writeStreamEndEmitter),
+                engine.newUndefined(), [streamRef]));
         engine.freeValue(streamRef);
     }
     catch (Exception) {}
