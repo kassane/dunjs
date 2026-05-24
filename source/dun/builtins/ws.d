@@ -15,7 +15,7 @@ module dun.builtins.ws;
  +      per-frame allocation on the send path).
  +   6. `__gshared` connection pool, `cast(DunState*) ctx`.
  +/
-import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
+import dun.engine.iface : IJSEngine, JSHandle;
 import dun.runtime.globals : DunState, ctxState;
 import dun.loop.agnostic_pending : pushAgnosticPending;
 import dun.declarations : DEFAULT_LISTEN_BACKLOG;

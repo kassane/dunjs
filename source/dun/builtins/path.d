@@ -11,7 +11,7 @@ module dun.builtins.path;
  +      buffers. Length-bounded; no aliasing escape.
  +   2. `cast(DunState*) ctx` via `ctxState(ctx)` in callbacks.
  +/
-import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
+import dun.engine.iface : IJSEngine, JSHandle;
 import dun.runtime.globals : DunState, ctxState;
 
 void registerPathModule(IJSEngine engine) @trusted

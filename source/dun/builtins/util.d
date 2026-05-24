@@ -9,7 +9,7 @@ module dun.builtins.util;
  +      building. Pure D logic.
  +   3. `cast(DunState*) ctx` via `ctxState(ctx)` in callbacks.
  +/
-import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
+import dun.engine.iface : IJSEngine;
 import dun.runtime.globals : DunState;
 import dun.builtins.helpers : installPureJsModule;
 

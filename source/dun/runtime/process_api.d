@@ -18,7 +18,7 @@ module dun.runtime.process_api;
  +      D process environment (`std.process.environment`).
  +/
 import dun.declarations : PAGE_SIZE_BYTES;
-import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
+import dun.engine.iface : IJSEngine, JSHandle;
 import dun.runtime.globals : DunState, ctxState;
 import dun.security.permissions : Permission;
 

@@ -27,7 +27,7 @@ module dun.builtins.crypto;
  + bounds) that aren't captured by the policy above.
  +/
 
-import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
+import dun.engine.iface : IJSEngine, JSHandle;
 import dun.runtime.globals : DunState, ctxState;
 
 private enum {

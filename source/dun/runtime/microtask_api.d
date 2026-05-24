@@ -7,7 +7,7 @@ module dun.runtime.microtask_api;
  + `state.eventLoop.microtasks.enqueue` call (mutates the
  + `__gshared` queue).
  +/
-import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
+import dun.engine.iface : IJSEngine, JSHandle;
 import dun.runtime.globals : DunState, ctxState;
 
 void installMicrotask(IJSEngine engine) @trusted

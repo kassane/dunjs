@@ -12,7 +12,7 @@ module dun.builtins.zlib;
  +   3. `cast(z_stream*) &state` for the streaming-codec state
  +      struct — slot-based pool, single-threaded access.
  +/
-import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
+import dun.engine.iface : IJSEngine, JSHandle;
 import dun.runtime.globals : DunState, ctxState;
 
 private enum {

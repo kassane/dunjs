@@ -34,7 +34,7 @@ module dun.builtins.yaml;
  +      pure D parser, no FFI.
  +   2. `cast(DunState*) ctx` via `ctxState(ctx)` in callbacks.
  +/
-import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
+import dun.engine.iface : IJSEngine, JSHandle;
 import dun.runtime.globals : DunState, ctxState;
 import dun.platform.arena : Appender;
 

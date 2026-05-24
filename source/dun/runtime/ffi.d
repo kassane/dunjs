@@ -15,7 +15,7 @@ module dun.runtime.ffi;
  +      across the FFI boundary. The CIF is built once per
  +      symbol-binding and cached.
  +/
-import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
+import dun.engine.iface : IJSEngine, JSHandle;
 import dun.runtime.globals : DunState, ctxState;
 import dun.security.permissions : Permission;
 

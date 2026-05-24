@@ -7,7 +7,7 @@ module dun.builtins.querystring;
  + `cast(string)` for the output builders. `cast(DunState*) ctx` in
  + callbacks.
  +/
-import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
+import dun.engine.iface : IJSEngine;
 import dun.runtime.globals : DunState;
 import dun.builtins.helpers : installPureJsModule;
 

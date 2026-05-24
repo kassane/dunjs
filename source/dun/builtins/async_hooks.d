@@ -11,7 +11,7 @@ module dun.builtins.async_hooks;
  +      ALS unwinds across user-supplied callbacks that may throw
  +      Errors (not just Exceptions).
  +/
-import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
+import dun.engine.iface : IJSEngine, JSHandle;
 import dun.runtime.globals : DunState, ctxState;
 
 /// Maximum nesting depth for AsyncLocalStorage.run() calls.

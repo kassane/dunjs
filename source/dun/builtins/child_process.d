@@ -15,7 +15,7 @@ module dun.builtins.child_process;
  +   3. `Permission.run` gate before execve.
  +   4. `cast(DunState*) ctx` via `ctxState(ctx)` in callbacks.
  +/
-import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
+import dun.engine.iface : IJSEngine, JSHandle;
 import dun.runtime.globals : DunState, ctxState;
 import dun.security.permissions : Permission;
 // Project convention (CLAUDE.md): allocator helpers go via

@@ -12,7 +12,7 @@ module dun.builtins.cluster;
  +   4. `Permission.run` gate before fork.
  +   5. `cast(DunState*) ctx` via `ctxState(ctx)` in callbacks.
  +/
-import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
+import dun.engine.iface : IJSEngine, JSHandle;
 import dun.runtime.globals : DunState, ctxState;
 import dun.security.permissions : Permission;
 

@@ -9,7 +9,7 @@ module dun.runtime.console;
  +   3. Forward to the DevTools inspector via
  +      `dun.cli.inspector.emitConsoleAPICalled` (Posix only).
  +/
-import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
+import dun.engine.iface : IJSEngine, JSHandle;
 import dun.runtime.globals : DunState, ctxState;
 
 void installConsole(IJSEngine engine) @trusted

@@ -15,7 +15,7 @@ module dun.builtins.net;
  +   3. `cast(DunState*) ctx` via `ctxState(ctx)` in callbacks.
  +/
 
-import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
+import dun.engine.iface : IJSEngine, JSHandle;
 import dun.runtime.globals : DunState, ctxState;
 import dun.loop.agnostic_pending : pushAgnosticPending;
 import dun.declarations : DEFAULT_LISTEN_BACKLOG;

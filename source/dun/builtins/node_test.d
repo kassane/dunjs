@@ -8,7 +8,7 @@ module dun.builtins.node_test;
  +   2. `cast(DunState*) ctx` via `ctxState(ctx)` in callbacks.
  +   3. Engine method calls for assertion / hook dispatch.
  +/
-import dun.engine.iface : IJSEngine, JSHandle, NativeCallback, mustEval;
+import dun.engine.iface : IJSEngine;
 import dun.runtime.globals : DunState;
 
 void registerNodeTestModule(IJSEngine engine) @trusted

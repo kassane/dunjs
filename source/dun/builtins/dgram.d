@@ -11,7 +11,7 @@ module dun.builtins.dgram;
  +   3. `__gshared UdpSocketState[MAX_UDP_SOCKETS]` pool — slot
  +      index passed across JS/D as an int, lookup is O(1).
  +/
-import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
+import dun.engine.iface : IJSEngine, JSHandle;
 import dun.runtime.globals : DunState, ctxState;
 import dun.security.permissions : Permission;
 
