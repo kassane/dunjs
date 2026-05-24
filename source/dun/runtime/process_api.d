@@ -979,7 +979,7 @@ JSHandle jsCpuUsage(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
     return obj;
 }
 
-JSHandle jsChdir(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
+JSHandle jsChdir(void* ctx, JSHandle thisVal, scope JSHandle[] args) @safe
 {
     auto state = ctxState(ctx);
     auto engine = state.engine;

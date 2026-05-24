@@ -1126,7 +1126,7 @@ JSHandle jsBufferToString(void* ctx, JSHandle thisVal, scope JSHandle[] args) @t
 }
 
 // buf.toJSON()
-JSHandle jsBufferToJSON(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
+JSHandle jsBufferToJSON(void* ctx, JSHandle thisVal, scope JSHandle[] args) @safe
 {
     auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in jsBufferToJSON");
@@ -1142,7 +1142,7 @@ JSHandle jsBufferToJSON(void* ctx, JSHandle thisVal, scope JSHandle[] args) @tru
 }
 
 // buf.slice([start], [end])
-JSHandle jsBufferSlice(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
+JSHandle jsBufferSlice(void* ctx, JSHandle thisVal, scope JSHandle[] args) @safe
 {
     auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in jsBufferSlice");
@@ -1233,7 +1233,7 @@ JSHandle jsBufferCopy(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trust
 }
 
 // buf.equals(other)
-JSHandle jsBufferEquals(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
+JSHandle jsBufferEquals(void* ctx, JSHandle thisVal, scope JSHandle[] args) @safe
 {
     auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in jsBufferEquals");
