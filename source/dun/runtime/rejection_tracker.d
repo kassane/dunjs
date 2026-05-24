@@ -130,6 +130,15 @@ private void installJSRejectionTracker(IJSEngine engine, DunState* state) @trust
     // Polyfill: wrap Promise.reject and Promise.prototype.then/catch to track
     // unhandled rejections. After 2 microtask ticks, any rejection still in the
     // pending set is reported as unhandled.
+    //
+    // Perf: the then/catch wrappers guard the `_pending.delete(this)` behind
+    // `_pending.size !== 0`. `_pending` only has entries while a
+    // `Promise.reject(...)` is in its 2-microtask grace window — i.e. almost
+    // never for typical promise-chain / async-middleware code. Without the
+    // guard, EVERY `.then()` / `.catch()` in the whole program paid for a
+    // `Map.delete` (which hashes `this`); the guard turns the common path into
+    // a single integer compare. Deleting from an empty map is a no-op, so the
+    // guard is semantically identical.
     auto setupResult = engine.eval(
         `(function() {
             var _pending = new Map();
@@ -137,11 +146,11 @@ private void installJSRejectionTracker(IJSEngine engine, DunState* state) @trust
             var _origThen = Promise.prototype.then;
             var _origCatch = Promise.prototype.catch;
             Promise.prototype.then = function(onFulfilled, onRejected) {
-                if (typeof onRejected === 'function') _pending.delete(this);
+                if (_pending.size !== 0 && typeof onRejected === 'function') _pending.delete(this);
                 return _origThen.call(this, onFulfilled, onRejected);
             };
             Promise.prototype.catch = function(onRejected) {
-                _pending.delete(this);
+                if (_pending.size !== 0) _pending.delete(this);
                 return _origCatch.call(this, onRejected);
             };
             Promise.reject = function(reason) {
