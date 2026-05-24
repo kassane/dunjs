@@ -5,7 +5,7 @@ and the gotchas that bite you on day one. Read alongside
 [`CLAUDE.md`](CLAUDE.md), [`SECURITY.md`](SECURITY.md), and
 [`TESTING.md`](TESTING.md).
 
-## Current state (v1.1.29)
+## Current state (v1.1.30)
 
 - Integration sweep: **167/167** on QJS / V8, **165/167 + 1 SKIP**
   on JSC (deno_deploy_compat flakes ~1 in 7 sweeps under heap-load —

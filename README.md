@@ -1,7 +1,7 @@
 # DunJS
 
 A secure, multi-engine JavaScript/TypeScript runtime written in D.
-**v1.1.29** — stable.
+**v1.1.30** — stable.
 
 ```sh
 dun run server.ts --allow-net --allow-read
@@ -322,7 +322,7 @@ test harnesses, learning projects):
 
 **Where it can't yet**:
 
-- **Maturity.** v1.1.29 stable — 167/167
+- **Maturity.** v1.1.30 stable — 167/167
   integration sweep on QJS / V8 (165/167 + 1 SKIP on JSC),
   ThreadSanitizer clean (modulo intentional daemon worker threads),
   JSC handle leaks plugged (v1.1.5 → v1.1.20 — fetch.d, child_process.d,
