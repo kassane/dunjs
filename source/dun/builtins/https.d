@@ -9,7 +9,7 @@ module dun.builtins.https;
  +      surface as `tls.d`.
  +   2. Underlying HTTP server logic from `http.d`.
  +/
-import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
+import dun.engine.iface : IJSEngine, JSHandle;
 import dun.runtime.globals : DunState, ctxState;
 
 void registerHttpsModule(IJSEngine engine) @trusted

@@ -13,7 +13,7 @@ module dun.builtins.http3;
  +   4. `Permission.net` gate before any UDP send/recv.
  +/
 
-import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
+import dun.engine.iface : IJSEngine, JSHandle;
 import dun.runtime.globals : DunState, ctxState;
 import dun.security.permissions : Permission;
 

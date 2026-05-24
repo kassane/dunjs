@@ -18,7 +18,7 @@ module dun.builtins.fetch;
  +   5. `cast(DunState*) ctx` via `ctxState(ctx)` in callbacks.
  +/
 import core.attribute : mustuse;
-import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
+import dun.engine.iface : IJSEngine, JSHandle;
 import dun.runtime.globals : DunState, ctxState;
 import dun.platform.arena : Appender;
 import dun.declarations : HTTP_DEFAULT_PORT_NUM, HTTPS_DEFAULT_PORT_NUM;

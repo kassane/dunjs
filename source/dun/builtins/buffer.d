@@ -21,7 +21,7 @@ module dun.builtins.buffer;
  +   5. CTFE hex LUT + SIMD hex encoder — `core.simd` boundary,
  +      covered by `dun.platform.simd` policy.
  +/
-import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
+import dun.engine.iface : IJSEngine, JSHandle;
 import dun.runtime.globals : DunState, ctxState;
 import dun.declarations :
     UTF8_ASCII_MAX, UTF8_CONT_BASE, UTF8_CONT_MASK,

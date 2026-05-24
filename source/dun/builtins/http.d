@@ -21,7 +21,7 @@ module dun.builtins.http;
  +      centralized helper.
  +/
 
-import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
+import dun.engine.iface : IJSEngine, JSHandle;
 import dun.runtime.globals : DunState, ctxState;
 import dun.loop.agnostic_pending : pushAgnosticPending;
 import dun.declarations : DEFAULT_LISTEN_BACKLOG;

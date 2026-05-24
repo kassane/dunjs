@@ -27,7 +27,7 @@ module dun.builtins.fs;
  + that closes CVE-2023-32004 / CVE-2024-21896 / CVE-2024-34346).
  +/
 
-import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
+import dun.engine.iface : IJSEngine, JSHandle;
 import dun.runtime.globals : DunState, ctxState;
 import dun.security.permissions : Permission;
 

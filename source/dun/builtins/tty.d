@@ -9,7 +9,7 @@ module dun.builtins.tty;
  +      is `@system`.
  +   2. `cast(DunState*) ctx` via `ctxState(ctx)` in callbacks.
  +/
-import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
+import dun.engine.iface : IJSEngine;
 import dun.runtime.globals : DunState;
 
 void registerTtyModule(IJSEngine engine) @trusted

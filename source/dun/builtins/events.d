@@ -7,7 +7,7 @@ module dun.builtins.events;
  +   1. `cast(DunState*) ctx` via `ctxState(ctx)` in callbacks.
  +   2. Engine method calls for the listener chain.
  +/
-import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
+import dun.engine.iface : IJSEngine;
 import dun.runtime.globals : DunState;
 import dun.builtins.helpers : installPureJsModule;
 

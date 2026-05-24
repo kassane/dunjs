@@ -14,7 +14,7 @@ module dun.builtins.http2;
  +   4. `__gshared` connection / stream pools.
  +   5. `cast(DunState*) ctx` via `ctxState(ctx)` in callbacks.
  +/
-import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
+import dun.engine.iface : IJSEngine, JSHandle;
 import dun.runtime.globals : DunState, ctxState;
 import dun.loop.agnostic_pending : pushAgnosticPending;
 import dun.platform.arena : Appender;

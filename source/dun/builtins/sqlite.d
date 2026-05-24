@@ -11,7 +11,7 @@ module dun.builtins.sqlite;
  + path passed to `sqlite3_open_v2`.
  +/
 
-import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
+import dun.engine.iface : IJSEngine, JSHandle;
 import dun.runtime.globals : DunState, ctxState;
 import dun.platform.sqlite3;
 

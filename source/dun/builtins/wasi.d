@@ -12,7 +12,7 @@ module dun.builtins.wasi;
  +      memory — returns a slice scoped to the JSHandle (DIP1000).
  +   3. `Permission.read` / `Permission.write` gates.
  +/
-import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
+import dun.engine.iface : IJSEngine, JSHandle;
 import dun.runtime.globals : DunState;
 import dun.builtins.helpers : installPureJsModule;
 

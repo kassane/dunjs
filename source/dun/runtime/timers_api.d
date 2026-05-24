@@ -11,7 +11,7 @@ module dun.runtime.timers_api;
  +   2. `state.eventLoop.timers.addTimer/cancelTimer` — these
  +      mutate `__gshared` timer state.
  +/
-import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
+import dun.engine.iface : IJSEngine, JSHandle;
 import dun.loop.timers : TimerID;
 import dun.runtime.globals : DunState, ctxState;
 import core.time : dur;

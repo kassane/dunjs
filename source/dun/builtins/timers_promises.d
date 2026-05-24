@@ -7,7 +7,7 @@ module dun.builtins.timers_promises;
  +   1. `cast(DunState*) ctx` via `ctxState(ctx)` in callbacks.
  +   2. Engine method calls (newPromise, callFunction).
  +/
-import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
+import dun.engine.iface : IJSEngine;
 import dun.runtime.globals : DunState;
 import dun.builtins.helpers : installPureJsModule;
 

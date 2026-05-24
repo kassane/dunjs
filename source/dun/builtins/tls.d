@@ -125,7 +125,7 @@ string tlsLastError() @trusted nothrow
 // TLS JavaScript module registration (engine-agnostic)
 // ============================================================================
 
-import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
+import dun.engine.iface : IJSEngine, JSHandle;
 import dun.runtime.globals : DunState, ctxState;
 import dun.loop.agnostic_pending : pushAgnosticPending;
 import dun.declarations : HTTPS_DEFAULT_PORT_NUM;

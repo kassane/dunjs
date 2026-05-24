@@ -8,7 +8,7 @@ module dun.builtins.assert_;
  +   2. Engine method calls for value introspection + AssertionError
  +      construction.
  +/
-import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
+import dun.engine.iface : IJSEngine;
 import dun.runtime.globals : DunState;
 import dun.builtins.helpers : installPureJsModule;
 

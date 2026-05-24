@@ -10,7 +10,7 @@ module dun.runtime.web_compat;
  +   2. `engine.eval` of the polyfill source (cached at install).
  +   3. `cast(DunState*) ctx` via `ctxState(ctx)` in callbacks.
  +/
-import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
+import dun.engine.iface : IJSEngine, JSHandle;
 import dun.runtime.globals : DunState, ctxState;
 
 void installWebCompat(IJSEngine engine) @trusted
