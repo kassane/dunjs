@@ -566,7 +566,7 @@ JSHandle jsNoop(void* ctx, JSHandle thisVal, scope JSHandle[] args) @safe
     return state.engine.newUndefined();
 }
 
-JSHandle jsGetWindowSize(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
+JSHandle jsGetWindowSize(void* ctx, JSHandle thisVal, scope JSHandle[] args) @safe
 {
     auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in jsGetWindowSize");
@@ -769,7 +769,7 @@ JSHandle jsStderrWrite(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trus
     return engine.newBool(true);
 }
 
-JSHandle jsHrtime(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
+JSHandle jsHrtime(void* ctx, JSHandle thisVal, scope JSHandle[] args) @safe
 {
     auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in process.hrtime");
