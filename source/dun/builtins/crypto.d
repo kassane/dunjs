@@ -44,6 +44,10 @@ private enum {
     SUBTLE_AES_GCM_IV_LEN = 12,
     SUBTLE_AES_GCM_TAG_LEN = 16,
     SUBTLE_AES_CBC_IV_LEN  = 16,
+    // AES key sizes in bytes (AES-128 / AES-192 / AES-256).
+    AES128_KEY_BYTES = 16,
+    AES192_KEY_BYTES = 24,
+    AES256_KEY_BYTES = 32,
     SUBTLE_MAX_DATA_SIZE   = 64 * 1024 * 1024,  // 64 MiB max input
 }
 
@@ -2873,9 +2877,9 @@ private JSHandle subtleAesGcmEncrypt(IJSEngine engine, scope JSHandle[] args) @t
 
     // Select cipher based on key length
     const(EVP_CIPHER)* cipher;
-    if (keyBytes.length == 16)
+    if (keyBytes.length == AES128_KEY_BYTES)
         cipher = EVP_aes_128_gcm();
-    else if (keyBytes.length == 32)
+    else if (keyBytes.length == AES256_KEY_BYTES)
         cipher = EVP_aes_256_gcm();
     else
         return rejectedPromise(engine, "AES-GCM: key must be 128 or 256 bits");
@@ -2945,9 +2949,9 @@ private JSHandle subtleAesGcmDecrypt(IJSEngine engine, scope JSHandle[] args) @t
         return rejectedPromise(engine, "AES-GCM decrypt: invalid key");
 
     const(EVP_CIPHER)* cipher;
-    if (keyBytes.length == 16)
+    if (keyBytes.length == AES128_KEY_BYTES)
         cipher = EVP_aes_128_gcm();
-    else if (keyBytes.length == 32)
+    else if (keyBytes.length == AES256_KEY_BYTES)
         cipher = EVP_aes_256_gcm();
     else
         return rejectedPromise(engine, "AES-GCM: key must be 128 or 256 bits");
@@ -3012,11 +3016,11 @@ private JSHandle subtleAesCbcEncrypt(IJSEngine engine, scope JSHandle[] args) @t
         return rejectedPromise(engine, "AES-CBC encrypt: invalid key");
 
     const(EVP_CIPHER)* cipher;
-    if (keyBytes.length == 16)
+    if (keyBytes.length == AES128_KEY_BYTES)
         cipher = EVP_aes_128_cbc();
-    else if (keyBytes.length == 24)
+    else if (keyBytes.length == AES192_KEY_BYTES)
         cipher = EVP_aes_192_cbc();
-    else if (keyBytes.length == 32)
+    else if (keyBytes.length == AES256_KEY_BYTES)
         cipher = EVP_aes_256_cbc();
     else
         return rejectedPromise(engine, "AES-CBC: key must be 128, 192, or 256 bits");
@@ -3068,11 +3072,11 @@ private JSHandle subtleAesCbcDecrypt(IJSEngine engine, scope JSHandle[] args) @t
         return rejectedPromise(engine, "AES-CBC decrypt: invalid key");
 
     const(EVP_CIPHER)* cipher;
-    if (keyBytes.length == 16)
+    if (keyBytes.length == AES128_KEY_BYTES)
         cipher = EVP_aes_128_cbc();
-    else if (keyBytes.length == 24)
+    else if (keyBytes.length == AES192_KEY_BYTES)
         cipher = EVP_aes_192_cbc();
-    else if (keyBytes.length == 32)
+    else if (keyBytes.length == AES256_KEY_BYTES)
         cipher = EVP_aes_256_cbc();
     else
         return rejectedPromise(engine, "AES-CBC: key must be 128, 192, or 256 bits");

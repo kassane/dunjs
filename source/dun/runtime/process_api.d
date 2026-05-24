@@ -24,6 +24,7 @@ import dun.security.permissions : Permission;
 
 private enum STDIN_READ_BUF_SIZE = 65_536;
 private enum DEFAULT_TERMINAL_COLUMNS = 80;
+private enum DEFAULT_TERMINAL_ROWS = 24;
 
 private __gshared JSHandle gUncaughtHandler;
 private __gshared IJSEngine gUncaughtEngine;
@@ -334,7 +335,7 @@ void installProcess(IJSEngine engine) @trusted
     engine.setProperty(stdoutObj, "moveCursor", engine.newFunction(&jsNoop, "moveCursor", 2));
     engine.setProperty(stdoutObj, "getWindowSize", engine.newFunction(&jsGetWindowSize, "getWindowSize", 0));
     engine.setProperty(stdoutObj, "columns", engine.newInt(DEFAULT_TERMINAL_COLUMNS));
-    engine.setProperty(stdoutObj, "rows", engine.newInt(24));
+    engine.setProperty(stdoutObj, "rows", engine.newInt(DEFAULT_TERMINAL_ROWS));
     engine.setProperty(process, "stdout", stdoutObj);
 
     // process.stderr
@@ -350,7 +351,7 @@ void installProcess(IJSEngine engine) @trusted
     engine.setProperty(stderrObj, "cork", engine.newFunction(&jsNoop, "cork", 0));
     engine.setProperty(stderrObj, "uncork", engine.newFunction(&jsNoop, "uncork", 0));
     engine.setProperty(stderrObj, "columns", engine.newInt(DEFAULT_TERMINAL_COLUMNS));
-    engine.setProperty(stderrObj, "rows", engine.newInt(24));
+    engine.setProperty(stderrObj, "rows", engine.newInt(DEFAULT_TERMINAL_ROWS));
     engine.setProperty(process, "stderr", stderrObj);
 
     // process.stdin — Readable stream with on('data')/on('end') EventEmitter support
@@ -573,7 +574,7 @@ JSHandle jsGetWindowSize(void* ctx, JSHandle thisVal, scope JSHandle[] args) @sa
     auto engine = state.engine;
     auto arr = engine.newArray();
     engine.setPropertyIndex(arr, 0, engine.newInt(DEFAULT_TERMINAL_COLUMNS));
-    engine.setPropertyIndex(arr, 1, engine.newInt(24));
+    engine.setPropertyIndex(arr, 1, engine.newInt(DEFAULT_TERMINAL_ROWS));
     return arr;
 }
 
