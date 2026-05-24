@@ -867,7 +867,7 @@ public JSHandle createBufferFromBytes(IJSEngine engine, const(ubyte)[] data) @tr
     return result;
 }
 
-JSHandle jsReadFileSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
+JSHandle jsReadFileSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @safe
 {
     auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsReadFileSync");
@@ -895,7 +895,7 @@ JSHandle jsReadFileSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @tru
     return createBufferFromBytes(engine, bytes);
 }
 
-JSHandle jsWriteFileSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
+JSHandle jsWriteFileSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @safe
 {
     auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsWriteFileSync");
@@ -929,7 +929,7 @@ JSHandle jsWriteFileSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @tr
     return engine.newUndefined();
 }
 
-JSHandle jsExistsSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
+JSHandle jsExistsSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @safe
 {
     auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsExistsSync");
@@ -1023,7 +1023,7 @@ JSHandle jsStatSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
     return buildStatObject(engine, sr);
 }
 
-JSHandle jsStatIsFile(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
+JSHandle jsStatIsFile(void* ctx, JSHandle thisVal, scope JSHandle[] args) @safe
 {
     auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsStatIsFile");
@@ -1033,7 +1033,7 @@ JSHandle jsStatIsFile(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trust
     return engine.newBool(engine.extractInt(typeVal) == 1);
 }
 
-JSHandle jsStatIsDirectory(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
+JSHandle jsStatIsDirectory(void* ctx, JSHandle thisVal, scope JSHandle[] args) @safe
 {
     auto state = ctxState(ctx);
     assert(state !is null, "Null DunState in jsStatIsDirectory");
