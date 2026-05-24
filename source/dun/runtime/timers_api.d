@@ -143,21 +143,21 @@ JSHandle makeTimerObject(IJSEngine engine, int id) @trusted
     return obj;
 }
 
-JSHandle jsTimerRef(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
+JSHandle jsTimerRef(void* ctx, JSHandle thisVal, scope JSHandle[] args) @safe
 {
     assert(ctx !is null);
     auto state = ctxState(ctx);
     return state.engine.dupValue(thisVal);
 }
 
-JSHandle jsTimerUnref(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
+JSHandle jsTimerUnref(void* ctx, JSHandle thisVal, scope JSHandle[] args) @safe
 {
     assert(ctx !is null);
     auto state = ctxState(ctx);
     return state.engine.dupValue(thisVal);
 }
 
-JSHandle jsTimerHasRef(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
+JSHandle jsTimerHasRef(void* ctx, JSHandle thisVal, scope JSHandle[] args) @safe
 {
     assert(ctx !is null);
     auto state = ctxState(ctx);
@@ -168,7 +168,7 @@ JSHandle jsTimerHasRef(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trus
  + `+timer` → reads `this._id` via a native fast path. Replaces the
  + crash-prone cached JS setup-fn (see comment at makeTimerObject).
  +/
-JSHandle jsTimerValueOf(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
+JSHandle jsTimerValueOf(void* ctx, JSHandle thisVal, scope JSHandle[] args) @safe
 {
     assert(ctx !is null);
     auto state = ctxState(ctx);
