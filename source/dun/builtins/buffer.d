@@ -829,7 +829,7 @@ JSHandle jsBufferAlloc(void* ctx, JSHandle thisVal, scope JSHandle[] args) @safe
 }
 
 // Buffer.allocUnsafe(size)
-JSHandle jsBufferAllocUnsafe(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
+JSHandle jsBufferAllocUnsafe(void* ctx, JSHandle thisVal, scope JSHandle[] args) @safe
 {
     auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in jsBufferAllocUnsafe");
@@ -1549,7 +1549,7 @@ JSHandle jsBufferIsUtf8(void* ctx, JSHandle thisVal, scope JSHandle[] args) @tru
 }
 
 // `buffer.isAscii(buf)` — checks every byte < 0x80. Trivial.
-JSHandle jsBufferIsAscii(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
+JSHandle jsBufferIsAscii(void* ctx, JSHandle thisVal, scope JSHandle[] args) @safe
 {
     auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in jsBufferIsAscii");
@@ -1568,7 +1568,7 @@ JSHandle jsBufferIsAscii(void* ctx, JSHandle thisVal, scope JSHandle[] args) @tr
 }
 
 // Buffer.compare(a, b)
-JSHandle jsBufferStaticCompare(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
+JSHandle jsBufferStaticCompare(void* ctx, JSHandle thisVal, scope JSHandle[] args) @safe
 {
     auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in jsBufferStaticCompare");

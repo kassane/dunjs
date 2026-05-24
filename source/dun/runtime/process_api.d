@@ -876,7 +876,7 @@ JSHandle jsHrtimeBigint(void* ctx, JSHandle thisVal, scope JSHandle[] args) @tru
     catch (Exception) { return engine.newFloat(0.0); }
 }
 
-JSHandle jsUptime(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
+JSHandle jsUptime(void* ctx, JSHandle thisVal, scope JSHandle[] args) @safe
 {
     auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in process.uptime");
@@ -886,14 +886,15 @@ JSHandle jsUptime(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
         import core.time : MonoTime, ticksToNSecs;
         auto now = MonoTime.currTime;
         long nowNs = ticksToNSecs(now.ticks);
-        long startNs = ticksToNSecs(_processStartTimeTicks);
+        long start = (() @trusted => _processStartTimeTicks)();
+        long startNs = ticksToNSecs(start);
         double uptimeSecs = cast(double)(nowNs - startNs) / 1_000_000_000.0;
         return engine.newFloat(uptimeSecs);
     }
     catch (Exception) { return engine.newFloat(0.0); }
 }
 
-JSHandle jsMemoryUsage(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
+JSHandle jsMemoryUsage(void* ctx, JSHandle thisVal, scope JSHandle[] args) @safe
 {
     auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in process.memoryUsage");
@@ -922,7 +923,7 @@ JSHandle jsMemoryUsage(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trus
     return obj;
 }
 
-JSHandle jsAvailableMemory(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
+JSHandle jsAvailableMemory(void* ctx, JSHandle thisVal, scope JSHandle[] args) @safe
 {
     auto state = ctxState(ctx);
     assert(state.engine !is null, "Null engine in process.availableMemory");
