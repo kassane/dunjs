@@ -118,6 +118,82 @@ string canonicalizePath(string path) @safe
     return normalized;
 }
 
+/++
+ + Resolve symlinks in an already-lexically-canonicalized absolute
+ + path via POSIX `realpath(3)`, so the permission scope check sees
+ + the real filesystem target rather than a symlink that escapes the
+ + allowed directory.
+ +
+ + CVE-class fix gate (CVE-2025-55130 — Node.js Jan-2026 release):
+ + `canonicalizePath` only normalizes `..` / `.` lexically, so a
+ + symlink INSIDE an `--allow-read=/tmp/safe` scope that points at
+ + `/etc/hostname` passes the subpath check (`/tmp/safe/link` is under
+ + `/tmp/safe`) while the OS follows the link out of the sandbox.
+ + Resolving symlinks before the scope match closes that escape. Both
+ + the resource and the scope patterns are passed through this so a
+ + legitimately-symlinked scope dir still matches its own contents.
+ +
+ + Strategy: try `realpath` on the full path (resolves an existing
+ + file or a final-component symlink). If the leaf doesn't exist yet
+ + (e.g. `writeFileSync` creating a new file), `realpath` the parent
+ + dir — which catches a symlinked parent — and re-append the leaf.
+ + Anything deeper that doesn't exist falls back to the lexical path
+ + (the symlink attack needs an existing link, so its containing
+ + prefix always resolves). `@trusted`: the only escape is the
+ + `realpath` FFI + the `strlen` on its NUL-terminated result.
+ +/
+string resolveSymlinks(string path) @trusted nothrow
+{
+    version (Posix)
+    {
+        import core.sys.posix.stdlib : realpath;
+        import core.stdc.string : strlen;
+
+        if (path.length == 0) return path;
+
+        // PATH_MAX on Linux is 4096; realpath writes at most that.
+        enum size_t PATH_MAX_BUF = 4096;
+
+        static string tryRealpath(string p) @trusted nothrow
+        {
+            import std.string : toStringz;
+            try
+            {
+                char[PATH_MAX_BUF] buf = void;
+                auto rz = realpath(p.toStringz, buf.ptr);
+                if (rz !is null)
+                    return buf[0 .. strlen(rz)].idup;
+            }
+            catch (Throwable) {}
+            return null;
+        }
+
+        // 1. Whole path (existing file / leaf symlink).
+        auto direct = tryRealpath(path);
+        if (direct !is null) return direct;
+
+        // 2. Leaf doesn't exist — resolve the parent dir (catches a
+        //    symlinked directory) and re-attach the leaf name.
+        try
+        {
+            import std.path : dirName, baseName, buildPath;
+            auto parent = dirName(path);
+            auto leaf = baseName(path);
+            if (parent.length > 0 && parent != path)
+            {
+                auto realParent = tryRealpath(parent);
+                if (realParent !is null)
+                    return buildPath(realParent, leaf);
+            }
+        }
+        catch (Throwable) {}
+
+        return path;  // fall back to the lexical canonical form
+    }
+    else
+        return path;  // Windows: realpath(3) unavailable; lexical-only
+}
+
 unittest
 {
     version (Posix)

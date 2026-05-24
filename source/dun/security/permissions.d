@@ -83,9 +83,14 @@ struct PermissionRegistry
                     if (s.length == 0) { out_ ~= s; continue; }
                     try
                     {
-                        import dun.platform.paths : canonicalizePath;
+                        import dun.platform.paths : canonicalizePath, resolveSymlinks;
                         auto c = canonicalizePath(s);
-                        out_ ~= c.length > 0 ? c : s;
+                        auto base = c.length > 0 ? c : s;
+                        // CVE-2025-55130: resolve the scope dir's own
+                        // symlinks too, so a legitimately-symlinked
+                        // scope still matches its (symlink-resolved)
+                        // contents after the resource is resolved.
+                        out_ ~= resolveSymlinks(base);
                     }
                     catch (Exception) { out_ ~= s; }
                 }
@@ -119,11 +124,16 @@ struct PermissionRegistry
             final switch (perm) with (Permission)
             {
                 case read: case write: case run: case ffi:
-                    import dun.platform.paths : canonicalizePath;
+                    import dun.platform.paths : canonicalizePath, resolveSymlinks;
                     try
                     {
                         auto canon = canonicalizePath(resource);
                         if (canon.length > 0) normResource = canon;
+                        // CVE-2025-55130: resolve symlinks so a link
+                        // inside the scope that targets an out-of-scope
+                        // file is matched on its real target, not the
+                        // in-scope link path.
+                        normResource = resolveSymlinks(normResource);
                     }
                     catch (Exception) {}
                     break;
