@@ -206,7 +206,7 @@ JSHandle jsOsHostname(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trust
     catch (Exception) { return engine.newString(""); }
 }
 
-JSHandle jsOsHomedir(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
+JSHandle jsOsHomedir(void* ctx, JSHandle thisVal, scope JSHandle[] args) @safe
 {
     auto engine = getEngine(ctx);
     try
@@ -221,7 +221,7 @@ JSHandle jsOsHomedir(void* ctx, JSHandle thisVal, scope JSHandle[] args) @truste
     catch (Exception) { return engine.newString(""); }
 }
 
-JSHandle jsOsTmpdir(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
+JSHandle jsOsTmpdir(void* ctx, JSHandle thisVal, scope JSHandle[] args) @safe
 {
     auto engine = getEngine(ctx);
     try
@@ -266,7 +266,7 @@ JSHandle jsOsCpus(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
     return arr;
 }
 
-JSHandle jsOsTotalmem(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
+JSHandle jsOsTotalmem(void* ctx, JSHandle thisVal, scope JSHandle[] args) @safe
 {
     auto engine = getEngine(ctx);
     version (linux)
@@ -297,7 +297,7 @@ JSHandle jsOsTotalmem(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trust
     return engine.newFloat(0);
 }
 
-JSHandle jsOsFreemem(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
+JSHandle jsOsFreemem(void* ctx, JSHandle thisVal, scope JSHandle[] args) @safe
 {
     auto engine = getEngine(ctx);
     version (linux)
@@ -367,7 +367,7 @@ JSHandle jsOsRelease(void* ctx, JSHandle thisVal, scope JSHandle[] args) @truste
     return engine.newString("");
 }
 
-JSHandle jsOsEndianness(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
+JSHandle jsOsEndianness(void* ctx, JSHandle thisVal, scope JSHandle[] args) @safe
 {
     auto engine = getEngine(ctx);
     version (LittleEndian)
@@ -447,7 +447,7 @@ JSHandle jsOsUserInfo(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trust
     return obj;
 }
 
-JSHandle jsOsLoadavg(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
+JSHandle jsOsLoadavg(void* ctx, JSHandle thisVal, scope JSHandle[] args) @safe
 {
     auto engine = getEngine(ctx);
     auto state = ctxState(ctx);
