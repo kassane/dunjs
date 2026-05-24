@@ -176,7 +176,7 @@ private JSHandle jsGetHeapSnapshot(void* ctx, JSHandle thisVal, scope JSHandle[]
         "v8.getHeapSnapshot() is not yet supported; use v8.writeHeapSnapshot() instead");
 }
 
-private JSHandle jsGetHeapStatistics(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
+private JSHandle jsGetHeapStatistics(void* ctx, JSHandle thisVal, scope JSHandle[] args) @safe
 {
     auto state = ctxState(ctx);
     auto engine = state.engine;
@@ -218,13 +218,13 @@ private JSHandle jsGetHeapStatistics(void* ctx, JSHandle thisVal, scope JSHandle
     return obj;
 }
 
-private JSHandle jsGetHeapSpaceStatistics(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
+private JSHandle jsGetHeapSpaceStatistics(void* ctx, JSHandle thisVal, scope JSHandle[] args) @safe
 {
     auto state = ctxState(ctx);
     return state.engine.newArray();  // Node returns a per-space array; empty is acceptable.
 }
 
-private JSHandle jsGetHeapCodeStatistics(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
+private JSHandle jsGetHeapCodeStatistics(void* ctx, JSHandle thisVal, scope JSHandle[] args) @safe
 {
     auto state = ctxState(ctx);
     auto engine = state.engine;
@@ -235,7 +235,7 @@ private JSHandle jsGetHeapCodeStatistics(void* ctx, JSHandle thisVal, scope JSHa
     return obj;
 }
 
-private JSHandle jsCachedDataVersionTag(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
+private JSHandle jsCachedDataVersionTag(void* ctx, JSHandle thisVal, scope JSHandle[] args) @safe
 {
     auto state = ctxState(ctx);
     return state.engine.newInt(0);
@@ -296,7 +296,7 @@ private void ensureV8DeserializeFactoryCached(IJSEngine engine) @trusted nothrow
     catch (Exception) {}
 }
 
-private JSHandle jsSerialize(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
+private JSHandle jsSerialize(void* ctx, JSHandle thisVal, scope JSHandle[] args) @safe
 {
     assert(ctx !is null);
     auto state = ctxState(ctx);
@@ -313,7 +313,7 @@ private JSHandle jsSerialize(void* ctx, JSHandle thisVal, scope JSHandle[] args)
         engine.dupValue(_v8SerializeFactory), undef, callArgs[]);
 }
 
-private JSHandle jsDeserialize(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
+private JSHandle jsDeserialize(void* ctx, JSHandle thisVal, scope JSHandle[] args) @safe
 {
     assert(ctx !is null);
     auto state = ctxState(ctx);
