@@ -627,6 +627,46 @@ private JSHandle _atomicsNotify(void* ctx, JSHandle thisVal, scope JSHandle[] ar
     }
 }
 
+// Cached `(v) => Promise.resolve(v)` factory for Atomics.waitAsync —
+// per /debug-native-callback hot-path eval pattern. Pre-cache, every
+// `Atomics.waitAsync` call eval'd `Promise.resolve("ok")` /
+// `Promise.resolve("not-equal")` afresh; JSC never evicts the
+// compiled bytecode. Thread-local so each Worker engine pins its own.
+private static JSHandle _atomicsResolveFactory;
+private static bool _atomicsResolveFactoryCached = false;
+
+private void ensureAtomicsResolveFactoryCached(IJSEngine engine) @trusted nothrow
+{
+    if (_atomicsResolveFactoryCached) return;
+    try
+    {
+        auto r = engine.eval("(function(v){return Promise.resolve(v);})",
+            "<atomics-waitAsync>");
+        if (!r.isError && engine.isFunction(r.value))
+        {
+            _atomicsResolveFactory = r.value;
+            _atomicsResolveFactoryCached = true;
+        }
+        else
+            engine.freeValue(r.value);
+    }
+    catch (Exception) {}
+}
+
+private JSHandle _atomicsResolve(IJSEngine engine, string val) @trusted
+{
+    ensureAtomicsResolveFactoryCached(engine);
+    if (!_atomicsResolveFactoryCached) return engine.newUndefined();
+    auto sVal = engine.newString(val);
+    auto undef = engine.newUndefined();
+    JSHandle[1] argv = [sVal];
+    auto p = engine.callFunction(
+        engine.dupValue(_atomicsResolveFactory), undef, argv[]);
+    engine.freeValue(sVal);
+    engine.freeValue(undef);
+    return p;
+}
+
 private JSHandle _atomicsWaitAsync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
 {
     auto state = ctxState(ctx);
@@ -645,20 +685,9 @@ private JSHandle _atomicsWaitAsync(void* ctx, JSHandle thisVal, scope JSHandle[]
     int current = atomicLoad!(MemoryOrder.seq)(*cast(shared(int)*) ptr);
 
     auto result = engine.newObject();
-    if (current != expected)
-    {
-        auto resolvedPromise = engine.eval(
-            `Promise.resolve("not-equal")`, "<atomics-waitAsync>");
-        engine.setProperty(result, "async", engine.newBool(true));
-        engine.setProperty(result, "value", resolvedPromise.value);
-    }
-    else
-    {
-        auto resolvedPromise = engine.eval(
-            `Promise.resolve("ok")`, "<atomics-waitAsync>");
-        engine.setProperty(result, "async", engine.newBool(true));
-        engine.setProperty(result, "value", resolvedPromise.value);
-    }
+    engine.setProperty(result, "async", engine.newBool(true));
+    engine.setProperty(result, "value",
+        _atomicsResolve(engine, current != expected ? "not-equal" : "ok"));
     return result;
 }
 
