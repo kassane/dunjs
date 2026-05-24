@@ -29,7 +29,6 @@ module dun.builtins.crypto;
 
 import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
 import dun.runtime.globals : DunState, ctxState;
-import dun.declarations : HEX_LOWER;
 
 private enum {
     SCRYPT_DEFAULT_N      = 16_384,
@@ -436,8 +435,6 @@ ubyte[16] nextUUIDBytes() @trusted
     _uuidPoolPos += 16;
     return r;
 }
-
-immutable char[16] hexLUT = HEX_LOWER;
 
 __gshared int _urandomFd = -1;
 
@@ -1873,18 +1870,13 @@ private ubyte[] computeHashBinary(string algo, const(ubyte)[] data) @trusted
     }
 }
 
-private string bytesToHexStr(const(ubyte)[] data) @safe pure
+// Delegates to the SIMD-backed `buffer.bytesToHex` (16 bytes →
+// 32 hex chars/cycle) instead of a scalar `HEX_LOWER` loop — the
+// two were functionally identical, so this drops the duplicate.
+private string bytesToHexStr(const(ubyte)[] data) @trusted nothrow
 {
-    if (data.length == 0) return "";
-    import dun.platform.arena : Appender;
-    Appender!(char[]) buf;
-    buf.reserve(data.length * 2);
-    foreach (b; data)
-    {
-        buf ~= HEX_LOWER[b >> 4];
-        buf ~= HEX_LOWER[b & 0xF];
-    }
-    return (() @trusted => cast(string) buf[])();
+    import dun.builtins.buffer : bytesToHex;
+    return bytesToHex(data);
 }
 
 /++

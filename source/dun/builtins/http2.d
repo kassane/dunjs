@@ -18,7 +18,8 @@ import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
 import dun.runtime.globals : DunState, ctxState;
 import dun.loop.agnostic_pending : pushAgnosticPending;
 import dun.platform.arena : Appender;
-import dun.declarations : DEFAULT_LISTEN_BACKLOG;
+import dun.declarations : DEFAULT_LISTEN_BACKLOG,
+    HTTP_DEFAULT_PORT_NUM, HTTPS_DEFAULT_PORT_NUM;
 
 void registerHttp2Module(IJSEngine engine) @trusted
 {
@@ -133,7 +134,7 @@ enum H2_CONNECTION_PREFACE_LEN = 24;
 enum H2_SETTING_ENTRY_SIZE = 6;
 enum H2_SETTINGS_COUNT = 3;
 enum H2_DEFAULT_MAX_CONCURRENT_STREAMS = 100;
-enum H2_DEFAULT_TLS_PORT = 443;
+enum H2_DEFAULT_TLS_PORT = HTTPS_DEFAULT_PORT_NUM;
 private alias H2_LISTEN_BACKLOG = DEFAULT_LISTEN_BACKLOG;
 enum IO_POLL_BATCH_SIZE = 64;
 
@@ -1439,7 +1440,6 @@ int nextH2ServerId;
 // ── HTTP/2 Client Session State ─────────────────────────────────
 
 enum H2_CLIENT_RECV_BUF_SIZE = 16_384;
-enum H2_CLIENT_MAX_SESSIONS = 256;
 
 struct ClientH2Session
 {
@@ -2040,13 +2040,13 @@ void parseH2Url(string url, out string host, out ushort port, out bool useTls) n
 {
     useTls = false;
     host = "localhost";
-    port = 80;
+    port = HTTP_DEFAULT_PORT_NUM;
 
     string rest = url;
     if (rest.length >= 8 && rest[0 .. 8] == "https://")
     {
         useTls = true;
-        port = 443;
+        port = HTTPS_DEFAULT_PORT_NUM;
         rest = rest[8 .. $];
     }
     else if (rest.length >= 7 && rest[0 .. 7] == "http://")
@@ -2342,7 +2342,7 @@ JSHandle jsH2ClientRequest(void* ctx, JSHandle thisVal, scope JSHandle[] args) @
     string path = "/";
     string scheme = "http";
     string authority = session.host;
-    if (session.port != 80 && session.port != 443)
+    if (session.port != HTTP_DEFAULT_PORT_NUM && session.port != HTTPS_DEFAULT_PORT_NUM)
     {
         import std.conv : to;
         try { authority = session.host ~ ":" ~ session.port.to!string; }

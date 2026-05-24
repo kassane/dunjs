@@ -216,7 +216,7 @@ version (EngineQuickJS)
         {
             try
             {
-                import dun.ts.strip : stripTypes, generateSourceMap;
+                import dun.ts.strip : stripTypes;
                 import std.base64 : Base64;
 
                 string sourceMap;

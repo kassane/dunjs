@@ -21,6 +21,7 @@ import core.attribute : mustuse;
 import dun.engine.iface : IJSEngine, JSHandle, NativeCallback;
 import dun.runtime.globals : DunState, ctxState;
 import dun.platform.arena : Appender;
+import dun.declarations : HTTP_DEFAULT_PORT_NUM, HTTPS_DEFAULT_PORT_NUM;
 import std.conv : to;
 
 private enum : size_t {
@@ -254,7 +255,7 @@ FetchResult doFetch(string url, string method, string reqBody,
     bool isTls = parsed.scheme == "https";
     ushort port = parsed.port;
     if (port == 0)
-        port = isTls ? cast(ushort) 443 : cast(ushort) 80;
+        port = isTls ? HTTPS_DEFAULT_PORT_NUM : HTTP_DEFAULT_PORT_NUM;
 
     int fd = tcpConnect(parsed.host, port);
     if (fd < 0)
@@ -390,7 +391,7 @@ string buildRequest(string method, ParsedUrl p, string body_,
     r.reserve(REQUEST_RESERVE + body_.length);
     r ~= method; r ~= " "; r ~= p.path; r ~= " HTTP/1.1\r\n";
     r ~= "Host: "; r ~= p.host;
-    if (p.port != 0 && p.port != 80 && p.port != 443)
+    if (p.port != 0 && p.port != HTTP_DEFAULT_PORT_NUM && p.port != HTTPS_DEFAULT_PORT_NUM)
     { r ~= ":"; r ~= p.port.to!string; }
     r ~= "\r\n";
     r ~= "Connection: close\r\n";

@@ -282,7 +282,6 @@ JSHandle jsOsTotalmem(void* ctx, JSHandle thisVal, scope JSHandle[] args) @safe
                 auto line = info[idx .. $];
                 auto end = line.indexOf("\n");
                 if (end > 0) line = line[0 .. end];
-                import std.string : strip;
                 auto parts = line.split();
                 if (parts.length >= 2)
                 {

@@ -11,7 +11,7 @@ module dun.loop.eventloop;
  +      `@trusted`-by-interface (see engine/iface.d policy).
  +   3. `cast(void*) state` for handing the DunState to engine ctx.
  +/
-import core.time : Duration, dur;
+import core.time : dur;
 import dun.engine.iface : IJSEngine, JSHandle;
 import dun.loop.timers : TimerWheel;
 import dun.loop.microtasks : MicrotaskQueue, NextTickQueue;

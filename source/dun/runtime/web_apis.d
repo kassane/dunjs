@@ -351,7 +351,7 @@ if(typeof globalThis.createImageBitmap==='undefined'){
 
 private void bindNativeCryptoOnGlobal(IJSEngine engine) @trusted
 {
-    import dun.builtins.crypto : jsCryptoRandomUUID, jsCryptoRandomBytes,
+    import dun.builtins.crypto : jsCryptoRandomUUID,
                                   installSubtleOnGlobalCrypto;
     auto global = engine.getGlobal();
     auto cryptoObj = engine.getProperty(global, "crypto");
