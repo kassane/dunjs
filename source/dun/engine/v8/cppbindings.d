@@ -58,15 +58,17 @@ struct V8TypeChecks
     static V8TypeChecks init() @trusted nothrow @nogc
     {
         V8TypeChecks tc;
-        tc.table[V8TypeTag.Undefined] = &dun_v8_value_is_undefined;
-        tc.table[V8TypeTag.Null] = &dun_v8_value_is_null;
-        tc.table[V8TypeTag.Bool] = &dun_v8_value_is_bool;
-        tc.table[V8TypeTag.Int] = &dun_v8_value_is_int;
-        tc.table[V8TypeTag.Number] = &dun_v8_value_is_number;
-        tc.table[V8TypeTag.String] = &dun_v8_value_is_string;
-        tc.table[V8TypeTag.Object] = &dun_v8_value_is_object;
-        tc.table[V8TypeTag.Array] = &dun_v8_value_is_array;
-        tc.table[V8TypeTag.Function] = &dun_v8_value_is_function;
+        // Generate the 9 `table[tag] = &dun_v8_value_is_<name>` bindings
+        // from the enum + `V8TypeName!t` template (same idiom the
+        // unittest below already uses). Keeps the table in lockstep
+        // with the enum — adding a V8TypeTag member auto-wires its
+        // dispatch slot, no hand-edit, and the static asserts above
+        // guard the C++-ordinal contract.
+        static foreach (member; __traits(allMembers, V8TypeTag))
+        {{
+            enum t = __traits(getMember, V8TypeTag, member);
+            mixin("tc.table[t] = &dun_v8_value_is_" ~ V8TypeName!t ~ ";");
+        }}
         return tc;
     }
 
