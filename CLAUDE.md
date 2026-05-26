@@ -425,7 +425,7 @@ Key shim patterns:
 - **isV8Type<Tag>**: `if constexpr` dispatch to V8 `IsXxx()` methods (9 types)
 - **FunctionTemplate trampoline**: D callback -> `DunV8FunctionData*` in `v8::External` -> `v8FunctionTrampoline` -> D function pointer
 - **V8 14.x compat**: `DUN_EXTERNAL_NEW(iso, ptr)` / `DUN_EXTERNAL_VALUE(ext)` macros for `ExternalPointerTypeTag` parameter (V8 14+ requires 3-arg `External::New`)
-- **Headers from kassane/libv8**: V8 15.0.91 headers + monolith from `github.com/kassane/libv8/releases`
+- **Headers from kassane/libv8**: V8 15.0.206 headers + monolith from `github.com/kassane/libv8/releases`
 - **CREL relocations**: V8 14.9 monolith uses LLVM 19+ CREL format; requires LDC's internal linker (`--link-internally`, LLVM 21 based) on Linux — GNU ld 2.42 and lld-18 cannot process CREL
 
 ## Testing

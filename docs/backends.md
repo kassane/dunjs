@@ -63,7 +63,7 @@ dub build -c v8 -b release
 |---------|--------|-----|
 | QuickJS-NG | [quickjs-ng/quickjs](https://github.com/quickjs-ng/quickjs) | C API (quickjs.h) |
 | JavaScriptCore | [oven-sh/WebKit](https://github.com/oven-sh/WebKit) prebuilt | C API + WebKit C++ |
-| V8 | [kassane/libv8](https://github.com/kassane/libv8) prebuilt 15.0.91 | C++ via vendor/v8shim/ |
+| V8 | [kassane/libv8](https://github.com/kassane/libv8) prebuilt 15.0.206 | C++ via vendor/v8shim/ |
 
 DunJS doesn't compile WebKit from source — it pulls a prebuilt
 tarball from the `oven-sh/WebKit` autobuild releases. The current pin
