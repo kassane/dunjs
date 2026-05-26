@@ -49,7 +49,7 @@ and the gotchas that bite you on day one. Read alongside
   again, and the FAILs become 0.
 - Unit tests: **71/71** clean.
 - Backends: QuickJS-NG **0.14.0**, JavaScriptCore (prebuilt
-  WebKit), V8 **15.0.91** (via `vendor/v8shim/`). All three
+  WebKit), V8 **15.0.206** (via `vendor/v8shim/`). All three
   build & test green under LDC 1.42.0 / LLVM 21.1.8.
 - Build types: `release`, `release-pgo-gen`, `release-pgo`,
   `asan`, `tsan`. None of them sets `--mcpu=native` anymore —
