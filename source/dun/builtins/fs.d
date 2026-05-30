@@ -1663,6 +1663,17 @@ JSHandle jsFutimesSync(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trus
     auto fd = engine.extractInt(args[0]);
     auto atime = cast(long) engine.extractFloat(args[1]);
     auto mtime = cast(long) engine.extractFloat(args[2]);
+    // CVE-2025-55132: fd-only mtime/atime mutation must require write
+    // permission. Node's incomplete CVE-2024-36137 fix left this unguarded;
+    // siblings (chownSync, truncateSync, utimesSync) all gate on path, but
+    // an fd has no resolved path here so we require global --allow-write
+    // (or --allow-all). A scoped `--allow-write=<dir>` is intentionally
+    // not enough: we can't validate fd→path against the scope, and we'd
+    // rather fail-closed than risk an anti-forensics tamper. `check(perm,
+    // "")` would short-circuit `matchesScopeForPerm` (empty resource ==
+    // matches all), so we bypass via `isGlobalGrant`.
+    if (state.permissions is null || !state.permissions.isGlobalGrant(Permission.write))
+        return throwPermError(engine, "write", "<fd>");
     version (Posix)
     {
         import core.sys.posix.time : timespec;

@@ -5,7 +5,7 @@ and the gotchas that bite you on day one. Read alongside
 [`CLAUDE.md`](CLAUDE.md), [`SECURITY.md`](SECURITY.md), and
 [`TESTING.md`](TESTING.md).
 
-## Current state (v1.1.30)
+## Current state (v1.1.31)
 
 - Integration sweep: **167/167** on QJS / V8, **165/167 + 1 SKIP**
   on JSC (deno_deploy_compat flakes ~1 in 7 sweeps under heap-load —
@@ -61,8 +61,12 @@ and the gotchas that bite you on day one. Read alongside
 
 | Window | Class | Status | Tested |
 |--------|-------|--------|--------|
-| **NEW v1.1.26** | CVE-2024-34346 / GHSA-23rx-c3g5-hv9w — privileged-path sandbox bypass | **Fixed** in `source/dun/security/permissions.d` (this PR) | `cve_priv_files.js` 8/8 on QJS/JSC/V8 |
-| Reviewed 2026-05 | CVE-2026-32260 / CVE-2026-27190 — Deno child_process shell metachar bypass | **Not vulnerable** — `hasShellMetaChars` in `child_process.d:113` blocks `; & \| $ \` ( ) { } < > \n` before the shell sees the command | Existing fixtures + `/tmp/test_shell_meta.js` ad-hoc |
+| **NEW v1.1.31** | CVE-2025-55132 — fs.futimesSync permission bypass (incomplete fix for Node CVE-2024-36137) | **Fixed** in `source/dun/builtins/fs.d:1670` — fd-only ops require global `--allow-write` via `isGlobalGrant` (a scoped grant intentionally doesn't suffice because we can't validate fd→path) | `cve_futimes_perm_bypass.js` 6/6 on QJS/JSC/V8 |
+| **NEW v1.1.31** | CVE-2026-21714 — HTTP/2 connection-window overflow + stream leak (RFC 7540 §6.9.1) | **Fixed** in `source/dun/builtins/http2.d` — `processWindowUpdate` (server line ~1180, client line ~1773) guards `cast(long) connectionSendWindow + increment > 0x7FFF_FFFF` and answers GOAWAY(FLOW_CONTROL_ERROR); `sendGoaway` clears `streams[]` to release per-session state | `cve_h2_window_overflow.js` 11/11 on QJS/JSC/V8 |
+| **NEW v1.1.31** | CVE-2025-55130 — symlink permission bypass (Node Jan-2026) | **Fixed** in `source/dun/platform/paths.d` (resolveSymlinks) + wired into `source/dun/security/permissions.d` | `cve_symlink_escape.js` 5/5 on QJS/JSC/V8 |
+| **NEW v1.1.31** | CVE-2026-21712 — malformed-IDN-URL crash class | **N/A** — DunJS URL parser doesn't have node_url.cc's asserting code path | `cve_url_idn_nul.js` 7/7 (regression watch) |
+| **NEW v1.1.31** | CVE-2026-27190 / 32260 — Deno child_process shell metachar (post-2.7.0 bypass-of-fix) | **Not vulnerable** — `hasShellMetaChars` in `child_process.d:128` blocks `; & \| $ \` ( ) { } < > \n` before the shell sees the command; sub-process probe verifies the gate holds under `--allow-read` only | `cve_shell_metachar_bypass_v2.js` 5/5 |
+| v1.1.26 | CVE-2024-34346 / GHSA-23rx-c3g5-hv9w — privileged-path sandbox bypass | **Fixed** in `source/dun/security/permissions.d` | `cve_priv_files.js` 8/8 on QJS/JSC/V8 |
 | Reviewed 2026-05 | CVE-2026-0821 / CVE-2026-0822 / CVE-2026-1145 — QuickJS-NG heap overflows in `js_typed_array_constructor[_ta]` and `js_typed_array_sort` (affect ≤ 0.11.0) | **Not vulnerable** — DunJS bundles QJS-NG **0.14.0** which includes the fixes (PRs #1299, #1306, commit `53eefbcd`) | Upstream regression suite + DunJS fuzz tests |
 | v1.1.0 | CVE-2023-32004 / CVE-2024-21896 — path-traversal scope bypass | Fixed | `cve_path_traversal.js` 5/5 |
 | v1.1.3 / v1.1.4 | Latin-1 high-byte + JSC NUL truncation | Fixed | `audit_simd.js` 25/25, `audit_roundtrip.js` 16/16 |
@@ -345,7 +349,7 @@ feature/framework/npm-compat against Bun + Node + Deno.
    (when a session asks for it). Worth scheduling a quarterly
    sweep of `denoland/deno/security/advisories` +
    `quickjs-ng/quickjs/security` + Node release notes?
-2. **N-API stability gate.** N-API surface is 91 functions
+2. **N-API stability gate.** N-API surface is 140+ functions
    today (sharp + similar real addons work). Adding a new
    function is low-friction, but there's no compatibility
    matrix saying "these 30 addons pass on the version

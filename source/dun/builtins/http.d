@@ -1620,7 +1620,10 @@ JSHandle jsResEnd(void* ctx, JSHandle thisVal, scope JSHandle[] args) @trusted
     }
 }
 
-// CTFE pre-computed status message text for a given HTTP status code
+// CTFE pre-computed status message text for a given HTTP status code.
+// pragma(inline, true): cross-module callers (response writers, error
+// formatters) skip a real call edge — every HTTP response writes one.
+pragma(inline, true)
 string statusMessage(int code) pure nothrow @safe @nogc
 {
     switch (code)
@@ -1657,7 +1660,10 @@ string statusMessage(int code) pure nothrow @safe @nogc
     }
 }
 
-// CTFE pre-computed status lines — zero allocation in hot path
+// CTFE pre-computed status lines — zero allocation in hot path.
+// pragma(inline, true): same rationale as statusMessage; called from
+// bufferStatusLine on every successful and error response.
+pragma(inline, true)
 string statusLine(int code) pure nothrow @safe @nogc
 {
     switch (code)

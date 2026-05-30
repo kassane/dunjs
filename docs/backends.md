@@ -111,7 +111,7 @@ flag profile — see `build.d` comments).
   See `/debug-native-callback` skill for the gdb workflow
 
 ### V8
-- **CREL relocations** — V8 14.9+ monolith uses LLVM 19+ CREL.
+- **CREL relocations** — V8 14.9+ / 15.0+ monolith uses LLVM 19+ CREL.
   Requires LDC's internal linker (`--link-internally`)
 - **ICU symbols** — V8 ships its own ICU; conflicts can arise if
   the host has a different ICU version

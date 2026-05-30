@@ -193,13 +193,19 @@ version (D_SIMD)
 
             version (LDC)
             {
-                // Convert SIMD mask to bitmask via movemask-equivalent
+                // Convert SIMD mask to bitmask via movemask-equivalent.
+                // `llvm_expect(.., false)` keeps the match-extraction
+                // off the hot path — typical scans (e.g. HTTP header
+                // parser stepping past 200 bytes of input) hit ~12
+                // zero blocks before a match. Cold-split per
+                // --hot-cold-split shrinks i-cache footprint.
+                import ldc.intrinsics : llvm_expect;
                 auto eqBytes = cast(ubyte[16]) eq;
                 ulong lo = *cast(ulong*)(eqBytes.ptr);
                 ulong hi = *cast(ulong*)(eqBytes.ptr + 8);
-                if (lo != 0)
+                if (llvm_expect(lo != 0, false))
                     return i + llvm_cttz(lo, true) / 8;
-                if (hi != 0)
+                if (llvm_expect(hi != 0, false))
                     return i + 8 + llvm_cttz(hi, true) / 8;
             }
             else
@@ -259,7 +265,10 @@ else
     }
 }
 
-// Byte-swap intrinsics (LDC: single bswap instruction; fallback: manual shift)
+// Byte-swap intrinsics (LDC: single bswap instruction; fallback: manual shift).
+// pragma(inline, true) eliminates the call-edge for cross-module callers
+// (Buffer Read/Write{16,32}BE — 8 hot-path functions in buffer.d).
+pragma(inline, true)
 ushort bswap16(ushort val) pure nothrow @nogc @safe
 {
     version (LDC)
@@ -271,6 +280,7 @@ ushort bswap16(ushort val) pure nothrow @nogc @safe
         return cast(ushort)((val >> 8) | (val << 8));
 }
 
+pragma(inline, true)
 uint bswap32(uint val) pure nothrow @nogc @safe
 {
     version (LDC)
@@ -283,6 +293,7 @@ uint bswap32(uint val) pure nothrow @nogc @safe
                ((val << 8) & 0xFF_0000) | (val << 24);
 }
 
+pragma(inline, true)
 ulong bswap64(ulong val) pure nothrow @nogc @safe
 {
     version (LDC)

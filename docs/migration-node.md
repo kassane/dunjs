@@ -81,7 +81,7 @@ the real DunJS version:
 ```js
 process.versions.dun     // "1.1.29"
 process.versions.node    // "22.0.0" (compat-reported)
-process.versions.v8      // "15.0.91" or the JSC/QJS version
+process.versions.v8      // "15.0.206" or the JSC/QJS version
 ```
 
 ### `process.binding(...)`
