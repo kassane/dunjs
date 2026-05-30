@@ -84,6 +84,11 @@ dub build -c v8  && BACKEND=v8  ./tests/integration/run.sh
 | Production gaps 4 | `production_gaps4` | 144 checks: process, Buffer, stream, EventEmitter, path, crypto, fs, Error, util, npm patterns |
 | Production readiness | `production_readiness` | 122 checks: all critical Node.js APIs for production server workloads |
 | **CVE path-traversal (v1.1.0)** | `cve_path_traversal` | 5 checks: legit read inside scope, `..` traversal blocked, content not leaked, nested traversal blocked, absolute outside scope blocked. CVE-2023-32004 / CVE-2024-21896 class |
+| **CVE symlink escape (v1.1.31)** | `cve_symlink_escape` | 5 checks: symlink read-escape blocked, in-scope read allowed, symlinked-scope dir allowed, symlink write-escape blocked. CVE-2025-55130 class (Node Jan-2026) |
+| **CVE futimes perm bypass (v1.1.31)** | `cve_futimes_perm_bypass` | 6 checks: fd-only `futimesSync` requires global `--allow-write`, blocked under `--allow-read` only, blocked under scoped write (no fd→path resolution), allowed under global write + `--allow-all`. CVE-2025-55132 class (Node Mar-2026 incomplete-fix for CVE-2024-36137) |
+| **CVE H2 window overflow (v1.1.31)** | `cve_h2_window_overflow` | 11 checks: overflow predicate at 2^31-1 boundary, 31-bit increment masking per RFC 7540 §6.9.1, http2 module sanity. CVE-2026-21714 class (Node Mar-2026) |
+| **CVE shell metachar v2 (v1.1.31)** | `cve_shell_metachar_bypass_v2` | 5 checks: 5 metachar payloads (`\n;`, `$()`, backtick, `\x00;`, `\t;`) rejected under `--allow-read` only. CVE-2026-27190 / CVE-2026-32260 regression watch |
+| **CVE URL IDN NUL (v1.1.31)** | `cve_url_idn_nul` | 7 checks: NUL-injected and IDN URL inputs parse cleanly or throw a normal Error — never crash the process. CVE-2026-21712 regression watch |
 | **SIMD encoder audit (v1.1.3)** | `audit_simd` | 25 checks: hex boundary at 15/16/17 bytes (SIMD 16-byte cycle), 1MB hex content, GCM 16-byte tag, randomUUID format, HMAC hex, Buffer hex round-trip, latin1 high bytes 0x80-0xFF preserved |
 | **Round-trip correctness (v1.1.4)** | `audit_roundtrip` | 16 checks: extractString NUL handling, Buffer.from / Buffer.write / Buffer.toString round-trips for utf8 / latin1 / binary across all 256 byte values, JSON NUL round-trip, JSC source NUL handling |
 

@@ -106,7 +106,7 @@ only available for `linux-amd64`, `linux-aarch64`, and `darwin-arm64`.
 On other platforms, fall back to system `javascriptcoregtk-4.1-dev`
 or build via QJS / V8.
 
-**V8 build fails with linker errors about CREL** — V8 14.9+ uses
+**V8 build fails with linker errors about CREL** — V8 14.9+ / 15.0+ uses
 LLVM 21's CREL relocation format. GNU ld 2.42 and lld-18 can't process
 it. Use LDC 1.42+ which bundles the LLVM 21 internal linker. The
 `v8` config in `dub.json` passes `--link-internally` automatically.

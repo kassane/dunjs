@@ -57,7 +57,7 @@ DFLAGS="--fsanitize=address" dub build -c quickjs  # Alternative ASan via DFLAGS
 Layer 7: CLI & REPL           source/dun/cli/
 Layer 6: Runtime API           source/dun/runtime/     (console, timers, process, Deno.*)
 Layer 5: Module System         source/dun/modules/     (ES modules, resolver, loader, npm installer)
-Layer 4: Built-in Modules      source/dun/builtins/    (dun:fs, dun:path, dun:net, dun:http, dun:http2, dun:http3, dun:os, dun:buffer, dun:events, dun:url, dun:zlib, dun:dns, dun:ws, dun:child_process, dun:stream, dun:sqlite, fetch)
+Layer 4: Built-in Modules      source/dun/builtins/    (dun:fs, dun:path, dun:net, dun:http, dun:http2, dun:http3, dun:os, dun:buffer, dun:events, dun:url, dun:zlib, dun:dns, dun:ws, dun:child_process, dun:stream, dun:sqlite, dun:yaml, dun:v8, dun:node_test, fetch)
 Layer 3: Event Loop            source/dun/loop/        (epoll/kqueue/poll, timer wheel, microtasks)
 Layer 2: JS Engine Abstraction source/dun/engine/      (IJSEngine interface + backends)
 Layer 1: Platform Abstraction  source/dun/platform/    (memory, threading, OS I/O, arena allocator)
@@ -172,6 +172,9 @@ All runtime globals are **engine-agnostic** (use `IJSEngine` + `NativeCallback`)
 | `timers` | stub (globalThis) | `require('timers')` — setTimeout, setInterval, etc. |
 | `process` | stub (globalThis) | `require('process')` — delegates to global `process` |
 | `console` | stub (globalThis) | `require('console')` — delegates to global `console` |
+| `yaml` | `registerYamlModule(engine)` | `require('yaml')`, ESM `import from 'dun:yaml'` — parse, stringify |
+| `v8` | `registerV8Module(engine)` | `require('v8')`, ESM `import from 'dun:v8'` — `getHeapStatistics`, `serialize`/`deserialize`, `setFlagsFromString` |
+| `node:test` | `registerNodeTestModule(engine)` | `require('node:test')`, ESM `import from 'node:test'` — `test`, `describe`, `it`, `beforeEach`, `afterEach` |
 | `fetch` | `registerFetchGlobal(engine)` | Global `fetch()` (Posix, HTTPS via OpenSSL) |
 | Web globals | `installWebCompat(engine)` | `atob`, `btoa`, `structuredClone`, `TextEncoder`, `TextDecoder`, native Uint8Array creation |
 | Web APIs | `installWebAPIs(engine)` | `performance`, `EventTarget`, `Event`, `CustomEvent`, `AbortController`, `AbortSignal`, `DOMException`, `navigator`, `Blob`, `File`, `FormData`, `Headers`, `Request`, `Response`, `MessageChannel`, `MessagePort`, `BroadcastChannel`, `ReadableStream`, `WritableStream`, `TransformStream`, `CompressionStream`, `DecompressionStream`, `setImmediate`, `clearImmediate`, `Promise.withResolvers`, `crypto.getRandomValues`, `crypto.randomUUID`, `crypto.subtle`, `console.time/timeEnd/timeLog/count/countReset/table/dir/trace`, `MessageEvent`, `ErrorEvent`, `CloseEvent`, `PromiseRejectionEvent`, `localStorage`, `sessionStorage`, `Storage`, `caches`, `CacheStorage`, `Cache`, `FileReader`, `DOMRect`/`Point`/`Matrix`/`Quad` (+ `ReadOnly`), `ImageData`, `CryptoKey`, `SubtleCrypto`, `PerformanceObserver`, `ReadableStreamDefault/BYOBReader`, `ReadableByteStreamController`, `WritableStreamDefaultWriter`/`Controller`, `TransformStreamDefaultController` |
@@ -424,9 +427,9 @@ Key shim patterns:
 - **withContext<F>**: RAII scope guard (Isolate::Scope + HandleScope + Context::Scope) with perfect forwarding
 - **isV8Type<Tag>**: `if constexpr` dispatch to V8 `IsXxx()` methods (9 types)
 - **FunctionTemplate trampoline**: D callback -> `DunV8FunctionData*` in `v8::External` -> `v8FunctionTrampoline` -> D function pointer
-- **V8 14.x compat**: `DUN_EXTERNAL_NEW(iso, ptr)` / `DUN_EXTERNAL_VALUE(ext)` macros for `ExternalPointerTypeTag` parameter (V8 14+ requires 3-arg `External::New`)
+- **V8 14.x+ / 15.x compat**: `DUN_EXTERNAL_NEW(iso, ptr)` / `DUN_EXTERNAL_VALUE(ext)` macros for `ExternalPointerTypeTag` parameter (V8 14+ requires 3-arg `External::New`)
 - **Headers from kassane/libv8**: V8 15.0.206 headers + monolith from `github.com/kassane/libv8/releases`
-- **CREL relocations**: V8 14.9 monolith uses LLVM 19+ CREL format; requires LDC's internal linker (`--link-internally`, LLVM 21 based) on Linux — GNU ld 2.42 and lld-18 cannot process CREL
+- **CREL relocations**: V8 14.9+ / 15.0+ monolith uses LLVM 19+ CREL format; requires LDC's internal linker (`--link-internally`, LLVM 21 based) on Linux — GNU ld 2.42 and lld-18 cannot process CREL
 
 ## Testing
 
@@ -439,7 +442,12 @@ integration sweep (**167/167** on QJS / V8; **165/167 + 1 SKIP** on JSC),
 **25/26 Bun.* audit**, **25/25 `audit_simd` (SIMD encoder boundary
 + latin1 + NUL)**, **16/16 `audit_roundtrip` (Buffer.from/write/
 toString across all 256 byte values + JSON NUL + JSC source NUL)**,
-**5/5 `cve_path_traversal` (CVE-2023-32004 class)**, sanitizer
+**5/5 `cve_path_traversal` (CVE-2023-32004 class)**,
+**5/5 `cve_symlink_escape` (CVE-2025-55130 class)**,
+**6/6 `cve_futimes_perm_bypass` (CVE-2025-55132 class)**,
+**11/11 `cve_h2_window_overflow` (CVE-2026-21714 class)**,
+**5/5 `cve_shell_metachar_bypass_v2` (CVE-2026-27190/32260 regression watch)**,
+**7/7 `cve_url_idn_nul` (CVE-2026-21712 regression watch)**, sanitizer
 testing, stress benchmarks, HTTP bench, Docker matrix. The quick
 recipe:
 

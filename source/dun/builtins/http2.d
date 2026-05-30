@@ -1177,10 +1177,29 @@ struct H2Connection
             return;
         }
 
+        // CVE-2026-21714 (RFC 7540 §6.9.1): WINDOW_UPDATE must not push
+        // the window past 2^31-1. Without this guard repeated increments
+        // wrap connectionSendWindow to negative and keep the session
+        // alive — memory grows as new streams are accepted on a session
+        // the peer has effectively poisoned.
         if (frame.streamId == 0)
+        {
+            if (cast(long) connectionSendWindow + increment > 0x7FFF_FFFF)
+            {
+                sendGoaway(H2Error.FLOW_CONTROL_ERROR);
+                return;
+            }
             connectionSendWindow += increment;
+        }
         else if (auto p = frame.streamId in streams)
+        {
+            if (cast(long) p.sendWindow + increment > 0x7FFF_FFFF)
+            {
+                sendRstStream(frame.streamId, H2Error.FLOW_CONTROL_ERROR);
+                return;
+            }
             p.sendWindow += increment;
+        }
     }
 
     void processPing(ref H2Frame frame) nothrow @trusted
@@ -1263,6 +1282,11 @@ struct H2Connection
         sendRawBytes(frame[]);
         sendRawBytes(payload[]);
         closed = true;
+        // CVE-2026-21714: release per-session state. Without this, a peer
+        // that walks the stream ID space then triggers GOAWAY accumulates
+        // H2Stream entries indefinitely while the connection is kept open
+        // for the GOAWAY-drain window.
+        streams.clear();
     }
 
     void sendRstStream(uint streamId, H2Error errorCode) nothrow @trusted
@@ -1770,8 +1794,18 @@ struct ClientH2Session
             | frame.payload[3]) & 0x7FFF_FFFF;
 
         if (increment == 0) return;
+        // CVE-2026-21714 (client side): same overflow guard as the server.
+        // A hostile server can otherwise wrap connectionSendWindow to
+        // negative and stall the client's ability to send DATA frames.
         if (frame.streamId == 0)
+        {
+            if (cast(long) connectionSendWindow + increment > 0x7FFF_FFFF)
+            {
+                sendGoaway(H2Error.FLOW_CONTROL_ERROR);
+                return;
+            }
             connectionSendWindow += increment;
+        }
     }
 
     void processPing(ref H2Frame frame) nothrow @trusted
